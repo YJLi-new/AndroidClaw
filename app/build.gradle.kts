@@ -50,7 +50,18 @@ android {
     }
 
     testOptions {
+        animationsDisabled = true
         unitTests.isIncludeAndroidResources = true
+        managedDevices {
+            localDevices {
+                create("pixel8Api36") {
+                    device = "Pixel 8"
+                    apiLevel = 36
+                    systemImageSource = "aosp"
+                    testedAbi = "x86_64"
+                }
+            }
+        }
     }
 }
 
@@ -100,8 +111,14 @@ dependencies {
     testImplementation(libs.turbine)
 
     debugImplementation(libs.compose.ui.tooling)
+    debugImplementation(libs.compose.ui.test.manifest)
 
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.junit.ext)
 }
+
+// Preferred managed-device command on hosts with emulator acceleration:
+// ./gradlew :app:pixel8Api36DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+// Canonical fallback on this repository's current LDPlayer-based workstation:
+// ./scripts/run_ldplayer_android_test.sh
