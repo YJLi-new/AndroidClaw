@@ -3,8 +3,6 @@ package ai.androidclaw.feature.tasks
 import ai.androidclaw.app.TasksDependencies
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.repository.TaskRepository
-import ai.androidclaw.runtime.scheduler.CronExpression
-import ai.androidclaw.runtime.scheduler.NextRunCalculator
 import ai.androidclaw.runtime.scheduler.SchedulerCapabilities
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
@@ -15,9 +13,10 @@ import androidx.lifecycle.viewModelScope
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -30,6 +29,7 @@ data class TasksUiState(
     ),
     val nextDailyPreview: Instant? = null,
     val nextWeekdayPreview: Instant? = null,
+    val actionMessage: String? = null,
 )
 
 class TasksViewModel(
@@ -37,20 +37,21 @@ class TasksViewModel(
     private val schedulerCoordinator: SchedulerCoordinator,
 ) : ViewModel() {
     private val capabilities = schedulerCoordinator.capabilities()
+    private val actionMessage = MutableStateFlow<String?>(null)
 
-    val state: StateFlow<TasksUiState> = taskRepository.observeTasks()
-        .map { tasks ->
+    val state: StateFlow<TasksUiState> = combine(
+        taskRepository.observeTasks(),
+        actionMessage,
+    ) { tasks, actionMessageValue ->
             TasksUiState(
                 tasks = tasks,
                 capabilities = capabilities,
                 nextDailyPreview = schedulerCoordinator.nextRunPreview("@daily"),
-                nextWeekdayPreview = NextRunCalculator.computeNextRun(
-                    schedule = TaskSchedule.Cron(
-                        expression = CronExpression.parse("0 9 * * 1-5"),
-                        zoneId = ZoneId.systemDefault(),
-                    ),
-                    after = Instant.now(),
+                nextWeekdayPreview = schedulerCoordinator.nextRunPreview(
+                    expression = "0 9 * * 1-5",
+                    zoneId = ZoneId.systemDefault(),
                 ),
+                actionMessage = actionMessageValue,
             )
         }
         .stateIn(
@@ -94,7 +95,16 @@ class TasksViewModel(
     }
 
     fun runNow(taskId: String) {
-        taskId.hashCode()
+        val task = state.value.tasks.firstOrNull { it.id == taskId }
+        actionMessage.value = if (task == null) {
+            "Run now failed: task not found."
+        } else {
+            "Run now is not available yet. Scheduler execution lands in the next milestone."
+        }
+    }
+
+    fun clearActionMessage() {
+        actionMessage.value = null
     }
 
     fun deleteTask(taskId: String) {

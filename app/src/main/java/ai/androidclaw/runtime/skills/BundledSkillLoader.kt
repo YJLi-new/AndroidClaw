@@ -4,12 +4,12 @@ import android.content.res.AssetManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class BundledSkillLoader(
+open class BundledSkillLoader(
     private val assetManager: AssetManager,
     private val rootPath: String,
     private val parser: SkillParser,
 ) {
-    suspend fun load(): List<SkillSnapshot> = withContext(Dispatchers.IO) {
+    open suspend fun load(): List<SkillSnapshot> = withContext(Dispatchers.IO) {
         assetManager.list(rootPath)
             .orEmpty()
             .sorted()
@@ -62,4 +62,3 @@ class BundledSkillLoader(
             }
     }
 }
-

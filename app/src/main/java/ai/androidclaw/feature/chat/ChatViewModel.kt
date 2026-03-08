@@ -11,6 +11,7 @@ import ai.androidclaw.runtime.skills.SkillManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,7 @@ data class ChatUiState(
     val sessionTitle: String = "",
     val draft: String = "",
     val isRunning: Boolean = false,
+    val errorMessage: String? = null,
     val slashCommands: List<String> = emptyList(),
     val sessions: List<ChatSessionUi> = emptyList(),
     val messages: List<ChatMessageUi> = emptyList(),
@@ -56,6 +58,7 @@ class ChatViewModel(
 ) : ViewModel() {
     private val draft = MutableStateFlow("")
     private val isRunning = MutableStateFlow(false)
+    private val errorMessage = MutableStateFlow<String?>(null)
     private val slashCommands = MutableStateFlow<List<String>>(emptyList())
     private val mutableCurrentSessionId = MutableStateFlow("")
     val currentSessionId: StateFlow<String> = mutableCurrentSessionId.asStateFlow()
@@ -75,14 +78,16 @@ class ChatViewModel(
     private val chromeFlow = combine(
         draft,
         isRunning,
+        errorMessage,
         slashCommands,
         mutableCurrentSessionId,
-    ) { draftValue, isRunningValue, slashCommandsValue, currentSessionIdValue ->
+    ) { draftValue, isRunningValue, errorMessageValue, slashCommandsValue, currentSessionIdValue ->
         ChatUiState(
             currentSessionId = currentSessionIdValue,
             sessionTitle = "",
             draft = draftValue,
             isRunning = isRunningValue,
+            errorMessage = errorMessageValue,
             slashCommands = slashCommandsValue,
             sessions = emptyList(),
             messages = emptyList(),
@@ -138,6 +143,7 @@ class ChatViewModel(
 
     fun onDraftChanged(value: String) {
         draft.value = value
+        errorMessage.value = null
     }
 
     fun sendCurrentDraft() {
@@ -147,6 +153,7 @@ class ChatViewModel(
 
         draft.value = ""
         isRunning.value = true
+        errorMessage.value = null
 
         viewModelScope.launch {
             try {
@@ -174,6 +181,18 @@ class ChatViewModel(
                     content = assistantText,
                 )
                 refreshSkillCommands()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                val message = error.message ?: "Turn failed."
+                errorMessage.value = message
+                runCatching {
+                    messageRepository.addMessage(
+                        sessionId = sessionId,
+                        role = MessageRole.System,
+                        content = "Turn failed: $message",
+                    )
+                }
             } finally {
                 isRunning.value = false
             }
@@ -182,6 +201,7 @@ class ChatViewModel(
 
     fun switchSession(sessionId: String) {
         mutableCurrentSessionId.value = sessionId
+        errorMessage.value = null
     }
 
     fun createNewSession(title: String) {
@@ -189,6 +209,7 @@ class ChatViewModel(
             val normalizedTitle = title.trim().ifBlank { "Session ${state.value.sessions.size + 1}" }
             val created = sessionRepository.createSession(normalizedTitle)
             mutableCurrentSessionId.value = created.id
+            errorMessage.value = null
         }
     }
 

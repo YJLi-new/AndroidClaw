@@ -7,6 +7,9 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.providers.FakeProvider
+import ai.androidclaw.runtime.providers.ModelProvider
+import ai.androidclaw.runtime.providers.ModelRequest
+import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillManager
@@ -136,6 +139,46 @@ class ChatViewModelTest {
 
             assertEquals("Project Y", created.sessionTitle)
             assertTrue(created.currentSessionId.isNotBlank())
+        }
+    }
+
+    @Test
+    fun `provider failures do not leave chat stuck and persist a system error message`() = runTest {
+        viewModel = ChatViewModel(
+            sessionRepository = sessionRepository,
+            messageRepository = messageRepository,
+            agentRunner = AgentRunner(
+                providerRegistry = ProviderRegistry(
+                    defaultProvider = object : ModelProvider {
+                        override val id: String = "failing"
+
+                        override suspend fun generate(request: ModelRequest): ModelResponse {
+                            throw IllegalStateException("Provider unavailable")
+                        }
+                    },
+                ),
+                skillManager = skillManager,
+                toolRegistry = ToolRegistry(emptyList()),
+            ),
+            skillManager = skillManager,
+        )
+
+        viewModel.state.test {
+            val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+            viewModel.onDraftChanged("hello")
+            viewModel.sendCurrentDraft()
+
+            val failed = awaitState { state ->
+                !state.isRunning &&
+                    state.errorMessage == "Provider unavailable" &&
+                    state.messages.any { it.role == "system" && it.text.contains("Turn failed") }
+            }
+
+            val stored = messageRepository.observeMessages(ready.currentSessionId).first()
+            assertEquals("Provider unavailable", failed.errorMessage)
+            assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello" })
+            assertTrue(stored.any { it.role == MessageRole.System && it.content.contains("Provider unavailable") })
         }
     }
 }

@@ -19,7 +19,10 @@ import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolRegistry
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.Clock
 
@@ -41,13 +44,21 @@ class AppContainer(application: Application) {
                     description = "List known automation capabilities and any saved tasks.",
                 ),
             ) { _ ->
+                val tasks = taskRepository.observeTasks().first()
                 ToolExecutionResult(
-                    summary = "No persisted tasks yet. Scheduler supports once, interval, and cron execution.",
+                    summary = if (tasks.isEmpty()) {
+                        "No persisted tasks yet. Scheduler supports once, interval, and cron execution."
+                    } else {
+                        "Found ${tasks.size} persisted task(s)."
+                    },
                     payload = buildJsonObject {
                         put("supportsOnce", true)
                         put("supportsInterval", true)
                         put("supportsCron", true)
-                        put("taskCount", 0)
+                        put("taskCount", tasks.size)
+                        put("taskNames", buildJsonArray {
+                            tasks.forEach { add(JsonPrimitive(it.name)) }
+                        })
                     },
                 )
             },

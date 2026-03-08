@@ -27,7 +27,7 @@ class SettingsViewModel(
             SettingsUiState(
                 activeProviderId = providerRegistry.defaultProvider.id,
                 providerType = settings.providerType,
-                configured = settings.providerType == "fake" || settings.apiKey.isNotBlank(),
+                configured = settings.providerType == "fake",
                 buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider-first.",
             )
         }

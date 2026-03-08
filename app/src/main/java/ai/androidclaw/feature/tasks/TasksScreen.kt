@@ -44,6 +44,12 @@ fun TasksScreen(viewModel: TasksViewModel) {
             title = "Next 9am weekday cron preview",
             body = state.nextWeekdayPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
         )
+        state.actionMessage?.let { message ->
+            SchedulerCard(
+                title = "Task action",
+                body = message,
+            )
+        }
         if (state.tasks.isEmpty()) {
             SchedulerCard(
                 title = "Saved tasks",

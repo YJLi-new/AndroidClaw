@@ -1,5 +1,7 @@
 package ai.androidclaw.runtime.skills
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -10,8 +12,18 @@ class SkillManager(
     private val bundledSkillLoader: BundledSkillLoader,
     private val toolExists: (String) -> Boolean,
 ) {
-    suspend fun refreshBundledSkills(): List<SkillSnapshot> {
-        return bundledSkillLoader.load().map(::applyEligibility)
+    private val cacheMutex = Mutex()
+    private var cachedBundledSkills: List<SkillSnapshot>? = null
+
+    suspend fun refreshBundledSkills(forceRefresh: Boolean = false): List<SkillSnapshot> {
+        return cacheMutex.withLock {
+            if (!forceRefresh) {
+                cachedBundledSkills?.let { return@withLock it }
+            }
+            bundledSkillLoader.load()
+                .map(::applyEligibility)
+                .also { cachedBundledSkills = it }
+        }
     }
 
     fun selectModelSkills(skills: List<SkillSnapshot>): List<SkillSnapshot> {

@@ -1,6 +1,9 @@
 package ai.androidclaw.runtime.tools
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.put
 
 data class ToolDescriptor(
     val name: String,
@@ -11,6 +14,7 @@ data class ToolDescriptor(
 data class ToolExecutionResult(
     val summary: String,
     val payload: JsonObject,
+    val success: Boolean = true,
 )
 
 class ToolRegistry(
@@ -30,8 +34,28 @@ class ToolRegistry(
         .sortedBy { it.name }
 
     suspend fun execute(name: String, arguments: JsonObject): ToolExecutionResult {
-        val entry = entries[name] ?: error("Unknown tool: $name")
-        return entry.handler(arguments)
+        val entry = entries[name] ?: return ToolExecutionResult(
+            summary = "Unknown tool: $name",
+            payload = buildJsonObject {
+                put("error", "UNKNOWN_TOOL")
+                put("toolName", name)
+            },
+            success = false,
+        )
+        return try {
+            entry.handler(arguments)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            ToolExecutionResult(
+                summary = error.message ?: "Tool $name failed.",
+                payload = buildJsonObject {
+                    put("error", "TOOL_EXECUTION_FAILED")
+                    put("toolName", name)
+                    put("message", error.message ?: "Unknown error")
+                },
+                success = false,
+            )
+        }
     }
 }
-

@@ -26,13 +26,17 @@ class SkillsViewModel(
     val state: StateFlow<SkillsUiState> = mutableState.asStateFlow()
 
     init {
-        refresh()
+        loadSkills(forceRefresh = false)
     }
 
     fun refresh() {
+        loadSkills(forceRefresh = true)
+    }
+
+    private fun loadSkills(forceRefresh: Boolean) {
         viewModelScope.launch {
             mutableState.update { it.copy(loading = true) }
-            val skills = skillManager.refreshBundledSkills()
+            val skills = skillManager.refreshBundledSkills(forceRefresh = forceRefresh)
             mutableState.update {
                 it.copy(
                     loading = false,

@@ -12,7 +12,6 @@ import kotlinx.coroutines.flow.map
 
 data class SettingsSnapshot(
     val providerType: String,
-    val apiKey: String,
 )
 
 private val Context.settingsDataStore by preferencesDataStore(name = "androidclaw_settings")
@@ -21,7 +20,7 @@ class SettingsDataStore(
     private val context: Context,
 ) {
     private val providerTypeKey = stringPreferencesKey("provider_type")
-    private val apiKeyKey = stringPreferencesKey("api_key")
+    // Provider credentials must use a separate Keystore-backed store once remote providers are added.
 
     val settings: Flow<SettingsSnapshot> = context.settingsDataStore.data
         .catch { error ->
@@ -34,19 +33,12 @@ class SettingsDataStore(
         .map { preferences ->
             SettingsSnapshot(
                 providerType = preferences[providerTypeKey] ?: "fake",
-                apiKey = preferences[apiKeyKey].orEmpty(),
             )
         }
 
     suspend fun setProviderType(providerType: String) {
         context.settingsDataStore.edit { preferences ->
             preferences[providerTypeKey] = providerType
-        }
-    }
-
-    suspend fun setApiKey(apiKey: String) {
-        context.settingsDataStore.edit { preferences ->
-            preferences[apiKeyKey] = apiKey
         }
     }
 }
