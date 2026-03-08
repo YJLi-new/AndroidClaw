@@ -16,12 +16,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import ai.androidclaw.app.AppContainer
 
 @Composable
-fun SkillsScreen(container: AppContainer) {
-    val viewModel: SkillsViewModel = viewModel(factory = SkillsViewModel.factory(container))
+fun SkillsScreen(viewModel: SkillsViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Column(
         modifier = Modifier

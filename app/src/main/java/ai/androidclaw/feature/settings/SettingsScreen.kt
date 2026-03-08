@@ -9,12 +9,15 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import ai.androidclaw.app.AppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun SettingsScreen(container: AppContainer) {
+fun SettingsScreen(viewModel: SettingsViewModel) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -28,8 +31,9 @@ fun SettingsScreen(container: AppContainer) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text("Provider", style = MaterialTheme.typography.titleMedium)
-                Text("Default provider: ${container.providerRegistry.defaultProvider.id}")
-                Text("API key and remote provider configuration are deferred to the next milestone.")
+                Text("Default provider: ${state.activeProviderId}")
+                Text("Stored provider type: ${state.providerType}")
+                Text("Configured: ${state.configured}")
             }
         }
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -38,9 +42,8 @@ fun SettingsScreen(container: AppContainer) {
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text("Build posture", style = MaterialTheme.typography.titleMedium)
-                Text("Single-app-module, manual DI, Compose navigation shell, FakeProvider-first.")
+                Text(state.buildPosture)
             }
         }
     }
 }
-

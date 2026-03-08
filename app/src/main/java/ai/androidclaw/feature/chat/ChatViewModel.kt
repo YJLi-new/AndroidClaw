@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.chat
 
+import ai.androidclaw.app.ChatDependencies
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.MessageRepository
@@ -22,15 +23,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-
-data class ChatDependencies(
-    val sessionRepository: SessionRepository,
-    val messageRepository: MessageRepository,
-    val agentRunner: AgentRunner,
-    val skillManager: SkillManager,
-)
 
 data class ChatMessageUi(
     val id: String,

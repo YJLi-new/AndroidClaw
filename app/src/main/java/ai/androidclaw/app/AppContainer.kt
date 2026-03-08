@@ -1,11 +1,14 @@
 package ai.androidclaw.app
 
 import android.app.Application
+import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
-import ai.androidclaw.feature.chat.ChatDependencies
+import ai.androidclaw.data.repository.SkillRepository
+import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
@@ -23,8 +26,12 @@ import java.time.Clock
 class AppContainer(application: Application) {
     private val clock: Clock = Clock.systemDefaultZone()
     val database = AndroidClawDatabase.build(application)
+    val settingsDataStore = SettingsDataStore(application)
     val sessionRepository = SessionRepository(database.sessionDao())
     val messageRepository = MessageRepository(database.messageDao())
+    val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
+    val skillRepository = SkillRepository(database.skillRecordDao())
+    val eventLogRepository = EventLogRepository(database.eventLogDao())
 
     val toolRegistry = ToolRegistry(
         tools = listOf(
@@ -94,6 +101,32 @@ class AppContainer(application: Application) {
             messageRepository = messageRepository,
             agentRunner = agentRunner,
             skillManager = skillManager,
+        )
+
+    val tasksDependencies: TasksDependencies
+        get() = TasksDependencies(
+            taskRepository = taskRepository,
+            schedulerCoordinator = schedulerCoordinator,
+        )
+
+    val skillsDependencies: SkillsDependencies
+        get() = SkillsDependencies(
+            skillManager = skillManager,
+            skillRepository = skillRepository,
+        )
+
+    val settingsDependencies: SettingsDependencies
+        get() = SettingsDependencies(
+            providerRegistry = providerRegistry,
+            settingsDataStore = settingsDataStore,
+        )
+
+    val healthDependencies: HealthDependencies
+        get() = HealthDependencies(
+            schedulerCoordinator = schedulerCoordinator,
+            toolRegistry = toolRegistry,
+            providerRegistry = providerRegistry,
+            eventLogRepository = eventLogRepository,
         )
 
     suspend fun ensureMainSession() {

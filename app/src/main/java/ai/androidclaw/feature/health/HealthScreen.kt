@@ -5,18 +5,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import ai.androidclaw.app.AppContainer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun HealthScreen(container: AppContainer) {
-    val capabilities = container.schedulerCoordinator.capabilities()
-    val tools = container.toolRegistry.descriptors()
+fun HealthScreen(viewModel: HealthViewModel) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -26,16 +29,29 @@ fun HealthScreen(container: AppContainer) {
         Text("Health", style = MaterialTheme.typography.headlineSmall)
         HealthCard(
             title = "Provider",
-            body = "Active provider: ${container.providerRegistry.defaultProvider.id}",
+            body = "Active provider: ${state.providerId}",
         )
         HealthCard(
             title = "Scheduler",
-            body = "Kinds: ${capabilities.supportedKinds.joinToString()} | Exact alarms available: ${capabilities.supportsExactAlarms}",
+            body = "Kinds: ${state.supportedKinds.joinToString()} | Exact alarms available: ${state.supportsExactAlarms}",
         )
         HealthCard(
             title = "Tool registry",
-            body = tools.joinToString { it.name },
+            body = state.tools.joinToString(),
         )
+        if (state.recentEvents.isNotEmpty()) {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.recentEvents, key = { it.id }) { event ->
+                    HealthCard(
+                        title = "${event.category} ${event.level}",
+                        body = event.message,
+                    )
+                }
+            }
+        }
     }
 }
 

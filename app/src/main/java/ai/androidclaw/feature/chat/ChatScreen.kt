@@ -26,11 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
-fun ChatScreen(dependencies: ChatDependencies) {
-    val viewModel: ChatViewModel = viewModel(factory = ChatViewModel.factory(dependencies))
+fun ChatScreen(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(

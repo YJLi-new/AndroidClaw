@@ -28,7 +28,7 @@ Current state:
 - [x] (2026-03-08) M1 — Room schema, DAOs, exported schema JSON, and JVM DAO tests shipped and validated.
 - [x] (2026-03-08) M2 — Domain models, repository layer, schedule serialization, and repository JVM tests shipped and validated.
 - [x] (2026-03-08) M3 — Chat persistence, main-session bootstrap, multi-session switching, and ChatViewModel tests shipped and validated.
-- [ ] M4 — ViewModel unification and layer rule enforcement
+- [x] (2026-03-08) M4 — Feature ViewModels, dependency bundles, and feature/runtime layer-rule cleanup shipped and validated.
 - [ ] M5 — ModelRequest enrichment and provider contract hardening
 - [ ] M6 — Tool contract hardening and real built-in tools
 - [ ] M7 — Scheduler durable execution with WorkManager
@@ -45,6 +45,7 @@ Carry forward all entries from the bootstrap plan. Add new entries here as they 
 - Robolectric attempting to boot Android SDK 36 under Java 17 fails before tests run. Pinning JVM tests to SDK 35 avoids forcing a Java 21 toolchain change during v0.
 - The runtime already had the right scheduler and skill enums for part of M2. Reusing `TaskSchedule`, `TaskExecutionMode`, `SkillSourceType`, and `SkillEligibilityStatus` kept the repository layer aligned with existing runtime semantics and avoided duplicate type families.
 - A small dependency bundle per feature is a workable bridge between today's manual `AppContainer` wiring and the stricter M4 rule that feature code must not depend on the full container. `ChatDependencies` was enough to remove `AppContainer` from the chat ViewModel path without forcing a broader refactor yet.
+- The same bundle pattern scales cleanly across the rest of the app. `DependencyBundles.kt` was sufficient to make `AppContainer` the composition root only, while keeping ViewModel factories explicit and lightweight.
 
 ---
 
@@ -72,6 +73,12 @@ Carry forward all entries from the bootstrap plan. Add new entries here using th
 - Decision: Introduce `ChatDependencies` as the narrow factory input for `ChatViewModel`.
   Rationale: M3 needed chat to stop depending on `AppContainer` before the broader M4 dependency-bundle cleanup. A small bundle keeps the change local and matches the direction already laid out for later milestones.
   Date/Author: 2026-03-08 / Codex
+- Decision: Standardize feature ViewModel factory inputs in `ai.androidclaw.app.DependencyBundles.kt`.
+  Rationale: This keeps `AppContainer` at the composition root only, avoids passing the full container into feature code, and gives M4 a single explicit dependency boundary for all screen-level factories.
+  Date/Author: 2026-03-08 / Codex
+- Decision: Add a minimal `SettingsDataStore` now, even though settings UI remains shallow until later milestones.
+  Rationale: M4 needed a real non-`AppContainer` dependency for `SettingsViewModel`. A tiny Preferences DataStore wrapper satisfies the layer rule now and gives later provider settings work a stable persistence hook.
+  Date/Author: 2026-03-08 / Codex
 
 ---
 
@@ -81,6 +88,7 @@ Add one entry per completed milestone. Each entry must answer: does the app now 
 - M1 (2026-03-08): The app now has a durable Room schema for sessions, messages, tasks, task runs, skills, and event logs, with DAO behavior validated by JVM tests. This does not complete the user-visible "persist" acceptance step yet, but it establishes the persistence substrate required for M2 and M3 to finish that flow.
 - M2 (2026-03-08): The app now has a repository and domain-model layer between Room and the runtime, with typed schedule and skill mappings validated by JVM tests. This still does not complete the user-visible persistence flow, but it removes the main architectural blocker for wiring persistent chat in M3 without leaking Room entities into runtime or UI code.
 - M3 (2026-03-08): Chat now persists user and assistant messages to Room, the main session is auto-created and seeded with a system readiness message, and the UI can create and switch sessions while observing repository-backed history. This completes the core "chat → persist → survive relaunch" part of the acceptance flow, pending manual device verification on an emulator or phone.
+- M4 (2026-03-08): Every current feature screen now has a dedicated ViewModel path, `AppContainer` is confined to the composition root, and both feature and runtime code are free of direct Room imports. This does not add major new end-user capabilities by itself, but it enforces the layering needed for M5-M9 to land without backsliding into container- or DAO-coupled feature code.
 
 ---
 
