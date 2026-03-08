@@ -59,7 +59,7 @@ fun AndroidClawApp(container: AppContainer) {
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(TopLevelDestination.Chat.route) {
-                ChatScreen(container = container)
+                ChatScreen(dependencies = container.chatDependencies)
             }
             composable(TopLevelDestination.Tasks.route) {
                 TasksScreen(container = container)
@@ -76,4 +76,3 @@ fun AndroidClawApp(container: AppContainer) {
         }
     }
 }
-

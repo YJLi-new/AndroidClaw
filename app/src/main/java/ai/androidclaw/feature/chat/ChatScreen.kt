@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,11 +27,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import ai.androidclaw.app.AppContainer
 
 @Composable
-fun ChatScreen(container: AppContainer) {
-    val viewModel: ChatViewModel = viewModel(factory = ChatViewModel.factory(container))
+fun ChatScreen(dependencies: ChatDependencies) {
+    val viewModel: ChatViewModel = viewModel(factory = ChatViewModel.factory(dependencies))
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(
@@ -40,10 +41,25 @@ fun ChatScreen(container: AppContainer) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = state.sessionTitle,
+            text = state.sessionTitle.ifBlank { "Loading session..." },
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
         )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(state.sessions, key = { it.id }) { session ->
+                FilterChip(
+                    selected = session.isSelected,
+                    onClick = { viewModel.switchSession(session.id) },
+                    label = { Text(session.title) },
+                )
+            }
+            item {
+                AssistChip(
+                    onClick = { viewModel.createNewSession("Session ${state.sessions.size + 1}") },
+                    label = { Text("New session") },
+                )
+            }
+        }
         if (state.slashCommands.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 state.slashCommands.take(3).forEach { command ->

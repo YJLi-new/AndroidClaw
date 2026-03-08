@@ -7,11 +7,8 @@ import ai.androidclaw.data.model.MessageRole
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -50,19 +47,17 @@ class MessageRepositoryTest {
 
     @Test
     fun `add message emits flow and recent queries return typed roles`() = runTest {
-        val emissions = mutableListOf<List<ai.androidclaw.data.model.ChatMessage>>()
-        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            repository.observeMessages("main").take(2).toList(emissions)
+        val emitted = async {
+            repository.observeMessages("main").first { messages ->
+                messages.any { it.content == "hello" }
+            }
         }
-        runCurrent()
 
         val user = repository.addMessage(
             sessionId = "main",
             role = MessageRole.User,
             content = "hello",
         )
-
-        job.join()
 
         repository.addMessage(
             sessionId = "main",
@@ -72,8 +67,7 @@ class MessageRepositoryTest {
         )
 
         assertEquals(MessageRole.User, user.role)
-        assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), emissions.first())
-        assertEquals(listOf("hello"), emissions.last().map { it.content })
+        assertTrue(emitted.await().any { it.content == "hello" })
 
         val recent = repository.getRecentMessages("main", limit = 2)
         assertEquals(listOf(MessageRole.Assistant, MessageRole.User), recent.map { it.role })

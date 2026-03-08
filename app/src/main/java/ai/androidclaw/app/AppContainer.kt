@@ -1,6 +1,11 @@
 package ai.androidclaw.app
 
 import android.app.Application
+import ai.androidclaw.data.db.AndroidClawDatabase
+import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.data.repository.SessionRepository
+import ai.androidclaw.feature.chat.ChatDependencies
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
@@ -17,6 +22,9 @@ import java.time.Clock
 
 class AppContainer(application: Application) {
     private val clock: Clock = Clock.systemDefaultZone()
+    val database = AndroidClawDatabase.build(application)
+    val sessionRepository = SessionRepository(database.sessionDao())
+    val messageRepository = MessageRepository(database.messageDao())
 
     val toolRegistry = ToolRegistry(
         tools = listOf(
@@ -79,5 +87,23 @@ class AppContainer(application: Application) {
         skillManager = skillManager,
         toolRegistry = toolRegistry,
     )
-}
 
+    val chatDependencies: ChatDependencies
+        get() = ChatDependencies(
+            sessionRepository = sessionRepository,
+            messageRepository = messageRepository,
+            agentRunner = agentRunner,
+            skillManager = skillManager,
+        )
+
+    suspend fun ensureMainSession() {
+        val mainSession = sessionRepository.getOrCreateMainSession()
+        if (messageRepository.getRecentMessages(mainSession.id, limit = 1).isEmpty()) {
+            messageRepository.addMessage(
+                sessionId = mainSession.id,
+                role = MessageRole.System,
+                content = "AndroidClaw is ready.",
+            )
+        }
+    }
+}

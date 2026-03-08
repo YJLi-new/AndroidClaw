@@ -97,6 +97,7 @@ dependencies {
     testImplementation(libs.junit.ext)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    testImplementation(libs.turbine)
 
     debugImplementation(libs.compose.ui.tooling)
 

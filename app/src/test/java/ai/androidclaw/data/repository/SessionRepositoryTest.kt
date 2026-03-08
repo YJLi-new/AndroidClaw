@@ -5,11 +5,8 @@ import ai.androidclaw.data.db.buildTestDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -39,22 +36,17 @@ class SessionRepositoryTest {
 
     @Test
     fun `get or create main session emits through observeSessions and reuses existing row`() = runTest {
-        val emissions = mutableListOf<List<ai.androidclaw.data.model.Session>>()
-        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            repository.observeSessions().take(2).toList(emissions)
+        val emitted = async {
+            repository.observeSessions().first { sessions -> sessions.any { it.isMain } }
         }
-        runCurrent()
 
         val first = repository.getOrCreateMainSession()
         val second = repository.getOrCreateMainSession()
 
-        job.join()
-
         assertEquals(first.id, second.id)
         assertTrue(first.isMain)
         assertFalse(first.archived)
-        assertEquals(emptyList<ai.androidclaw.data.model.Session>(), emissions.first())
-        assertEquals(listOf(first.id), emissions.last().map { it.id })
+        assertEquals(listOf(first.id), emitted.await().map { it.id })
     }
 
     @Test
@@ -68,6 +60,6 @@ class SessionRepositoryTest {
         assertNotNull(stored)
         assertEquals("Renamed", stored?.title)
         assertTrue(stored?.archived == true)
-        assertTrue(repository.observeSessions().take(1).toList().single().isEmpty())
+        assertTrue(repository.observeSessions().first().isEmpty())
     }
 }

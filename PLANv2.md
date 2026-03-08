@@ -27,7 +27,7 @@ Update this section as each milestone completes. Use the format:
 Current state:
 - [x] (2026-03-08) M1 — Room schema, DAOs, exported schema JSON, and JVM DAO tests shipped and validated.
 - [x] (2026-03-08) M2 — Domain models, repository layer, schedule serialization, and repository JVM tests shipped and validated.
-- [ ] M3 — Persistent chat with multi-session support
+- [x] (2026-03-08) M3 — Chat persistence, main-session bootstrap, multi-session switching, and ChatViewModel tests shipped and validated.
 - [ ] M4 — ViewModel unification and layer rule enforcement
 - [ ] M5 — ModelRequest enrichment and provider contract hardening
 - [ ] M6 — Tool contract hardening and real built-in tools
@@ -44,6 +44,7 @@ Carry forward all entries from the bootstrap plan. Add new entries here as they 
 - Room's `room.generateKotlin` compiler argument is KSP-only. With the current Gradle setup using KAPT, enabling it breaks the build immediately.
 - Robolectric attempting to boot Android SDK 36 under Java 17 fails before tests run. Pinning JVM tests to SDK 35 avoids forcing a Java 21 toolchain change during v0.
 - The runtime already had the right scheduler and skill enums for part of M2. Reusing `TaskSchedule`, `TaskExecutionMode`, `SkillSourceType`, and `SkillEligibilityStatus` kept the repository layer aligned with existing runtime semantics and avoided duplicate type families.
+- A small dependency bundle per feature is a workable bridge between today's manual `AppContainer` wiring and the stricter M4 rule that feature code must not depend on the full container. `ChatDependencies` was enough to remove `AppContainer` from the chat ViewModel path without forcing a broader refactor yet.
 
 ---
 
@@ -65,6 +66,12 @@ Carry forward all entries from the bootstrap plan. Add new entries here using th
 - Decision: Persist task schedules with an explicit JSON payload managed by `ScheduleSerializer`, using a canonical cron expression string for cron schedules.
   Rationale: The Room schema stores a string blob, but the runtime needs typed schedules. A small explicit serializer keeps storage inspectable, deterministic in tests, and independent of reflection-heavy polymorphic serialization.
   Date/Author: 2026-03-08 / Codex
+- Decision: Bootstrap the main session from `AndroidClawApplication` using an application-scoped `CoroutineScope` instead of `GlobalScope`.
+  Rationale: Startup still needs one-shot background initialization, but an app-scoped supervisor job keeps ownership explicit and avoids introducing a process-lifetime global coroutine with no parent.
+  Date/Author: 2026-03-08 / Codex
+- Decision: Introduce `ChatDependencies` as the narrow factory input for `ChatViewModel`.
+  Rationale: M3 needed chat to stop depending on `AppContainer` before the broader M4 dependency-bundle cleanup. A small bundle keeps the change local and matches the direction already laid out for later milestones.
+  Date/Author: 2026-03-08 / Codex
 
 ---
 
@@ -73,6 +80,7 @@ Carry forward all entries from the bootstrap plan. Add new entries here using th
 Add one entry per completed milestone. Each entry must answer: does the app now satisfy one more step of the v0 acceptance flow?
 - M1 (2026-03-08): The app now has a durable Room schema for sessions, messages, tasks, task runs, skills, and event logs, with DAO behavior validated by JVM tests. This does not complete the user-visible "persist" acceptance step yet, but it establishes the persistence substrate required for M2 and M3 to finish that flow.
 - M2 (2026-03-08): The app now has a repository and domain-model layer between Room and the runtime, with typed schedule and skill mappings validated by JVM tests. This still does not complete the user-visible persistence flow, but it removes the main architectural blocker for wiring persistent chat in M3 without leaking Room entities into runtime or UI code.
+- M3 (2026-03-08): Chat now persists user and assistant messages to Room, the main session is auto-created and seeded with a system readiness message, and the UI can create and switch sessions while observing repository-backed history. This completes the core "chat → persist → survive relaunch" part of the acceptance flow, pending manual device verification on an emulator or phone.
 
 ---
 
