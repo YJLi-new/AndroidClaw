@@ -26,7 +26,7 @@ Update this section as each milestone completes. Use the format:
 
 Current state:
 - [x] (2026-03-08) M1 — Room schema, DAOs, exported schema JSON, and JVM DAO tests shipped and validated.
-- [ ] M2 — Repository layer and domain model mapping
+- [x] (2026-03-08) M2 — Domain models, repository layer, schedule serialization, and repository JVM tests shipped and validated.
 - [ ] M3 — Persistent chat with multi-session support
 - [ ] M4 — ViewModel unification and layer rule enforcement
 - [ ] M5 — ModelRequest enrichment and provider contract hardening
@@ -43,6 +43,7 @@ Current state:
 Carry forward all entries from the bootstrap plan. Add new entries here as they emerge during execution.
 - Room's `room.generateKotlin` compiler argument is KSP-only. With the current Gradle setup using KAPT, enabling it breaks the build immediately.
 - Robolectric attempting to boot Android SDK 36 under Java 17 fails before tests run. Pinning JVM tests to SDK 35 avoids forcing a Java 21 toolchain change during v0.
+- The runtime already had the right scheduler and skill enums for part of M2. Reusing `TaskSchedule`, `TaskExecutionMode`, `SkillSourceType`, and `SkillEligibilityStatus` kept the repository layer aligned with existing runtime semantics and avoided duplicate type families.
 
 ---
 
@@ -58,6 +59,12 @@ Carry forward all entries from the bootstrap plan. Add new entries here using th
 - Decision: Pin Robolectric JVM tests to SDK 35 via `app/src/test/resources/robolectric.properties`.
   Rationale: The app still compiles and targets SDK 36, but Robolectric's SDK 36 sandbox requires Java 21. SDK 35 keeps local JVM tests deterministic on the existing Java 17 toolchain.
   Date/Author: 2026-03-08 / Codex
+- Decision: Reuse runtime scheduler and skill types in `data.model` wherever stable equivalents already existed.
+  Rationale: `TaskSchedule`, `TaskExecutionMode`, `SkillSourceType`, and `SkillEligibilityStatus` were already the compatibility surface the runtime uses. Reusing them prevents mapper drift and keeps future runtime wiring simpler.
+  Date/Author: 2026-03-08 / Codex
+- Decision: Persist task schedules with an explicit JSON payload managed by `ScheduleSerializer`, using a canonical cron expression string for cron schedules.
+  Rationale: The Room schema stores a string blob, but the runtime needs typed schedules. A small explicit serializer keeps storage inspectable, deterministic in tests, and independent of reflection-heavy polymorphic serialization.
+  Date/Author: 2026-03-08 / Codex
 
 ---
 
@@ -65,6 +72,7 @@ Carry forward all entries from the bootstrap plan. Add new entries here using th
 
 Add one entry per completed milestone. Each entry must answer: does the app now satisfy one more step of the v0 acceptance flow?
 - M1 (2026-03-08): The app now has a durable Room schema for sessions, messages, tasks, task runs, skills, and event logs, with DAO behavior validated by JVM tests. This does not complete the user-visible "persist" acceptance step yet, but it establishes the persistence substrate required for M2 and M3 to finish that flow.
+- M2 (2026-03-08): The app now has a repository and domain-model layer between Room and the runtime, with typed schedule and skill mappings validated by JVM tests. This still does not complete the user-visible persistence flow, but it removes the main architectural blocker for wiring persistent chat in M3 without leaking Room entities into runtime or UI code.
 
 ---
 

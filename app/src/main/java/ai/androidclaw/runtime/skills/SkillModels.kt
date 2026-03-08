@@ -1,18 +1,22 @@
 package ai.androidclaw.runtime.skills
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
+@Serializable
 enum class SkillSourceType {
     Bundled,
     Local,
     Workspace,
 }
 
+@Serializable
 enum class SkillCommandDispatch {
     Model,
     Tool,
 }
 
+@Serializable
 enum class SkillEligibilityStatus {
     Eligible,
     Invalid,
@@ -20,11 +24,13 @@ enum class SkillEligibilityStatus {
     BridgeOnly,
 }
 
+@Serializable
 data class SkillEligibility(
     val status: SkillEligibilityStatus,
     val reasons: List<String> = emptyList(),
 )
 
+@Serializable
 data class SkillFrontmatter(
     val name: String,
     val description: String,
@@ -68,4 +74,3 @@ sealed interface SkillParseResult {
         val error: String,
     ) : SkillParseResult
 }
-
