@@ -1,13 +1,8 @@
 # AndroidClaw Execution Plan v3
 
-> Status: proposed active exec plan for the next development phase.
+> Status: active implementation plan as of 2026-03-09.
 >
-> This file is intended to become the **single active implementation plan**. If it is adopted, either:
->
-> 1. rename or copy it to `PLAN.md`, or
-> 2. update `AGENTS.md` so it points to `PLANv3.md`.
->
-> Do **not** keep `PLAN.md`, `PLANv2.md`, and `PLANv3.md` as competing live plans. Split truth is a build hazard for both humans and Codex. This recommendation follows OpenAI’s agent-first repository guidance: keep `AGENTS.md` short, treat docs as the system of record, and keep versioned execution plans in-repo as first-class artifacts. [R1]
+> `AGENTS.md` now points here. `PLANv2.md` is retained as archived historical context only.
 
 This is a living document. The sections **Progress**, **Discoveries**, **Decision Log**, **Blockers**, and **Outcomes** must be updated continuously as work proceeds.
 
@@ -116,8 +111,8 @@ Seeded current state:
 - [x] (2026-03-08) scheduler-preview — `once` / `interval` / `cron` parsing and next-run preview shipped.
 - [x] (2026-03-08) bundled-skills — bundled `SKILL.md` loading, parsing, eligibility, and demo skills shipped.
 - [x] (2026-03-08) audit-remediation — structured runtime failure handling, bundled-skill cache, explicit unsupported `runNow`, and missing JVM tests shipped.
-- [ ] m0-plan-adoption
-- [ ] m1-validation-harness
+- [x] (2026-03-09) m0-plan-adoption — `PLANv3.md` is canonical, `AGENTS.md` points to it, and the older tracked plan is explicitly archived.
+- [x] (2026-03-09) m1-validation-harness — managed-device config, Compose smoke test, and a repo-owned LDPlayer fallback harness shipped and validated.
 - [ ] m2-provider-v1
 - [ ] m3-tools-v1
 - [ ] m4-scheduler-core
@@ -142,6 +137,9 @@ Seeded discoveries:
 - WorkManager is the official durable background-work path on Android; exact alarms are intentionally special and should be reserved for precise user-visible cases. [R9][R11][R12]
 - App Standby Buckets and Android 16 quota behavior affect WorkManager-backed jobs, so scheduler diagnostics cannot be an afterthought. [R14]
 - Build-managed devices are the most repo-owned path to reproducible instrumentation in this project. [R15]
+- The managed-device task name for the current config is `:app:pixel8Api36DebugAndroidTest`.
+- On this Linux host, the managed-device emulator cannot boot the API 36 x86_64 image because the environment does not expose hardware acceleration to the Android emulator. The repo therefore needs a secondary device-owned fallback path even though managed devices remain configured.
+- A bash-to-PowerShell wrapper around LDPlayer is sufficient to make instrumentation reproducible from the repo on this workstation: `./scripts/run_ldplayer_android_test.sh` builds the APKs, boots LDPlayer if needed, and runs `MainActivitySmokeTest` through the Windows-side adb that can actually see the emulator.
 
 ---
 
@@ -166,15 +164,18 @@ Seeded decisions:
 - Decision: Isolated task execution in v0 means isolated logical context and isolated file root, **not** desktop-style container isolation.
   Rationale: correct for Android, much lighter, and sufficient for the v0 compatibility contract.
 
+- Decision: Keep both a managed-device config and an LDPlayer fallback harness in the repo.
+  Rationale: Gradle Managed Devices are still the preferred long-term path and are now wired into the build, but this workstation cannot boot the x86_64 API 36 emulator without hardware acceleration. The LDPlayer wrapper keeps instrumentation runnable today without manual dual-adb coordination.
+
 ---
 
 ## Blockers
 
 Update whenever work stops for reasons outside the current diff.
 
-Seeded blocker:
+Current blockers:
 
-- Instrumentation is not reliably runnable from the same SDK/`adb` environment used by Gradle. The first unblocker is to add a repo-owned test device path (preferably Gradle Managed Devices) instead of relying on the current LDPlayer split-brain setup. [R15]
+- No active blockers for m1. Managed devices remain acceleration-blocked on this Linux host, but the repo now has a reproducible LDPlayer fallback harness for instrumentation.
 
 ---
 
@@ -186,6 +187,8 @@ Leave empty until milestones finish. Each completed milestone should add one sho
 - What did we intentionally not ship?
 - What changed in the plan because of discoveries?
 - What should the next agent know immediately?
+
+- m1-validation-harness (2026-03-09): The repo now owns an instrumented smoke path. `MainActivitySmokeTest` verifies the navigation shell and chat-to-tasks navigation, `pixel8Api36` is configured as the managed device for acceleration-capable hosts, and `./scripts/run_ldplayer_android_test.sh` provides the validated fallback command on this workstation. The next agent should keep both paths working: managed devices are preferred, but the current host still needs the LDPlayer wrapper because the Linux emulator cannot boot without hardware acceleration.
 
 ---
 
