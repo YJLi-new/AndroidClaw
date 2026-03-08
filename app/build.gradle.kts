@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.kapt)
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -60,6 +61,12 @@ kotlin {
     }
 }
 
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     androidTestImplementation(platform(libs.compose.bom))
@@ -83,8 +90,13 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.snakeyaml)
 
+    kapt(libs.androidx.room.compiler)
+
+    testImplementation(libs.androidx.test.core)
     testImplementation(libs.junit4)
+    testImplementation(libs.junit.ext)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
 
     debugImplementation(libs.compose.ui.tooling)
 
