@@ -201,7 +201,6 @@ Seeded decisions:
 
 - Decision: Health/event diagnostics record worker stop reasons as raw codes behind an API-31 guard instead of symbolic names.
   Rationale: the runtime stop-reason value is available, but the stable public constant surface is not ergonomic enough here to justify brittle reflection or hidden-API coupling.
-
 ---
 
 ## Blockers
