@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 script_root="$repo_root/scripts"
 java_home_default="/home/lanla/.local/jdks/jdk-17.0.18+8"
+test_class="${1:-}"
 
 if [[ -z "${JAVA_HOME:-}" && -d "$java_home_default" ]]; then
   export JAVA_HOME="$java_home_default"
@@ -18,4 +19,18 @@ fi
 script_path_windows="$(wslpath -w "$script_root/run_ldplayer_android_test.ps1")"
 repo_root_windows="$(wslpath -w "$repo_root")"
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$script_path_windows" -RepoRoot "$repo_root_windows"
+powershell_args=(
+  -NoProfile
+  -ExecutionPolicy
+  Bypass
+  -File
+  "$script_path_windows"
+  -RepoRoot
+  "$repo_root_windows"
+)
+
+if [[ -n "$test_class" ]]; then
+  powershell_args+=(-TestClass "$test_class")
+fi
+
+powershell.exe "${powershell_args[@]}"

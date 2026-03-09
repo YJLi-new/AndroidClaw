@@ -10,6 +10,8 @@ import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.testutil.MainDispatcherRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.work.Configuration
+import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import java.time.Clock
@@ -38,6 +40,10 @@ class TasksViewModelTest {
     @Before
     fun setUp() = runTest {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        WorkManagerTestInitHelper.initializeTestWorkManager(
+            application,
+            Configuration.Builder().build(),
+        )
         database = buildTestDatabase(application)
         database.sessionDao().insert(
             SessionEntity(
@@ -56,6 +62,7 @@ class TasksViewModelTest {
             schedulerCoordinator = SchedulerCoordinator(
                 application = application,
                 clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                taskRepository = repository,
             ),
         )
     }
@@ -88,7 +95,7 @@ class TasksViewModelTest {
     }
 
     @Test
-    fun `runNow reports explicit unsupported state`() = runTest {
+    fun `runNow queues execution and reports action message`() = runTest {
         viewModel.state.test {
             viewModel.createTask(
                 name = "Manual check",
@@ -103,7 +110,7 @@ class TasksViewModelTest {
 
             val updated = awaitState { it.actionMessage != null }
             assertEquals(
-                "Run now is not available yet. Scheduler execution lands in the next milestone.",
+                "Queued run now for Manual check.",
                 updated.actionMessage,
             )
         }

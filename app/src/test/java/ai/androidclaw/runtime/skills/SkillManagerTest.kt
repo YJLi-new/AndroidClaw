@@ -10,6 +10,10 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import ai.androidclaw.runtime.tools.ToolAvailability
+import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
+import ai.androidclaw.runtime.tools.ToolDescriptor
+import ai.androidclaw.runtime.tools.ToolPermissionRequirement
 
 @RunWith(AndroidJUnit4::class)
 class SkillManagerTest {
@@ -27,7 +31,12 @@ class SkillManagerTest {
         )
         val manager = SkillManager(
             bundledSkillLoader = loader,
-            toolExists = { true },
+            toolDescriptor = { name ->
+                ToolDescriptor(
+                    name = name,
+                    description = "Tool $name",
+                )
+            },
         )
 
         val initial = manager.refreshBundledSkills()
@@ -59,13 +68,58 @@ class SkillManagerTest {
         )
         val manager = SkillManager(
             bundledSkillLoader = loader,
-            toolExists = { false },
+            toolDescriptor = { null },
         )
 
         val skills = manager.refreshBundledSkills()
 
         assertEquals(SkillEligibilityStatus.MissingTool, skills.single().eligibility.status)
         assertTrue(skills.single().eligibility.reasons.single().contains("tasks.list"))
+    }
+
+    @Test
+    fun `refreshBundledSkills applies blocked tool eligibility reasons`() = runTest {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val loader = CountingBundledSkillLoader(
+            assetManager = application.assets,
+            batches = ArrayDeque<List<SkillSnapshot>>().apply {
+                add(
+                    listOf(
+                        skillSnapshot(
+                            id = "notify",
+                            name = "notify",
+                            commandDispatch = SkillCommandDispatch.Tool,
+                            commandTool = "notifications.post",
+                        ),
+                    ),
+                )
+            },
+        )
+        val manager = SkillManager(
+            bundledSkillLoader = loader,
+            toolDescriptor = { name ->
+                ToolDescriptor(
+                    name = name,
+                    description = "Tool $name",
+                    requiredPermissions = listOf(
+                        ToolPermissionRequirement(
+                            permission = "android.permission.POST_NOTIFICATIONS",
+                            displayName = "Post notifications",
+                        ),
+                    ),
+                    availability = ToolAvailability(
+                        status = ToolAvailabilityStatus.PermissionRequired,
+                        reason = "Grant notification permission.",
+                    ),
+                )
+            },
+        )
+
+        val skills = manager.refreshBundledSkills()
+
+        assertEquals(SkillEligibilityStatus.MissingTool, skills.single().eligibility.status)
+        assertTrue(skills.single().eligibility.reasons.single().contains("Tool blocked: notifications.post"))
+        assertTrue(skills.single().eligibility.reasons.single().contains("Post notifications"))
     }
 }
 

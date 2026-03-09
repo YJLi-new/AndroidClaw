@@ -17,6 +17,7 @@ class AndroidClawApplication : Application() {
         // Use an application-scoped coroutine for one-shot startup hydration without leaking work to GlobalScope.
         applicationScope.launch {
             container.ensureMainSession()
+            container.schedulerCoordinator.rescheduleAll()
         }
     }
 }

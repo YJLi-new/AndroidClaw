@@ -1,5 +1,7 @@
 package ai.androidclaw.runtime.skills
 
+import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
+import ai.androidclaw.runtime.tools.ToolDescriptor
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
@@ -10,7 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 class SkillManager(
     private val bundledSkillLoader: BundledSkillLoader,
-    private val toolExists: (String) -> Boolean,
+    private val toolDescriptor: (String) -> ToolDescriptor?,
 ) {
     private val cacheMutex = Mutex()
     private var cachedBundledSkills: List<SkillSnapshot>? = null
@@ -67,8 +69,15 @@ class SkillManager(
             }
             ?.let(requiredTools::addAll)
 
-        val missingTools = requiredTools.filterNot(toolExists)
-        return if (missingTools.isEmpty()) {
+        val eligibilityReasons = requiredTools.mapNotNull { requiredTool ->
+            val descriptor = toolDescriptor(requiredTool)
+            when {
+                descriptor == null -> "Missing tool: $requiredTool"
+                descriptor.availability.status == ToolAvailabilityStatus.Available -> null
+                else -> descriptor.toEligibilityReason()
+            }
+        }
+        return if (eligibilityReasons.isEmpty()) {
             skill.copy(
                 eligibility = SkillEligibility(status = SkillEligibilityStatus.Eligible),
             )
@@ -76,9 +85,29 @@ class SkillManager(
             skill.copy(
                 eligibility = SkillEligibility(
                     status = SkillEligibilityStatus.MissingTool,
-                    reasons = missingTools.map { "Missing tool: $it" },
+                    reasons = eligibilityReasons,
                 ),
             )
+        }
+    }
+}
+
+private fun ToolDescriptor.toEligibilityReason(): String {
+    return when (availability.status) {
+        ToolAvailabilityStatus.Available -> "Tool available: $name"
+        ToolAvailabilityStatus.Unavailable -> "Tool blocked: $name (${availability.reason ?: "unavailable"})"
+        ToolAvailabilityStatus.PermissionRequired -> {
+            val permissionSummary = requiredPermissions
+                .map { it.displayName }
+                .ifEmpty { listOf("permission required") }
+                .joinToString()
+            "Tool blocked: $name ($permissionSummary)"
+        }
+        ToolAvailabilityStatus.ForegroundRequired -> {
+            "Tool blocked: $name (${availability.reason ?: "foreground required"})"
+        }
+        ToolAvailabilityStatus.DisabledByConfig -> {
+            "Tool blocked: $name (${availability.reason ?: "disabled by config"})"
         }
     }
 }

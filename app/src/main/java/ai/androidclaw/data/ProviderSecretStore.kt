@@ -1,0 +1,98 @@
+package ai.androidclaw.data
+
+import android.content.Context
+import android.util.Base64
+import java.nio.charset.StandardCharsets
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+
+interface ProviderSecretStore {
+    suspend fun readApiKey(providerType: ProviderType): String?
+
+    suspend fun writeApiKey(providerType: ProviderType, apiKey: String?)
+}
+
+class AndroidProviderSecretStore(
+    context: Context,
+) : ProviderSecretStore {
+    private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+
+    override suspend fun readApiKey(providerType: ProviderType): String? {
+        val payload = preferences.getString(storageKey(providerType), null) ?: return null
+        return runCatching { decrypt(payload) }.getOrNull()
+    }
+
+    override suspend fun writeApiKey(providerType: ProviderType, apiKey: String?) {
+        val key = storageKey(providerType)
+        if (apiKey.isNullOrBlank()) {
+            preferences.edit().remove(key).apply()
+            return
+        }
+        preferences.edit().putString(key, encrypt(apiKey.trim())).apply()
+    }
+
+    private fun encrypt(plaintext: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
+        val ciphertext = cipher.doFinal(plaintext.toByteArray(StandardCharsets.UTF_8))
+        val iv = Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
+        val body = Base64.encodeToString(ciphertext, Base64.NO_WRAP)
+        return "$iv:$body"
+    }
+
+    private fun decrypt(payload: String): String {
+        val parts = payload.split(":", limit = 2)
+        require(parts.size == 2) { "Invalid encrypted payload." }
+        val iv = Base64.decode(parts[0], Base64.NO_WRAP)
+        val ciphertext = Base64.decode(parts[1], Base64.NO_WRAP)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            getOrCreateSecretKey(),
+            GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv),
+        )
+        return cipher.doFinal(ciphertext).toString(StandardCharsets.UTF_8)
+    }
+
+    private fun getOrCreateSecretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(KEYSTORE_NAME).apply { load(null) }
+        val existingKey = keyStore.getKey(KEY_ALIAS, null)
+        if (existingKey is SecretKey) {
+            return existingKey
+        }
+
+        val keyGenerator = KeyGenerator.getInstance(
+            KeyProperties.KEY_ALGORITHM_AES,
+            KEYSTORE_NAME,
+        )
+        keyGenerator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(KEY_SIZE_BITS)
+                .build(),
+        )
+        return keyGenerator.generateKey()
+    }
+
+    private fun storageKey(providerType: ProviderType): String {
+        return "api_key_${providerType.storageValue}"
+    }
+
+    private companion object {
+        const val PREFERENCES_NAME = "androidclaw_provider_secrets"
+        const val KEYSTORE_NAME = "AndroidKeyStore"
+        const val KEY_ALIAS = "androidclaw_provider_secret_key"
+        const val TRANSFORMATION = "AES/GCM/NoPadding"
+        const val KEY_SIZE_BITS = 256
+        const val GCM_TAG_LENGTH_BITS = 128
+    }
+}

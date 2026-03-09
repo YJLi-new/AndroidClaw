@@ -106,7 +106,9 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.junit4)
     testImplementation(libs.junit.ext)
+    testImplementation(libs.androidx.work.testing)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.turbine)
 
@@ -116,9 +118,12 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.junit.ext)
+    androidTestImplementation(libs.androidx.work.testing)
 }
 
 // Preferred managed-device command on hosts with emulator acceleration:
 // ./gradlew :app:pixel8Api36DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 // Canonical fallback on this repository's current LDPlayer-based workstation:
 // ./scripts/run_ldplayer_android_test.sh
+// Example targeted fallback invocation:
+// ./scripts/run_ldplayer_android_test.sh ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest

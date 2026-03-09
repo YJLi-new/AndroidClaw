@@ -559,6 +559,67 @@ scheduler 必须在执行前做最小可用性检查，例如：
 - 下一次计划时间
 - “现在手动运行” 入口
 
+---
+
+## 15. 调试 / 手工 QA 命令
+
+以下命令用于 debug 构建或开发设备上的 scheduler 诊断：
+
+### 15.1 App Standby Bucket
+
+查看当前 bucket：
+
+```bash
+adb shell am get-standby-bucket ai.androidclaw.app
+```
+
+强制切换 bucket（Android 13+ / 16 文档仍推荐此路径做配额测试）：
+
+```bash
+adb shell am set-standby-bucket ai.androidclaw.app active
+adb shell am set-standby-bucket ai.androidclaw.app working_set
+adb shell am set-standby-bucket ai.androidclaw.app frequent
+adb shell am set-standby-bucket ai.androidclaw.app rare
+adb shell am set-standby-bucket ai.androidclaw.app restricted
+```
+
+### 15.2 JobScheduler / WorkManager
+
+查看系统侧 JobScheduler 状态：
+
+```bash
+adb shell dumpsys jobscheduler ai.androidclaw.app
+```
+
+请求 WorkManager 诊断广播（debug builds）：
+
+```bash
+adb shell am broadcast -a "androidx.work.diagnostics.REQUEST_DIAGNOSTICS" -p "ai.androidclaw.app"
+```
+
+### 15.3 AlarmManager
+
+查看 alarm 状态：
+
+```bash
+adb shell dumpsys alarm | grep ai.androidclaw.app
+```
+
+### 15.4 Exact alarm 权限
+
+在 Android 12+ 上跳转到 exact alarm special access：
+
+```bash
+adb shell am start -a android.settings.REQUEST_SCHEDULE_EXACT_ALARM -d package:ai.androidclaw.app
+```
+
+如果设备支持 app-compat overrides，可用以下命令测试 exact-alarm 权限要求的兼容变化：
+
+```bash
+adb shell am compat disable REQUIRE_EXACT_ALARM_PERMISSION ai.androidclaw.app
+adb shell am compat enable REQUIRE_EXACT_ALARM_PERMISSION ai.androidclaw.app
+```
+
 产品不应承诺“零设置 100% 准点”。
 
 ---

@@ -1,6 +1,8 @@
 package ai.androidclaw.app
 
 import android.app.Application
+import ai.androidclaw.data.AndroidProviderSecretStore
+import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.model.MessageRole
@@ -11,73 +13,40 @@ import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.providers.FakeProvider
+import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
+import ai.androidclaw.runtime.scheduler.TaskRuntimeExecutor
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
-import ai.androidclaw.runtime.tools.ToolDescriptor
-import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolRegistry
-import kotlinx.coroutines.flow.first
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.put
+import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 import java.time.Clock
 
 class AppContainer(application: Application) {
     private val clock: Clock = Clock.systemDefaultZone()
+    private lateinit var skillManagerRef: SkillManager
+    private val json = Json {
+        ignoreUnknownKeys = true
+    }
     val database = AndroidClawDatabase.build(application)
     val settingsDataStore = SettingsDataStore(application)
+    val providerSecretStore = AndroidProviderSecretStore(application)
     val sessionRepository = SessionRepository(database.sessionDao())
     val messageRepository = MessageRepository(database.messageDao())
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
     val skillRepository = SkillRepository(database.skillRecordDao())
     val eventLogRepository = EventLogRepository(database.eventLogDao())
 
-    val toolRegistry = ToolRegistry(
-        tools = listOf(
-            ToolRegistry.Entry(
-                descriptor = ToolDescriptor(
-                    name = "tasks.list",
-                    description = "List known automation capabilities and any saved tasks.",
-                ),
-            ) { _ ->
-                val tasks = taskRepository.observeTasks().first()
-                ToolExecutionResult(
-                    summary = if (tasks.isEmpty()) {
-                        "No persisted tasks yet. Scheduler supports once, interval, and cron execution."
-                    } else {
-                        "Found ${tasks.size} persisted task(s)."
-                    },
-                    payload = buildJsonObject {
-                        put("supportsOnce", true)
-                        put("supportsInterval", true)
-                        put("supportsCron", true)
-                        put("taskCount", tasks.size)
-                        put("taskNames", buildJsonArray {
-                            tasks.forEach { add(JsonPrimitive(it.name)) }
-                        })
-                    },
-                )
-            },
-            ToolRegistry.Entry(
-                descriptor = ToolDescriptor(
-                    name = "health.status",
-                    description = "Return lightweight runtime health information.",
-                ),
-            ) { _ ->
-                ToolExecutionResult(
-                    summary = "Runtime bootstrapped with FakeProvider, bundled skills, and scheduler preview support.",
-                    payload = buildJsonObject {
-                        put("provider", "fake")
-                        put("schedulerReady", true)
-                        put("skillsReady", true)
-                    },
-                )
-            },
-        ),
+    val toolRegistry = createBuiltInToolRegistry(
+        application = application,
+        settingsDataStore = settingsDataStore,
+        sessionRepository = sessionRepository,
+        taskRepository = taskRepository,
+        bundledSkillsProvider = { skillManagerRef.refreshBundledSkills() },
     )
 
     private val bundledSkillLoader = BundledSkillLoader(
@@ -88,28 +57,55 @@ class AppContainer(application: Application) {
 
     val skillManager = SkillManager(
         bundledSkillLoader = bundledSkillLoader,
-        toolExists = toolRegistry::hasTool,
-    )
+        toolDescriptor = toolRegistry::findDescriptor,
+    ).also { skillManagerRef = it }
 
     val providerRegistry = ProviderRegistry(
-        defaultProvider = FakeProvider(clock = clock),
+        providers = listOf(
+            ProviderRegistry.RegisteredProviderEntry(
+                type = ProviderType.Fake,
+                displayName = ProviderType.Fake.displayName,
+                provider = FakeProvider(clock = clock),
+            ),
+            ProviderRegistry.RegisteredProviderEntry(
+                type = ProviderType.OpenAiCompatible,
+                displayName = ProviderType.OpenAiCompatible.displayName,
+                provider = OpenAiCompatibleProvider(
+                    settingsDataStore = settingsDataStore,
+                    providerSecretStore = providerSecretStore,
+                    baseHttpClient = OkHttpClient(),
+                    json = json,
+                ),
+            ),
+        ),
+    )
+
+    val agentRunner = AgentRunner(
+        providerRegistry = providerRegistry,
+        settingsDataStore = settingsDataStore,
+        messageRepository = messageRepository,
+        skillManager = skillManager,
+        toolRegistry = toolRegistry,
+    )
+
+    val taskRuntimeExecutor = TaskRuntimeExecutor(
+        sessionRepository = sessionRepository,
+        messageRepository = messageRepository,
+        agentRunner = agentRunner,
     )
 
     val schedulerCoordinator = SchedulerCoordinator(
         application = application,
         clock = clock,
-    )
-
-    val agentRunner = AgentRunner(
-        providerRegistry = providerRegistry,
-        skillManager = skillManager,
-        toolRegistry = toolRegistry,
+        taskRepository = taskRepository,
+        eventLogRepository = eventLogRepository,
     )
 
     val chatDependencies: ChatDependencies
         get() = ChatDependencies(
             sessionRepository = sessionRepository,
             messageRepository = messageRepository,
+            eventLogRepository = eventLogRepository,
             agentRunner = agentRunner,
             skillManager = skillManager,
         )
@@ -130,6 +126,7 @@ class AppContainer(application: Application) {
         get() = SettingsDependencies(
             providerRegistry = providerRegistry,
             settingsDataStore = settingsDataStore,
+            providerSecretStore = providerSecretStore,
         )
 
     val healthDependencies: HealthDependencies
@@ -137,6 +134,7 @@ class AppContainer(application: Application) {
             schedulerCoordinator = schedulerCoordinator,
             toolRegistry = toolRegistry,
             providerRegistry = providerRegistry,
+            settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
         )
 

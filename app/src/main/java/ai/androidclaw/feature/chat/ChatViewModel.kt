@@ -1,12 +1,16 @@
 package ai.androidclaw.feature.chat
 
 import ai.androidclaw.app.ChatDependencies
+import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
+import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.skills.SkillManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -53,6 +57,7 @@ data class ChatUiState(
 class ChatViewModel(
     private val sessionRepository: SessionRepository,
     private val messageRepository: MessageRepository,
+    private val eventLogRepository: EventLogRepository,
     private val agentRunner: AgentRunner,
     private val skillManager: SkillManager,
 ) : ViewModel() {
@@ -179,6 +184,7 @@ class ChatViewModel(
                     sessionId = sessionId,
                     role = MessageRole.Assistant,
                     content = assistantText,
+                    providerMeta = result.providerRequestId,
                 )
                 refreshSkillCommands()
             } catch (error: CancellationException) {
@@ -186,6 +192,25 @@ class ChatViewModel(
             } catch (error: Exception) {
                 val message = error.message ?: "Turn failed."
                 errorMessage.value = message
+                viewModelScope.launch {
+                    eventLogRepository.log(
+                        category = if (error is ModelProviderException) EventCategory.Provider else EventCategory.System,
+                        level = EventLevel.Error,
+                        message = message,
+                        details = if (error is ModelProviderException) {
+                            buildString {
+                                append("kind=")
+                                append(error.kind.name)
+                                error.details?.takeIf { it.isNotBlank() }?.let {
+                                    append("; details=")
+                                    append(it)
+                                }
+                            }
+                        } else {
+                            error.stackTraceToString().take(500)
+                        },
+                    )
+                }
                 runCatching {
                     messageRepository.addMessage(
                         sessionId = sessionId,
@@ -233,6 +258,7 @@ class ChatViewModel(
                     return ChatViewModel(
                         sessionRepository = dependencies.sessionRepository,
                         messageRepository = dependencies.messageRepository,
+                        eventLogRepository = dependencies.eventLogRepository,
                         agentRunner = dependencies.agentRunner,
                         skillManager = dependencies.skillManager,
                     ) as T

@@ -69,12 +69,12 @@ class TaskRepository(
         taskDao.delete(id)
     }
 
-    suspend fun recordRun(taskId: String): TaskRun {
+    suspend fun recordRun(taskId: String, scheduledAt: Instant = Instant.now()): TaskRun {
         val entity = TaskRunEntity(
             id = UUID.randomUUID().toString(),
             taskId = taskId,
             status = TaskRunStatus.Pending.toStorage(),
-            scheduledAt = Instant.now().toEpochMilli(),
+            scheduledAt = scheduledAt.toEpochMilli(),
             startedAt = null,
             finishedAt = null,
             errorCode = null,

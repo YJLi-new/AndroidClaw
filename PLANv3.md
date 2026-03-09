@@ -113,9 +113,11 @@ Seeded current state:
 - [x] (2026-03-08) audit-remediation — structured runtime failure handling, bundled-skill cache, explicit unsupported `runNow`, and missing JVM tests shipped.
 - [x] (2026-03-09) m0-plan-adoption — `PLANv3.md` is canonical, `AGENTS.md` points to it, and the older tracked plan is explicitly archived.
 - [x] (2026-03-09) m1-validation-harness — managed-device config, Compose smoke test, and a repo-owned LDPlayer fallback harness shipped and validated.
-- [ ] m2-provider-v1
-- [ ] m3-tools-v1
-- [ ] m4-scheduler-core
+- [x] (2026-03-09) m2-provider-v1 — typed provider contract, OpenAI-compatible backend, keystore-backed API-key seam, settings UI, and provider failure tests shipped.
+- [x] (2026-03-09) m3-tools-v1 — richer tool metadata, built-in typed tools, live availability, and slash-tool runtime coverage shipped.
+- [x] (2026-03-09) m4-scheduler-core-runtime — WorkManager-backed scheduling, real worker execution, durable `TaskRun` history, `runNow`, `MAIN_SESSION`/`ISOLATED_SESSION`, and reschedule-on-startup shipped with JVM coverage.
+- [x] (2026-03-09) m4-scheduler-core — planner/backoff, durable worker execution, recurring reschedule, and device-backed scheduler smoke shipped.
+- [x] (2026-03-09) m5-scheduler-diagnostics-core — precise-vs-approximate scheduling decisions, exact-alarm receiver wiring, scheduler diagnostics UI, stop-reason capture, adb QA notes, and Robolectric exact-path coordinator coverage shipped.
 - [ ] m5-scheduler-precision-and-diagnostics
 - [ ] m6-skills-lifecycle
 - [ ] m7-runtime-turn-loop
@@ -140,6 +142,12 @@ Seeded discoveries:
 - The managed-device task name for the current config is `:app:pixel8Api36DebugAndroidTest`.
 - On this Linux host, the managed-device emulator cannot boot the API 36 x86_64 image because the environment does not expose hardware acceleration to the Android emulator. The repo therefore needs a secondary device-owned fallback path even though managed devices remain configured.
 - A bash-to-PowerShell wrapper around LDPlayer is sufficient to make instrumentation reproducible from the repo on this workstation: `./scripts/run_ldplayer_android_test.sh` builds the APKs, boots LDPlayer if needed, and runs `MainActivitySmokeTest` through the Windows-side adb that can actually see the emulator.
+- This workstation’s default Linux-side `java` is still Java 8, so AGP 8.13 validation needed a session-local Linux JDK 17 under `/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8`; the Windows-side JDK 21 path was not a reliable substitute for WSL Gradle execution.
+- Android Lint does not treat registry-level tool availability metadata as proof of permission safety; permission-sensitive native tool handlers still need a local guard near the platform API call.
+- WorkManager is not auto-initialized in this Robolectric/unit-test setup; scheduler-facing JVM tests need `WorkManagerTestInitHelper.initializeTestWorkManager(...)` before exercising `SchedulerCoordinator`.
+- The LDPlayer fallback harness can now target arbitrary instrumented test classes, so milestone-specific device smokes do not require editing the script or running only `MainActivitySmokeTest`.
+- WorkManager exposes stop-reason values to app code only behind an Android 12 / API 31 gate here, and the symbolic stop-reason constants are not available as stable public app-facing constants at this surface. Scheduler diagnostics therefore need a local API guard and should treat stop reasons as raw codes unless a better public API appears.
+- Robolectric’s `ShadowAlarmManager` in this repo’s test stack can model both exact-alarm grant/deny state and the pending exact-alarm queue, so the scheduler’s exact-vs-approximate routing can be covered in JVM tests without waiting on device-side special-access state.
 
 ---
 
@@ -167,6 +175,33 @@ Seeded decisions:
 - Decision: Keep both a managed-device config and an LDPlayer fallback harness in the repo.
   Rationale: Gradle Managed Devices are still the preferred long-term path and are now wired into the build, but this workstation cannot boot the x86_64 API 36 emulator without hardware acceleration. The LDPlayer wrapper keeps instrumentation runnable today without manual dual-adb coordination.
 
+- Decision: Keep provider implementations simple and offload real provider execution to `Dispatchers.IO`.
+  Rationale: `OpenAiCompatibleProvider` uses blocking OkHttp today; moving provider execution off the main thread preserves UI responsiveness without forcing a broader async provider API redesign in m2.
+
+- Decision: Resolve tool availability when descriptors are read and when tools execute, not only when `ToolRegistry` is first built.
+  Rationale: permission grants and app-level notification enablement can change while the process stays alive; health, skill eligibility, and execution should reflect current device state without requiring an app restart.
+
+- Decision: Keep built-in tool wiring in a small `runtime/tools` factory instead of leaving it inline inside `AppContainer`.
+  Rationale: it keeps app wiring simpler and gives JVM tests a clean seam for built-in tool behavior without constructing the full app container.
+
+- Decision: Route both scheduled executions and `runNow` through the same `TaskExecutionWorker`, but keep manual runs from rewriting `nextRunAt`.
+  Rationale: one worker path keeps run history, error handling, and execution semantics consistent, while preserving the task’s future schedule exactly as the user defined it.
+
+- Decision: Rebuild pending scheduler work from DB on app startup with `rescheduleAll()`.
+  Rationale: the task table remains the source of truth; startup rescheduling makes pending work survive process death and stale WorkManager state can be replaced from durable task state.
+
+- Decision: The device-backed `m4` smoke validates durable scheduler effects by executing `TaskExecutionWorker` directly with `TestListenableWorkerBuilder` in `androidTest`, not by waiting for real delayed background dispatch.
+  Rationale: it proves the DB-backed worker path on a device while keeping milestone validation deterministic and fast enough for the repo-owned harness.
+
+- Decision: Keep the persisted `Task.precise: Boolean` field in v0 and map it to `TaskPrecisionMode.Approximate` / `PreciseUserVisible` in runtime code instead of forcing a Room migration in `m5`.
+  Rationale: exact-alarm routing and diagnostics can ship now without expanding the schema churn while the Tasks UI is still intentionally minimal.
+
+- Decision: Precise tasks schedule only their next occurrence through `AlarmManager`, and the alarm receiver immediately re-enqueues real execution into `TaskExecutionWorker`.
+  Rationale: the exact path stays narrow, while run history, retries, and execution semantics still converge through the same worker/runtime path as approximate scheduling.
+
+- Decision: Health/event diagnostics record worker stop reasons as raw codes behind an API-31 guard instead of symbolic names.
+  Rationale: the runtime stop-reason value is available, but the stable public constant surface is not ergonomic enough here to justify brittle reflection or hidden-API coupling.
+
 ---
 
 ## Blockers
@@ -175,7 +210,7 @@ Update whenever work stops for reasons outside the current diff.
 
 Current blockers:
 
-- No active blockers for m1. Managed devices remain acceleration-blocked on this Linux host, but the repo now has a reproducible LDPlayer fallback harness for instrumentation.
+- No active blockers.
 
 ---
 
@@ -189,6 +224,9 @@ Leave empty until milestones finish. Each completed milestone should add one sho
 - What should the next agent know immediately?
 
 - m1-validation-harness (2026-03-09): The repo now owns an instrumented smoke path. `MainActivitySmokeTest` verifies the navigation shell and chat-to-tasks navigation, `pixel8Api36` is configured as the managed device for acceleration-capable hosts, and `./scripts/run_ldplayer_android_test.sh` provides the validated fallback command on this workstation. The next agent should keep both paths working: managed devices are preferred, but the current host still needs the LDPlayer wrapper because the Linux emulator cannot boot without hardware acceleration.
+- m2-provider-v1 (2026-03-09): AndroidClaw now supports both `FakeProvider` and an `OpenAI-compatible` provider behind a typed request/response contract. Provider selection, base URL, model ID, and timeout persist through `SettingsDataStore`; the API key is stored through a minimal keystore-backed `ProviderSecretStore` instead of plain-text DataStore; chat now logs and persists provider failures cleanly; health reflects the selected provider; and deterministic JVM coverage exists for settings mapping plus OpenAI-compatible success/error/timeout paths. Streaming, multimodal inputs, and multi-provider orchestration remain intentionally out of scope. On this workstation, fast validation was completed with a session-local Linux JDK 17 at `/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8` because the default WSL `java` is still Java 8.
+- m3-tools-v1 (2026-03-09): AndroidClaw now exposes a usable typed tool contract: `ToolRegistry` supports canonical names plus aliases, required-argument validation, structured error codes, permission metadata, and live availability; built-in `health.status`, `sessions.list`, `tasks.list`, `skills.list`, and `notifications.post` are wired through a shared factory; skill eligibility explains both missing and blocked tools; and slash-dispatched tool skills now execute directly when eligible or return availability reasons immediately when blocked. Deterministic JVM coverage now exists for registry failures, built-in tools, and direct slash-tool dispatch. `http.fetch` and richer schema/type validation were intentionally left out of this milestone so the next agent can move into scheduler execution and skill lifecycle work on top of a stable tool surface.
+- m4-scheduler-core (2026-03-09): The scheduler is now durable instead of preview-only. `SchedulerCoordinator` owns `scheduleTask`, `cancelTask`, `rescheduleAll`, and `runNow`; `TaskPlanner` centralizes next-run and retry/backoff decisions; `TaskExecutionWorker` creates real `TaskRun` history, executes tasks in `MAIN_SESSION` or `ISOLATED_SESSION`, updates task state, and reschedules recurring work; and app startup reconstructs pending work from the task table. JVM coverage now exercises planner logic, coordinator rescheduling, worker success paths, recurring reschedule, manual-run semantics, and isolated delivery. Device-backed validation now also exists through `TaskExecutionWorkerSmokeTest`, runnable from the repo’s LDPlayer harness alongside `MainActivitySmokeTest`. Exact alarms, standby diagnostics UI, and precise-trigger degradation messaging remain intentionally deferred to `m5`.
 
 ---
 

@@ -5,6 +5,7 @@ import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCapabilities
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
+import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import androidx.lifecycle.ViewModel
@@ -27,6 +28,7 @@ data class TasksUiState(
         supportsExactAlarms = false,
         supportedKinds = emptyList(),
     ),
+    val diagnostics: SchedulerDiagnostics = SchedulerDiagnostics(),
     val nextDailyPreview: Instant? = null,
     val nextWeekdayPreview: Instant? = null,
     val actionMessage: String? = null,
@@ -43,9 +45,11 @@ class TasksViewModel(
         taskRepository.observeTasks(),
         actionMessage,
     ) { tasks, actionMessageValue ->
+            val diagnostics = schedulerCoordinator.diagnostics()
             TasksUiState(
                 tasks = tasks,
                 capabilities = capabilities,
+                diagnostics = diagnostics,
                 nextDailyPreview = schedulerCoordinator.nextRunPreview("@daily"),
                 nextWeekdayPreview = schedulerCoordinator.nextRunPreview(
                     expression = "0 9 * * 1-5",
@@ -57,7 +61,10 @@ class TasksViewModel(
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
-            initialValue = TasksUiState(capabilities = capabilities),
+            initialValue = TasksUiState(
+                capabilities = capabilities,
+                diagnostics = schedulerCoordinator.diagnostics(),
+            ),
         )
 
     fun createTask(
@@ -70,7 +77,7 @@ class TasksViewModel(
         maxRetries: Int = 3,
     ) {
         viewModelScope.launch {
-            taskRepository.createTask(
+            val createdTask = taskRepository.createTask(
                 name = name,
                 prompt = prompt,
                 schedule = schedule,
@@ -79,27 +86,35 @@ class TasksViewModel(
                 precise = precise,
                 maxRetries = maxRetries,
             )
+            schedulerCoordinator.scheduleTask(createdTask.id)
         }
     }
 
     fun toggleEnabled(taskId: String) {
         val task = state.value.tasks.firstOrNull { it.id == taskId } ?: return
         viewModelScope.launch {
-            taskRepository.updateTask(
-                task.copy(
-                    enabled = !task.enabled,
-                    updatedAt = Instant.now(),
-                ),
+            val updatedTask = task.copy(
+                enabled = !task.enabled,
+                updatedAt = Instant.now(),
             )
+            taskRepository.updateTask(updatedTask)
+            if (updatedTask.enabled) {
+                schedulerCoordinator.scheduleTask(updatedTask.id)
+            } else {
+                schedulerCoordinator.cancelTask(updatedTask.id)
+            }
         }
     }
 
     fun runNow(taskId: String) {
         val task = state.value.tasks.firstOrNull { it.id == taskId }
-        actionMessage.value = if (task == null) {
-            "Run now failed: task not found."
-        } else {
-            "Run now is not available yet. Scheduler execution lands in the next milestone."
+        if (task == null) {
+            actionMessage.value = "Run now failed: task not found."
+            return
+        }
+        viewModelScope.launch {
+            schedulerCoordinator.runNow(taskId)
+            actionMessage.value = "Queued run now for ${task.name}."
         }
     }
 
@@ -109,6 +124,7 @@ class TasksViewModel(
 
     fun deleteTask(taskId: String) {
         viewModelScope.launch {
+            schedulerCoordinator.cancelTask(taskId)
             taskRepository.deleteTask(taskId)
         }
     }

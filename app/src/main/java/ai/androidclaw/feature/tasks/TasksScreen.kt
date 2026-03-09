@@ -1,5 +1,8 @@
 package ai.androidclaw.feature.tasks
 
+import ai.androidclaw.data.model.Task
+import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
+import ai.androidclaw.runtime.scheduler.schedulingDecision
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,6 +42,17 @@ fun TasksScreen(viewModel: TasksViewModel) {
             body = "${state.capabilities.minimumBackgroundInterval.toMinutes()} minutes",
         )
         SchedulerCard(
+            title = "Exact alarm status",
+            body = buildString {
+                append("Supported: ").append(state.diagnostics.supportsExactAlarms)
+                append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
+                append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
+                if (state.diagnostics.isRestrictedBucket) {
+                    append("\nApp is in restricted bucket; background work may be delayed.")
+                }
+            },
+        )
+        SchedulerCard(
             title = "Next @daily preview",
             body = state.nextDailyPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
         )
@@ -63,9 +77,10 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(state.tasks, key = { it.id }) { task ->
+                    val decision = task.schedulingDecision(state.diagnostics)
                     SchedulerCard(
                         title = task.name,
-                        body = "Enabled: ${task.enabled} | Next: ${task.nextRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unscheduled"}",
+                        body = taskCardBody(task, decision, state.diagnostics.isRestrictedBucket),
                     )
                 }
             }
@@ -82,6 +97,32 @@ private fun SchedulerCard(title: String, body: String) {
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(body, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+private fun taskCardBody(
+    task: Task,
+    decision: ai.androidclaw.runtime.scheduler.TaskSchedulingDecision,
+    restrictedBucket: Boolean,
+): String {
+    return buildString {
+        append("Enabled: ").append(task.enabled)
+        append("\nNext: ").append(task.nextRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unscheduled")
+        append("\nLast run: ").append(task.lastRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Never")
+        append("\nPrecision: ").append(if (task.precise) "Precise user-visible" else "Approximate")
+        append(
+            "\nScheduling path: ").append(
+                when (decision.path) {
+                    TaskSchedulingPath.ExactAlarm -> "Exact alarm"
+                    TaskSchedulingPath.WorkManagerApproximate -> "WorkManager"
+                },
+            )
+        decision.degradedReason?.let { reason ->
+            append("\n").append(reason)
+        }
+        if (restrictedBucket) {
+            append("\nApp standby bucket is restricted; background work may be delayed.")
         }
     }
 }

@@ -1,28 +1,30 @@
 package ai.androidclaw.feature.chat
 
+import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
+import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.runtime.orchestrator.AgentRunner
-import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.ModelProvider
+import ai.androidclaw.runtime.providers.ModelProviderException
+import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelResponse
-import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.tools.ToolRegistry
+import ai.androidclaw.testutil.buildTestProviderRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneOffset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -43,46 +45,32 @@ class ChatViewModelTest {
     private lateinit var database: AndroidClawDatabase
     private lateinit var sessionRepository: SessionRepository
     private lateinit var messageRepository: MessageRepository
+    private lateinit var eventLogRepository: EventLogRepository
+    private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var skillManager: SkillManager
     private lateinit var viewModel: ChatViewModel
 
     @Before
-    fun setUp() {
+    fun setUp() = runTest {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         database = buildTestDatabase(application)
         sessionRepository = SessionRepository(database.sessionDao())
         messageRepository = MessageRepository(database.messageDao())
+        eventLogRepository = EventLogRepository(database.eventLogDao())
+        settingsDataStore = SettingsDataStore(application)
+        settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
 
         val toolRegistry = ToolRegistry(emptyList())
-        skillManager = SkillManager(
-            bundledSkillLoader = BundledSkillLoader(
-                assetManager = application.assets,
-                rootPath = "skills",
-                parser = SkillParser(),
-            ),
-            toolExists = { true },
-        )
-        viewModel = ChatViewModel(
-            sessionRepository = sessionRepository,
-            messageRepository = messageRepository,
-            agentRunner = AgentRunner(
-                providerRegistry = ProviderRegistry(
-                    defaultProvider = FakeProvider(
-                        clock = Clock.fixed(
-                            Instant.parse("2026-03-08T00:00:00Z"),
-                            ZoneOffset.UTC,
-                        ),
-                    ),
-                ),
-                skillManager = skillManager,
-                toolRegistry = toolRegistry,
-            ),
+        skillManager = buildSkillManager(application, toolRegistry)
+        viewModel = buildViewModel(
+            toolRegistry = toolRegistry,
             skillManager = skillManager,
         )
     }
 
     @After
-    fun tearDown() {
+    fun tearDown() = runTest {
+        settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
         database.close()
     }
 
@@ -144,23 +132,19 @@ class ChatViewModelTest {
 
     @Test
     fun `provider failures do not leave chat stuck and persist a system error message`() = runTest {
-        viewModel = ChatViewModel(
-            sessionRepository = sessionRepository,
-            messageRepository = messageRepository,
-            agentRunner = AgentRunner(
-                providerRegistry = ProviderRegistry(
-                    defaultProvider = object : ModelProvider {
-                        override val id: String = "failing"
+        viewModel = buildViewModel(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
 
-                        override suspend fun generate(request: ModelRequest): ModelResponse {
-                            throw IllegalStateException("Provider unavailable")
-                        }
-                    },
-                ),
-                skillManager = skillManager,
-                toolRegistry = ToolRegistry(emptyList()),
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        throw ModelProviderException(
+                            kind = ModelProviderFailureKind.Network,
+                            userMessage = "Provider unavailable",
+                        )
+                    }
+                },
             ),
-            skillManager = skillManager,
         )
 
         viewModel.state.test {
@@ -176,11 +160,47 @@ class ChatViewModelTest {
             }
 
             val stored = messageRepository.observeMessages(ready.currentSessionId).first()
+            val events = eventLogRepository.observeRecent(limit = 10).first { it.isNotEmpty() }
             assertEquals("Provider unavailable", failed.errorMessage)
             assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello" })
             assertTrue(stored.any { it.role == MessageRole.System && it.content.contains("Provider unavailable") })
+            assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Provider unavailable" })
         }
     }
+
+    private fun buildViewModel(
+        providerRegistry: ai.androidclaw.runtime.providers.ProviderRegistry = buildTestProviderRegistry(),
+        toolRegistry: ToolRegistry = ToolRegistry(emptyList()),
+        skillManager: SkillManager = this.skillManager,
+    ): ChatViewModel {
+        return ChatViewModel(
+            sessionRepository = sessionRepository,
+            messageRepository = messageRepository,
+            eventLogRepository = eventLogRepository,
+            agentRunner = AgentRunner(
+                providerRegistry = providerRegistry,
+                settingsDataStore = settingsDataStore,
+                messageRepository = messageRepository,
+                skillManager = skillManager,
+                toolRegistry = toolRegistry,
+            ),
+            skillManager = skillManager,
+        )
+    }
+}
+
+private fun buildSkillManager(
+    application: android.app.Application,
+    toolRegistry: ToolRegistry,
+): SkillManager {
+    return SkillManager(
+        bundledSkillLoader = BundledSkillLoader(
+            assetManager = application.assets,
+            rootPath = "skills",
+            parser = SkillParser(),
+        ),
+        toolDescriptor = toolRegistry::findDescriptor,
+    )
 }
 
 private suspend fun ReceiveTurbine<ChatUiState>.awaitState(

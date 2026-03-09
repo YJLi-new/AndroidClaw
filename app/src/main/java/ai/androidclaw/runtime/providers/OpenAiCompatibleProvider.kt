@@ -1,0 +1,226 @@
+package ai.androidclaw.runtime.providers
+
+import ai.androidclaw.data.ProviderSecretStore
+import ai.androidclaw.data.ProviderSettingsSnapshot
+import ai.androidclaw.data.ProviderType
+import ai.androidclaw.data.SettingsDataStore
+import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
+class OpenAiCompatibleProvider(
+    private val settingsDataStore: SettingsDataStore,
+    private val providerSecretStore: ProviderSecretStore,
+    private val baseHttpClient: OkHttpClient,
+    private val json: Json,
+) : ModelProvider {
+    override val id: String = ProviderType.OpenAiCompatible.providerId
+
+    override suspend fun generate(request: ModelRequest): ModelResponse {
+        val settings = settingsDataStore.settings.first()
+        val apiKey = providerSecretStore.readApiKey(ProviderType.OpenAiCompatible)
+
+        validateSettings(settings, apiKey)
+
+        val url = settings.openAiBaseUrl.toHttpUrlOrNull()
+            ?.newBuilder()
+            ?.addPathSegment("chat")
+            ?.addPathSegment("completions")
+            ?.build()
+            ?: throw ModelProviderException(
+                kind = ModelProviderFailureKind.Configuration,
+                userMessage = "Provider base URL is invalid.",
+                details = "Configured base URL: ${settings.openAiBaseUrl}",
+            )
+
+        val payload = OpenAiChatCompletionsRequest(
+            model = settings.openAiModelId,
+            messages = buildMessages(request),
+        )
+        val body = json.encodeToString(OpenAiChatCompletionsRequest.serializer(), payload)
+            .toRequestBody(JSON_MEDIA_TYPE)
+        val httpClient = baseHttpClient.newBuilder()
+            .callTimeout(settings.openAiTimeoutSeconds.toLong(), TimeUnit.SECONDS)
+            .connectTimeout(settings.openAiTimeoutSeconds.toLong(), TimeUnit.SECONDS)
+            .readTimeout(settings.openAiTimeoutSeconds.toLong(), TimeUnit.SECONDS)
+            .writeTimeout(settings.openAiTimeoutSeconds.toLong(), TimeUnit.SECONDS)
+            .build()
+        val httpRequest = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .apply {
+                request.requestId?.let { header("X-Request-Id", it) }
+            }
+            .post(body)
+            .build()
+
+        try {
+            httpClient.newCall(httpRequest).execute().use { response ->
+                val rawBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw mapFailure(response.code, rawBody)
+                }
+                val parsed = try {
+                    json.decodeFromString(OpenAiChatCompletionsResponse.serializer(), rawBody)
+                } catch (error: SerializationException) {
+                    throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "Provider returned malformed JSON.",
+                        details = rawBody.take(MAX_ERROR_BODY_CHARS),
+                        cause = error,
+                    )
+                }
+
+                val assistantText = parsed.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+                if (assistantText.isBlank()) {
+                    throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "Provider response did not contain an assistant message.",
+                        details = rawBody.take(MAX_ERROR_BODY_CHARS),
+                    )
+                }
+
+                return ModelResponse(
+                    text = assistantText,
+                    providerRequestId = parsed.id,
+                )
+            }
+        } catch (error: SocketTimeoutException) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Timeout,
+                userMessage = "Provider request timed out.",
+                details = "Timed out after ${settings.openAiTimeoutSeconds} seconds.",
+                cause = error,
+            )
+        } catch (error: InterruptedIOException) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Timeout,
+                userMessage = "Provider request timed out.",
+                details = "Timed out after ${settings.openAiTimeoutSeconds} seconds.",
+                cause = error,
+            )
+        } catch (error: IOException) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Network,
+                userMessage = "Provider request failed due to a network error.",
+                details = error.message,
+                cause = error,
+            )
+        }
+    }
+
+    private fun validateSettings(settings: ProviderSettingsSnapshot, apiKey: String?) {
+        if (settings.openAiBaseUrl.isBlank()) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Configuration,
+                userMessage = "Provider base URL is required.",
+            )
+        }
+        if (settings.openAiModelId.isBlank()) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Configuration,
+                userMessage = "Provider model ID is required.",
+            )
+        }
+        if (apiKey.isNullOrBlank()) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Configuration,
+                userMessage = "Provider API key is required.",
+            )
+        }
+    }
+
+    private fun buildMessages(request: ModelRequest): List<OpenAiChatMessage> {
+        val messages = mutableListOf<OpenAiChatMessage>()
+        if (request.systemPrompt.isNotBlank()) {
+            messages += OpenAiChatMessage(
+                role = "system",
+                content = request.systemPrompt,
+            )
+        }
+        messages += request.messageHistory.map { message ->
+            OpenAiChatMessage(
+                role = when (message.role) {
+                    ModelMessageRole.System -> "system"
+                    ModelMessageRole.User -> "user"
+                    ModelMessageRole.Assistant -> "assistant"
+                },
+                content = message.content,
+            )
+        }
+        return messages
+    }
+
+    private fun mapFailure(statusCode: Int, rawBody: String): ModelProviderException {
+        val errorMessage = runCatching {
+            json.decodeFromString(OpenAiErrorEnvelope.serializer(), rawBody).error?.message
+        }.getOrNull().orEmpty()
+
+        return when (statusCode) {
+            401, 403 -> ModelProviderException(
+                kind = ModelProviderFailureKind.Authentication,
+                userMessage = "Provider authentication failed.",
+                details = errorMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
+            )
+
+            else -> ModelProviderException(
+                kind = ModelProviderFailureKind.Response,
+                userMessage = "Provider request failed with HTTP $statusCode.",
+                details = errorMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
+            )
+        }
+    }
+
+    private companion object {
+        val JSON_MEDIA_TYPE = "application/json".toMediaType()
+        const val MAX_ERROR_BODY_CHARS = 500
+    }
+}
+
+@Serializable
+private data class OpenAiChatCompletionsRequest(
+    val model: String,
+    val messages: List<OpenAiChatMessage>,
+)
+
+@Serializable
+private data class OpenAiChatMessage(
+    val role: String,
+    val content: String,
+)
+
+@Serializable
+private data class OpenAiChatCompletionsResponse(
+    val id: String? = null,
+    val choices: List<OpenAiChatChoice> = emptyList(),
+)
+
+@Serializable
+private data class OpenAiChatChoice(
+    val message: OpenAiChatMessage = OpenAiChatMessage(role = "assistant", content = ""),
+)
+
+@Serializable
+private data class OpenAiErrorEnvelope(
+    val error: OpenAiErrorPayload? = null,
+)
+
+@Serializable
+private data class OpenAiErrorPayload(
+    val message: String? = null,
+    @SerialName("type")
+    val kind: String? = null,
+    val code: String? = null,
+)

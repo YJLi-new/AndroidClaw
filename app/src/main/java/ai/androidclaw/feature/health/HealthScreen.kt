@@ -15,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun HealthScreen(viewModel: HealthViewModel) {
@@ -33,7 +34,31 @@ fun HealthScreen(viewModel: HealthViewModel) {
         )
         HealthCard(
             title = "Scheduler",
-            body = "Kinds: ${state.supportedKinds.joinToString()} | Exact alarms available: ${state.supportsExactAlarms}",
+            body = buildString {
+                append("Kinds: ").append(state.supportedKinds.joinToString())
+                append("\nExact alarms supported: ").append(state.schedulerDiagnostics.supportsExactAlarms)
+                append("\nExact alarm granted: ").append(state.schedulerDiagnostics.exactAlarmGranted)
+                append(
+                    "\nStandby bucket: ${
+                        state.schedulerDiagnostics.standbyBucket?.label ?: "Unavailable"
+                    }",
+                )
+                if (state.schedulerDiagnostics.isRestrictedBucket) {
+                    append("\nApp is in restricted bucket; background work may be throttled.")
+                }
+            },
+        )
+        HealthCard(
+            title = "Automation diagnostics",
+            body = buildString {
+                append(
+                    "Last scheduler wake: ${
+                        state.lastSchedulerWake?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "None"
+                    }",
+                )
+                append("\nLast automation result: ").append(state.lastAutomationResult ?: "None")
+                append("\nLast worker stop reason: ").append(state.lastWorkerStopReason ?: "None")
+            },
         )
         HealthCard(
             title = "Tool registry",
@@ -47,7 +72,12 @@ fun HealthScreen(viewModel: HealthViewModel) {
                 items(state.recentEvents, key = { it.id }) { event ->
                     HealthCard(
                         title = "${event.category} ${event.level}",
-                        body = event.message,
+                        body = buildString {
+                            append(event.message)
+                            event.details?.takeIf { it.isNotBlank() }?.let { details ->
+                                append("\n").append(details)
+                            }
+                        },
                     )
                 }
             }
