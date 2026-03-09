@@ -524,6 +524,8 @@ scheduler 必须在执行前做最小可用性检查，例如：
 - last automation result
 - exact alarm permission
 - notification permission
+- app notifications enabled / disabled
+- precise reminder may execute but not visibly notify 的警告
 - battery optimization status（能读到就读）
 - standby bucket（能读到就读）
 - OEM 说明入口
@@ -609,9 +611,18 @@ adb shell dumpsys alarm | grep ai.androidclaw.app
 从 WSL 触发 Windows AVD 的标准 smoke：
 
 ```bash
-./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
-./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/check_host_prereqs.sh --required-avd AndroidClawApi34
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest
 ```
+
+WSL 包装脚本会按以下顺序解析 Java：
+
+1. `ANDROIDCLAW_JAVA_HOME`
+2. `JAVA_HOME`
+3. `PATH` 上的 `java`（版本必须 >= 17）
+
+如果找不到 Java 17+，会在真正构建前直接失败。
 
 ### 15.4 Exact alarm 权限
 
@@ -635,7 +646,8 @@ Windows 侧标准准备脚本：
 标准 exact-alarm 回归脚本：
 
 ```bash
-./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/check_host_prereqs.sh --required-avd AndroidClawApi34 --required-avd AndroidClawApi31
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31
 ```
 
 当前仓库的标准回归路径不再依赖 LDPlayer。API 34 fresh-install 用于 deny/degrade；API 31 用于 special-access revoke/grant/revoke 回归。

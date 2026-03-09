@@ -3,7 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 script_root="$repo_root/scripts"
-java_home_default="/home/lanla/.local/jdks/jdk-17.0.18+8"
+
+# Shared Java 17 resolution keeps the WSL wrapper portable across workstations.
+source "$script_root/java_env.sh"
 
 test_class="ai.androidclaw.app.MainActivitySmokeTest"
 avd_name="AndroidClawApi34"
@@ -45,13 +47,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${JAVA_HOME:-}" && -d "$java_home_default" ]]; then
-  export JAVA_HOME="$java_home_default"
-fi
-
-if [[ -n "${JAVA_HOME:-}" ]]; then
-  export PATH="$JAVA_HOME/bin:$PATH"
-fi
+"$script_root/check_host_prereqs.sh" --required-avd "$avd_name"
+androidclaw_use_java17
 
 "$repo_root/gradlew" :app:assembleDebug :app:assembleDebugAndroidTest
 

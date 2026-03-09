@@ -51,6 +51,40 @@ class SchedulerDiagnosticsTest {
         assertEquals("not_stopped", workStopReasonLabel(0))
         assertEquals("code(999)", workStopReasonLabel(999))
     }
+
+    @Test
+    fun `notification visibility warning is exposed for denied permission`() {
+        val diagnostics = SchedulerDiagnostics(
+            notificationVisibility = NotificationVisibilityDiagnostics(
+                runtimePermissionRequired = true,
+                runtimePermissionGranted = false,
+                appNotificationsEnabled = true,
+            ),
+        )
+
+        assertTrue(
+            diagnostics.preciseReminderVisibilityWarning?.contains("Notification permission denied") == true,
+        )
+    }
+
+    @Test
+    fun `precise warnings include exact alarm degradation and notification visibility`() {
+        val warnings = task(precise = true).userVisiblePreciseWarnings(
+            diagnostics = SchedulerDiagnostics(
+                supportsExactAlarms = true,
+                exactAlarmGranted = false,
+                notificationVisibility = NotificationVisibilityDiagnostics(
+                    runtimePermissionRequired = true,
+                    runtimePermissionGranted = false,
+                    appNotificationsEnabled = false,
+                ),
+            ),
+        )
+
+        assertEquals(2, warnings.size)
+        assertTrue(warnings.any { it.contains("permission denied", ignoreCase = true) })
+        assertTrue(warnings.any { it.contains("visible notification", ignoreCase = true) })
+    }
 }
 
 private fun task(precise: Boolean): Task {

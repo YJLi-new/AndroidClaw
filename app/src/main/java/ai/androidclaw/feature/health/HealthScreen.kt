@@ -48,12 +48,31 @@ fun HealthScreen(viewModel: HealthViewModel) {
                 append("\nExact alarms supported: ").append(state.schedulerDiagnostics.supportsExactAlarms)
                 append("\nExact alarm granted: ").append(state.schedulerDiagnostics.exactAlarmGranted)
                 append(
+                    "\nNotification permission: ",
+                ).append(
+                    if (state.schedulerDiagnostics.notificationVisibility.runtimePermissionRequired) {
+                        if (state.schedulerDiagnostics.notificationVisibility.runtimePermissionGranted) {
+                            "granted"
+                        } else {
+                            "denied"
+                        }
+                    } else {
+                        "not required"
+                    },
+                )
+                append(
+                    "\nApp notifications enabled: ",
+                ).append(state.schedulerDiagnostics.notificationVisibility.appNotificationsEnabled)
+                append(
                     "\nStandby bucket: ${
                         state.schedulerDiagnostics.standbyBucket?.label ?: "Unavailable"
                     }",
                 )
                 if (state.schedulerDiagnostics.isRestrictedBucket) {
                     append("\nApp is in restricted bucket; background work may be throttled.")
+                }
+                state.schedulerDiagnostics.preciseReminderVisibilityWarning?.let { warning ->
+                    append("\n").append(warning)
                 }
             },
         )

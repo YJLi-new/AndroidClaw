@@ -1,8 +1,8 @@
 # AndroidClaw Execution Plan v3
 
-> Status: active implementation plan as of 2026-03-09.
+> Archived on 2026-03-09 after `PLANv4.md` adoption.
 >
-> `AGENTS.md` now points here. `PLANv2.md` is retained as archived historical context only.
+> Keep this file for historical context only. `PLANv4.md` is the canonical execution plan.
 
 This is a living document. The sections **Progress**, **Discoveries**, **Decision Log**, **Blockers**, and **Outcomes** must be updated continuously as work proceeds.
 

@@ -10,6 +10,7 @@ import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
+import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -136,7 +137,13 @@ class TasksViewModel(
                 maxRetries = maxRetries,
             )
             schedulerCoordinator.scheduleTask(createdTask.id)
-            actionMessage.value = "Created task ${createdTask.name}."
+            val warnings = createdTask.userVisiblePreciseWarnings(schedulerCoordinator.diagnostics())
+            actionMessage.value = buildString {
+                append("Created task ${createdTask.name}.")
+                warnings.forEach { warning ->
+                    append(' ').append(warning)
+                }
+            }
         }
     }
 

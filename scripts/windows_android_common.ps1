@@ -31,6 +31,37 @@ function Get-AndroidToolPaths {
     }
 }
 
+function Get-HypervisorPlatformInstallState {
+    $feature = Get-CimInstance Win32_OptionalFeature | Where-Object { $_.Name -eq "HypervisorPlatform" } | Select-Object -First 1
+    if ($feature) {
+        return $feature.InstallState
+    }
+
+    return $null
+}
+
+function Get-AvailableAvdNames {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Emulator
+    )
+
+    if (!(Test-Path $Emulator)) {
+        return @()
+    }
+
+    $avds = & $Emulator -list-avds 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return @()
+    }
+
+    return @(
+        $avds |
+            Where-Object { $_ -and $_.Trim() } |
+            ForEach-Object { $_.Trim() }
+    )
+}
+
 function Get-EmulatorSerialForAvd {
     param(
         [Parameter(Mandatory = $true)]

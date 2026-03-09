@@ -2,12 +2,15 @@ package ai.androidclaw.runtime.scheduler
 
 import android.app.AlarmManager
 import android.app.Application
+import android.content.pm.PackageManager
 import android.app.usage.UsageStatsManager
 import android.os.Build
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import java.time.Clock
@@ -51,10 +54,25 @@ class SchedulerCoordinator(
         } else {
             null
         }
+        val notificationPermissionRequired = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        val notificationPermissionGranted = if (notificationPermissionRequired) {
+            ContextCompat.checkSelfPermission(
+                application,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        val appNotificationsEnabled = NotificationManagerCompat.from(application).areNotificationsEnabled()
         return SchedulerDiagnostics(
             supportsExactAlarms = supportsExactAlarms,
             exactAlarmGranted = exactAlarmGranted,
             standbyBucket = standbyBucket,
+            notificationVisibility = NotificationVisibilityDiagnostics(
+                runtimePermissionRequired = notificationPermissionRequired,
+                runtimePermissionGranted = notificationPermissionGranted,
+                appNotificationsEnabled = appNotificationsEnabled,
+            ),
         )
     }
 

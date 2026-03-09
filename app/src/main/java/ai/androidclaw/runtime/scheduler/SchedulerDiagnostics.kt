@@ -7,9 +7,13 @@ data class SchedulerDiagnostics(
     val supportsExactAlarms: Boolean = false,
     val exactAlarmGranted: Boolean = false,
     val standbyBucket: StandbyBucketInfo? = null,
+    val notificationVisibility: NotificationVisibilityDiagnostics = NotificationVisibilityDiagnostics(),
 ) {
     val isRestrictedBucket: Boolean
         get() = standbyBucket?.isRestricted == true
+
+    val preciseReminderVisibilityWarning: String?
+        get() = notificationVisibility.preciseReminderVisibilityWarning
 }
 
 data class StandbyBucketInfo(
@@ -18,6 +22,23 @@ data class StandbyBucketInfo(
 ) {
     val isRestricted: Boolean
         get() = value == UsageStatsManager.STANDBY_BUCKET_RESTRICTED
+}
+
+data class NotificationVisibilityDiagnostics(
+    val runtimePermissionRequired: Boolean = false,
+    val runtimePermissionGranted: Boolean = true,
+    val appNotificationsEnabled: Boolean = true,
+) {
+    val preciseReminderVisibilityWarning: String?
+        get() = when {
+            !appNotificationsEnabled && runtimePermissionRequired && !runtimePermissionGranted ->
+                "Notification permission denied and app notifications disabled; precise reminders may run without a visible notification."
+            runtimePermissionRequired && !runtimePermissionGranted ->
+                "Notification permission denied; precise reminders may run without a visible notification."
+            !appNotificationsEnabled ->
+                "App notifications are disabled; precise reminders may run without a visible notification."
+            else -> null
+        }
 }
 
 enum class TaskSchedulingPath {
@@ -54,6 +75,25 @@ fun Task.schedulingDecision(diagnostics: SchedulerDiagnostics): TaskSchedulingDe
         )
     }
     return TaskSchedulingDecision(path = TaskSchedulingPath.ExactAlarm)
+}
+
+fun Task.userVisiblePreciseWarnings(diagnostics: SchedulerDiagnostics): List<String> {
+    if (!precise) {
+        return emptyList()
+    }
+
+    return diagnostics.preciseSchedulingWarnings()
+}
+
+fun SchedulerDiagnostics.preciseSchedulingWarnings(): List<String> {
+    return buildList {
+        if (!supportsExactAlarms) {
+            add("Exact alarms are unavailable on this device; falling back to approximate.")
+        } else if (!exactAlarmGranted) {
+            add("Exact alarm permission denied; falling back to approximate.")
+        }
+        preciseReminderVisibilityWarning?.let(::add)
+    }.distinct()
 }
 
 fun standbyBucketLabel(bucket: Int): String {

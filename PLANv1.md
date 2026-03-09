@@ -1,5 +1,7 @@
 # Build AndroidClaw v0 as a lightweight Android-native assistant host
 
+> Archived historical plan. `PLANv4.md` is the canonical execution plan.
+
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 This repository is expected to start from an empty or near-empty Android project. The reader should assume no prior repository memory beyond this file and `AGENTS.md`.

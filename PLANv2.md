@@ -1,6 +1,6 @@
 # AndroidClaw v0 Execution Plan — Phase 2
 
-> Archived on 2026-03-09. `PLANv3.md` is the active implementation plan. Keep this file for historical reference only.
+> Archived on 2026-03-09. `PLANv4.md` is the canonical execution plan. Keep this file for historical reference only.
 
 This plan picks up from the bootstrap skeleton completed on 2026-03-08 and drives the project to a working v0 that satisfies the acceptance flow defined in the original plan (install → chat → persist → schedule → skill → survive kill).
 

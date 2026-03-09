@@ -7,7 +7,9 @@ import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.scheduler.TaskSchedulingDecision
 import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
+import ai.androidclaw.runtime.scheduler.preciseSchedulingWarnings
 import ai.androidclaw.runtime.scheduler.schedulingDecision
+import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -101,9 +103,26 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 body = buildString {
                     append("Supported: ").append(state.diagnostics.supportsExactAlarms)
                     append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
+                    append("\nNotification permission: ").append(
+                        if (state.diagnostics.notificationVisibility.runtimePermissionRequired) {
+                            if (state.diagnostics.notificationVisibility.runtimePermissionGranted) {
+                                "granted"
+                            } else {
+                                "denied"
+                            }
+                        } else {
+                            "not required"
+                        },
+                    )
+                    append(
+                        "\nApp notifications enabled: ",
+                    ).append(state.diagnostics.notificationVisibility.appNotificationsEnabled)
                     append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
                     if (state.diagnostics.isRestrictedBucket) {
                         append("\nApp is in restricted bucket; background work may be delayed.")
+                    }
+                    state.diagnostics.preciseReminderVisibilityWarning?.let { warning ->
+                        append("\n").append(warning)
                     }
                 },
             )
@@ -238,6 +257,15 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             onCheckedChange = { precise = it },
                         )
                     }
+                    if (precise) {
+                        val creationWarnings = state.diagnostics.preciseSchedulingWarnings()
+                        if (creationWarnings.isNotEmpty()) {
+                            SchedulerCard(
+                                title = "Precise reminder warning",
+                                body = creationWarnings.joinToString("\n"),
+                            )
+                        }
+                    }
                     Button(
                         onClick = {
                             val minimumMinutes = state.capabilities.minimumBackgroundInterval.toMinutes()
@@ -306,6 +334,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
                 TaskCard(
                     task = task,
                     decision = decision,
+                    preciseWarnings = task.userVisiblePreciseWarnings(state.diagnostics),
                     restrictedBucket = state.diagnostics.isRestrictedBucket,
                     recentRuns = state.recentRunsByTaskId[task.id].orEmpty(),
                     onToggleEnabled = { viewModel.toggleEnabled(task.id) },
@@ -321,6 +350,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
 private fun TaskCard(
     task: Task,
     decision: TaskSchedulingDecision,
+    preciseWarnings: List<String>,
     restrictedBucket: Boolean,
     recentRuns: List<TaskRun>,
     onToggleEnabled: () -> Unit,
@@ -335,7 +365,7 @@ private fun TaskCard(
             Text(task.name, style = MaterialTheme.typography.titleMedium)
             Text(task.prompt, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = taskCardBody(task, decision, restrictedBucket),
+                text = taskCardBody(task, decision, preciseWarnings, restrictedBucket),
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
@@ -402,6 +432,7 @@ private fun SchedulerCard(title: String, body: String) {
 private fun taskCardBody(
     task: Task,
     decision: TaskSchedulingDecision,
+    preciseWarnings: List<String>,
     restrictedBucket: Boolean,
 ): String {
     return buildString {
@@ -420,6 +451,11 @@ private fun taskCardBody(
         decision.degradedReason?.let { reason ->
             append("\n").append(reason)
         }
+        preciseWarnings
+            .filterNot { it == decision.degradedReason }
+            .forEach { warning ->
+                append("\n").append(warning)
+            }
         if (restrictedBucket) {
             append("\nApp standby bucket is restricted; background work may be delayed.")
         }

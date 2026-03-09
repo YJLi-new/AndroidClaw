@@ -17,10 +17,10 @@ The first release optimizes for these outcomes, in this order:
 
 ## Read this first
 
-1. Read `PLANv3.md` before making any non-trivial change.
-2. Treat `PLANv3.md` as the current source of truth for architecture, milestones, acceptance criteria, and trade-offs.
-3. If the task changes scope or invalidates the plan, update `PLANv3.md` first, then code.
-4. Keep `PLANv3.md` current while you work. It is a living document, not a static design note.
+1. Read `PLANv4.md` before making any non-trivial change.
+2. Treat `PLANv4.md` as the current source of truth for architecture, milestones, acceptance criteria, and trade-offs.
+3. If the task changes scope or invalidates the plan, update `PLANv4.md` first, then code.
+4. Keep `PLANv4.md` current while you work. It is a living document, not a static design note.
 
 ## Working model
 
@@ -33,13 +33,13 @@ Work in this loop:
 3. Make the smallest diff that completes that step.
 4. Run validation immediately.
 5. Fix failures before moving on.
-6. Update `PLANv3.md` with progress, discoveries, and decisions.
+6. Update `PLANv4.md` with progress, discoveries, and decisions.
 
 Do not ask for “next steps” if the plan already names them. Continue until the current milestone is done or you hit a real blocker.
 
 ## Hard constraints
 
-These are non-negotiable for v0 unless `PLANv3.md` is explicitly changed.
+These are non-negotiable for v0 unless `PLANv4.md` is explicitly changed.
 
 - Do **not** embed Node.js, Docker, Chromium, or a desktop host runtime in the base app.
 - Do **not** build AndroidClaw as a remote-first companion node. The phone app is the host in v0.
@@ -64,7 +64,7 @@ If a requested change does not improve one of these contracts or the lightweight
 
 ## Product boundaries for v0
 
-These are out of scope unless `PLANv3.md` explicitly adds them:
+These are out of scope unless `PLANv4.md` explicitly adds them:
 
 - Telegram, WhatsApp, Gmail, Discord, Slack, or other external channel integrations
 - Browser automation, embedded Chromium, or heavy WebView-driven features
@@ -91,7 +91,8 @@ Optimize for **agent legibility** and **runtime lightness**.
 At minimum, the repo should converge toward:
 
 - `AGENTS.md`
-- `PLANv3.md`
+- `PLANv4.md`
+- archived history: `PLANv1.md`, `PLANv2.md`, `PLANv3.md`
 - `app/`
 - optional later: `baselineprofile/`
 - optional later: `docs/exec-plans/active/`
@@ -146,8 +147,8 @@ Prefer deterministic local testing over flaky remote testing.
 `AGENTS.md` is the map, not the encyclopedia.
 
 - Keep this file short and stable.
-- Put active implementation detail in `PLANv3.md`.
-- If work becomes too large for one plan, create a child plan under `docs/exec-plans/active/<slug>.md` and link it from `PLANv3.md`.
+- Put active implementation detail in `PLANv4.md`.
+- If work becomes too large for one plan, create a child plan under `docs/exec-plans/active/<slug>.md` and link it from `PLANv4.md`.
 - Delete or update stale docs immediately. Outdated docs are bugs.
 
 ## Decision rules
@@ -158,4 +159,4 @@ When in doubt:
 2. Preserve the four compatibility contracts.
 3. Prefer simpler Android-native code over desktop-port cleverness.
 4. Prefer testable, additive changes over broad refactors.
-5. Record the trade-off in `PLANv3.md`.
+5. Record the trade-off in `PLANv4.md`.
