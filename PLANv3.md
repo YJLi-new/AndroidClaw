@@ -53,12 +53,12 @@ The repository is no longer in bootstrap state. It already contains:
 - Compose navigation shell
 - Room database and repositories
 - session/message/task/skill/event models
-- `FakeProvider`
-- a small `ToolRegistry`
+- `FakeProvider` plus one real OpenAI-compatible provider path
+- a typed `ToolRegistry`
 - bundled skill loading and parsing
-- scheduler preview semantics (`once`, `interval`, `cron`)
+- durable scheduler execution and exact-alarm diagnostics
 - JVM coverage for most repository/runtime/viewmodel surfaces
-- audit remediation for structured tool/provider failure handling, cached bundled skills, explicit `runNow` unsupported state, and removal of the plain-text API-key placeholder
+- audit remediation for structured tool/provider failure handling, cached bundled skills, real `runNow`, and removal of the plain-text API-key placeholder
 
 The latest known validated state from the repository handoff is:
 
@@ -82,14 +82,9 @@ Treat that device-test issue as a **real engineering blocker**, not as a reason 
 
 ### What is clearly still missing
 
-- one real network provider path
-- durable tool-call contract beyond demo tools
-- real scheduler execution (`TaskExecutionWorker` is still a stub)
-- working `runNow`
+- provider-specific network tool-calling beyond the internal fake/runtime loop
 - skill import + precedence across bundled/local/workspace
-- durable skill enable/disable lifecycle
-- session-lane concurrency protection
-- instrumentation path owned by the repo
+- full durable skill lifecycle and user-visible enable/disable controls
 - baseline profiles
 - release-grade DB migration policy
 
@@ -118,9 +113,9 @@ Seeded current state:
 - [x] (2026-03-09) m4-scheduler-core-runtime — WorkManager-backed scheduling, real worker execution, durable `TaskRun` history, `runNow`, `MAIN_SESSION`/`ISOLATED_SESSION`, and reschedule-on-startup shipped with JVM coverage.
 - [x] (2026-03-09) m4-scheduler-core — planner/backoff, durable worker execution, recurring reschedule, and device-backed scheduler smoke shipped.
 - [x] (2026-03-09) m5-scheduler-diagnostics-core — precise-vs-approximate scheduling decisions, exact-alarm receiver wiring, scheduler diagnostics UI, stop-reason capture, adb QA notes, and Robolectric exact-path coordinator coverage shipped.
+- [x] (2026-03-09) m7-runtime-turn-loop — WorkManager worker DI via `Configuration.Provider`/`WorkerFactory`, provider tool-call contract, `FakeProvider` tool-call simulation, session-lane serialization, prompt assembly, and unified interactive/scheduled runtime persistence shipped with JVM plus device-backed scheduler smoke coverage.
 - [ ] m5-scheduler-precision-and-diagnostics
 - [ ] m6-skills-lifecycle
-- [ ] m7-runtime-turn-loop
 - [ ] m8-gui-completion
 - [ ] m9-persistence-hardening
 - [ ] m10-performance-and-baseline-profiles
@@ -148,6 +143,7 @@ Seeded discoveries:
 - The LDPlayer fallback harness can now target arbitrary instrumented test classes, so milestone-specific device smokes do not require editing the script or running only `MainActivitySmokeTest`.
 - WorkManager exposes stop-reason values to app code only behind an Android 12 / API 31 gate here, and the symbolic stop-reason constants are not available as stable public app-facing constants at this surface. Scheduler diagnostics therefore need a local API guard and should treat stop reasons as raw codes unless a better public API appears.
 - Robolectric’s `ShadowAlarmManager` in this repo’s test stack can model both exact-alarm grant/deny state and the pending exact-alarm queue, so the scheduler’s exact-vs-approximate routing can be covered in JVM tests without waiting on device-side special-access state.
+- Once `AndroidClawApplication` implements `androidx.work.Configuration.Provider`, lint requires removing `androidx.work.WorkManagerInitializer` from the manifest; the custom `WorkerFactory` plus on-demand WorkManager initialization path are compatible with the existing scheduler tests here.
 
 ---
 
@@ -201,6 +197,10 @@ Seeded decisions:
 
 - Decision: Health/event diagnostics record worker stop reasons as raw codes behind an API-31 guard instead of symbolic names.
   Rationale: the runtime stop-reason value is available, but the stable public constant surface is not ergonomic enough here to justify brittle reflection or hidden-API coupling.
+- Decision: Session writes serialize per `sessionId` with an always-queue mutex policy.
+  Rationale: interactive chat and scheduled task delivery now share one runtime path, so queueing is the smallest correct way to prevent transcript interleaving without inventing new failure modes.
+- Decision: The first tool-call-loop milestone targets the internal provider/runtime contract plus `FakeProvider`; `OpenAiCompatibleProvider` remains text-only for now.
+  Rationale: this lands one real vertical slice without coupling the runtime refactor to vendor-specific network protocol work.
 ---
 
 ## Blockers
@@ -226,6 +226,7 @@ Leave empty until milestones finish. Each completed milestone should add one sho
 - m2-provider-v1 (2026-03-09): AndroidClaw now supports both `FakeProvider` and an `OpenAI-compatible` provider behind a typed request/response contract. Provider selection, base URL, model ID, and timeout persist through `SettingsDataStore`; the API key is stored through a minimal keystore-backed `ProviderSecretStore` instead of plain-text DataStore; chat now logs and persists provider failures cleanly; health reflects the selected provider; and deterministic JVM coverage exists for settings mapping plus OpenAI-compatible success/error/timeout paths. Streaming, multimodal inputs, and multi-provider orchestration remain intentionally out of scope. On this workstation, fast validation was completed with a session-local Linux JDK 17 at `/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8` because the default WSL `java` is still Java 8.
 - m3-tools-v1 (2026-03-09): AndroidClaw now exposes a usable typed tool contract: `ToolRegistry` supports canonical names plus aliases, required-argument validation, structured error codes, permission metadata, and live availability; built-in `health.status`, `sessions.list`, `tasks.list`, `skills.list`, and `notifications.post` are wired through a shared factory; skill eligibility explains both missing and blocked tools; and slash-dispatched tool skills now execute directly when eligible or return availability reasons immediately when blocked. Deterministic JVM coverage now exists for registry failures, built-in tools, and direct slash-tool dispatch. `http.fetch` and richer schema/type validation were intentionally left out of this milestone so the next agent can move into scheduler execution and skill lifecycle work on top of a stable tool surface.
 - m4-scheduler-core (2026-03-09): The scheduler is now durable instead of preview-only. `SchedulerCoordinator` owns `scheduleTask`, `cancelTask`, `rescheduleAll`, and `runNow`; `TaskPlanner` centralizes next-run and retry/backoff decisions; `TaskExecutionWorker` creates real `TaskRun` history, executes tasks in `MAIN_SESSION` or `ISOLATED_SESSION`, updates task state, and reschedules recurring work; and app startup reconstructs pending work from the task table. JVM coverage now exercises planner logic, coordinator rescheduling, worker success paths, recurring reschedule, manual-run semantics, and isolated delivery. Device-backed validation now also exists through `TaskExecutionWorkerSmokeTest`, runnable from the repo’s LDPlayer harness alongside `MainActivitySmokeTest`. Exact alarms, standby diagnostics UI, and precise-trigger degradation messaging remain intentionally deferred to `m5`.
+- m7-runtime-turn-loop (2026-03-09): AndroidClaw now has a real vertical runtime slice instead of split chat-vs-scheduler persistence paths. `AndroidClawApplication` exposes a custom WorkManager configuration backed by `AppWorkerFactory`; `TaskExecutionWorker` receives injected dependencies instead of casting the application; `ModelRequest`/`ModelResponse` now support tool-call metadata; `FakeProvider` can deterministically request tools; `AgentRunner` owns persisted turn execution with `PromptAssembler`, a bounded tool-call loop, and per-session mutex serialization; and scheduled plus interactive turns now converge through the same persisted runtime contract. Bundled skill state also has a minimal repository-backed seam so later lifecycle work does not require another runtime redesign. `OpenAiCompatibleProvider` still does not speak vendor-side tool calling, and full skill import/precedence work remains deferred to `m6`.
 
 ---
 
@@ -1508,23 +1509,22 @@ Practical implications for AndroidClaw:
 If Codex starts from this plan with no further human steering, do these next:
 
 ## Packet 1
-Adopt this plan cleanly:
-- make `PLANv3.md` the canonical plan or point `AGENTS.md` to it
-- archive/supersede older plan references
+Close the remaining `m5` diagnostics gap:
+- run the exact-alarm deny/degrade QA path on device
+- tighten any user-visible diagnostics or health wording that still assumes approximate-only scheduling
+- keep adb/device validation notes current
 
 ## Packet 2
-Unblock instrumentation:
-- add `androidTest`
-- add one smoke test
-- configure one Gradle Managed Device
-- document the canonical instrumentation command
+Start `m6-skills-lifecycle` on top of the new runtime seam:
+- persist real bundled skill enable/disable controls
+- add import/precedence scanning for bundled/local/workspace
+- keep runtime skill snapshots compatible with the existing turn loop
 
 ## Packet 3
-Start provider v1:
-- harden provider/request models
-- add minimal secret seam
-- implement one real network provider with deterministic tests
-- wire settings UI for provider selection/config
+Then move to `m8-gui-completion`:
+- expose the now-real scheduler/runtime state cleanly in Tasks/Health/Skills
+- make provider/task/skill configuration discoverable without reading code
+- avoid starting release/perf polish before those control surfaces are real
 
 Do **not** start browser tools, external channels, or remote bridge work before these three packets are complete.
 

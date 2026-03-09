@@ -41,6 +41,7 @@ data class ToolDescriptor(
     val requiredPermissions: List<ToolPermissionRequirement> = emptyList(),
     val availability: ToolAvailability = ToolAvailability(),
     val arguments: List<ToolArgumentSpec> = emptyList(),
+    val inputSchema: JsonObject = buildToolInputSchema(arguments),
 )
 
 data class ToolExecutionResult(
@@ -208,6 +209,34 @@ class ToolRegistry(
 private fun List<String>.toStringJsonArray(): JsonArray {
     return buildJsonArray {
         forEach { add(JsonPrimitive(it)) }
+    }
+}
+
+private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject {
+    return buildJsonObject {
+        put("type", "object")
+        put(
+            "properties",
+            buildJsonObject {
+                arguments.forEach { argument ->
+                    put(
+                        argument.name,
+                        buildJsonObject {
+                            put("type", "string")
+                            argument.description.takeIf { it.isNotBlank() }?.let { put("description", it) }
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "required",
+            buildJsonArray {
+                arguments.filter { it.required }.forEach { argument ->
+                    add(JsonPrimitive(argument.name))
+                }
+            },
+        )
     }
 }
 

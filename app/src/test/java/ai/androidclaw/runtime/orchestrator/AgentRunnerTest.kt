@@ -5,6 +5,7 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibility
@@ -45,15 +46,19 @@ class AgentRunnerTest {
     private lateinit var application: android.app.Application
     private lateinit var database: AndroidClawDatabase
     private lateinit var messageRepository: MessageRepository
+    private lateinit var sessionRepository: SessionRepository
     private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var sessionId: String
 
     @Before
     fun setUp() = runTest {
         application = ApplicationProvider.getApplicationContext()
         database = buildTestDatabase(application)
         messageRepository = MessageRepository(database.messageDao())
+        sessionRepository = SessionRepository(database.sessionDao())
         settingsDataStore = SettingsDataStore(application)
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+        sessionId = sessionRepository.createSession("Test session").id
     }
 
     @After
@@ -90,20 +95,26 @@ class AgentRunnerTest {
             messageRepository = messageRepository,
             skillManager = skillManager,
             toolRegistry = toolRegistry,
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
         )
 
         val result = runner.runInteractiveTurn(
             AgentTurnRequest(
-                sessionId = "session-1",
+                sessionId = sessionId,
                 userMessage = "/list_tasks pending",
             ),
         )
 
-        assertEquals("Tasks tool reached", result.assistantMessage)
+        assertTrue(result.assistantMessage.contains("Tasks tool reached"))
         assertEquals(listOf("list_tasks"), result.selectedSkills.map { it.displayName })
         assertNotNull(result.directToolResult)
         assertEquals("pending", result.directToolResult?.payload?.get("command")?.jsonPrimitive?.content)
         assertNull(result.providerRequestId)
+        val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
+        assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolCall })
+        assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolResult })
+        assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.Assistant })
     }
 
     @Test
@@ -144,11 +155,13 @@ class AgentRunnerTest {
             messageRepository = messageRepository,
             skillManager = skillManager,
             toolRegistry = toolRegistry,
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
         )
 
         val result = runner.runInteractiveTurn(
             AgentTurnRequest(
-                sessionId = "session-1",
+                sessionId = sessionId,
                 userMessage = "/list_tasks",
             ),
         )
@@ -158,6 +171,55 @@ class AgentRunnerTest {
         assertEquals(listOf("list_tasks"), result.selectedSkills.map { it.displayName })
         assertNull(result.directToolResult)
         assertNull(result.providerRequestId)
+    }
+
+    @Test
+    fun `provider-driven tool call loop persists tool messages and final assistant response`() = runTest {
+        val toolRegistry = ToolRegistry(
+            tools = listOf(
+                ToolRegistry.Entry(
+                    descriptor = ToolDescriptor(
+                        name = "health.status",
+                        description = "Report health",
+                    ),
+                ) { _ ->
+                    ToolExecutionResult.success(
+                        summary = "Health okay",
+                        payload = buildJsonObject {
+                            put("status", "ok")
+                        },
+                    )
+                },
+            ),
+        )
+        val runner = AgentRunner(
+            providerRegistry = buildTestProviderRegistry(),
+            settingsDataStore = settingsDataStore,
+            messageRepository = messageRepository,
+            skillManager = buildSkillManager(toolRegistry),
+            toolRegistry = toolRegistry,
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
+        )
+
+        val result = runner.runInteractiveTurn(
+            AgentTurnRequest(
+                sessionId = sessionId,
+                userMessage = "Please inspect [tool:health.status]",
+            ),
+        )
+
+        val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
+
+        assertTrue(result.assistantMessage.contains("Reply: Please inspect [tool:health.status]"))
+        assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolCall })
+        assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolResult })
+        assertTrue(
+            storedMessages.any { message ->
+                message.role == ai.androidclaw.data.model.MessageRole.Assistant &&
+                    message.content.contains("Tool result:")
+            },
+        )
     }
 
     private fun buildSkillManager(toolRegistry: ToolRegistry): SkillManager {
@@ -173,6 +235,7 @@ class AgentRunnerTest {
                     ),
                 ),
             ),
+            skillRepository = ai.androidclaw.data.repository.SkillRepository(database.skillRecordDao()),
             toolDescriptor = toolRegistry::findDescriptor,
         )
     }

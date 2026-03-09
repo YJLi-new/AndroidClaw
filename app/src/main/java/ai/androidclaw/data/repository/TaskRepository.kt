@@ -177,7 +177,7 @@ private fun String.toTaskExecutionMode(): TaskExecutionMode {
     return when (this) {
         "MAIN_SESSION" -> TaskExecutionMode.MainSession
         "ISOLATED_SESSION" -> TaskExecutionMode.IsolatedSession
-        else -> error("Unsupported task execution mode: $this")
+        else -> TaskExecutionMode.MainSession
     }
 }
 
@@ -198,7 +198,7 @@ private fun String.toTaskRunStatus(): TaskRunStatus {
         "SUCCESS" -> TaskRunStatus.Success
         "FAILURE" -> TaskRunStatus.Failure
         "SKIPPED" -> TaskRunStatus.Skipped
-        else -> error("Unsupported task run status: $this")
+        else -> TaskRunStatus.Failure
     }
 }
 

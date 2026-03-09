@@ -77,6 +77,6 @@ private fun String.toMessageRole(): MessageRole {
         "tool_call" -> MessageRole.ToolCall
         "tool_result" -> MessageRole.ToolResult
         "system" -> MessageRole.System
-        else -> error("Unsupported message role: $this")
+        else -> MessageRole.System
     }
 }

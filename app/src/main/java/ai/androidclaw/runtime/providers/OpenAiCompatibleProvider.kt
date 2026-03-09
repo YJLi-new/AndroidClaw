@@ -156,6 +156,7 @@ class OpenAiCompatibleProvider(
                     ModelMessageRole.System -> "system"
                     ModelMessageRole.User -> "user"
                     ModelMessageRole.Assistant -> "assistant"
+                    ModelMessageRole.Tool -> "tool"
                 },
                 content = message.content,
             )

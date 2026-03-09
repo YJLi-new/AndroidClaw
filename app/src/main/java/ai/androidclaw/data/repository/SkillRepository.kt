@@ -30,6 +30,10 @@ class SkillRepository(
         records.map { it.toDomain(json) }
     }
 
+    suspend fun getAllSkills(): List<SkillRecord> {
+        return dao.getAllOnce().map { it.toDomain(json) }
+    }
+
     suspend fun getEnabledSkills(): List<SkillRecord> {
         return dao.getEnabled().map { it.toDomain(json) }
     }
@@ -94,7 +98,7 @@ private fun String.toSkillSourceType(): SkillSourceType {
         "bundled" -> SkillSourceType.Bundled
         "local" -> SkillSourceType.Local
         "workspace" -> SkillSourceType.Workspace
-        else -> error("Unsupported skill source type: $this")
+        else -> SkillSourceType.Local
     }
 }
 
@@ -113,6 +117,6 @@ private fun String.toSkillEligibilityStatus(): SkillEligibilityStatus {
         "Invalid" -> SkillEligibilityStatus.Invalid
         "MissingTool" -> SkillEligibilityStatus.MissingTool
         "BridgeOnly" -> SkillEligibilityStatus.BridgeOnly
-        else -> error("Unsupported skill eligibility status: $this")
+        else -> SkillEligibilityStatus.Invalid
     }
 }

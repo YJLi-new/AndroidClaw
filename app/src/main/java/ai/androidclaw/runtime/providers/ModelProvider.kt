@@ -2,6 +2,7 @@ package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.runtime.tools.ToolDescriptor
+import kotlinx.serialization.json.JsonObject
 
 enum class ModelRunMode {
     Interactive,
@@ -12,11 +13,21 @@ enum class ModelMessageRole {
     System,
     User,
     Assistant,
+    Tool,
 }
 
 data class ModelMessage(
     val role: ModelMessageRole,
     val content: String,
+    val toolCallId: String? = null,
+    val toolName: String? = null,
+    val toolCalls: List<ProviderToolCall> = emptyList(),
+)
+
+data class ProviderToolCall(
+    val id: String,
+    val name: String,
+    val argumentsJson: JsonObject,
 )
 
 data class ModelSkillMetadata(
@@ -39,6 +50,8 @@ data class ModelRequest(
 data class ModelResponse(
     val text: String,
     val providerRequestId: String? = null,
+    val finishReason: String = "stop",
+    val toolCalls: List<ProviderToolCall> = emptyList(),
 )
 
 interface ModelProvider {

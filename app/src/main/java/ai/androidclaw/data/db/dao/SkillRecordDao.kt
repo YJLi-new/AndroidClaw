@@ -17,6 +17,9 @@ interface SkillRecordDao {
     @Query("SELECT * FROM skill_records ORDER BY displayName ASC")
     fun getAll(): Flow<List<SkillRecordEntity>>
 
+    @Query("SELECT * FROM skill_records ORDER BY displayName ASC")
+    suspend fun getAllOnce(): List<SkillRecordEntity>
+
     @Query("SELECT * FROM skill_records WHERE enabled = 1 ORDER BY displayName ASC")
     suspend fun getEnabled(): List<SkillRecordEntity>
 
@@ -26,4 +29,3 @@ interface SkillRecordDao {
     @Query("DELETE FROM skill_records WHERE id = :id")
     suspend fun delete(id: String)
 }
-

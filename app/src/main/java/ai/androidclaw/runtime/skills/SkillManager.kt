@@ -1,7 +1,10 @@
 package ai.androidclaw.runtime.skills
 
+import ai.androidclaw.data.model.SkillRecord
+import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
+import java.time.Instant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
@@ -12,6 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 class SkillManager(
     private val bundledSkillLoader: BundledSkillLoader,
+    private val skillRepository: SkillRepository,
     private val toolDescriptor: (String) -> ToolDescriptor?,
 ) {
     private val cacheMutex = Mutex()
@@ -22,9 +26,25 @@ class SkillManager(
             if (!forceRefresh) {
                 cachedBundledSkills?.let { return@withLock it }
             }
+            val storedSkills = skillRepository.getAllSkills().associateBy(SkillRecord::id)
             bundledSkillLoader.load()
                 .map(::applyEligibility)
-                .also { cachedBundledSkills = it }
+                .map { skill ->
+                    val stored = storedSkills[skill.id]
+                    if (stored == null) {
+                        skill
+                    } else {
+                        skill.copy(enabled = stored.enabled)
+                    }
+                }
+                .also { skills ->
+                    skillRepository.upsertAll(
+                        skills.map { skill ->
+                            skill.toRecord(storedSkills[skill.id])
+                        },
+                    )
+                    cachedBundledSkills = skills
+                }
         }
     }
 
@@ -90,6 +110,22 @@ class SkillManager(
             )
         }
     }
+}
+
+private fun SkillSnapshot.toRecord(existing: SkillRecord?): SkillRecord {
+    val now = Instant.now()
+    return SkillRecord(
+        id = id,
+        sourceType = sourceType,
+        enabled = existing?.enabled ?: enabled,
+        displayName = displayName,
+        description = frontmatter?.description.orEmpty(),
+        frontmatter = frontmatter,
+        eligibilityStatus = eligibility.status,
+        eligibilityReasons = eligibility.reasons,
+        importedAt = existing?.importedAt,
+        updatedAt = now,
+    )
 }
 
 private fun ToolDescriptor.toEligibilityReason(): String {

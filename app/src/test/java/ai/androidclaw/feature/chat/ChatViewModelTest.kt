@@ -10,6 +10,8 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.runtime.orchestrator.AgentRunner
+import ai.androidclaw.runtime.orchestrator.PromptAssembler
+import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
@@ -61,7 +63,7 @@ class ChatViewModelTest {
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
 
         val toolRegistry = ToolRegistry(emptyList())
-        skillManager = buildSkillManager(application, toolRegistry)
+        skillManager = buildSkillManager(application, toolRegistry, skillRepository = ai.androidclaw.data.repository.SkillRepository(database.skillRecordDao()))
         viewModel = buildViewModel(
             toolRegistry = toolRegistry,
             skillManager = skillManager,
@@ -183,6 +185,8 @@ class ChatViewModelTest {
                 messageRepository = messageRepository,
                 skillManager = skillManager,
                 toolRegistry = toolRegistry,
+                sessionLaneCoordinator = SessionLaneCoordinator(),
+                promptAssembler = PromptAssembler(),
             ),
             skillManager = skillManager,
         )
@@ -192,6 +196,7 @@ class ChatViewModelTest {
 private fun buildSkillManager(
     application: android.app.Application,
     toolRegistry: ToolRegistry,
+    skillRepository: ai.androidclaw.data.repository.SkillRepository,
 ): SkillManager {
     return SkillManager(
         bundledSkillLoader = BundledSkillLoader(
@@ -199,6 +204,7 @@ private fun buildSkillManager(
             rootPath = "skills",
             parser = SkillParser(),
         ),
+        skillRepository = skillRepository,
         toolDescriptor = toolRegistry::findDescriptor,
     )
 }

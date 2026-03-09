@@ -12,6 +12,8 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
+import ai.androidclaw.runtime.orchestrator.PromptAssembler
+import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
@@ -40,6 +42,8 @@ class AppContainer(application: Application) {
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
     val skillRepository = SkillRepository(database.skillRecordDao())
     val eventLogRepository = EventLogRepository(database.eventLogDao())
+    val sessionLaneCoordinator = SessionLaneCoordinator()
+    val promptAssembler = PromptAssembler()
 
     val toolRegistry = createBuiltInToolRegistry(
         application = application,
@@ -57,6 +61,7 @@ class AppContainer(application: Application) {
 
     val skillManager = SkillManager(
         bundledSkillLoader = bundledSkillLoader,
+        skillRepository = skillRepository,
         toolDescriptor = toolRegistry::findDescriptor,
     ).also { skillManagerRef = it }
 
@@ -86,12 +91,15 @@ class AppContainer(application: Application) {
         messageRepository = messageRepository,
         skillManager = skillManager,
         toolRegistry = toolRegistry,
+        sessionLaneCoordinator = sessionLaneCoordinator,
+        promptAssembler = promptAssembler,
     )
 
     val taskRuntimeExecutor = TaskRuntimeExecutor(
         sessionRepository = sessionRepository,
         messageRepository = messageRepository,
         agentRunner = agentRunner,
+        sessionLaneCoordinator = sessionLaneCoordinator,
     )
 
     val schedulerCoordinator = SchedulerCoordinator(
@@ -100,6 +108,7 @@ class AppContainer(application: Application) {
         taskRepository = taskRepository,
         eventLogRepository = eventLogRepository,
     )
+    val workerFactory = AppWorkerFactory { this }
 
     val chatDependencies: ChatDependencies
         get() = ChatDependencies(

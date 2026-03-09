@@ -57,6 +57,7 @@ class TaskExecutionWorkerSmokeTest {
             targetSessionId = mainSession.id,
         )
         val worker = TestListenableWorkerBuilder<TaskExecutionWorker>(application)
+            .setWorkerFactory(application.container.workerFactory)
             .setInputData(
                 Data.Builder()
                     .putString(TaskExecutionWorker.KEY_TASK_ID, task.id)

@@ -5,6 +5,7 @@ import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
+import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -21,6 +22,7 @@ class TaskRuntimeExecutor(
     private val sessionRepository: SessionRepository,
     private val messageRepository: MessageRepository,
     private val agentRunner: AgentRunner,
+    private val sessionLaneCoordinator: SessionLaneCoordinator,
 ) {
     suspend fun execute(task: Task, taskRunId: String): TaskRuntimeExecution {
         return when (task.executionMode) {
@@ -31,37 +33,24 @@ class TaskRuntimeExecutor(
 
     private suspend fun executeInMainSession(task: Task, taskRunId: String): TaskRuntimeExecution {
         val sessionId = resolveTargetSessionId(task)
-        messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.User,
-            content = task.prompt,
-            taskRunId = taskRunId,
-        )
         val result = agentRunner.runScheduledTurn(
             sessionId = sessionId,
             userMessage = task.prompt,
-        )
-        val assistantText = result.toPersistedAssistantText()
-        val assistantMessage = messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.Assistant,
-            content = assistantText,
-            providerMeta = result.providerRequestId,
             taskRunId = taskRunId,
         )
         return if (result.directToolResult?.success == false) {
             TaskRuntimeExecution(
                 success = false,
-                summary = assistantText,
-                outputMessageId = assistantMessage.id,
+                summary = result.assistantMessage,
+                outputMessageId = result.assistantMessageId,
                 errorCode = result.directToolResult.errorCode ?: "TOOL_EXECUTION_FAILED",
                 errorMessage = result.assistantMessage,
             )
         } else {
             TaskRuntimeExecution(
                 success = true,
-                summary = assistantText,
-                outputMessageId = assistantMessage.id,
+                summary = result.assistantMessage,
+                outputMessageId = result.assistantMessageId,
             )
         }
     }
@@ -71,22 +60,9 @@ class TaskRuntimeExecutor(
         val isolatedSession = sessionRepository.createSession(
             title = buildIsolatedSessionTitle(task),
         )
-        messageRepository.addMessage(
-            sessionId = isolatedSession.id,
-            role = MessageRole.User,
-            content = task.prompt,
-            taskRunId = taskRunId,
-        )
         val result = agentRunner.runScheduledTurn(
             sessionId = isolatedSession.id,
             userMessage = task.prompt,
-        )
-        val isolatedAssistantText = result.toPersistedAssistantText()
-        messageRepository.addMessage(
-            sessionId = isolatedSession.id,
-            role = MessageRole.Assistant,
-            content = isolatedAssistantText,
-            providerMeta = result.providerRequestId,
             taskRunId = taskRunId,
         )
         val deliveryText = buildString {
@@ -96,15 +72,17 @@ class TaskRuntimeExecutor(
             append(isolatedSession.title)
             append("\".")
             append("\n\n")
-            append(isolatedAssistantText)
+            append(result.assistantMessage)
         }
-        val deliveredMessage = messageRepository.addMessage(
-            sessionId = deliverySessionId,
-            role = MessageRole.Assistant,
-            content = deliveryText,
-            providerMeta = result.providerRequestId,
-            taskRunId = taskRunId,
-        )
+        val deliveredMessage = sessionLaneCoordinator.withLane(deliverySessionId) {
+            messageRepository.addMessage(
+                sessionId = deliverySessionId,
+                role = MessageRole.Assistant,
+                content = deliveryText,
+                providerMeta = result.providerRequestId,
+                taskRunId = taskRunId,
+            )
+        }
         return if (result.directToolResult?.success == false) {
             TaskRuntimeExecution(
                 success = false,
@@ -129,15 +107,5 @@ class TaskRuntimeExecutor(
     private fun buildIsolatedSessionTitle(task: Task): String {
         val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
         return "Task ${task.name} $timestamp"
-    }
-}
-
-private fun ai.androidclaw.runtime.orchestrator.AgentTurnResult.toPersistedAssistantText(): String {
-    return buildString {
-        append(assistantMessage)
-        if (selectedSkills.isNotEmpty()) {
-            append("\n\nActive skills: ")
-            append(selectedSkills.joinToString { it.displayName })
-        }
     }
 }

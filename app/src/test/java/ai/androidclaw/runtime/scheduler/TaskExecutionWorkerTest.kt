@@ -35,7 +35,9 @@ class TaskExecutionWorkerTest {
         application = ApplicationProvider.getApplicationContext()
         WorkManagerTestInitHelper.initializeTestWorkManager(
             application,
-            Configuration.Builder().build(),
+            Configuration.Builder()
+                .setWorkerFactory(application.container.workerFactory)
+                .build(),
         )
         withContext(Dispatchers.IO) {
             application.container.database.clearAllTables()
@@ -225,6 +227,7 @@ class TaskExecutionWorkerTest {
         scheduledAt: Instant,
     ): TaskExecutionWorker {
         return TestListenableWorkerBuilder<TaskExecutionWorker>(application)
+            .setWorkerFactory(application.container.workerFactory)
             .setInputData(
                 Data.Builder()
                     .putString(TaskExecutionWorker.KEY_TASK_ID, taskId)

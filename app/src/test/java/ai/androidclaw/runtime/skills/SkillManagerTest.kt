@@ -1,22 +1,42 @@
 package ai.androidclaw.runtime.skills
 
 import android.content.res.AssetManager
-import androidx.test.core.app.ApplicationProvider
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import java.util.ArrayDeque
-import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import org.junit.runner.RunWith
+import ai.androidclaw.data.db.AndroidClawDatabase
+import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.runtime.tools.ToolAvailability
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.runtime.tools.ToolPermissionRequirement
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.util.ArrayDeque
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SkillManagerTest {
+    private lateinit var database: AndroidClawDatabase
+    private lateinit var skillRepository: SkillRepository
+
+    @Before
+    fun setUp() {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        database = buildTestDatabase(application)
+        skillRepository = SkillRepository(database.skillRecordDao())
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
     @Test
     fun `refreshBundledSkills caches results until force refresh`() = runTest {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
@@ -31,6 +51,7 @@ class SkillManagerTest {
         )
         val manager = SkillManager(
             bundledSkillLoader = loader,
+            skillRepository = skillRepository,
             toolDescriptor = { name ->
                 ToolDescriptor(
                     name = name,
@@ -68,6 +89,7 @@ class SkillManagerTest {
         )
         val manager = SkillManager(
             bundledSkillLoader = loader,
+            skillRepository = skillRepository,
             toolDescriptor = { null },
         )
 
@@ -97,6 +119,7 @@ class SkillManagerTest {
         )
         val manager = SkillManager(
             bundledSkillLoader = loader,
+            skillRepository = skillRepository,
             toolDescriptor = { name ->
                 ToolDescriptor(
                     name = name,

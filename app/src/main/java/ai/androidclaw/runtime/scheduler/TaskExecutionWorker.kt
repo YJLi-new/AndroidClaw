@@ -2,11 +2,11 @@ package ai.androidclaw.runtime.scheduler
 
 import android.content.Context
 import android.os.Build
-import ai.androidclaw.app.AppContainer
-import ai.androidclaw.app.AndroidClawApplication
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.TaskRunStatus
+import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import androidx.work.CoroutineWorker
@@ -18,15 +18,16 @@ import kotlinx.coroutines.withContext
 class TaskExecutionWorker(
     appContext: Context,
     workerParams: WorkerParameters,
+    private val taskRepository: TaskRepository,
+    private val eventLogRepository: EventLogRepository,
+    private val schedulerCoordinator: SchedulerCoordinator,
+    private val taskRuntimeExecutor: TaskRuntimeExecutor,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
         val trigger = TaskTrigger.fromStorage(inputData.getString(KEY_TRIGGER))
         val scheduledAt = inputData.getLong(KEY_SCHEDULED_AT_EPOCH_MS, System.currentTimeMillis())
             .let(Instant::ofEpochMilli)
-        val container = (applicationContext as AndroidClawApplication).container
-        val taskRepository = container.taskRepository
-        val eventLogRepository = container.eventLogRepository
         val task = taskRepository.getTask(taskId)
 
         if (task == null) {
@@ -73,7 +74,7 @@ class TaskExecutionWorker(
                     resultSummary = "Skipped early wake-up.",
                 ),
             )
-            container.schedulerCoordinator.scheduleTask(task.id)
+            schedulerCoordinator.scheduleTask(task.id)
             return Result.success()
         }
 
@@ -83,7 +84,7 @@ class TaskExecutionWorker(
                 startedAt = startedAt,
             ),
         )
-        val diagnostics = container.schedulerCoordinator.diagnostics()
+        val diagnostics = schedulerCoordinator.diagnostics()
         eventLogRepository.log(
             category = EventCategory.Scheduler,
             level = EventLevel.Info,
@@ -98,7 +99,7 @@ class TaskExecutionWorker(
         )
 
         try {
-            val execution = container.taskRuntimeExecutor.execute(
+            val execution = taskRuntimeExecutor.execute(
                 task = task,
                 taskRunId = run.id,
             )
@@ -114,7 +115,6 @@ class TaskExecutionWorker(
                     ),
                 )
                 updateTaskStateAfterSuccess(
-                    container = container,
                     task = task,
                     finishedAt = finishedAt,
                     trigger = trigger,
@@ -138,7 +138,6 @@ class TaskExecutionWorker(
                     ),
                 )
                 updateTaskStateAfterFailure(
-                    container = container,
                     task = task,
                     finishedAt = finishedAt,
                     trigger = trigger,
@@ -160,7 +159,6 @@ class TaskExecutionWorker(
                 ),
             )
             updateTaskStateAfterFailure(
-                container = container,
                 task = task,
                 finishedAt = finishedAt,
                 trigger = trigger,
@@ -182,7 +180,6 @@ class TaskExecutionWorker(
                 ),
             )
             updateTaskStateAfterFailure(
-                container = container,
                 task = task,
                 finishedAt = finishedAt,
                 trigger = trigger,
@@ -198,7 +195,7 @@ class TaskExecutionWorker(
                     "unavailable_pre_s"
                 }
                 withContext(NonCancellable) {
-                    val stopDiagnostics = container.schedulerCoordinator.diagnostics()
+                    val stopDiagnostics = schedulerCoordinator.diagnostics()
                     eventLogRepository.log(
                         category = EventCategory.Scheduler,
                         level = EventLevel.Warn,
@@ -219,13 +216,12 @@ class TaskExecutionWorker(
     }
 
     private suspend fun updateTaskStateAfterSuccess(
-        container: AppContainer,
         task: ai.androidclaw.data.model.Task,
         finishedAt: Instant,
         trigger: TaskTrigger,
     ) {
         if (trigger == TaskTrigger.Manual) {
-            container.taskRepository.updateTask(
+            taskRepository.updateTask(
                 task.copy(
                     lastRunAt = finishedAt,
                     updatedAt = finishedAt,
@@ -234,8 +230,8 @@ class TaskExecutionWorker(
             return
         }
 
-        val nextRunAt = container.schedulerCoordinator.taskPlanner.nextScheduledRun(task, finishedAt)
-        container.taskRepository.updateTask(
+        val nextRunAt = schedulerCoordinator.taskPlanner.nextScheduledRun(task, finishedAt)
+        taskRepository.updateTask(
             task.copy(
                 nextRunAt = nextRunAt,
                 lastRunAt = finishedAt,
@@ -244,12 +240,11 @@ class TaskExecutionWorker(
             ),
         )
         if (task.enabled && nextRunAt != null) {
-            container.schedulerCoordinator.scheduleTask(task.id)
+            schedulerCoordinator.scheduleTask(task.id)
         }
     }
 
     private suspend fun updateTaskStateAfterFailure(
-        container: AppContainer,
         task: ai.androidclaw.data.model.Task,
         finishedAt: Instant,
         trigger: TaskTrigger,
@@ -258,13 +253,13 @@ class TaskExecutionWorker(
         retryable: Boolean,
     ) {
         if (trigger == TaskTrigger.Manual) {
-            container.taskRepository.updateTask(
+            taskRepository.updateTask(
                 task.copy(
                     lastRunAt = finishedAt,
                     updatedAt = finishedAt,
                 ),
             )
-            container.eventLogRepository.log(
+            eventLogRepository.log(
                 category = EventCategory.Scheduler,
                 level = EventLevel.Error,
                 message = "Manual task ${task.name} failed.",
@@ -274,14 +269,14 @@ class TaskExecutionWorker(
         }
 
         val newFailureCount = task.failureCount + 1
-        val nextScheduledAt = container.schedulerCoordinator.taskPlanner.nextScheduledRun(task, finishedAt)
+        val nextScheduledAt = schedulerCoordinator.taskPlanner.nextScheduledRun(task, finishedAt)
         val retryAt = if (retryable) {
-            container.schedulerCoordinator.taskPlanner.nextRetryAt(task, newFailureCount, finishedAt)
+            schedulerCoordinator.taskPlanner.nextRetryAt(task, newFailureCount, finishedAt)
         } else {
             null
         }
-        val nextRunAt = container.schedulerCoordinator.taskPlanner.selectNextRun(nextScheduledAt, retryAt)
-        container.taskRepository.updateTask(
+        val nextRunAt = schedulerCoordinator.taskPlanner.selectNextRun(nextScheduledAt, retryAt)
+        taskRepository.updateTask(
             task.copy(
                 nextRunAt = nextRunAt,
                 lastRunAt = finishedAt,
@@ -290,9 +285,9 @@ class TaskExecutionWorker(
             ),
         )
         if (task.enabled && nextRunAt != null) {
-            container.schedulerCoordinator.scheduleTask(task.id)
+            schedulerCoordinator.scheduleTask(task.id)
         }
-        container.eventLogRepository.log(
+        eventLogRepository.log(
             category = EventCategory.Scheduler,
             level = EventLevel.Error,
             message = "Task ${task.name} failed.",

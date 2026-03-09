@@ -31,7 +31,9 @@ class SchedulerCoordinatorTest {
         application = ApplicationProvider.getApplicationContext()
         WorkManagerTestInitHelper.initializeTestWorkManager(
             application,
-            Configuration.Builder().build(),
+            Configuration.Builder()
+                .setWorkerFactory((application as ai.androidclaw.app.AndroidClawApplication).container.workerFactory)
+                .build(),
         )
         database = buildTestDatabase(application)
         repository = TaskRepository(database.taskDao(), database.taskRunDao())

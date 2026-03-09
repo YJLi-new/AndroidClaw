@@ -2,6 +2,8 @@ package ai.androidclaw.runtime.providers
 
 import java.time.Clock
 import java.time.format.DateTimeFormatter
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class FakeProvider(
     private val clock: Clock,
@@ -16,6 +18,32 @@ class FakeProvider(
             ?.content
             ?.trim()
             .orEmpty()
+        val requestedTool = TOOL_MARKER.find(lastUserMessage)?.groupValues?.getOrNull(1)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val latestToolResult = requestedTool?.let { toolName ->
+            request.messageHistory.lastOrNull { message ->
+                message.role == ModelMessageRole.Tool &&
+                    message.toolName == toolName &&
+                    message.toolCallId != null &&
+                    message.toolCalls.isEmpty()
+            }
+        }
+        if (requestedTool != null && latestToolResult == null) {
+            return ModelResponse(
+                text = "FakeProvider requested tool $requestedTool.",
+                finishReason = "tool_use",
+                toolCalls = listOf(
+                    ProviderToolCall(
+                        id = "fake-${request.requestId ?: clock.instant().toEpochMilli()}-$requestedTool",
+                        name = requestedTool,
+                        argumentsJson = buildJsonObject {
+                            put("command", lastUserMessage)
+                        },
+                    ),
+                ),
+            )
+        }
         return ModelResponse(
             text = buildString {
                 appendLine("FakeProvider [$timestamp]")
@@ -24,8 +52,15 @@ class FakeProvider(
                 appendLine("Run mode: ${request.runMode.name.lowercase()}")
                 appendLine("Skills: $skills")
                 appendLine("Tools: $tools")
+                latestToolResult?.let { toolResult ->
+                    appendLine("Tool result: ${toolResult.content}")
+                }
                 append("Reply: $lastUserMessage")
             },
         )
+    }
+
+    companion object {
+        private val TOOL_MARKER = Regex("""\[tool:([A-Za-z0-9._-]+)]""")
     }
 }

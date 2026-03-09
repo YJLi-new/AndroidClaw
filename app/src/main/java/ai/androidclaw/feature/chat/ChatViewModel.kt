@@ -124,6 +124,10 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            if (mutableCurrentSessionId.value.isBlank()) {
+                mutableCurrentSessionId.value = mainSession.id
+            }
             sessionRepository.observeSessions().collect { sessions ->
                 when {
                     sessions.isEmpty() -> Unit
@@ -135,12 +139,6 @@ class ChatViewModel(
                         mutableCurrentSessionId.value = sessions.first().id
                     }
                 }
-            }
-        }
-        viewModelScope.launch {
-            val mainSession = sessionRepository.getOrCreateMainSession()
-            if (mutableCurrentSessionId.value.isBlank()) {
-                mutableCurrentSessionId.value = mainSession.id
             }
         }
         refreshSkillCommands()
@@ -162,29 +160,11 @@ class ChatViewModel(
 
         viewModelScope.launch {
             try {
-                messageRepository.addMessage(
-                    sessionId = sessionId,
-                    role = MessageRole.User,
-                    content = draftValue,
-                )
-                val result = agentRunner.runInteractiveTurn(
+                agentRunner.runInteractiveTurn(
                     request = AgentTurnRequest(
                         sessionId = sessionId,
                         userMessage = draftValue,
                     ),
-                )
-                val assistantText = buildString {
-                    append(result.assistantMessage)
-                    if (result.selectedSkills.isNotEmpty()) {
-                        append("\n\nActive skills: ")
-                        append(result.selectedSkills.joinToString { it.displayName })
-                    }
-                }
-                messageRepository.addMessage(
-                    sessionId = sessionId,
-                    role = MessageRole.Assistant,
-                    content = assistantText,
-                    providerMeta = result.providerRequestId,
                 )
                 refreshSkillCommands()
             } catch (error: CancellationException) {
