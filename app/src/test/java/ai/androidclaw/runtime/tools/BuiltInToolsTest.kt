@@ -181,6 +181,7 @@ private fun skillSnapshot(
 ): SkillSnapshot {
     return SkillSnapshot(
         id = id,
+        skillKey = name,
         sourceType = SkillSourceType.Bundled,
         baseDir = "asset://skills/$id",
         enabled = true,

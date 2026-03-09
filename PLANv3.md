@@ -65,7 +65,9 @@ The latest known validated state from the repository handoff is:
 - `:app:testDebugUnitTest` passed
 - `:app:assembleDebug` passed
 - `:app:lintDebug` passed
-- `:app:connectedDebugAndroidTest` was **not** runnable because the Linux-side SDK `adb` could not see the emulator even though a Windows-side LDPlayer `adb` could see `emulator-5554`
+- `:app:assembleDebugAndroidTest` passed
+- `:app:connectedDebugAndroidTest` is still **not** runnable from Linux on this workstation because the Android emulator needs a Windows-side SDK/emulator path here
+- the repo now ships PowerShell-only Windows wrappers: `./scripts/run_windows_android_test.sh` for targeted instrumentation and `./scripts/run_exact_alarm_regression.sh` for API 34/API 31 exact-alarm regressions, but they still require Android Studio SDK setup plus the named AVDs on the Windows host
 
 Treat that device-test issue as a **real engineering blocker**, not as a reason to skip instrumentation forever. Android’s official guidance for build-managed devices exists precisely to make instrumented testing reproducible from Gradle without relying on ad-hoc local emulator setups. [R15]
 
@@ -82,11 +84,10 @@ Treat that device-test issue as a **real engineering blocker**, not as a reason 
 
 ### What is clearly still missing
 
-- provider-specific network tool-calling beyond the internal fake/runtime loop
-- skill import + precedence across bundled/local/workspace
-- full durable skill lifecycle and user-visible enable/disable controls
+- streaming / multimodal provider features and any provider-specific protocol beyond the current OpenAI-compatible chat-completions tool-calling path
+- remaining exact-alarm deny/degrade manual QA for `m5`
+- full `m9` follow-through beyond the initial migration floor: broader upgrade coverage
 - baseline profiles
-- release-grade DB migration policy
 
 ---
 
@@ -107,16 +108,19 @@ Seeded current state:
 - [x] (2026-03-08) bundled-skills — bundled `SKILL.md` loading, parsing, eligibility, and demo skills shipped.
 - [x] (2026-03-08) audit-remediation — structured runtime failure handling, bundled-skill cache, explicit unsupported `runNow`, and missing JVM tests shipped.
 - [x] (2026-03-09) m0-plan-adoption — `PLANv3.md` is canonical, `AGENTS.md` points to it, and the older tracked plan is explicitly archived.
-- [x] (2026-03-09) m1-validation-harness — managed-device config, Compose smoke test, and a repo-owned LDPlayer fallback harness shipped and validated.
+- [x] (2026-03-09) m1-validation-harness — managed-device config, Compose smoke test, and a repo-owned PowerShell Windows-emulator harness shipped.
 - [x] (2026-03-09) m2-provider-v1 — typed provider contract, OpenAI-compatible backend, keystore-backed API-key seam, settings UI, and provider failure tests shipped.
 - [x] (2026-03-09) m3-tools-v1 — richer tool metadata, built-in typed tools, live availability, and slash-tool runtime coverage shipped.
 - [x] (2026-03-09) m4-scheduler-core-runtime — WorkManager-backed scheduling, real worker execution, durable `TaskRun` history, `runNow`, `MAIN_SESSION`/`ISOLATED_SESSION`, and reschedule-on-startup shipped with JVM coverage.
 - [x] (2026-03-09) m4-scheduler-core — planner/backoff, durable worker execution, recurring reschedule, and device-backed scheduler smoke shipped.
 - [x] (2026-03-09) m5-scheduler-diagnostics-core — precise-vs-approximate scheduling decisions, exact-alarm receiver wiring, scheduler diagnostics UI, stop-reason capture, adb QA notes, and Robolectric exact-path coordinator coverage shipped.
 - [x] (2026-03-09) m7-runtime-turn-loop — WorkManager worker DI via `Configuration.Provider`/`WorkerFactory`, provider tool-call contract, `FakeProvider` tool-call simulation, session-lane serialization, prompt assembly, and unified interactive/scheduled runtime persistence shipped with JVM plus device-backed scheduler smoke coverage.
+- [x] (2026-03-09) m7-real-provider-hardening — OpenAI-compatible `tools` / `tool_calls`, persisted-tool prompt reconstruction, lane-owned interactive failure persistence, isolated-session delivery failure semantics, non-null scheduler repos, and focused JVM coverage shipped.
+- [x] (2026-03-09) m6-skills-lifecycle — bundled/local/workspace scanning, zip import, precedence resolution, durable enable/disable, Android eligibility mapping, and skills-management UI shipped with JVM coverage.
+- [x] (2026-03-09) m8-gui-completion — chat rename/archive, real task creation/control/history surfaces, skill import/toggle/source details, health/task refresh actions, and repo-owned Windows-emulator smoke wrappers shipped.
+- [x] (2026-03-09) m9-migration-floor — explicit Room `1 -> 2` migration for skill lifecycle fields, destructive fallback removal, exported schema v2, and device-backed migration helper coverage shipped.
+- [x] (2026-03-09) m9-startup-maintenance — bounded task-run and event-log pruning plus boot/package/time-change scheduler restoration shipped and validated.
 - [ ] m5-scheduler-precision-and-diagnostics
-- [ ] m6-skills-lifecycle
-- [ ] m8-gui-completion
 - [ ] m9-persistence-hardening
 - [ ] m10-performance-and-baseline-profiles
 - [ ] m11-release-candidate
@@ -136,14 +140,19 @@ Seeded discoveries:
 - Build-managed devices are the most repo-owned path to reproducible instrumentation in this project. [R15]
 - The managed-device task name for the current config is `:app:pixel8Api36DebugAndroidTest`.
 - On this Linux host, the managed-device emulator cannot boot the API 36 x86_64 image because the environment does not expose hardware acceleration to the Android emulator. The repo therefore needs a secondary device-owned fallback path even though managed devices remain configured.
-- A bash-to-PowerShell wrapper around LDPlayer is sufficient to make instrumentation reproducible from the repo on this workstation: `./scripts/run_ldplayer_android_test.sh` builds the APKs, boots LDPlayer if needed, and runs `MainActivitySmokeTest` through the Windows-side adb that can actually see the emulator.
+- A WSL-to-PowerShell wrapper around the Windows Android SDK is now the canonical repo-owned instrumentation path on this workstation: `./scripts/run_windows_android_test.sh` builds the APKs, starts a named Windows AVD through `emulator.exe`, installs the debug and androidTest APKs through Windows `adb.exe`, and runs a requested instrumentation class without `cmd.exe`.
 - This workstation’s default Linux-side `java` is still Java 8, so AGP 8.13 validation needed a session-local Linux JDK 17 under `/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8`; the Windows-side JDK 21 path was not a reliable substitute for WSL Gradle execution.
 - Android Lint does not treat registry-level tool availability metadata as proof of permission safety; permission-sensitive native tool handlers still need a local guard near the platform API call.
 - WorkManager is not auto-initialized in this Robolectric/unit-test setup; scheduler-facing JVM tests need `WorkManagerTestInitHelper.initializeTestWorkManager(...)` before exercising `SchedulerCoordinator`.
-- The LDPlayer fallback harness can now target arbitrary instrumented test classes, so milestone-specific device smokes do not require editing the script or running only `MainActivitySmokeTest`.
+- The PowerShell Windows-emulator harness can target arbitrary instrumented test classes and instrumentation args, so milestone-specific device smokes and exact-alarm regressions do not require editing scripts between runs.
 - WorkManager exposes stop-reason values to app code only behind an Android 12 / API 31 gate here, and the symbolic stop-reason constants are not available as stable public app-facing constants at this surface. Scheduler diagnostics therefore need a local API guard and should treat stop reasons as raw codes unless a better public API appears.
 - Robolectric’s `ShadowAlarmManager` in this repo’s test stack can model both exact-alarm grant/deny state and the pending exact-alarm queue, so the scheduler’s exact-vs-approximate routing can be covered in JVM tests without waiting on device-side special-access state.
 - Once `AndroidClawApplication` implements `androidx.work.Configuration.Provider`, lint requires removing `androidx.work.WorkManagerInitializer` from the manifest; the custom `WorkerFactory` plus on-demand WorkManager initialization path are compatible with the existing scheduler tests here.
+- OpenAI-style chat-completions tool calling requires assistant `tool_calls` plus tool-role `tool_call_id`; persisted tool transcripts therefore need a reconstructable format instead of flattening all tool records into generic provider messages.
+- On this WSL-mounted workspace, AGP/Kotlin task state tracking around kapt and unit-test classpath snapshots can intermittently produce unreadable or missing output artifacts. The stable validation path here is to stop Gradle daemons, force a single-use daemon, disable Kotlin incremental compilation for the run, and let `bundleDebugClassesToCompileJar` materialize before unit-test execution.
+- Room’s `MigrationTestHelper` on device will not see exported schemas unless `app/schemas` is wired into `androidTest` assets explicitly; schema export alone is not enough for migration instrumentation.
+- Startup maintenance is now explicit instead of being spread across ad-hoc application coroutines: the app trims retained `TaskRun` / `EventLog` rows at launch, then rebuilds pending scheduler state from the task table.
+- On this Windows host, the emulator migration has only partially completed so far: Android Studio now exists at `C:\Program Files\Android\Android Studio\bin\studio64.exe`, but the SDK tools under `%LOCALAPPDATA%\Android\Sdk` are still missing, `Win32_OptionalFeature(HypervisorPlatform).InstallState` reports `2`, and the shell is not elevated. WHPX enablement, Android Studio first-run SDK installation, and AVD creation therefore still depend on Windows-side manual completion outside WSL. Until `AndroidClawApi34` and `AndroidClawApi31` exist, the remaining `m5` exact-alarm regression run stays blocked.
 
 ---
 
@@ -168,8 +177,8 @@ Seeded decisions:
 - Decision: Isolated task execution in v0 means isolated logical context and isolated file root, **not** desktop-style container isolation.
   Rationale: correct for Android, much lighter, and sufficient for the v0 compatibility contract.
 
-- Decision: Keep both a managed-device config and an LDPlayer fallback harness in the repo.
-  Rationale: Gradle Managed Devices are still the preferred long-term path and are now wired into the build, but this workstation cannot boot the x86_64 API 36 emulator without hardware acceleration. The LDPlayer wrapper keeps instrumentation runnable today without manual dual-adb coordination.
+- Decision: Keep both a managed-device config and a PowerShell Windows-emulator harness in the repo.
+  Rationale: Gradle Managed Devices remain the preferred long-term path, but this workstation still needs a Windows-side SDK/emulator route for reproducible instrumentation. The PowerShell wrappers avoid `cmd.exe`, remove ad-hoc dual-`adb` coordination, and line up with the Android Studio host setup the repo now documents.
 
 - Decision: Keep provider implementations simple and offload real provider execution to `Dispatchers.IO`.
   Rationale: `OpenAiCompatibleProvider` uses blocking OkHttp today; moving provider execution off the main thread preserves UI responsiveness without forcing a broader async provider API redesign in m2.
@@ -199,8 +208,20 @@ Seeded decisions:
   Rationale: the runtime stop-reason value is available, but the stable public constant surface is not ergonomic enough here to justify brittle reflection or hidden-API coupling.
 - Decision: Session writes serialize per `sessionId` with an always-queue mutex policy.
   Rationale: interactive chat and scheduled task delivery now share one runtime path, so queueing is the smallest correct way to prevent transcript interleaving without inventing new failure modes.
-- Decision: The first tool-call-loop milestone targets the internal provider/runtime contract plus `FakeProvider`; `OpenAiCompatibleProvider` remains text-only for now.
-  Rationale: this lands one real vertical slice without coupling the runtime refactor to vendor-specific network protocol work.
+- Decision: `OpenAiCompatibleProvider` speaks OpenAI-style chat-completions `tools` / `tool_calls`, but streaming and other vendor-specific protocol variants remain deferred.
+  Rationale: the real-provider path now needs to participate in the same bounded tool-call runtime as `FakeProvider`, while keeping the transport surface small and testable.
+- Decision: Persist tool-call transcript rows in a deterministic `Tool request: <name> <json>` format.
+  Rationale: the current Room schema does not store full structured tool-call payloads separately, so deterministic content lets `PromptAssembler` reconstruct assistant tool calls for future real-provider turns without a migration during v0.
+- Decision: `SkillManager.refreshSkillInventory(sessionId)` exposes the resolved effective inventory for a session, while `refreshSkills(sessionId)` remains the eligible-only subset for model/runtime execution.
+  Rationale: slash-dispatched skills must still be discoverable when they are blocked so the runtime can explain eligibility failures instead of making the skill disappear entirely.
+- Decision: migrate `skill_records` from schema v1 to v2 by table copy instead of incremental `ALTER TABLE` defaults.
+  Rationale: the new skill lifecycle fields need derived legacy values (`skillKey`, `baseDir`, `instructionsMd`, `parseError`) and a table-copy migration keeps the transformation explicit and testable.
+- Decision: keep one simple bounded retention policy in v0 startup maintenance: trim `TaskRun` rows older than 30 days and `EventLog` rows older than 14 days.
+  Rationale: run history and diagnostics remain durable enough for user-visible troubleshooting, while database growth stays bounded without inventing a configurable policy before release.
+- Decision: scheduler restoration now runs on app startup plus `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `TIME_CHANGED`, and `TIMEZONE_CHANGED`.
+  Rationale: exact and approximate schedules both derive from the persisted task table, so replaying `rescheduleAll()` at these lifecycle boundaries is the smallest correct recovery path.
+- Decision: do not auto-delete or auto-archive isolated-session transcripts in v0 startup maintenance.
+  Rationale: the current app still relies on those isolated sessions as the only detailed inspection path for isolated runs; until `TaskRun` or archived-session UI exposes equivalent detail, aggressive cleanup would remove user-visible evidence instead of just trimming cache.
 ---
 
 ## Blockers
@@ -209,7 +230,7 @@ Update whenever work stops for reasons outside the current diff.
 
 Current blockers:
 
-- No active blockers.
+- The remaining `m5` exact-alarm deny/degrade QA is now defined against `AndroidClawApi34` and `AndroidClawApi31` through the new Windows PowerShell harness, but it still cannot run on this workstation until Windows-side manual setup finishes WHPX enablement, Android Studio installs the SDK/emulator tools, and those AVDs are created.
 
 ---
 
@@ -222,11 +243,16 @@ Leave empty until milestones finish. Each completed milestone should add one sho
 - What changed in the plan because of discoveries?
 - What should the next agent know immediately?
 
-- m1-validation-harness (2026-03-09): The repo now owns an instrumented smoke path. `MainActivitySmokeTest` verifies the navigation shell and chat-to-tasks navigation, `pixel8Api36` is configured as the managed device for acceleration-capable hosts, and `./scripts/run_ldplayer_android_test.sh` provides the validated fallback command on this workstation. The next agent should keep both paths working: managed devices are preferred, but the current host still needs the LDPlayer wrapper because the Linux emulator cannot boot without hardware acceleration.
+- m1-validation-harness (2026-03-09): The repo still keeps the managed-device path for acceleration-capable hosts, but the host-owned fallback is now `./scripts/run_windows_android_test.sh` plus shared PowerShell helpers that call Windows `emulator.exe` and `adb.exe` directly. The legacy LDPlayer entrypoints remain only as deprecation shims. The next agent should finish Windows Android Studio SDK setup and create `AndroidClawApi34` plus `AndroidClawApi31`, because the new exact-alarm regression path depends on those AVDs.
 - m2-provider-v1 (2026-03-09): AndroidClaw now supports both `FakeProvider` and an `OpenAI-compatible` provider behind a typed request/response contract. Provider selection, base URL, model ID, and timeout persist through `SettingsDataStore`; the API key is stored through a minimal keystore-backed `ProviderSecretStore` instead of plain-text DataStore; chat now logs and persists provider failures cleanly; health reflects the selected provider; and deterministic JVM coverage exists for settings mapping plus OpenAI-compatible success/error/timeout paths. Streaming, multimodal inputs, and multi-provider orchestration remain intentionally out of scope. On this workstation, fast validation was completed with a session-local Linux JDK 17 at `/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8` because the default WSL `java` is still Java 8.
 - m3-tools-v1 (2026-03-09): AndroidClaw now exposes a usable typed tool contract: `ToolRegistry` supports canonical names plus aliases, required-argument validation, structured error codes, permission metadata, and live availability; built-in `health.status`, `sessions.list`, `tasks.list`, `skills.list`, and `notifications.post` are wired through a shared factory; skill eligibility explains both missing and blocked tools; and slash-dispatched tool skills now execute directly when eligible or return availability reasons immediately when blocked. Deterministic JVM coverage now exists for registry failures, built-in tools, and direct slash-tool dispatch. `http.fetch` and richer schema/type validation were intentionally left out of this milestone so the next agent can move into scheduler execution and skill lifecycle work on top of a stable tool surface.
-- m4-scheduler-core (2026-03-09): The scheduler is now durable instead of preview-only. `SchedulerCoordinator` owns `scheduleTask`, `cancelTask`, `rescheduleAll`, and `runNow`; `TaskPlanner` centralizes next-run and retry/backoff decisions; `TaskExecutionWorker` creates real `TaskRun` history, executes tasks in `MAIN_SESSION` or `ISOLATED_SESSION`, updates task state, and reschedules recurring work; and app startup reconstructs pending work from the task table. JVM coverage now exercises planner logic, coordinator rescheduling, worker success paths, recurring reschedule, manual-run semantics, and isolated delivery. Device-backed validation now also exists through `TaskExecutionWorkerSmokeTest`, runnable from the repo’s LDPlayer harness alongside `MainActivitySmokeTest`. Exact alarms, standby diagnostics UI, and precise-trigger degradation messaging remain intentionally deferred to `m5`.
-- m7-runtime-turn-loop (2026-03-09): AndroidClaw now has a real vertical runtime slice instead of split chat-vs-scheduler persistence paths. `AndroidClawApplication` exposes a custom WorkManager configuration backed by `AppWorkerFactory`; `TaskExecutionWorker` receives injected dependencies instead of casting the application; `ModelRequest`/`ModelResponse` now support tool-call metadata; `FakeProvider` can deterministically request tools; `AgentRunner` owns persisted turn execution with `PromptAssembler`, a bounded tool-call loop, and per-session mutex serialization; and scheduled plus interactive turns now converge through the same persisted runtime contract. Bundled skill state also has a minimal repository-backed seam so later lifecycle work does not require another runtime redesign. `OpenAiCompatibleProvider` still does not speak vendor-side tool calling, and full skill import/precedence work remains deferred to `m6`.
+- m4-scheduler-core (2026-03-09): The scheduler is now durable instead of preview-only. `SchedulerCoordinator` owns `scheduleTask`, `cancelTask`, `rescheduleAll`, and `runNow`; `TaskPlanner` centralizes next-run and retry/backoff decisions; `TaskExecutionWorker` creates real `TaskRun` history, executes tasks in `MAIN_SESSION` or `ISOLATED_SESSION`, updates task state, and reschedules recurring work; and app startup reconstructs pending work from the task table. JVM coverage now exercises planner logic, coordinator rescheduling, worker success paths, recurring reschedule, manual-run semantics, and isolated delivery. Device-backed validation has repo-owned wrappers through `run_windows_android_test`, and `ExactAlarmRegressionTest` now codifies the API 34 deny/degrade plus API 31 revoke/grant/revoke expectations once the Windows AVDs exist. Exact-alarm host QA remains open until that emulator setup is completed.
+- m7-runtime-turn-loop (2026-03-09): AndroidClaw now has a real vertical runtime slice instead of split chat-vs-scheduler persistence paths. `AndroidClawApplication` exposes a custom WorkManager configuration backed by `AppWorkerFactory`; `TaskExecutionWorker` receives injected dependencies instead of casting the application; `ModelRequest`/`ModelResponse` now support tool-call metadata; `FakeProvider` can deterministically request tools; `AgentRunner` owns persisted turn execution with `PromptAssembler`, a bounded tool-call loop, and per-session mutex serialization; and scheduled plus interactive turns now converge through the same persisted runtime contract. Bundled skill state also has a minimal repository-backed seam so later lifecycle work does not require another runtime redesign. Full skill import/precedence work remains deferred to `m6`.
+- m7-real-provider-hardening (2026-03-09): The real-provider path now participates in the runtime slice instead of degrading to text-only behavior. `OpenAiCompatibleProvider` serializes `tools`, assistant `tool_calls`, and tool-role `tool_call_id`, parses tool-calling responses, and is covered by `MockWebServer` request/response tests plus an `AgentRunner` loop test. `ChatViewModel` no longer writes fallback transcript errors outside the lane, isolated-session delivery failures now surface as explicit `TASK_DELIVERY_FAILED` runtime failures instead of false success, cached bundled-skill reads overlay Room-backed enabled state, `SchedulerCoordinator` now requires real repositories instead of nullable constructor seams, and dedicated JVM coverage exists for prompt assembly plus isolated delivery failure.
+- m6-skills-lifecycle (2026-03-09): Skills are no longer bundled-only. `SkillManager` now syncs bundled, local, and workspace sources through `SkillSourceScanner`; local zip import installs into app-private storage with traversal checks; precedence resolves `workspace > local > bundled`; enabled state survives restart through `SkillRepository`; and eligibility now reflects Android-local env/config/tool limits. The Skills screen now exposes refresh, import, enable/disable, source badges, shadowing details, and parse/eligibility explanations. Full workspace import UX and broader desktop-style dependency semantics remain intentionally deferred.
+- m8-gui-completion (2026-03-09): The top-level screens are now real control surfaces instead of read-only diagnostics. Chat supports rename/archive on non-main sessions, Tasks supports creation plus schedule/execution/precision controls with run history and `Run now`, Skills exposes import/toggle/source details, and Health/Tasks both expose explicit diagnostics refresh affordances. Settings remained functionally sufficient from earlier milestones, so this pass focused on removing the last fake scheduler/skills/chat management gaps.
+- m9-migration-floor (2026-03-09): The database is no longer allowed to wipe itself on upgrade. `AndroidClawDatabase` now registers an explicit `1 -> 2` migration for the new skill lifecycle columns, destructive fallback is removed, exported schema v2 is tracked, and `MigrationTestHelper` coverage is wired into androidTest assets for the Windows-emulator path. Retention/pruning and broader upgrade-hardening work remain in `m9`.
+- m9-startup-maintenance (2026-03-09): Startup durability is now explicit instead of opportunistic. `StartupMaintenance` trims old `TaskRun` and `EventLog` rows with documented 30-day / 14-day cutoffs, then rebuilds scheduler state from the task table; `SchedulerRestoreReceiver` now also replays `rescheduleAll()` after boot, package replacement, and time/timezone changes. Isolated-session transcript cleanup was intentionally deferred because those sessions are still the only detailed inspection path for isolated runs. Broader upgrade coverage still remains in `m9`.
 
 ---
 
@@ -709,7 +735,7 @@ The current repo already has good JVM coverage, but Android-specific behavior st
 
 - the repo contains at least one runnable instrumented smoke test
 - the test runs on a Gradle-owned or otherwise reproducible device path
-- instrumentation no longer depends on a manually coordinated LDPlayer/dual-`adb` setup
+- instrumentation no longer depends on a manually coordinated emulator/dual-`adb` setup or `cmd.exe`
 
 ### Not in this milestone
 
@@ -1510,21 +1536,20 @@ If Codex starts from this plan with no further human steering, do these next:
 
 ## Packet 1
 Close the remaining `m5` diagnostics gap:
-- run the exact-alarm deny/degrade QA path on device
+- finish Windows Android Studio setup, create `AndroidClawApi34` and `AndroidClawApi31`, and run `./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31`
 - tighten any user-visible diagnostics or health wording that still assumes approximate-only scheduling
 - keep adb/device validation notes current
 
 ## Packet 2
-Start `m6-skills-lifecycle` on top of the new runtime seam:
-- persist real bundled skill enable/disable controls
-- add import/precedence scanning for bundled/local/workspace
-- keep runtime skill snapshots compatible with the existing turn loop
+Continue `m9-persistence-hardening` from the new migration floor:
+- review restart / upgrade durability beyond `1 -> 2`
+- add any missing upgrade/device coverage that still relies on best-effort manual confidence
 
 ## Packet 3
-Then move to `m8-gui-completion`:
-- expose the now-real scheduler/runtime state cleanly in Tasks/Health/Skills
-- make provider/task/skill configuration discoverable without reading code
-- avoid starting release/perf polish before those control surfaces are real
+Then move to `m10-performance-and-baseline-profiles`:
+- add baseline profile capture once the current chat/task/skill flows are stable
+- trim obviously avoidable eager work on startup and screen entry
+- keep validation focused on startup-critical user paths
 
 Do **not** start browser tools, external channels, or remote bridge work before these three packets are complete.
 

@@ -9,6 +9,7 @@ import android.net.Uri
 import ai.androidclaw.app.AndroidClawApplication
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
+import ai.androidclaw.data.repository.EventLogRepository
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
@@ -70,6 +71,52 @@ class ExactAlarmPermissionStateReceiver : BroadcastReceiver() {
             }
         }
     }
+}
+
+class SchedulerRestoreReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
+        if (!shouldHandleSchedulerRestore(action)) {
+            return
+        }
+        val pendingResult = goAsync()
+        val application = context.applicationContext as? AndroidClawApplication ?: run {
+            pendingResult.finish()
+            return
+        }
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            try {
+                handleSchedulerRestore(
+                    eventLogRepository = application.container.eventLogRepository,
+                    rescheduleAll = application.container.schedulerCoordinator::rescheduleAll,
+                    action = action,
+                )
+            } finally {
+                pendingResult.finish()
+            }
+        }
+    }
+}
+
+internal fun shouldHandleSchedulerRestore(action: String?): Boolean {
+    return action == Intent.ACTION_BOOT_COMPLETED ||
+        action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+        action == Intent.ACTION_TIME_CHANGED ||
+        action == Intent.ACTION_TIMEZONE_CHANGED
+}
+
+internal suspend fun handleSchedulerRestore(
+    eventLogRepository: EventLogRepository,
+    rescheduleAll: suspend () -> Unit,
+    action: String?,
+) {
+    eventLogRepository.log(
+        category = EventCategory.Scheduler,
+        level = EventLevel.Info,
+        message = "Scheduler restore broadcast received.",
+        details = "action=$action",
+    )
+    rescheduleAll()
 }
 
 internal fun buildTaskExecutionWorkRequest(

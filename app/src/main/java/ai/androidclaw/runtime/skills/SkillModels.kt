@@ -46,7 +46,9 @@ data class SkillFrontmatter(
 
 data class SkillSnapshot(
     val id: String,
+    val skillKey: String,
     val sourceType: SkillSourceType,
+    val workspaceSessionId: String? = null,
     val baseDir: String,
     val enabled: Boolean,
     val frontmatter: SkillFrontmatter?,
@@ -54,9 +56,16 @@ data class SkillSnapshot(
     val eligibility: SkillEligibility,
     val parseError: String? = null,
     val rawFrontmatter: String? = null,
+    val resolutionState: SkillResolutionState = SkillResolutionState.Effective,
+    val shadowedBy: String? = null,
 ) {
     val displayName: String
-        get() = frontmatter?.name ?: id
+        get() = frontmatter?.name ?: skillKey
+}
+
+enum class SkillResolutionState {
+    Effective,
+    Shadowed,
 }
 
 data class ParsedSkillDocument(

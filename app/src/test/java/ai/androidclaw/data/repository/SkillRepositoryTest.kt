@@ -118,13 +118,22 @@ class SkillRepositoryTest {
     ): SkillRecord {
         return SkillRecord(
             id = id,
+            skillKey = displayName,
             sourceType = sourceType,
+            workspaceSessionId = null,
+            baseDir = when (sourceType) {
+                SkillSourceType.Bundled -> "asset://skills/$id"
+                SkillSourceType.Local -> "/files/skills/local/$id"
+                SkillSourceType.Workspace -> "/files/workspaces/session/skills/$id"
+            },
             enabled = enabled,
             displayName = displayName,
             description = description,
             frontmatter = frontmatter,
+            instructionsMd = "Do work",
             eligibilityStatus = eligibilityStatus,
             eligibilityReasons = eligibilityReasons,
+            parseError = null,
             importedAt = Instant.ofEpochMilli(100L),
             updatedAt = Instant.ofEpochMilli(200L),
         )

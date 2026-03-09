@@ -18,47 +18,28 @@ open class BundledSkillLoader(
                 val document = runCatching {
                     assetManager.open(skillPath).bufferedReader().use { it.readText() }
                 }.getOrElse { error ->
-                    return@map SkillSnapshot(
-                        id = skillId,
-                        sourceType = SkillSourceType.Bundled,
-                        baseDir = "asset://$rootPath/$skillId",
-                        enabled = false,
-                        frontmatter = null,
-                        instructionsMd = "",
-                        eligibility = SkillEligibility(
-                            status = SkillEligibilityStatus.Invalid,
-                            reasons = listOf(error.message ?: "Unable to open SKILL.md"),
+                    return@map invalidSkillSnapshot(
+                        sourceId = buildSourceId(
+                            sourceType = SkillSourceType.Bundled,
+                            localId = skillId,
                         ),
-                        parseError = error.message,
+                        sourceType = SkillSourceType.Bundled,
+                        skillName = skillId,
+                        baseDir = "asset://$rootPath/$skillId",
+                        reason = error.message ?: "Unable to open SKILL.md",
                     )
                 }
-
-                when (val parsed = parser.parse(document)) {
-                    is SkillParseResult.Success -> SkillSnapshot(
-                        id = skillId,
+                parseSkillSnapshot(
+                    parser = parser,
+                    sourceId = buildSourceId(
                         sourceType = SkillSourceType.Bundled,
-                        baseDir = "asset://$rootPath/$skillId",
-                        enabled = true,
-                        frontmatter = parsed.document.frontmatter,
-                        instructionsMd = parsed.document.bodyMarkdown,
-                        eligibility = SkillEligibility(status = SkillEligibilityStatus.Eligible),
-                        rawFrontmatter = parsed.document.rawFrontmatter,
-                    )
-
-                    is SkillParseResult.Failure -> SkillSnapshot(
-                        id = skillId,
-                        sourceType = SkillSourceType.Bundled,
-                        baseDir = "asset://$rootPath/$skillId",
-                        enabled = false,
-                        frontmatter = null,
-                        instructionsMd = "",
-                        eligibility = SkillEligibility(
-                            status = SkillEligibilityStatus.Invalid,
-                            reasons = listOf(parsed.error),
-                        ),
-                        parseError = parsed.error,
-                    )
-                }
+                        localId = skillId,
+                    ),
+                    sourceType = SkillSourceType.Bundled,
+                    skillName = skillId,
+                    baseDir = "asset://$rootPath/$skillId",
+                    rawDocument = document,
+                )
             }
     }
 }

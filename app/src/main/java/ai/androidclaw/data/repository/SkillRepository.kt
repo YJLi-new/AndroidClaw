@@ -58,13 +58,18 @@ class SkillRepository(
 private fun SkillRecord.toEntity(json: Json): SkillRecordEntity {
     return SkillRecordEntity(
         id = id,
+        skillKey = skillKey,
         sourceType = sourceType.toStorage(),
+        workspaceSessionId = workspaceSessionId,
+        baseDir = baseDir,
         enabled = enabled,
         displayName = displayName,
         description = description,
         frontmatterJson = frontmatter?.let { json.encodeToString(SkillFrontmatter.serializer(), it) },
+        instructionsMd = instructionsMd,
         eligibilityStatus = eligibilityStatus.toStorage(),
         eligibilityReasons = json.encodeToString(ListSerializer(String.serializer()), eligibilityReasons),
+        parseError = parseError,
         importedAt = importedAt?.toEpochMilli(),
         updatedAt = updatedAt.toEpochMilli(),
     )
@@ -73,13 +78,18 @@ private fun SkillRecord.toEntity(json: Json): SkillRecordEntity {
 private fun SkillRecordEntity.toDomain(json: Json): SkillRecord {
     return SkillRecord(
         id = id,
+        skillKey = skillKey,
         sourceType = sourceType.toSkillSourceType(),
+        workspaceSessionId = workspaceSessionId,
+        baseDir = baseDir,
         enabled = enabled,
         displayName = displayName,
         description = description,
         frontmatter = frontmatterJson?.let { json.decodeFromString(SkillFrontmatter.serializer(), it) },
+        instructionsMd = instructionsMd,
         eligibilityStatus = eligibilityStatus.toSkillEligibilityStatus(),
         eligibilityReasons = json.decodeFromString(ListSerializer(String.serializer()), eligibilityReasons),
+        parseError = parseError,
         importedAt = importedAt?.let(Instant::ofEpochMilli),
         updatedAt = Instant.ofEpochMilli(updatedAt),
     )

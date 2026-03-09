@@ -13,14 +13,18 @@ import androidx.room.PrimaryKey
 )
 data class SkillRecordEntity(
     @PrimaryKey val id: String,
+    val skillKey: String,
     val sourceType: String,
+    val workspaceSessionId: String?,
+    val baseDir: String,
     val enabled: Boolean,
     val displayName: String,
     val description: String,
     val frontmatterJson: String?,
+    val instructionsMd: String,
     val eligibilityStatus: String,
     val eligibilityReasons: String,
+    val parseError: String?,
     val importedAt: Long?,
     val updatedAt: Long,
 )
-

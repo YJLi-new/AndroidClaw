@@ -21,9 +21,8 @@ interface EventLogDao {
     fun getRecent(limit: Int): Flow<List<EventLogEntity>>
 
     @Query("DELETE FROM event_logs WHERE timestamp < :timestamp")
-    suspend fun deleteOlderThan(timestamp: Long)
+    suspend fun deleteOlderThan(timestamp: Long): Int
 
     @Query("SELECT COUNT(*) FROM event_logs")
     suspend fun count(): Int
 }
-

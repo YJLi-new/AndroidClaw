@@ -35,6 +35,5 @@ interface TaskRunDao {
     suspend fun getLatestByTaskId(taskId: String): TaskRunEntity?
 
     @Query("DELETE FROM task_runs WHERE scheduledAt < :timestamp")
-    suspend fun deleteOlderThan(timestamp: Long)
+    suspend fun deleteOlderThan(timestamp: Long): Int
 }
-

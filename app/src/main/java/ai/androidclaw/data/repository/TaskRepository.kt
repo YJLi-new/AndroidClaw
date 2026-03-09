@@ -95,6 +95,10 @@ class TaskRepository(
     }
 
     suspend fun getLatestRun(taskId: String): TaskRun? = taskRunDao.getLatestByTaskId(taskId)?.toDomain()
+
+    suspend fun trimRunsOlderThan(instant: Instant): Int {
+        return taskRunDao.deleteOlderThan(instant.toEpochMilli())
+    }
 }
 
 private fun TaskEntity.toDomain(): Task {

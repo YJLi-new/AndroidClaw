@@ -1,87 +1,385 @@
 package ai.androidclaw.feature.tasks
 
 import ai.androidclaw.data.model.Task
+import ai.androidclaw.data.model.TaskRun
+import ai.androidclaw.runtime.scheduler.CronExpression
+import ai.androidclaw.runtime.scheduler.TaskExecutionMode
+import ai.androidclaw.runtime.scheduler.TaskSchedule
+import ai.androidclaw.runtime.scheduler.TaskSchedulingDecision
 import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
 import ai.androidclaw.runtime.scheduler.schedulingDecision
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+private enum class TaskScheduleKindUi {
+    Once,
+    Interval,
+    Cron,
+}
 
 @Composable
 fun TasksScreen(viewModel: TasksViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var name by rememberSaveable { mutableStateOf("") }
+    var prompt by rememberSaveable { mutableStateOf("") }
+    var scheduleKind by rememberSaveable { mutableStateOf(TaskScheduleKindUi.Once) }
+    var onceAt by rememberSaveable { mutableStateOf(Instant.now().plusSeconds(300).toString()) }
+    var intervalMinutes by rememberSaveable { mutableStateOf("60") }
+    var cronExpression by rememberSaveable { mutableStateOf("0 9 * * 1-5") }
+    var precise by rememberSaveable { mutableStateOf(false) }
+    var executionMode by rememberSaveable { mutableStateOf(TaskExecutionMode.MainSession) }
+    var selectedSessionId by rememberSaveable { mutableStateOf("") }
+    var formMessage by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Column(
+    LaunchedEffect(Unit) {
+        viewModel.refreshDiagnostics()
+    }
+
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
             .testTag("tasksScreen"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Tasks", style = MaterialTheme.typography.headlineSmall)
-        SchedulerCard(
-            title = "Supported kinds",
-            body = state.capabilities.supportedKinds.joinToString(),
-        )
-        SchedulerCard(
-            title = "Minimum background interval",
-            body = "${state.capabilities.minimumBackgroundInterval.toMinutes()} minutes",
-        )
-        SchedulerCard(
-            title = "Exact alarm status",
-            body = buildString {
-                append("Supported: ").append(state.diagnostics.supportsExactAlarms)
-                append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
-                append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
-                if (state.diagnostics.isRestrictedBucket) {
-                    append("\nApp is in restricted bucket; background work may be delayed.")
+        item {
+            Text("Tasks", style = MaterialTheme.typography.headlineSmall)
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = viewModel::refreshDiagnostics) {
+                    Text("Refresh diagnostics")
                 }
-            },
-        )
-        SchedulerCard(
-            title = "Next @daily preview",
-            body = state.nextDailyPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
-        )
-        SchedulerCard(
-            title = "Next 9am weekday cron preview",
-            body = state.nextWeekdayPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
-        )
-        state.actionMessage?.let { message ->
+                Button(onClick = viewModel::clearActionMessage) {
+                    Text("Clear status")
+                }
+            }
+        }
+        item {
             SchedulerCard(
-                title = "Task action",
-                body = message,
+                title = "Supported kinds",
+                body = state.capabilities.supportedKinds.joinToString(),
             )
         }
-        if (state.tasks.isEmpty()) {
+        item {
             SchedulerCard(
-                title = "Saved tasks",
-                body = "No tasks yet.",
+                title = "Minimum background interval",
+                body = "${state.capabilities.minimumBackgroundInterval.toMinutes()} minutes",
             )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(state.tasks, key = { it.id }) { task ->
-                    val decision = task.schedulingDecision(state.diagnostics)
-                    SchedulerCard(
-                        title = task.name,
-                        body = taskCardBody(task, decision, state.diagnostics.isRestrictedBucket),
+        }
+        item {
+            SchedulerCard(
+                title = "Exact alarm status",
+                body = buildString {
+                    append("Supported: ").append(state.diagnostics.supportsExactAlarms)
+                    append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
+                    append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
+                    if (state.diagnostics.isRestrictedBucket) {
+                        append("\nApp is in restricted bucket; background work may be delayed.")
+                    }
+                },
+            )
+        }
+        item {
+            SchedulerCard(
+                title = "Next @daily preview",
+                body = state.nextDailyPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
+            )
+        }
+        item {
+            SchedulerCard(
+                title = "Next 9am weekday cron preview",
+                body = state.nextWeekdayPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
+            )
+        }
+        if (state.actionMessage != null) {
+            item {
+                SchedulerCard(
+                    title = "Task action",
+                    body = state.actionMessage.orEmpty(),
+                )
+            }
+        }
+        if (formMessage != null) {
+            item {
+                SchedulerCard(
+                    title = "Create task",
+                    body = formMessage.orEmpty(),
+                )
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("Create Task", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Task name") },
                     )
+                    OutlinedTextField(
+                        value = prompt,
+                        onValueChange = { prompt = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        label = { Text("Prompt") },
+                    )
+                    Text("Schedule kind", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(
+                            items = TaskScheduleKindUi.entries.toList(),
+                            key = { it.name },
+                        ) { kind ->
+                            FilterChip(
+                                selected = scheduleKind == kind,
+                                onClick = { scheduleKind = kind },
+                                label = { Text(kind.name) },
+                            )
+                        }
+                    }
+                    when (scheduleKind) {
+                        TaskScheduleKindUi.Once -> {
+                            OutlinedTextField(
+                                value = onceAt,
+                                onValueChange = { onceAt = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Run at (ISO-8601 UTC)") },
+                            )
+                        }
+                        TaskScheduleKindUi.Interval -> {
+                            OutlinedTextField(
+                                value = intervalMinutes,
+                                onValueChange = { intervalMinutes = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Repeat every minutes") },
+                            )
+                        }
+                        TaskScheduleKindUi.Cron -> {
+                            OutlinedTextField(
+                                value = cronExpression,
+                                onValueChange = { cronExpression = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Cron expression") },
+                            )
+                        }
+                    }
+                    Text("Execution mode", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(
+                            items = TaskExecutionMode.values().toList(),
+                            key = { it.name },
+                        ) { mode ->
+                            FilterChip(
+                                selected = executionMode == mode,
+                                onClick = { executionMode = mode },
+                                label = { Text(mode.name) },
+                            )
+                        }
+                    }
+                    Text("Target session", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            FilterChip(
+                                selected = selectedSessionId.isBlank(),
+                                onClick = { selectedSessionId = "" },
+                                label = { Text("Main session") },
+                            )
+                        }
+                        items(state.sessions, key = { it.id }) { session ->
+                            FilterChip(
+                                selected = selectedSessionId == session.id,
+                                onClick = { selectedSessionId = session.id },
+                                label = { Text(session.title) },
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = if (precise) "Precise exact-alarm eligible" else "Approximate WorkManager",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Switch(
+                            checked = precise,
+                            onCheckedChange = { precise = it },
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            val minimumMinutes = state.capabilities.minimumBackgroundInterval.toMinutes()
+                            val schedule = runCatching {
+                                when (scheduleKind) {
+                                    TaskScheduleKindUi.Once -> {
+                                        val scheduledAt = Instant.parse(onceAt.trim())
+                                        require(scheduledAt.isAfter(Instant.now())) {
+                                            "Once tasks must be scheduled in the future."
+                                        }
+                                        TaskSchedule.Once(scheduledAt)
+                                    }
+                                    TaskScheduleKindUi.Interval -> {
+                                        val minutes = intervalMinutes.trim().toLong()
+                                        require(minutes >= minimumMinutes) {
+                                            "Intervals must be at least $minimumMinutes minutes."
+                                        }
+                                        TaskSchedule.Interval(
+                                            anchorAt = Instant.now(),
+                                            repeatEvery = Duration.ofMinutes(minutes),
+                                        )
+                                    }
+                                    TaskScheduleKindUi.Cron -> TaskSchedule.Cron(
+                                        expression = CronExpression.parse(cronExpression.trim()),
+                                        zoneId = ZoneId.systemDefault(),
+                                    )
+                                }
+                            }.getOrElse { error ->
+                                formMessage = error.message ?: "Invalid task schedule."
+                                return@Button
+                            }
+
+                            if (name.trim().isBlank() || prompt.trim().isBlank()) {
+                                formMessage = "Task name and prompt are required."
+                                return@Button
+                            }
+
+                            viewModel.createTask(
+                                name = name.trim(),
+                                prompt = prompt.trim(),
+                                schedule = schedule,
+                                executionMode = executionMode,
+                                targetSessionId = selectedSessionId.takeIf { it.isNotBlank() },
+                                precise = precise,
+                            )
+                            name = ""
+                            prompt = ""
+                            formMessage = null
+                        },
+                    ) {
+                        Text("Create task")
+                    }
+                }
+            }
+        }
+        if (state.tasks.isEmpty()) {
+            item {
+                SchedulerCard(
+                    title = "Saved tasks",
+                    body = "No tasks yet.",
+                )
+            }
+        } else {
+            items(state.tasks, key = { it.id }) { task ->
+                val decision = task.schedulingDecision(state.diagnostics)
+                TaskCard(
+                    task = task,
+                    decision = decision,
+                    restrictedBucket = state.diagnostics.isRestrictedBucket,
+                    recentRuns = state.recentRunsByTaskId[task.id].orEmpty(),
+                    onToggleEnabled = { viewModel.toggleEnabled(task.id) },
+                    onRunNow = { viewModel.runNow(task.id) },
+                    onDelete = { viewModel.deleteTask(task.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskCard(
+    task: Task,
+    decision: TaskSchedulingDecision,
+    restrictedBucket: Boolean,
+    recentRuns: List<TaskRun>,
+    onToggleEnabled: () -> Unit,
+    onRunNow: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(task.name, style = MaterialTheme.typography.titleMedium)
+            Text(task.prompt, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = taskCardBody(task, decision, restrictedBucket),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = onToggleEnabled,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (task.enabled) "Disable" else "Enable")
+                }
+                Button(
+                    onClick = onRunNow,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Run now")
+                }
+                Button(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Delete")
+                }
+            }
+            if (recentRuns.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Recent runs", style = MaterialTheme.typography.labelMedium)
+                    recentRuns.forEach { run ->
+                        Text(
+                            text = buildString {
+                                append(run.status.name)
+                                append(" at ")
+                                append(DateTimeFormatter.ISO_INSTANT.format(run.scheduledAt))
+                                run.errorCode?.let { code ->
+                                    append(" (").append(code).append(')')
+                                }
+                                run.resultSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                                    append("\n").append(summary)
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
         }
@@ -103,21 +401,22 @@ private fun SchedulerCard(title: String, body: String) {
 
 private fun taskCardBody(
     task: Task,
-    decision: ai.androidclaw.runtime.scheduler.TaskSchedulingDecision,
+    decision: TaskSchedulingDecision,
     restrictedBucket: Boolean,
 ): String {
     return buildString {
         append("Enabled: ").append(task.enabled)
+        append("\nExecution: ").append(task.executionMode.name)
+        append("\nTarget session: ").append(task.targetSessionId ?: "Main session")
         append("\nNext: ").append(task.nextRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unscheduled")
         append("\nLast run: ").append(task.lastRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Never")
         append("\nPrecision: ").append(if (task.precise) "Precise user-visible" else "Approximate")
-        append(
-            "\nScheduling path: ").append(
-                when (decision.path) {
-                    TaskSchedulingPath.ExactAlarm -> "Exact alarm"
-                    TaskSchedulingPath.WorkManagerApproximate -> "WorkManager"
-                },
-            )
+        append("\nScheduling path: ").append(
+            when (decision.path) {
+                TaskSchedulingPath.ExactAlarm -> "Exact alarm"
+                TaskSchedulingPath.WorkManagerApproximate -> "WorkManager"
+            },
+        )
         decision.degradedReason?.let { reason ->
             append("\n").append(reason)
         }

@@ -17,6 +17,7 @@ import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolRegistry
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -83,7 +84,7 @@ class AgentRunner(
     ): AgentTurnResult {
         return sessionLaneCoordinator.withLane(sessionId) {
             val normalizedUserMessage = userMessage.trim()
-            val skills = skillManager.refreshBundledSkills()
+            val availableSkills = skillManager.refreshSkillInventory(sessionId = sessionId)
             val slashCommand = SlashCommand.parse(normalizedUserMessage)
             messageRepository.addMessage(
                 sessionId = sessionId,
@@ -91,143 +92,158 @@ class AgentRunner(
                 content = normalizedUserMessage,
                 taskRunId = taskRunId,
             )
-
-            if (slashCommand != null) {
-                val slashSkill = skillManager.findSlashSkill(slashCommand.name, skills)
-                if (slashSkill == null) {
-                    return@withLane persistAssistantResponse(
-                        sessionId = sessionId,
-                        assistantText = "No enabled skill named /${slashCommand.name} is available.",
-                        selectedSkills = emptyList(),
-                        taskRunId = taskRunId,
-                    )
-                }
-                if (slashSkill.eligibility.status != SkillEligibilityStatus.Eligible) {
-                    val reasons = slashSkill.eligibility.reasons
-                        .takeIf { it.isNotEmpty() }
-                        ?.joinToString(separator = " ")
-                        ?: "This skill is not currently available."
-                    return@withLane persistAssistantResponse(
-                        sessionId = sessionId,
-                        assistantText = "Skill /${slashCommand.name} is unavailable. $reasons",
-                        selectedSkills = listOf(slashSkill),
-                        taskRunId = taskRunId,
-                    )
-                }
-
-                val frontmatter = slashSkill.frontmatter
-                if (
-                    frontmatter != null &&
-                    frontmatter.commandDispatch == SkillCommandDispatch.Tool &&
-                    frontmatter.commandTool != null
-                ) {
-                    val toolResult = executeDirectToolDispatch(
-                        sessionId = sessionId,
-                        slashCommand = slashCommand,
-                        slashSkill = slashSkill,
-                        toolName = frontmatter.commandTool,
-                        taskRunId = taskRunId,
-                    )
-                    return@withLane persistAssistantResponse(
-                        sessionId = sessionId,
-                        assistantText = toolResult.summary,
-                        selectedSkills = listOf(slashSkill),
-                        directToolResult = toolResult,
-                        taskRunId = taskRunId,
-                        exitReason = AgentTurnExitReason.DirectToolDispatch,
-                    )
-                }
-            }
-
-            val selectedSkills = if (slashCommand != null) {
-                skillManager.findSlashSkill(slashCommand.name, skills)
-                    ?.takeIf { it.eligibility.status == SkillEligibilityStatus.Eligible }
-                    ?.let(::listOf)
-                    ?: emptyList()
-            } else {
-                skillManager.selectModelSkills(skills)
-            }
-            val toolDescriptors = toolRegistry.descriptors()
-            val providerSettings = settingsDataStore.settings.first()
-            val provider = providerRegistry.require(providerSettings.providerType)
-            val persistedMessages = messageRepository.getRecentMessages(sessionId, limit = 32).asReversed()
-            val promptAssembly = promptAssembler.assemble(
-                persistedMessages = persistedMessages,
-                selectedSkills = selectedSkills,
-                toolDescriptors = toolDescriptors,
-                runMode = runMode,
-            )
-            var messageHistory = promptAssembly.messageHistory
-            var providerRequestId: String? = null
-
-            repeat(MAX_TOOL_ROUNDS) { round ->
-                val response = withContext(Dispatchers.IO) {
-                    provider.generate(
-                        ModelRequest(
+            try {
+                if (slashCommand != null) {
+                    val slashSkill = skillManager.findSlashSkill(slashCommand.name, availableSkills)
+                    if (slashSkill == null) {
+                        return@withLane persistAssistantResponse(
                             sessionId = sessionId,
-                            requestId = UUID.randomUUID().toString(),
-                            messageHistory = messageHistory,
-                            systemPrompt = promptAssembly.systemPrompt,
-                            enabledSkills = selectedSkills.map { skill ->
-                                ModelSkillMetadata(
-                                    id = skill.id,
-                                    name = skill.displayName,
-                                    description = skill.frontmatter?.description.orEmpty(),
-                                    instructions = skill.instructionsMd,
-                                )
-                            },
-                            toolDescriptors = toolDescriptors,
-                            runMode = runMode,
-                        ),
-                    )
-                }
-                providerRequestId = response.providerRequestId
-                if (response.finishReason != TOOL_USE_FINISH_REASON) {
-                    return@withLane persistAssistantResponse(
-                        sessionId = sessionId,
-                        assistantText = response.text,
-                        selectedSkills = selectedSkills,
-                        providerRequestId = response.providerRequestId,
-                        taskRunId = taskRunId,
-                    )
+                            assistantText = "No enabled skill named /${slashCommand.name} is available.",
+                            selectedSkills = emptyList(),
+                            taskRunId = taskRunId,
+                        )
+                    }
+                    if (slashSkill.eligibility.status != SkillEligibilityStatus.Eligible) {
+                        val reasons = slashSkill.eligibility.reasons
+                            .takeIf { it.isNotEmpty() }
+                            ?.joinToString(separator = " ")
+                            ?: "This skill is not currently available."
+                        return@withLane persistAssistantResponse(
+                            sessionId = sessionId,
+                            assistantText = "Skill /${slashCommand.name} is unavailable. $reasons",
+                            selectedSkills = listOf(slashSkill),
+                            taskRunId = taskRunId,
+                        )
+                    }
+
+                    val frontmatter = slashSkill.frontmatter
+                    if (
+                        frontmatter != null &&
+                        frontmatter.commandDispatch == SkillCommandDispatch.Tool &&
+                        frontmatter.commandTool != null
+                    ) {
+                        val toolResult = executeDirectToolDispatch(
+                            sessionId = sessionId,
+                            slashCommand = slashCommand,
+                            slashSkill = slashSkill,
+                            toolName = frontmatter.commandTool,
+                            taskRunId = taskRunId,
+                        )
+                        return@withLane persistAssistantResponse(
+                            sessionId = sessionId,
+                            assistantText = toolResult.summary,
+                            selectedSkills = listOf(slashSkill),
+                            directToolResult = toolResult,
+                            taskRunId = taskRunId,
+                            exitReason = AgentTurnExitReason.DirectToolDispatch,
+                        )
+                    }
                 }
 
-                if (response.toolCalls.isEmpty()) {
-                    return@withLane persistAssistantResponse(
-                        sessionId = sessionId,
-                        assistantText = "Provider requested tool use without specifying a tool call.",
-                        selectedSkills = selectedSkills,
-                        providerRequestId = response.providerRequestId,
-                        taskRunId = taskRunId,
-                    )
+                val selectedSkills = if (slashCommand != null) {
+                    skillManager.findSlashSkill(slashCommand.name, availableSkills)
+                        ?.takeIf { it.eligibility.status == SkillEligibilityStatus.Eligible }
+                        ?.let(::listOf)
+                        ?: emptyList()
+                } else {
+                    skillManager.selectModelSkills(availableSkills)
                 }
-
-                val toolResultMessages = executeProviderToolCalls(
-                    sessionId = sessionId,
-                    toolCalls = response.toolCalls,
-                    taskRunId = taskRunId,
+                val toolDescriptors = toolRegistry.descriptors()
+                val providerSettings = settingsDataStore.settings.first()
+                val provider = providerRegistry.require(providerSettings.providerType)
+                val persistedMessages = messageRepository.getRecentMessages(sessionId, limit = 32).asReversed()
+                val promptAssembly = promptAssembler.assemble(
+                    persistedMessages = persistedMessages,
+                    selectedSkills = selectedSkills,
+                    toolDescriptors = toolDescriptors,
+                    runMode = runMode,
                 )
-                messageHistory = messageHistory +
-                    ModelMessage(
-                        role = ModelMessageRole.Assistant,
-                        content = response.text,
-                        toolCalls = response.toolCalls,
-                    ) +
-                    toolResultMessages
+                var messageHistory = promptAssembly.messageHistory
+                var providerRequestId: String? = null
 
-                if (round == MAX_TOOL_ROUNDS - 1) {
-                    return@withLane persistAssistantResponse(
+                repeat(MAX_TOOL_ROUNDS) { round ->
+                    val response = withContext(Dispatchers.IO) {
+                        provider.generate(
+                            ModelRequest(
+                                sessionId = sessionId,
+                                requestId = UUID.randomUUID().toString(),
+                                messageHistory = messageHistory,
+                                systemPrompt = promptAssembly.systemPrompt,
+                                enabledSkills = selectedSkills.map { skill ->
+                                    ModelSkillMetadata(
+                                        id = skill.id,
+                                        name = skill.displayName,
+                                        description = skill.frontmatter?.description.orEmpty(),
+                                        instructions = skill.instructionsMd,
+                                    )
+                                },
+                                toolDescriptors = toolDescriptors,
+                                runMode = runMode,
+                            ),
+                        )
+                    }
+                    providerRequestId = response.providerRequestId
+                    if (response.finishReason != TOOL_USE_FINISH_REASON) {
+                        return@withLane persistAssistantResponse(
+                            sessionId = sessionId,
+                            assistantText = response.text,
+                            selectedSkills = selectedSkills,
+                            providerRequestId = response.providerRequestId,
+                            taskRunId = taskRunId,
+                        )
+                    }
+
+                    if (response.toolCalls.isEmpty()) {
+                        return@withLane persistAssistantResponse(
+                            sessionId = sessionId,
+                            assistantText = "Provider requested tool use without specifying a tool call.",
+                            selectedSkills = selectedSkills,
+                            providerRequestId = response.providerRequestId,
+                            taskRunId = taskRunId,
+                        )
+                    }
+
+                    val toolResultMessages = executeProviderToolCalls(
                         sessionId = sessionId,
-                        assistantText = "Tool-call limit reached before the turn could complete.",
-                        selectedSkills = selectedSkills,
-                        providerRequestId = providerRequestId,
+                        toolCalls = response.toolCalls,
                         taskRunId = taskRunId,
-                        exitReason = AgentTurnExitReason.ToolLoopExhausted,
                     )
-                }
-            }
+                    messageHistory = messageHistory +
+                        ModelMessage(
+                            role = ModelMessageRole.Assistant,
+                            content = response.text,
+                            toolCalls = response.toolCalls,
+                        ) +
+                        toolResultMessages
 
-            error("Unreachable: tool-call loop should return before exhausting repeat.")
+                    if (round == MAX_TOOL_ROUNDS - 1) {
+                        return@withLane persistAssistantResponse(
+                            sessionId = sessionId,
+                            assistantText = "Tool-call limit reached before the turn could complete.",
+                            selectedSkills = selectedSkills,
+                            providerRequestId = providerRequestId,
+                            taskRunId = taskRunId,
+                            exitReason = AgentTurnExitReason.ToolLoopExhausted,
+                        )
+                    }
+                }
+
+                error("Unreachable: tool-call loop should return before exhausting repeat.")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (runMode == ModelRunMode.Interactive) {
+                    runCatching {
+                        messageRepository.addMessage(
+                            sessionId = sessionId,
+                            role = MessageRole.System,
+                            content = "Turn failed: ${error.message ?: "Turn failed."}",
+                            taskRunId = taskRunId,
+                        )
+                    }
+                }
+                throw error
+            }
         }
     }
 
@@ -239,20 +255,21 @@ class AgentRunner(
         taskRunId: String?,
     ): ToolExecutionResult {
         val toolCallId = UUID.randomUUID().toString()
+        val toolArguments = buildJsonObject {
+            put("command", slashCommand.arguments)
+            put("commandName", slashCommand.name)
+            put("skillName", slashSkill.displayName)
+        }
         messageRepository.addMessage(
             sessionId = sessionId,
             role = MessageRole.ToolCall,
-            content = "Tool request: $toolName ${slashCommand.arguments}".trim(),
+            content = "Tool request: $toolName $toolArguments",
             toolCallId = toolCallId,
             taskRunId = taskRunId,
         )
         val toolResult = toolRegistry.execute(
             name = toolName,
-            arguments = buildJsonObject {
-                put("command", slashCommand.arguments)
-                put("commandName", slashCommand.name)
-                put("skillName", slashSkill.displayName)
-            },
+            arguments = toolArguments,
         )
         messageRepository.addMessage(
             sessionId = sessionId,

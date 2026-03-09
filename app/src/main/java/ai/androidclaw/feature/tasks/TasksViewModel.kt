@@ -2,6 +2,8 @@ package ai.androidclaw.feature.tasks
 
 import ai.androidclaw.app.TasksDependencies
 import ai.androidclaw.data.model.Task
+import ai.androidclaw.data.model.TaskRun
+import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCapabilities
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -14,15 +16,29 @@ import androidx.lifecycle.viewModelScope
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+data class TaskSessionUi(
+    val id: String,
+    val title: String,
+    val isMain: Boolean,
+)
 
 data class TasksUiState(
     val tasks: List<Task> = emptyList(),
+    val sessions: List<TaskSessionUi> = emptyList(),
+    val recentRunsByTaskId: Map<String, List<TaskRun>> = emptyMap(),
     val capabilities: SchedulerCapabilities = SchedulerCapabilities(
         minimumBackgroundInterval = Duration.ofMinutes(15),
         supportsExactAlarms = false,
@@ -34,38 +50,71 @@ data class TasksUiState(
     val actionMessage: String? = null,
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TasksViewModel(
     private val taskRepository: TaskRepository,
     private val schedulerCoordinator: SchedulerCoordinator,
+    private val sessionRepository: SessionRepository,
 ) : ViewModel() {
     private val capabilities = schedulerCoordinator.capabilities()
     private val actionMessage = MutableStateFlow<String?>(null)
+    private val diagnosticsRefreshes = MutableStateFlow(0)
+    private val tasksFlow = taskRepository.observeTasks()
+    private val sessionsFlow = sessionRepository.observeSessions()
+        .map { sessions ->
+            sessions.map { session ->
+                TaskSessionUi(
+                    id = session.id,
+                    title = session.title,
+                    isMain = session.isMain,
+                )
+            }
+        }
+    private val recentRunsFlow = tasksFlow.flatMapLatest { tasks ->
+        if (tasks.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(
+                tasks.map { task ->
+                    taskRepository.observeRuns(task.id).map { runs ->
+                        task.id to runs.take(3)
+                    }
+                },
+            ) { taskRuns ->
+                taskRuns.associate { (taskId, runs) -> taskId to runs }
+            }
+        }
+    }
 
     val state: StateFlow<TasksUiState> = combine(
-        taskRepository.observeTasks(),
+        tasksFlow,
+        sessionsFlow,
+        recentRunsFlow,
         actionMessage,
-    ) { tasks, actionMessageValue ->
-            val diagnostics = schedulerCoordinator.diagnostics()
-            TasksUiState(
-                tasks = tasks,
-                capabilities = capabilities,
-                diagnostics = diagnostics,
-                nextDailyPreview = schedulerCoordinator.nextRunPreview("@daily"),
-                nextWeekdayPreview = schedulerCoordinator.nextRunPreview(
-                    expression = "0 9 * * 1-5",
-                    zoneId = ZoneId.systemDefault(),
-                ),
-                actionMessage = actionMessageValue,
-            )
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = TasksUiState(
-                capabilities = capabilities,
-                diagnostics = schedulerCoordinator.diagnostics(),
+        diagnosticsRefreshes,
+    ) { tasks, sessions, recentRuns, actionMessageValue, _ ->
+        val diagnostics = schedulerCoordinator.diagnostics()
+        TasksUiState(
+            tasks = tasks,
+            sessions = sessions,
+            recentRunsByTaskId = recentRuns,
+            capabilities = capabilities,
+            diagnostics = diagnostics,
+            nextDailyPreview = schedulerCoordinator.nextRunPreview("@daily"),
+            nextWeekdayPreview = schedulerCoordinator.nextRunPreview(
+                expression = "0 9 * * 1-5",
+                zoneId = ZoneId.systemDefault(),
             ),
+            actionMessage = actionMessageValue,
         )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = TasksUiState(
+            capabilities = capabilities,
+            diagnostics = schedulerCoordinator.diagnostics(),
+        ),
+    )
 
     fun createTask(
         name: String,
@@ -87,6 +136,7 @@ class TasksViewModel(
                 maxRetries = maxRetries,
             )
             schedulerCoordinator.scheduleTask(createdTask.id)
+            actionMessage.value = "Created task ${createdTask.name}."
         }
     }
 
@@ -100,8 +150,10 @@ class TasksViewModel(
             taskRepository.updateTask(updatedTask)
             if (updatedTask.enabled) {
                 schedulerCoordinator.scheduleTask(updatedTask.id)
+                actionMessage.value = "Enabled ${updatedTask.name}."
             } else {
                 schedulerCoordinator.cancelTask(updatedTask.id)
+                actionMessage.value = "Disabled ${updatedTask.name}."
             }
         }
     }
@@ -123,10 +175,16 @@ class TasksViewModel(
     }
 
     fun deleteTask(taskId: String) {
+        val taskName = state.value.tasks.firstOrNull { it.id == taskId }?.name ?: "task"
         viewModelScope.launch {
             schedulerCoordinator.cancelTask(taskId)
             taskRepository.deleteTask(taskId)
+            actionMessage.value = "Deleted $taskName."
         }
+    }
+
+    fun refreshDiagnostics() {
+        diagnosticsRefreshes.update { it + 1 }
     }
 
     companion object {
@@ -137,6 +195,7 @@ class TasksViewModel(
                     return TasksViewModel(
                         taskRepository = dependencies.taskRepository,
                         schedulerCoordinator = dependencies.schedulerCoordinator,
+                        sessionRepository = dependencies.sessionRepository,
                     ) as T
                 }
             }

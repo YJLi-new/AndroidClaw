@@ -13,10 +13,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import java.time.Instant
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 
 data class HealthUiState(
     val providerId: String = "",
@@ -39,11 +41,13 @@ class HealthViewModel(
     private val capabilities = schedulerCoordinator.capabilities()
     private val staticTools = toolRegistry.descriptors().map { it.name }
     private val initialDiagnostics = schedulerCoordinator.diagnostics()
+    private val diagnosticsRefreshes = MutableStateFlow(0)
 
     val state: StateFlow<HealthUiState> = combine(
         settingsDataStore.settings,
         eventLogRepository.observeRecent(limit = 10),
-    ) { settings, events ->
+        diagnosticsRefreshes,
+    ) { settings, events, _ ->
             val schedulerEvents = events.filter { it.category == EventCategory.Scheduler }
             val diagnostics = schedulerCoordinator.diagnostics()
             HealthUiState(
@@ -80,6 +84,10 @@ class HealthViewModel(
                 tools = staticTools,
             ),
         )
+
+    fun refreshDiagnostics() {
+        diagnosticsRefreshes.update { it + 1 }
+    }
 
     companion object {
         fun factory(dependencies: HealthDependencies): ViewModelProvider.Factory {

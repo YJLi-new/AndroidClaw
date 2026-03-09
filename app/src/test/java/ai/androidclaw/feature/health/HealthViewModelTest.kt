@@ -8,6 +8,7 @@ import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.runtime.tools.ToolRegistry
@@ -39,6 +40,7 @@ class HealthViewModelTest {
 
     private lateinit var database: AndroidClawDatabase
     private lateinit var eventLogRepository: EventLogRepository
+    private lateinit var taskRepository: TaskRepository
     private lateinit var application: android.app.Application
     private lateinit var settingsDataStore: SettingsDataStore
 
@@ -47,6 +49,7 @@ class HealthViewModelTest {
         application = ApplicationProvider.getApplicationContext()
         database = buildTestDatabase(application)
         eventLogRepository = EventLogRepository(database.eventLogDao())
+        taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
         settingsDataStore = SettingsDataStore(application)
         settingsDataStore.saveProviderSettings(
             ProviderSettingsSnapshot(
@@ -91,6 +94,8 @@ class HealthViewModelTest {
             schedulerCoordinator = SchedulerCoordinator(
                 application = application,
                 clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                taskRepository = taskRepository,
+                eventLogRepository = eventLogRepository,
             ),
             toolRegistry = ToolRegistry(
                 tools = listOf(

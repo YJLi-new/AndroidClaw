@@ -10,6 +10,12 @@ android {
     namespace = "ai.androidclaw"
     compileSdk = 36
 
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
+
     defaultConfig {
         applicationId = "ai.androidclaw.app"
         minSdk = 26
@@ -118,12 +124,13 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.junit.ext)
+    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.work.testing)
 }
 
 // Preferred managed-device command on hosts with emulator acceleration:
 // ./gradlew :app:pixel8Api36DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
-// Canonical fallback on this repository's current LDPlayer-based workstation:
-// ./scripts/run_ldplayer_android_test.sh
-// Example targeted fallback invocation:
-// ./scripts/run_ldplayer_android_test.sh ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest
+// Canonical Windows-emulator fallback from WSL:
+// ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+// Exact-alarm regression sweep:
+// ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31

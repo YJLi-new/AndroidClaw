@@ -11,15 +11,18 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -104,6 +107,144 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun `tool definitions and transcript tool calls are serialized for openai requests`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-structured",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "Structured reply"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        buildProvider().generate(
+            buildRequest(
+                messageHistory = listOf(
+                    ModelMessage(
+                        role = ModelMessageRole.User,
+                        content = "hello",
+                    ),
+                    ModelMessage(
+                        role = ModelMessageRole.Assistant,
+                        content = "",
+                        toolCalls = listOf(
+                            ProviderToolCall(
+                                id = "call-1",
+                                name = "health.status",
+                                argumentsJson = buildJsonObject {
+                                    put("scope", "summary")
+                                },
+                            ),
+                        ),
+                    ),
+                    ModelMessage(
+                        role = ModelMessageRole.Tool,
+                        content = "Health ok",
+                        toolCallId = "call-1",
+                    ),
+                ),
+                toolDescriptors = listOf(
+                    ai.androidclaw.runtime.tools.ToolDescriptor(
+                        name = "health.status",
+                        description = "Report health",
+                        inputSchema = buildJsonObject {
+                            put("type", "object")
+                            put(
+                                "properties",
+                                buildJsonObject {
+                                    put(
+                                        "scope",
+                                        buildJsonObject {
+                                            put("type", "string")
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    ),
+                ),
+            ),
+        )
+
+        val recordedRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: error("Expected provider request.")
+        val payload = json.parseToJsonElement(recordedRequest.body.readUtf8()).jsonObject
+        val tools = payload.getValue("tools").jsonArray
+        val messages = payload.getValue("messages").jsonArray
+        val assistantToolCall = messages[2].jsonObject.getValue("tool_calls").jsonArray.single().jsonObject
+        val toolMessage = messages[3].jsonObject
+
+        assertEquals("health.status", tools.single().jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content)
+        assertEquals("health.status", assistantToolCall.getValue("function").jsonObject.getValue("name").jsonPrimitive.content)
+        assertEquals("{\"scope\":\"summary\"}", assistantToolCall.getValue("function").jsonObject.getValue("arguments").jsonPrimitive.content)
+        assertEquals("tool", toolMessage.getValue("role").jsonPrimitive.content)
+        assertEquals("call-1", toolMessage.getValue("tool_call_id").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `response tool calls are parsed into tool use finish reason`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-tools",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": null,
+                            "tool_calls": [
+                              {
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {
+                                  "name": "health.status",
+                                  "arguments": "{\"scope\":\"summary\"}"
+                                }
+                              }
+                            ]
+                          },
+                          "finish_reason": "tool_calls"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val response = buildProvider().generate(
+            buildRequest(
+                toolDescriptors = listOf(
+                    ai.androidclaw.runtime.tools.ToolDescriptor(
+                        name = "health.status",
+                        description = "Report health",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals("tool_use", response.finishReason)
+        assertEquals("", response.text)
+        assertEquals("call-1", response.toolCalls.single().id)
+        assertEquals("health.status", response.toolCalls.single().name)
+        assertEquals("summary", response.toolCalls.single().argumentsJson.getValue("scope").jsonPrimitive.content)
+    }
+
+    @Test
     fun `missing api key fails with configuration error`() = runTest {
         secretStore.writeApiKey(ProviderType.OpenAiCompatible, null)
 
@@ -172,16 +313,19 @@ class OpenAiCompatibleProviderTest {
         )
     }
 
-    private fun buildRequest(): ModelRequest {
+    private fun buildRequest(
+        messageHistory: List<ModelMessage> = listOf(
+            ModelMessage(
+                role = ModelMessageRole.User,
+                content = "hello",
+            ),
+        ),
+        toolDescriptors: List<ai.androidclaw.runtime.tools.ToolDescriptor> = emptyList(),
+    ): ModelRequest {
         return ModelRequest(
             sessionId = "session-1",
             requestId = "req-123",
-            messageHistory = listOf(
-                ModelMessage(
-                    role = ModelMessageRole.User,
-                    content = "hello",
-                ),
-            ),
+            messageHistory = messageHistory,
             systemPrompt = "system prompt",
             enabledSkills = listOf(
                 ModelSkillMetadata(
@@ -191,7 +335,7 @@ class OpenAiCompatibleProviderTest {
                     instructions = "Be helpful.",
                 ),
             ),
-            toolDescriptors = emptyList(),
+            toolDescriptors = toolDescriptors,
             runMode = ModelRunMode.Interactive,
         )
     }

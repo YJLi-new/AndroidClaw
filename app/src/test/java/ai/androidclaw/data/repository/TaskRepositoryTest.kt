@@ -128,4 +128,49 @@ class TaskRepositoryTest {
         assertEquals(TaskRunStatus.Success, latest?.status)
         assertEquals("Completed", latest?.resultSummary)
     }
+
+    @Test
+    fun `trimRunsOlderThan removes only historical task runs`() = runTest {
+        val task = repository.createTask(
+            name = "Retention task",
+            prompt = "Keep the latest run",
+            schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+            executionMode = TaskExecutionMode.MainSession,
+            targetSessionId = "main",
+        )
+        database.taskRunDao().insert(
+            ai.androidclaw.data.db.entity.TaskRunEntity(
+                id = "run-old",
+                taskId = task.id,
+                status = "SUCCESS",
+                scheduledAt = 1_000L,
+                startedAt = 1_100L,
+                finishedAt = 1_200L,
+                errorCode = null,
+                errorMessage = null,
+                resultSummary = "Old run",
+                outputMessageId = null,
+            ),
+        )
+        database.taskRunDao().insert(
+            ai.androidclaw.data.db.entity.TaskRunEntity(
+                id = "run-new",
+                taskId = task.id,
+                status = "SUCCESS",
+                scheduledAt = 9_000L,
+                startedAt = 9_100L,
+                finishedAt = 9_200L,
+                errorCode = null,
+                errorMessage = null,
+                resultSummary = "New run",
+                outputMessageId = null,
+            ),
+        )
+
+        val trimmed = repository.trimRunsOlderThan(Instant.ofEpochMilli(5_000L))
+
+        assertEquals(1, trimmed)
+        val remaining = repository.observeRuns(task.id).take(1).toList().single()
+        assertEquals(listOf("run-new"), remaining.map { it.id })
+    }
 }

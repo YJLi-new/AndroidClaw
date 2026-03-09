@@ -24,11 +24,11 @@ data class ChatDependencies(
 data class TasksDependencies(
     val taskRepository: TaskRepository,
     val schedulerCoordinator: SchedulerCoordinator,
+    val sessionRepository: SessionRepository,
 )
 
 data class SkillsDependencies(
     val skillManager: SkillManager,
-    val skillRepository: SkillRepository,
 )
 
 data class SettingsDependencies(

@@ -430,10 +430,11 @@ isolated run 的完整对话不必全部合并到主会话。
 - `ACTION_TIMEZONE_CHANGED`
 - `ACTION_TIME_CHANGED`
 - `BOOT_COMPLETED`
+- `MY_PACKAGE_REPLACED`
 
 ### 重排策略
 不要在广播接收器里做复杂计算。  
-广播接收器只 enqueue 一个轻量 reschedule worker。
+当前实现保持 receiver 很薄：只异步触发 `schedulerCoordinator.rescheduleAll()`，让 task 表重新成为唯一事实来源。
 
 ---
 
@@ -605,6 +606,13 @@ adb shell am broadcast -a "androidx.work.diagnostics.REQUEST_DIAGNOSTICS" -p "ai
 adb shell dumpsys alarm | grep ai.androidclaw.app
 ```
 
+从 WSL 触发 Windows AVD 的标准 smoke：
+
+```bash
+./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest
+```
+
 ### 15.4 Exact alarm 权限
 
 在 Android 12+ 上跳转到 exact alarm special access：
@@ -612,6 +620,25 @@ adb shell dumpsys alarm | grep ai.androidclaw.app
 ```bash
 adb shell am start -a android.settings.REQUEST_SCHEDULE_EXACT_ALARM -d package:ai.androidclaw.app
 ```
+
+Windows 侧标准准备脚本：
+
+```bash
+./scripts/setup_windows_android_emulator.sh --install-android-studio
+```
+
+标准 AVD 命名：
+
+- `AndroidClawApi34`
+- `AndroidClawApi31`
+
+标准 exact-alarm 回归脚本：
+
+```bash
+./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31
+```
+
+当前仓库的标准回归路径不再依赖 LDPlayer。API 34 fresh-install 用于 deny/degrade；API 31 用于 special-access revoke/grant/revoke 回归。
 
 如果设备支持 app-compat overrides，可用以下命令测试 exact-alarm 权限要求的兼容变化：
 

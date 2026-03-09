@@ -20,8 +20,12 @@ import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskRuntimeExecutor
 import ai.androidclaw.runtime.skills.BundledSkillLoader
+import ai.androidclaw.runtime.skills.FileSkillLoader
+import ai.androidclaw.runtime.skills.LocalSkillImporter
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
+import ai.androidclaw.runtime.skills.SkillSourceScanner
+import ai.androidclaw.runtime.skills.SkillStorage
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
 import kotlinx.serialization.json.Json
@@ -44,25 +48,47 @@ class AppContainer(application: Application) {
     val eventLogRepository = EventLogRepository(database.eventLogDao())
     val sessionLaneCoordinator = SessionLaneCoordinator()
     val promptAssembler = PromptAssembler()
+    private val skillParser = SkillParser()
+    private val skillStorage = SkillStorage(
+        filesDir = application.filesDir,
+        cacheDir = application.cacheDir,
+    )
 
     val toolRegistry = createBuiltInToolRegistry(
         application = application,
         settingsDataStore = settingsDataStore,
         sessionRepository = sessionRepository,
         taskRepository = taskRepository,
-        bundledSkillsProvider = { skillManagerRef.refreshBundledSkills() },
+        bundledSkillsProvider = { skillManagerRef.refreshSkills() },
     )
 
     private val bundledSkillLoader = BundledSkillLoader(
         assetManager = application.assets,
         rootPath = "skills",
-        parser = SkillParser(),
+        parser = skillParser,
+    )
+    private val fileSkillLoader = FileSkillLoader(
+        parser = skillParser,
+    )
+    private val skillSourceScanner = SkillSourceScanner(
+        bundledSkillLoader = bundledSkillLoader,
+        fileSkillLoader = fileSkillLoader,
+        skillStorage = skillStorage,
+    )
+    private val localSkillImporter = LocalSkillImporter(
+        contentResolver = application.contentResolver,
+        skillStorage = skillStorage,
+        parser = skillParser,
     )
 
     val skillManager = SkillManager(
-        bundledSkillLoader = bundledSkillLoader,
+        skillSourceScanner = skillSourceScanner,
+        localSkillImporter = localSkillImporter,
         skillRepository = skillRepository,
         toolDescriptor = toolRegistry::findDescriptor,
+        hasStoredOpenAiKey = {
+            !providerSecretStore.readApiKey(ProviderType.OpenAiCompatible).isNullOrBlank()
+        },
     ).also { skillManagerRef = it }
 
     val providerRegistry = ProviderRegistry(
@@ -108,6 +134,13 @@ class AppContainer(application: Application) {
         taskRepository = taskRepository,
         eventLogRepository = eventLogRepository,
     )
+    val startupMaintenance = StartupMaintenance(
+        clock = clock,
+        taskRepository = taskRepository,
+        eventLogRepository = eventLogRepository,
+        ensureMainSession = ::ensureMainSession,
+        rescheduleAll = schedulerCoordinator::rescheduleAll,
+    )
     val workerFactory = AppWorkerFactory { this }
 
     val chatDependencies: ChatDependencies
@@ -123,12 +156,12 @@ class AppContainer(application: Application) {
         get() = TasksDependencies(
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
+            sessionRepository = sessionRepository,
         )
 
     val skillsDependencies: SkillsDependencies
         get() = SkillsDependencies(
             skillManager = skillManager,
-            skillRepository = skillRepository,
         )
 
     val settingsDependencies: SettingsDependencies
@@ -148,13 +181,25 @@ class AppContainer(application: Application) {
         )
 
     suspend fun ensureMainSession() {
-        val mainSession = sessionRepository.getOrCreateMainSession()
-        if (messageRepository.getRecentMessages(mainSession.id, limit = 1).isEmpty()) {
+        suspend fun ensureReadyMessage(sessionId: String) {
+            if (messageRepository.getRecentMessages(sessionId, limit = 1).isNotEmpty()) {
+                return
+            }
             messageRepository.addMessage(
-                sessionId = mainSession.id,
+                sessionId = sessionId,
                 role = MessageRole.System,
                 content = "AndroidClaw is ready.",
             )
+        }
+
+        val mainSession = sessionRepository.getOrCreateMainSession()
+        val sessionId = sessionRepository.getSession(mainSession.id)?.id
+            ?: sessionRepository.getOrCreateMainSession().id
+        try {
+            ensureReadyMessage(sessionId)
+        } catch (_: Exception) {
+            val recoveredSessionId = sessionRepository.getOrCreateMainSession().id
+            ensureReadyMessage(recoveredSessionId)
         }
     }
 }

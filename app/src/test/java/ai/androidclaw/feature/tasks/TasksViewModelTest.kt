@@ -3,6 +3,8 @@ package ai.androidclaw.feature.tasks
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.SessionEntity
+import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
@@ -35,6 +37,7 @@ class TasksViewModelTest {
 
     private lateinit var database: AndroidClawDatabase
     private lateinit var repository: TaskRepository
+    private lateinit var eventLogRepository: EventLogRepository
     private lateinit var viewModel: TasksViewModel
 
     @Before
@@ -57,13 +60,16 @@ class TasksViewModelTest {
             ),
         )
         repository = TaskRepository(database.taskDao(), database.taskRunDao())
+        eventLogRepository = EventLogRepository(database.eventLogDao())
         viewModel = TasksViewModel(
             taskRepository = repository,
             schedulerCoordinator = SchedulerCoordinator(
                 application = application,
                 clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
                 taskRepository = repository,
+                eventLogRepository = eventLogRepository,
             ),
+            sessionRepository = SessionRepository(database.sessionDao()),
         )
     }
 
@@ -106,9 +112,10 @@ class TasksViewModelTest {
             )
 
             val created = awaitState { it.tasks.size == 1 }
+            viewModel.clearActionMessage()
             viewModel.runNow(created.tasks.single().id)
 
-            val updated = awaitState { it.actionMessage != null }
+            val updated = awaitState { it.actionMessage == "Queued run now for Manual check." }
             assertEquals(
                 "Queued run now for Manual check.",
                 updated.actionMessage,

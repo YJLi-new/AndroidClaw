@@ -73,7 +73,8 @@ class EventLogRepositoryTest {
         assertEquals(EventCategory.Provider, emissions.last().single().category)
         assertTrue(recent.first().message == "Provider offline")
 
-        repository.trimOlderThan(Instant.ofEpochMilli(2L))
+        val trimmed = repository.trimOlderThan(Instant.ofEpochMilli(2L))
+        assertEquals(1, trimmed)
         assertEquals(1, repository.count())
     }
 }

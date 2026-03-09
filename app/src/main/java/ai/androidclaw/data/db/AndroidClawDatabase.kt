@@ -26,7 +26,7 @@ import androidx.room.RoomDatabase
         SkillRecordEntity::class,
         EventLogEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class AndroidClawDatabase : RoomDatabase() {
@@ -40,8 +40,7 @@ abstract class AndroidClawDatabase : RoomDatabase() {
     companion object {
         fun build(context: Context): AndroidClawDatabase {
             return Room.databaseBuilder(context, AndroidClawDatabase::class.java, "androidclaw.db")
-                // TODO: Replace destructive fallback with explicit migrations once schema changes land after v0.
-                .fallbackToDestructiveMigration(true)
+                .addMigrations(*AndroidClawDatabaseMigrations.ALL)
                 .build()
         }
     }

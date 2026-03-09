@@ -13,6 +13,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -47,6 +50,7 @@ class OpenAiCompatibleProvider(
         val payload = OpenAiChatCompletionsRequest(
             model = settings.openAiModelId,
             messages = buildMessages(request),
+            tools = buildTools(request),
         )
         val body = json.encodeToString(OpenAiChatCompletionsRequest.serializer(), payload)
             .toRequestBody(JSON_MEDIA_TYPE)
@@ -83,7 +87,22 @@ class OpenAiCompatibleProvider(
                     )
                 }
 
-                val assistantText = parsed.choices.firstOrNull()?.message?.content?.trim().orEmpty()
+                val choice = parsed.choices.firstOrNull()
+                    ?: throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "Provider response did not contain an assistant message.",
+                        details = rawBody.take(MAX_ERROR_BODY_CHARS),
+                    )
+                val assistantText = choice.message.content?.trim().orEmpty()
+                val toolCalls = choice.message.toolCalls.orEmpty().map(::toProviderToolCall)
+                if (toolCalls.isNotEmpty()) {
+                    return ModelResponse(
+                        text = assistantText,
+                        providerRequestId = parsed.id,
+                        finishReason = "tool_use",
+                        toolCalls = toolCalls,
+                    )
+                }
                 if (assistantText.isBlank()) {
                     throw ModelProviderException(
                         kind = ModelProviderFailureKind.Response,
@@ -95,6 +114,7 @@ class OpenAiCompatibleProvider(
                 return ModelResponse(
                     text = assistantText,
                     providerRequestId = parsed.id,
+                    finishReason = choice.finishReason ?: "stop",
                 )
             }
         } catch (error: SocketTimeoutException) {
@@ -150,18 +170,83 @@ class OpenAiCompatibleProvider(
                 content = request.systemPrompt,
             )
         }
-        messages += request.messageHistory.map { message ->
-            OpenAiChatMessage(
-                role = when (message.role) {
-                    ModelMessageRole.System -> "system"
-                    ModelMessageRole.User -> "user"
-                    ModelMessageRole.Assistant -> "assistant"
-                    ModelMessageRole.Tool -> "tool"
-                },
+        messages += request.messageHistory.map(::toOpenAiChatMessage)
+        return messages
+    }
+
+    private fun buildTools(request: ModelRequest): List<OpenAiToolDefinition>? {
+        return request.toolDescriptors
+            .takeIf { it.isNotEmpty() }
+            ?.map { descriptor ->
+                OpenAiToolDefinition(
+                    function = OpenAiFunctionDefinition(
+                        name = descriptor.name,
+                        description = descriptor.description,
+                        parameters = descriptor.inputSchema,
+                    ),
+                )
+            }
+    }
+
+    private fun toOpenAiChatMessage(message: ModelMessage): OpenAiChatMessage {
+        return when (message.role) {
+            ModelMessageRole.System -> OpenAiChatMessage(
+                role = "system",
                 content = message.content,
             )
+
+            ModelMessageRole.User -> OpenAiChatMessage(
+                role = "user",
+                content = message.content,
+            )
+
+            ModelMessageRole.Assistant -> OpenAiChatMessage(
+                role = "assistant",
+                content = message.content.takeIf { it.isNotBlank() },
+                toolCalls = message.toolCalls
+                    .takeIf { it.isNotEmpty() }
+                    ?.map { toolCall ->
+                        OpenAiToolCall(
+                            id = toolCall.id,
+                            function = OpenAiToolFunctionCall(
+                                name = toolCall.name,
+                                arguments = json.encodeToString(JsonObject.serializer(), toolCall.argumentsJson),
+                            ),
+                        )
+                    },
+            )
+
+            ModelMessageRole.Tool -> OpenAiChatMessage(
+                role = "tool",
+                content = message.content,
+                toolCallId = message.toolCallId ?: throw ModelProviderException(
+                    kind = ModelProviderFailureKind.Response,
+                    userMessage = "Provider request included a tool result without a tool call id.",
+                ),
+            )
         }
-        return messages
+    }
+
+    private fun toProviderToolCall(toolCall: OpenAiToolCall): ProviderToolCall {
+        val parsedArguments = try {
+            if (toolCall.function.arguments.isBlank()) {
+                buildJsonObject {}
+            } else {
+                json.parseToJsonElement(toolCall.function.arguments).jsonObject
+            }
+        } catch (error: Exception) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Response,
+                userMessage = "Provider returned malformed tool arguments.",
+                details = toolCall.function.arguments.take(MAX_ERROR_BODY_CHARS),
+                cause = error,
+            )
+        }
+        return ProviderToolCall(
+            id = toolCall.id,
+            name = toolCall.function.name,
+            argumentsJson = parsedArguments,
+        )
     }
 
     private fun mapFailure(statusCode: Int, rawBody: String): ModelProviderException {
@@ -194,12 +279,43 @@ class OpenAiCompatibleProvider(
 private data class OpenAiChatCompletionsRequest(
     val model: String,
     val messages: List<OpenAiChatMessage>,
+    val tools: List<OpenAiToolDefinition>? = null,
 )
 
 @Serializable
 private data class OpenAiChatMessage(
     val role: String,
-    val content: String,
+    val content: String? = null,
+    @SerialName("tool_call_id")
+    val toolCallId: String? = null,
+    @SerialName("tool_calls")
+    val toolCalls: List<OpenAiToolCall>? = null,
+)
+
+@Serializable
+private data class OpenAiToolDefinition(
+    val type: String = "function",
+    val function: OpenAiFunctionDefinition,
+)
+
+@Serializable
+private data class OpenAiFunctionDefinition(
+    val name: String,
+    val description: String,
+    val parameters: JsonObject,
+)
+
+@Serializable
+private data class OpenAiToolCall(
+    val id: String,
+    val type: String = "function",
+    val function: OpenAiToolFunctionCall,
+)
+
+@Serializable
+private data class OpenAiToolFunctionCall(
+    val name: String,
+    val arguments: String,
 )
 
 @Serializable
@@ -210,7 +326,9 @@ private data class OpenAiChatCompletionsResponse(
 
 @Serializable
 private data class OpenAiChatChoice(
-    val message: OpenAiChatMessage = OpenAiChatMessage(role = "assistant", content = ""),
+    val message: OpenAiChatMessage = OpenAiChatMessage(role = "assistant"),
+    @SerialName("finish_reason")
+    val finishReason: String? = null,
 )
 
 @Serializable

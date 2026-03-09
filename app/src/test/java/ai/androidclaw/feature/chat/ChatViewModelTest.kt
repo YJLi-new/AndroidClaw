@@ -17,9 +17,8 @@ import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelResponse
-import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillManager
-import ai.androidclaw.runtime.skills.SkillParser
+import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.testutil.buildTestProviderRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
@@ -198,12 +197,8 @@ private fun buildSkillManager(
     toolRegistry: ToolRegistry,
     skillRepository: ai.androidclaw.data.repository.SkillRepository,
 ): SkillManager {
-    return SkillManager(
-        bundledSkillLoader = BundledSkillLoader(
-            assetManager = application.assets,
-            rootPath = "skills",
-            parser = SkillParser(),
-        ),
+    return createTestSkillManager(
+        application = application,
         skillRepository = skillRepository,
         toolDescriptor = toolRegistry::findDescriptor,
     )

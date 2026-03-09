@@ -19,8 +19,8 @@ import kotlinx.coroutines.flow.first
 class SchedulerCoordinator(
     private val application: Application,
     private val clock: Clock,
-    private val taskRepository: TaskRepository? = null,
-    private val eventLogRepository: EventLogRepository? = null,
+    private val taskRepository: TaskRepository,
+    private val eventLogRepository: EventLogRepository,
 ) {
     private val alarmManager = application.getSystemService(AlarmManager::class.java)
     private val workManager by lazy(LazyThreadSafetyMode.NONE) {
@@ -69,8 +69,7 @@ class SchedulerCoordinator(
     }
 
     suspend fun scheduleTask(taskId: String) {
-        val repository = requireTaskRepository()
-        val task = repository.getTask(taskId)
+        val task = taskRepository.getTask(taskId)
         if (task == null || !task.enabled) {
             cancelTask(taskId)
             return
@@ -83,7 +82,7 @@ class SchedulerCoordinator(
             return
         }
         if (task.nextRunAt != scheduledAt) {
-            repository.updateTask(
+            taskRepository.updateTask(
                 task.copy(
                     nextRunAt = scheduledAt,
                     updatedAt = clock.instant(),
@@ -107,7 +106,7 @@ class SchedulerCoordinator(
                 )
             }
         }
-        eventLogRepository?.log(
+        eventLogRepository.log(
             category = EventCategory.Scheduler,
             level = if (decision.degradedReason == null) EventLevel.Info else EventLevel.Warn,
             message = when {
@@ -133,7 +132,7 @@ class SchedulerCoordinator(
         cancelExactAlarm(taskId)
         workManager.cancelUniqueWork(nextWorkName(taskId))
         workManager.cancelUniqueWork(runNowWorkName(taskId))
-        eventLogRepository?.log(
+        eventLogRepository.log(
             category = EventCategory.Scheduler,
             level = EventLevel.Info,
             message = "Cancelled scheduled work for task $taskId.",
@@ -141,8 +140,7 @@ class SchedulerCoordinator(
     }
 
     suspend fun rescheduleAll() {
-        val repository = requireTaskRepository()
-        repository.observeTasks().first().forEach { task ->
+        taskRepository.observeTasks().first().forEach { task ->
             if (task.enabled) {
                 scheduleTask(task.id)
             } else {
@@ -152,15 +150,14 @@ class SchedulerCoordinator(
     }
 
     suspend fun runNow(taskId: String) {
-        val repository = requireTaskRepository()
-        val task = repository.getTask(taskId) ?: return
+        val task = taskRepository.getTask(taskId) ?: return
         enqueueWork(
             uniqueWorkName = runNowWorkName(taskId),
             taskId = taskId,
             trigger = TaskTrigger.Manual,
             scheduledAt = clock.instant(),
         )
-        eventLogRepository?.log(
+        eventLogRepository.log(
             category = EventCategory.Scheduler,
             level = EventLevel.Info,
             message = "Queued run-now for task ${task.name}.",
@@ -209,12 +206,6 @@ class SchedulerCoordinator(
                 taskId = taskId,
             ),
         )
-    }
-
-    private fun requireTaskRepository(): TaskRepository {
-        return requireNotNull(taskRepository) {
-            "TaskRepository is required for scheduler execution APIs."
-        }
     }
 
     companion object {

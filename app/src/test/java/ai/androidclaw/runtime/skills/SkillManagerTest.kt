@@ -14,7 +14,6 @@ import java.util.ArrayDeque
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -49,9 +48,10 @@ class SkillManagerTest {
                 add(secondBatch)
             },
         )
-        val manager = SkillManager(
-            bundledSkillLoader = loader,
+        val manager = createTestSkillManager(
+            application = application,
             skillRepository = skillRepository,
+            bundledSkillLoader = loader,
             toolDescriptor = { name ->
                 ToolDescriptor(
                     name = name,
@@ -65,8 +65,38 @@ class SkillManagerTest {
         val refreshed = manager.refreshBundledSkills(forceRefresh = true)
 
         assertEquals(2, loader.loadCount)
-        assertSame(initial, cached)
+        assertEquals(initial.map { it.id }, cached.map { it.id })
         assertEquals(listOf("second"), refreshed.map { it.id })
+    }
+
+    @Test
+    fun `cached refresh overlays enabled state from repository`() = runTest {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val loader = CountingBundledSkillLoader(
+            assetManager = application.assets,
+            batches = ArrayDeque<List<SkillSnapshot>>().apply {
+                add(listOf(skillSnapshot(id = "toggle", name = "toggle")))
+            },
+        )
+        val manager = createTestSkillManager(
+            application = application,
+            skillRepository = skillRepository,
+            bundledSkillLoader = loader,
+            toolDescriptor = { name ->
+                ToolDescriptor(
+                    name = name,
+                    description = "Tool $name",
+                )
+            },
+        )
+
+        val initial = manager.refreshBundledSkills()
+        skillRepository.setEnabled(id = "toggle", enabled = false)
+        val cached = manager.refreshBundledSkills()
+
+        assertTrue(initial.single().enabled)
+        assertEquals(1, loader.loadCount)
+        assertEquals(false, cached.single().enabled)
     }
 
     @Test
@@ -87,9 +117,10 @@ class SkillManagerTest {
                 )
             },
         )
-        val manager = SkillManager(
-            bundledSkillLoader = loader,
+        val manager = createTestSkillManager(
+            application = application,
             skillRepository = skillRepository,
+            bundledSkillLoader = loader,
             toolDescriptor = { null },
         )
 
@@ -117,9 +148,10 @@ class SkillManagerTest {
                 )
             },
         )
-        val manager = SkillManager(
-            bundledSkillLoader = loader,
+        val manager = createTestSkillManager(
+            application = application,
             skillRepository = skillRepository,
+            bundledSkillLoader = loader,
             toolDescriptor = { name ->
                 ToolDescriptor(
                     name = name,
@@ -175,6 +207,7 @@ private fun skillSnapshot(
 ): SkillSnapshot {
     return SkillSnapshot(
         id = id,
+        skillKey = name,
         sourceType = SkillSourceType.Bundled,
         baseDir = "asset://skills/$id",
         enabled = true,

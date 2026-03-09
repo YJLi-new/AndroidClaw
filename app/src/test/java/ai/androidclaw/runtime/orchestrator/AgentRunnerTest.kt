@@ -1,6 +1,8 @@
 package ai.androidclaw.runtime.orchestrator
 
+import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
+import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
@@ -14,22 +16,32 @@ import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelResponse
+import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
+import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolAvailability
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolPermissionRequirement
 import ai.androidclaw.runtime.tools.ToolRegistry
+import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.buildTestProviderRegistry
 import android.content.res.AssetManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -222,8 +234,139 @@ class AgentRunnerTest {
         )
     }
 
+    @Test
+    fun `openai provider tool call loop submits structured tool transcript and persists result`() = runTest {
+        val server = MockWebServer()
+        server.start()
+        val secretStore = InMemoryProviderSecretStore(
+            initialSecrets = mapOf(ProviderType.OpenAiCompatible to "sk-test"),
+        )
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot(
+                providerType = ProviderType.OpenAiCompatible,
+                openAiBaseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                openAiModelId = "gpt-test",
+                openAiTimeoutSeconds = 5,
+            ),
+        )
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-1",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": null,
+                            "tool_calls": [
+                              {
+                                "id": "call-1",
+                                "type": "function",
+                                "function": {
+                                  "name": "health.status",
+                                  "arguments": "{}"
+                                }
+                              }
+                            ]
+                          },
+                          "finish_reason": "tool_calls"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-2",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "Final answer from OpenAI"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        try {
+            val toolRegistry = ToolRegistry(
+                tools = listOf(
+                    ToolRegistry.Entry(
+                        descriptor = ToolDescriptor(
+                            name = "health.status",
+                            description = "Report health",
+                        ),
+                    ) { _ ->
+                        ToolExecutionResult.success(
+                            summary = "Health okay",
+                            payload = buildJsonObject {
+                                put("status", "ok")
+                            },
+                        )
+                    },
+                ),
+            )
+            val runner = AgentRunner(
+                providerRegistry = buildTestProviderRegistry(
+                    fakeProvider = failOnGenerateProvider(),
+                    openAiProvider = buildOpenAiProvider(secretStore),
+                ),
+                settingsDataStore = settingsDataStore,
+                messageRepository = messageRepository,
+                skillManager = buildSkillManager(toolRegistry),
+                toolRegistry = toolRegistry,
+                sessionLaneCoordinator = SessionLaneCoordinator(),
+                promptAssembler = PromptAssembler(),
+            )
+
+            val result = runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "Use the real provider path",
+                ),
+            )
+            val requestOne = server.takeRequest(5, TimeUnit.SECONDS) ?: error("Expected first provider request.")
+            val requestTwo = server.takeRequest(5, TimeUnit.SECONDS) ?: error("Expected second provider request.")
+            val json = Json { ignoreUnknownKeys = true }
+            val payloadOne = json.parseToJsonElement(requestOne.body.readUtf8()).jsonObject
+            val payloadTwo = json.parseToJsonElement(requestTwo.body.readUtf8()).jsonObject
+            val firstTools = payloadOne.getValue("tools").jsonArray
+            val secondMessages = payloadTwo.getValue("messages").jsonArray
+            val assistantToolCalls = secondMessages[2].jsonObject.getValue("tool_calls").jsonArray
+            val toolMessage = secondMessages[3].jsonObject
+            val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
+
+            assertTrue(result.assistantMessage.contains("Final answer from OpenAI"))
+            assertEquals("health.status", firstTools.single().jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content)
+            assertEquals("health.status", assistantToolCalls.single().jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content)
+            assertEquals("tool", toolMessage.getValue("role").jsonPrimitive.content)
+            assertEquals("call-1", toolMessage.getValue("tool_call_id").jsonPrimitive.content)
+            assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolCall })
+            assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolResult })
+            assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.Assistant && it.content.contains("Final answer from OpenAI") })
+        } finally {
+            settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            server.shutdown()
+        }
+    }
+
     private fun buildSkillManager(toolRegistry: ToolRegistry): SkillManager {
-        return SkillManager(
+        return createTestSkillManager(
+            application = application,
+            skillRepository = ai.androidclaw.data.repository.SkillRepository(database.skillRecordDao()),
+            toolDescriptor = toolRegistry::findDescriptor,
             bundledSkillLoader = StaticBundledSkillLoader(
                 assetManager = application.assets,
                 skills = listOf(
@@ -235,8 +378,15 @@ class AgentRunnerTest {
                     ),
                 ),
             ),
-            skillRepository = ai.androidclaw.data.repository.SkillRepository(database.skillRecordDao()),
-            toolDescriptor = toolRegistry::findDescriptor,
+        )
+    }
+
+    private fun buildOpenAiProvider(secretStore: ProviderSecretStore): OpenAiCompatibleProvider {
+        return OpenAiCompatibleProvider(
+            settingsDataStore = settingsDataStore,
+            providerSecretStore = secretStore,
+            baseHttpClient = OkHttpClient(),
+            json = Json { ignoreUnknownKeys = true },
         )
     }
 }
@@ -270,6 +420,7 @@ private fun skillSnapshot(
 ): SkillSnapshot {
     return SkillSnapshot(
         id = id,
+        skillKey = name,
         sourceType = SkillSourceType.Bundled,
         baseDir = "asset://skills/$id",
         enabled = true,

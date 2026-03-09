@@ -23,8 +23,7 @@ class AndroidClawApplication : Application(), Configuration.Provider {
         val appContainer = container
         // Use an application-scoped coroutine for one-shot startup hydration without leaking work to GlobalScope.
         applicationScope.launch {
-            appContainer.ensureMainSession()
-            appContainer.schedulerCoordinator.rescheduleAll()
+            appContainer.startupMaintenance.run()
         }
     }
 }

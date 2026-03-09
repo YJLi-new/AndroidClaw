@@ -30,8 +30,8 @@ class EventLogRepository(
         events.map(EventLogEntity::toDomain)
     }
 
-    suspend fun trimOlderThan(instant: Instant) {
-        dao.deleteOlderThan(instant.toEpochMilli())
+    suspend fun trimOlderThan(instant: Instant): Int {
+        return dao.deleteOlderThan(instant.toEpochMilli())
     }
 
     suspend fun count(): Int = dao.count()

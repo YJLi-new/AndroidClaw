@@ -5,9 +5,13 @@ import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelRunMode
+import ai.androidclaw.runtime.providers.ProviderToolCall
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 
 data class PromptAssembly(
     val systemPrompt: String,
@@ -27,6 +31,8 @@ class PromptAssembler {
         )
     }
 }
+
+private val toolCallJson = Json { ignoreUnknownKeys = true }
 
 private fun buildSystemPrompt(
     selectedSkills: List<SkillSnapshot>,
@@ -86,15 +92,59 @@ private fun ChatMessage.toModelMessage(): ModelMessage? {
             role = ModelMessageRole.System,
             content = content,
         )
-        MessageRole.ToolCall -> ModelMessage(
-            role = ModelMessageRole.Tool,
-            content = content,
-            toolCallId = toolCallId,
+        MessageRole.ToolCall -> toPersistedToolCallMessage()
+        MessageRole.ToolResult -> toolCallId?.let { persistedToolCallId ->
+            ModelMessage(
+                role = ModelMessageRole.Tool,
+                content = content.removePrefix("Tool result: ").trim(),
+                toolCallId = persistedToolCallId,
+            )
+        }
+    }
+}
+
+private fun ChatMessage.toPersistedToolCallMessage(): ModelMessage {
+    val parsedToolCall = parsePersistedToolCallContent(
+        content = content,
+        toolCallId = toolCallId,
+    )
+    return if (parsedToolCall != null) {
+        ModelMessage(
+            role = ModelMessageRole.Assistant,
+            content = "",
+            toolCalls = listOf(parsedToolCall),
         )
-        MessageRole.ToolResult -> ModelMessage(
-            role = ModelMessageRole.Tool,
+    } else {
+        ModelMessage(
+            role = ModelMessageRole.Assistant,
             content = content,
-            toolCallId = toolCallId,
         )
     }
+}
+
+private fun parsePersistedToolCallContent(
+    content: String,
+    toolCallId: String?,
+): ProviderToolCall? {
+    val persistedToolCallId = toolCallId ?: return null
+    if (!content.startsWith("Tool request: ")) {
+        return null
+    }
+    val body = content.removePrefix("Tool request: ").trim()
+    val delimiterIndex = body.indexOf(' ')
+    if (delimiterIndex <= 0 || delimiterIndex == body.lastIndex) {
+        return null
+    }
+    val toolName = body.substring(0, delimiterIndex)
+    val rawArguments = body.substring(delimiterIndex + 1).trim()
+    val arguments = try {
+        toolCallJson.parseToJsonElement(rawArguments).jsonObject
+    } catch (_: Exception) {
+        return null
+    }
+    return ProviderToolCall(
+        id = persistedToolCallId,
+        name = toolName,
+        argumentsJson = arguments,
+    )
 }

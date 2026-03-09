@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -21,6 +23,10 @@ import java.time.format.DateTimeFormatter
 fun HealthScreen(viewModel: HealthViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshDiagnostics()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -28,6 +34,9 @@ fun HealthScreen(viewModel: HealthViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Health", style = MaterialTheme.typography.headlineSmall)
+        Button(onClick = viewModel::refreshDiagnostics) {
+            Text("Refresh diagnostics")
+        }
         HealthCard(
             title = "Provider",
             body = "Active provider: ${state.providerId}",

@@ -74,13 +74,24 @@ class TaskRuntimeExecutor(
             append("\n\n")
             append(result.assistantMessage)
         }
-        val deliveredMessage = sessionLaneCoordinator.withLane(deliverySessionId) {
-            messageRepository.addMessage(
-                sessionId = deliverySessionId,
-                role = MessageRole.Assistant,
-                content = deliveryText,
-                providerMeta = result.providerRequestId,
-                taskRunId = taskRunId,
+        val deliveredMessage = try {
+            sessionLaneCoordinator.withLane(deliverySessionId) {
+                messageRepository.addMessage(
+                    sessionId = deliverySessionId,
+                    role = MessageRole.Assistant,
+                    content = deliveryText,
+                    providerMeta = result.providerRequestId,
+                    taskRunId = taskRunId,
+                )
+            }
+        } catch (error: Exception) {
+            return TaskRuntimeExecution(
+                success = false,
+                summary = deliveryText,
+                outputMessageId = null,
+                errorCode = "TASK_DELIVERY_FAILED",
+                errorMessage = error.message ?: "Task delivery failed.",
+                retryable = false,
             )
         }
         return if (result.directToolResult?.success == false) {

@@ -2,6 +2,7 @@ package ai.androidclaw.runtime.scheduler
 
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -28,6 +29,7 @@ class SchedulerCoordinatorExactAlarmTest {
     private lateinit var application: android.app.Application
     private lateinit var database: AndroidClawDatabase
     private lateinit var repository: TaskRepository
+    private lateinit var eventLogRepository: EventLogRepository
     private lateinit var coordinator: SchedulerCoordinator
 
     @Before
@@ -41,10 +43,12 @@ class SchedulerCoordinatorExactAlarmTest {
         )
         database = buildTestDatabase(application)
         repository = TaskRepository(database.taskDao(), database.taskRunDao())
+        eventLogRepository = EventLogRepository(database.eventLogDao())
         coordinator = SchedulerCoordinator(
             application = application,
             clock = Clock.fixed(Instant.parse("2026-03-09T00:00:00Z"), ZoneOffset.UTC),
             taskRepository = repository,
+            eventLogRepository = eventLogRepository,
         )
     }
 

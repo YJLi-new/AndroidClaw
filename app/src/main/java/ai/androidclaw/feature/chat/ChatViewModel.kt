@@ -40,6 +40,7 @@ data class ChatSessionUi(
     val id: String,
     val title: String,
     val isSelected: Boolean,
+    val isMain: Boolean,
 )
 
 data class ChatUiState(
@@ -51,6 +52,7 @@ data class ChatUiState(
     val slashCommands: List<String> = emptyList(),
     val sessions: List<ChatSessionUi> = emptyList(),
     val messages: List<ChatMessageUi> = emptyList(),
+    val canArchiveCurrentSession: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -109,12 +111,15 @@ class ChatViewModel(
                 id = session.id,
                 title = session.title,
                 isSelected = session.id == chrome.currentSessionId,
+                isMain = session.isMain,
             )
         }
+        val currentSession = sessionItems.firstOrNull { it.isSelected }
         chrome.copy(
-            sessionTitle = sessionItems.firstOrNull { it.isSelected }?.title.orEmpty(),
+            sessionTitle = currentSession?.title.orEmpty(),
             sessions = sessionItems,
             messages = messages,
+            canArchiveCurrentSession = currentSession?.isMain == false,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -127,8 +132,10 @@ class ChatViewModel(
             val mainSession = sessionRepository.getOrCreateMainSession()
             if (mutableCurrentSessionId.value.isBlank()) {
                 mutableCurrentSessionId.value = mainSession.id
+                refreshSkillCommands(mainSession.id)
             }
             sessionRepository.observeSessions().collect { sessions ->
+                val previousSessionId = mutableCurrentSessionId.value
                 when {
                     sessions.isEmpty() -> Unit
                     mutableCurrentSessionId.value.isBlank() -> {
@@ -138,6 +145,9 @@ class ChatViewModel(
                     sessions.none { it.id == mutableCurrentSessionId.value } -> {
                         mutableCurrentSessionId.value = sessions.first().id
                     }
+                }
+                if (mutableCurrentSessionId.value != previousSessionId) {
+                    refreshSkillCommands(mutableCurrentSessionId.value)
                 }
             }
         }
@@ -191,13 +201,6 @@ class ChatViewModel(
                         },
                     )
                 }
-                runCatching {
-                    messageRepository.addMessage(
-                        sessionId = sessionId,
-                        role = MessageRole.System,
-                        content = "Turn failed: $message",
-                    )
-                }
             } finally {
                 isRunning.value = false
             }
@@ -207,6 +210,7 @@ class ChatViewModel(
     fun switchSession(sessionId: String) {
         mutableCurrentSessionId.value = sessionId
         errorMessage.value = null
+        refreshSkillCommands(sessionId)
     }
 
     fun createNewSession(title: String) {
@@ -215,12 +219,38 @@ class ChatViewModel(
             val created = sessionRepository.createSession(normalizedTitle)
             mutableCurrentSessionId.value = created.id
             errorMessage.value = null
+            refreshSkillCommands(created.id)
         }
     }
 
-    private fun refreshSkillCommands() {
+    fun renameCurrentSession(title: String) {
+        val sessionId = currentSessionId.value
+        if (sessionId.isBlank()) return
         viewModelScope.launch {
-            val commands = skillManager.refreshBundledSkills()
+            sessionRepository.updateTitle(
+                id = sessionId,
+                title = title.trim().ifBlank { "Untitled session" },
+            )
+        }
+    }
+
+    fun archiveCurrentSession() {
+        val current = state.value.sessions.firstOrNull { it.isSelected } ?: return
+        if (current.isMain) {
+            errorMessage.value = "The main session cannot be archived."
+            return
+        }
+        viewModelScope.launch {
+            sessionRepository.archiveSession(current.id)
+            errorMessage.value = null
+        }
+    }
+
+    private fun refreshSkillCommands(
+        sessionId: String? = mutableCurrentSessionId.value.takeIf { it.isNotBlank() },
+    ) {
+        viewModelScope.launch {
+            val commands = skillManager.refreshSkills(sessionId = sessionId)
                 .mapNotNull { skill ->
                     val frontmatter = skill.frontmatter ?: return@mapNotNull null
                     if (frontmatter.userInvocable) "/${frontmatter.name}" else null
