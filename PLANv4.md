@@ -1014,6 +1014,7 @@ Add at least:
 - `docs/TESTING.md`
 - `docs/PERFORMANCE.md`
 - `docs/RELEASE_CHECKLIST.md`
+- root `README.md` with a clear product summary and doc links
 
 Optional but useful:
 
@@ -1029,6 +1030,7 @@ Make the following limitations explicit in docs and, where appropriate, in-app c
 - no browser automation
 - no external channels
 - no remote bridge in v0
+- repository discoverability may lag until GitHub repo metadata (`README`, description, topics) is populated and Google re-crawls the public repo
 
 #### Step 4 — preserve lightweightness in product design
 
