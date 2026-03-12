@@ -38,7 +38,13 @@ if ($hypervisorState -ne 1) {
 }
 
 if ($RequiredAvdName.Count -gt 0) {
-    $missingAvds = @($RequiredAvdName | Where-Object { $_ -notin $availableAvds })
+    $normalizedRequiredAvdNames = @(
+        $RequiredAvdName |
+            ForEach-Object { $_ -split "," } |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ }
+    )
+    $missingAvds = @($normalizedRequiredAvdNames | Where-Object { $_ -notin $availableAvds })
     if ($missingAvds.Count -gt 0) {
         $problems.Add("Missing required AVD(s): $($missingAvds -join ', '). Create them in Android Studio Device Manager.")
     }

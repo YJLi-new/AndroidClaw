@@ -1,6 +1,6 @@
 # AndroidClaw Execution Plan v4
 
-> Status: canonical execution plan as of 2026-03-09.
+> Status: canonical execution plan as of 2026-03-12.
 >
 > `AGENTS.md` now points here. `PLANv1.md`, `PLANv2.md`, and `PLANv3.md` are retained as historical context only.
 
@@ -85,25 +85,25 @@ The current repository already includes, at minimum:
 
 ### 3.3 What is still missing or still not fully proven
 
-The major remaining gaps are:
+The major remaining gaps are now narrower:
 
-1. **Host validation gap**
-   - The Windows-side SDK/emulator path is not fully set up on the current workstation.
-   - Exact-alarm regression is therefore still blocked by manual host completion.
+1. **Baseline Profile tooling gap**
+   - Baseline Profiles still do not exist in-repo.
+   - This is currently blocked by WSL Gradle failing to resolve uncached AndroidX benchmark/profile artifacts from Google Maven, even though normal app dependencies resolve.
+   - By explicit user direction on 2026-03-12, this work is deferred for now and is not a blocker for the current RC verification pass.
 
-2. **Harness brittleness gap**
-   - The WSL shell wrappers still contain a user-specific Java 17 path (`/home/lanla/...`), which is not acceptable as a canonical repo workflow.
+2. **Performance/release evidence gap**
+   - startup eagerness has been reduced, but that evidence still needs to be finalized in the plan/docs
+   - release shrinking is still off and its keep-disabled-for-now decision must remain explicit
+   - the current unshrunk release APK size is now recorded, but there is still no post-shrinking comparison because shrinking remains deferred
 
-3. **Scheduler evidence gap**
-   - The repo-side exact-alarm instrumentation exists, but the real API 34/API 31 regression evidence still needs to be run and recorded.
-   - Notification permission state is not yet clearly part of scheduler diagnostics, even though time-sensitive reminders are user-visible only if notifications can actually surface. [R10][R11][R12]
+3. **RC validation gap**
+   - automated RC evidence is now recorded
+   - the remaining RC items are manual/external tester-hand-off steps such as real-provider QA with an API key and human walkthrough checks
 
-4. **Persistence/release hardening gap**
-   - Migration floor work is done, but the upgrade matrix and release evidence are not finished.
-
-5. **Performance/size gap**
-   - Baseline Profiles do not exist yet.
-   - Release shrinking / size measurement / startup evidence are not yet recorded.
+4. **Tooling honesty gap**
+   - `lintDebug` is clean for production sources, but AGP 8.13 + Kotlin FIR is crashing while analyzing `debugUnitTest` and `debugAndroidTest` sources on this workstation
+   - the repo needs the narrowest stable workaround so the fast validation loop stays green without pretending test-source lint coverage is trustworthy
 
 ### 3.4 The single most important principle for the next phase
 
@@ -180,27 +180,39 @@ Validated green on the repo side:
 - `:app:assembleDebug`
 - `:app:assembleDebugAndroidTest`
 - `:app:lintDebug`
+- `:app:assembleRelease`
+- `ANDROIDCLAW_JAVA_HOME=/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest --no-window` passed
+- `ANDROIDCLAW_JAVA_HOME=/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest --no-window` passed
+- `ANDROIDCLAW_JAVA_HOME=/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8 ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31 --no-window` passed
+- `ANDROIDCLAW_JAVA_HOME=/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8 ./scripts/run_windows_android_test.sh --avd Medium_Phone_API_36.1 --test-class ai.androidclaw.data.db.AndroidClawDatabaseMigrationTest --no-window` passed
+- `ANDROIDCLAW_JAVA_HOME=/tmp/androidclaw-jdk17-extract/jdk-17.0.18+8 ./scripts/run_windows_android_test.sh --avd Medium_Phone_API_36.1 --test-class ai.androidclaw.app.StartupMaintenanceIntegrationTest --no-window` passed
+- persistence evidence is recorded in `docs/qa/persistence-validation.md`
+- scheduler/device evidence is recorded in `docs/qa/windows-emulator-validation.md` and `docs/qa/exact-alarm-regression.md`
+- release artifact evidence is recorded in `docs/qa/release-build-validation.md`
 
 ### 4.6 Current blocker state from the latest handoff
 
-Still blocked on the workstation host side:
+Windows AVD validation is now unblocked and proven:
 
 - Android Studio is installed on Windows,
-- Windows SDK tools under `%LOCALAPPDATA%\Android\Sdk` are still missing,
-- `HypervisorPlatform` install state is still not fully enabled,
-- the required AVDs (`AndroidClawApi34`, `AndroidClawApi31`) do not yet exist,
-- the remaining exact-alarm regression therefore still cannot run unattended from WSL.
+- Windows SDK tools under `%LOCALAPPDATA%\Android\Sdk` are present,
+- `HypervisorPlatform` / WHPX is enabled,
+- the required AVDs (`AndroidClawApi34`, `AndroidClawApi31`) now exist,
+- API 34 smoke tests passed through the repo-owned WSL -> PowerShell -> Windows emulator path,
+- the API 34 / API 31 exact-alarm regression sweep passed and is recorded in `docs/qa/exact-alarm-regression.md`.
 
 ### 4.7 Repo issue discovered during plan audit
 
-The shell wrappers currently hardcode a user-specific Linux JDK fallback path:
+The shell wrappers no longer hardcode a user-specific Linux JDK fallback path. The harness now resolves Java in this order:
 
 - `scripts/run_windows_android_test.sh`
 - `scripts/run_exact_alarm_regression.sh`
 
-That path (`/home/lanla/.local/jdks/jdk-17.0.18+8`) must be removed or generalized before this workflow can be considered a stable repo-owned path.
+1. `ANDROIDCLAW_JAVA_HOME`
+2. `JAVA_HOME`
+3. `java` on `PATH` if it is Java 17+
 
-This is a real next-step item, not a cosmetic cleanup.
+The remaining operator-facing issue is now narrower: WSL still defaults to Java 8 on this workstation, so any Windows-AVD run must export a Java 17+ runtime explicitly until the host default changes.
 
 ---
 
@@ -858,6 +870,11 @@ Concrete checks:
 
 This is especially relevant because the current repo still has eager `stateIn(...)` usage in multiple feature viewmodels.
 
+Current status:
+
+- `ChatViewModel`, `TasksViewModel`, and `HealthViewModel` now use `SharingStarted.WhileSubscribed(5_000)` instead of eager collection
+- startup remains bounded to local maintenance and scheduler restore work
+
 #### Step 2 — create performance docs
 
 Add:
@@ -871,6 +888,10 @@ It should record:
 - where the Baseline Profile lives
 - how size is checked
 - current known trade-offs
+
+Current status:
+
+- `docs/PERFORMANCE.md` exists and records the current startup posture, the Baseline Profile blocker, and the release-size posture
 
 #### Step 3 — add Baseline Profile generation
 
@@ -887,6 +908,12 @@ Cover at least these journeys:
 - send one message with `FakeProvider`
 
 If using a Gradle Managed Device for generation, keep `aosp` system image requirements in mind as documented by Android. [R16]
+
+Current blocker:
+
+- this workstation's WSL Gradle runtime currently fails TLS handshakes when resolving uncached AndroidX benchmark/profile artifacts from Google Maven
+- do not check in partial `:baselineprofile` wiring that leaves the repo red; wait until dependency resolution is stable on the active host or a mirrored/preseeded artifact path exists
+- this step is explicitly deferred for the current RC pass; record the absence of Baseline Profiles honestly in release evidence instead of blocking RC verification on it
 
 #### Step 4 — generate and check in the profile
 
@@ -908,6 +935,11 @@ Because lightweight size matters, evaluate a conservative release-only optimizat
 - validate release behavior before keeping the change.
 
 Do this incrementally, not in one giant risky commit. Android’s optimization guidance explicitly supports staged adoption. [R19]
+
+Current decision:
+
+- keep shrinking disabled until there is a dedicated release-validation pass with install/launch evidence
+- record size facts on the current unshrunk release artifact first rather than enabling R8 speculatively
 
 #### Step 6 — record APK size and composition
 
@@ -1170,14 +1202,14 @@ This is the recommended actual order of execution.
 
 1. startup/eagerness audit
 2. add `docs/PERFORMANCE.md`
-3. add Baseline Profile support
+3. add Baseline Profile support when the Google Maven dependency-resolution blocker is cleared
 4. evaluate R8/resource shrinking
 5. record APK size
 
 ### Packet G — RC proof
 
 1. freeze scope
-2. run full matrix
+2. run full matrix with Baseline Profiles explicitly deferred and called out in release evidence
 3. build release APK
 4. record release evidence
 5. cut RC
@@ -1195,6 +1227,11 @@ Use this after most code changes:
 ```bash
 ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
+
+Notes:
+
+- production lint must remain green
+- if the AGP/Kotlin test-source lint crash persists, prefer a narrow test-source lint workaround plus explicit compile/test coverage over leaving the whole fast loop red
 
 ### 12.2 Device smoke matrix
 
@@ -1362,14 +1399,15 @@ Use this section as a living checklist. Keep entries short.
 - [x] migration floor and startup maintenance shipped
 - [x] PLANv4 adoption
 - [x] harness normalization (remove user-specific JDK path, add preflight)
-- [ ] Windows host completion
-- [ ] exact-alarm regression evidence recorded
+- [x] Windows host completion
+- [x] exact-alarm regression evidence recorded
 - [x] notification visibility diagnostics added
-- [ ] `m5` formally closed
-- [ ] `m9` formally closed
+- [x] `m5` formally closed
+- [x] `m9` formally closed
 - [ ] Baseline Profile support added
-- [ ] release shrinking decision recorded
-- [ ] RC validation evidence recorded
+- [x] lint fast-loop workaround for test-source FIR crash recorded
+- [x] release shrinking decision recorded
+- [x] RC validation evidence recorded
 
 ---
 
@@ -1385,7 +1423,13 @@ Add only facts that changed a real implementation choice.
 - Mobile/device tests are more failure-prone than local deterministic tests; narrow high-value device coverage is preferable to a broad flaky suite. [R21][R22]
 - Background wakeups materially affect battery life, reinforcing the no-daemon/no-polling design. [R23]
 - This workstation’s default WSL `java` is still Java 8, so the Windows AVD wrappers now need an explicit Java 17 resolution order (`ANDROIDCLAW_JAVA_HOME` -> `JAVA_HOME` -> `PATH`) instead of guessing private paths.
-- Current Windows host preflight now shows SDK tools and WHPX present, but only `Medium_Phone_API_36.1` exists; `AndroidClawApi34` and `AndroidClawApi31` are still missing, so exact-alarm regression remains blocked on AVD creation.
+- The official Windows emulator lane is now proven on this workstation with `AndroidClawApi34` and `AndroidClawApi31`; `m5` no longer has a host-side blocker.
+- The existing `Medium_Phone_API_36.1` AVD is already sufficient for migration and startup-maintenance device proof, so `m9` no longer depends on the exact-alarm API 31/API 34 AVD creation step.
+- On this WSL-mounted workspace, the Windows-AVD wrappers need the same stable Gradle flags as the fast suite (`--no-daemon`, in-process Kotlin compiler, no configuration/build cache) to avoid hanging in the artifact-build phase before PowerShell handoff.
+- PowerShell `-File` argument binding does not safely preserve repeated array-style AVD parameters from the WSL wrapper, so the preflight harness now normalizes comma-separated required-AVD input before checking availability.
+- On this workstation, AGP 8.13/Kotlin FIR can crash during `lintAnalyzeDebugUnitTest` and `lintAnalyzeDebugAndroidTest` even when production lint results are clean, so test-source lint cannot be treated as a trustworthy gate until the toolchain bug is worked around or upgraded.
+- Lint's network-backed version detectors are also a poor fit for the repo fast loop on this workstation; they can stall validation in outbound HTTP metadata fetches without improving product correctness.
+- RC verification can proceed honestly without Baseline Profiles as long as their absence is recorded explicitly in release evidence and known limitations.
 
 ---
 
@@ -1406,8 +1450,26 @@ Add only facts that changed a real implementation choice.
 - Decision: make the WSL Windows-AVD harness fail early on Java and host-preflight gaps.  
   Rationale: predictable diagnostics are more valuable than silently guessing workstation-local paths.
 
+- Decision: use any available official Windows AVD for migration and startup-maintenance proof, and reserve the named `AndroidClawApi34` / `AndroidClawApi31` requirement for the exact-alarm matrix only.  
+  Rationale: `m9` depends on real device-backed upgrade/startup evidence, but it does not require the API-specific exact-alarm semantics that still block `m5`.
+
+- Decision: the WSL Windows-AVD wrappers build APK artifacts with the same stable Gradle flags used by the repo’s fast validation lane.  
+  Rationale: this mounted-workspace environment can stall during the wrapper’s pre-PowerShell Gradle step unless it uses the known-good single-use daemon / no-cache settings.
+
 - Decision: evaluate R8/resource shrinking before RC.  
   Rationale: lightweight size matters more than obfuscation for this project phase. [R19]
+
+- Decision: if the AGP/Kotlin test-source lint crash persists, keep production lint enabled and disable only test-source lint analysis.  
+  Rationale: this preserves real source lint coverage and honest fast-loop green status without relying on a known toolchain crash.
+
+- Decision: disable lint's network-backed version-check detectors in the repo fast loop.  
+  Rationale: they add outbound HTTP stalls and workstation variance without improving product-correctness coverage.
+
+- Decision: keep release shrinking disabled for now and record that choice in repo docs.  
+  Rationale: an explicit keep-disabled decision is better than speculative R8 enablement without release validation evidence.
+
+- Decision: defer Baseline Profile support for the current RC pass and proceed with RC verification without it.  
+  Rationale: the current blocker is external dependency resolution in this WSL environment, and the repo should record that limitation honestly rather than stall the RC proof workstream.
 
 - Decision: do not invest in heavy security work before RC.  
   Rationale: the next phase is limited and should prioritize validation, reliability, startup, and size.

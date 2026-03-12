@@ -10,6 +10,15 @@ android {
     namespace = "ai.androidclaw"
     compileSdk = 36
 
+    lint {
+        // AGP 8.13 / Kotlin FIR is crashing on debugUnitTest and debugAndroidTest
+        // analysis in this environment. Keep production-source lint enabled.
+        ignoreTestSources = true
+        // Keep the fast loop deterministic and local; these checks perform
+        // remote version lookups and can stall on this workstation.
+        disable += setOf("NewerVersionAvailable", "AndroidGradlePluginVersion")
+    }
+
     sourceSets {
         getByName("androidTest") {
             assets.srcDir("$projectDir/schemas")

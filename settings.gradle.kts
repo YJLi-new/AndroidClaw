@@ -16,4 +16,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "AndroidClaw"
 include(":app")
-

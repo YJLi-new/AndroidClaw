@@ -96,3 +96,17 @@ Set ANDROIDCLAW_JAVA_HOME to a valid JDK 17+ installation and rerun.
 EOF
   return 1
 }
+
+androidclaw_build_android_test_artifacts() {
+  local repo_root="$1"
+
+  "$repo_root/gradlew" --stop >/dev/null 2>&1 || true
+  "$repo_root/gradlew" \
+    --no-daemon \
+    -Dkotlin.compiler.execution.strategy=in-process \
+    -Dkotlin.incremental=false \
+    :app:assembleDebug \
+    :app:assembleDebugAndroidTest \
+    --no-configuration-cache \
+    --no-build-cache
+}

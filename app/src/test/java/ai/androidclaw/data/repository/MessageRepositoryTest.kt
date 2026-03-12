@@ -2,10 +2,12 @@ package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.model.MessageRole
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.time.Instant
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -72,5 +74,60 @@ class MessageRepositoryTest {
         val recent = repository.getRecentMessages("main", limit = 2)
         assertEquals(listOf(MessageRole.Assistant, MessageRole.User), recent.map { it.role })
         assertTrue(recent.first().providerMeta?.contains("fake") == true)
+    }
+
+    @Test
+    fun `same timestamp messages keep insertion order`() = runTest {
+        val sameTimestamp = Instant.parse("2026-03-12T07:00:00Z").toEpochMilli()
+        database.messageDao().insertAll(
+            listOf(
+                MessageEntity(
+                    id = "msg-a",
+                    sessionId = "main",
+                    role = "user",
+                    content = "a1",
+                    createdAt = sameTimestamp,
+                    providerMeta = null,
+                    toolCallId = null,
+                    taskRunId = null,
+                ),
+                MessageEntity(
+                    id = "msg-b",
+                    sessionId = "main",
+                    role = "assistant",
+                    content = "a2",
+                    createdAt = sameTimestamp,
+                    providerMeta = null,
+                    toolCallId = null,
+                    taskRunId = null,
+                ),
+                MessageEntity(
+                    id = "msg-c",
+                    sessionId = "main",
+                    role = "user",
+                    content = "b1",
+                    createdAt = sameTimestamp,
+                    providerMeta = null,
+                    toolCallId = null,
+                    taskRunId = null,
+                ),
+                MessageEntity(
+                    id = "msg-d",
+                    sessionId = "main",
+                    role = "assistant",
+                    content = "b2",
+                    createdAt = sameTimestamp,
+                    providerMeta = null,
+                    toolCallId = null,
+                    taskRunId = null,
+                ),
+            ),
+        )
+
+        val observed = repository.observeMessages("main").first()
+        val recent = repository.getRecentMessages("main", limit = 10).asReversed()
+
+        assertEquals(listOf("a1", "a2", "b1", "b2"), observed.map { it.content })
+        assertEquals(listOf("a1", "a2", "b1", "b2"), recent.map { it.content })
     }
 }

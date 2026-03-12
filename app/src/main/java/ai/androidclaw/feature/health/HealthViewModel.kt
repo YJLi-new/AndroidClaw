@@ -38,6 +38,7 @@ class HealthViewModel(
     settingsDataStore: SettingsDataStore,
     eventLogRepository: EventLogRepository,
 ) : ViewModel() {
+    private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val capabilities = schedulerCoordinator.capabilities()
     private val staticTools = toolRegistry.descriptors().map { it.name }
     private val initialDiagnostics = schedulerCoordinator.diagnostics()
@@ -76,7 +77,7 @@ class HealthViewModel(
         }
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.Eagerly,
+            started = uiSharingStarted,
             initialValue = HealthUiState(
                 providerId = providerRegistry.defaultProvider.id,
                 schedulerDiagnostics = initialDiagnostics,

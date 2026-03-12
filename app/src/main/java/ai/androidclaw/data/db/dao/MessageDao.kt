@@ -18,7 +18,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE sessionId = :sessionId
-        ORDER BY createdAt ASC
+        ORDER BY createdAt ASC, rowid ASC
         """,
     )
     fun getBySessionId(sessionId: String): Flow<List<MessageEntity>>
@@ -27,7 +27,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE sessionId = :sessionId
-        ORDER BY createdAt DESC
+        ORDER BY createdAt DESC, rowid DESC
         LIMIT :limit
         """,
     )
@@ -39,4 +39,3 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE sessionId = :sessionId")
     suspend fun deleteBySessionId(sessionId: String)
 }
-

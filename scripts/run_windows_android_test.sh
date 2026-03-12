@@ -50,7 +50,7 @@ done
 "$script_root/check_host_prereqs.sh" --required-avd "$avd_name"
 androidclaw_use_java17
 
-"$repo_root/gradlew" :app:assembleDebug :app:assembleDebugAndroidTest
+androidclaw_build_android_test_artifacts "$repo_root"
 
 script_path_windows="$(wslpath -w "$script_root/run_windows_android_test.ps1")"
 repo_root_windows="$(wslpath -w "$repo_root")"

@@ -63,6 +63,7 @@ class ChatViewModel(
     private val agentRunner: AgentRunner,
     private val skillManager: SkillManager,
 ) : ViewModel() {
+    private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val draft = MutableStateFlow("")
     private val isRunning = MutableStateFlow(false)
     private val errorMessage = MutableStateFlow<String?>(null)
@@ -123,7 +124,7 @@ class ChatViewModel(
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.Eagerly,
+        started = uiSharingStarted,
         initialValue = ChatUiState(),
     )
 

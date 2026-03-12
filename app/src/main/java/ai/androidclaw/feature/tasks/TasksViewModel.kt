@@ -57,6 +57,7 @@ class TasksViewModel(
     private val schedulerCoordinator: SchedulerCoordinator,
     private val sessionRepository: SessionRepository,
 ) : ViewModel() {
+    private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val capabilities = schedulerCoordinator.capabilities()
     private val actionMessage = MutableStateFlow<String?>(null)
     private val diagnosticsRefreshes = MutableStateFlow(0)
@@ -110,7 +111,7 @@ class TasksViewModel(
         )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.Eagerly,
+        started = uiSharingStarted,
         initialValue = TasksUiState(
             capabilities = capabilities,
             diagnostics = schedulerCoordinator.diagnostics(),

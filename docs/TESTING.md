@@ -10,6 +10,12 @@ From the repository root:
 - `./gradlew :app:testDebugUnitTest`
 - `./gradlew :app:lintDebug`
 
+Current lint posture:
+
+- production-source lint is required and green
+- test-source lint is intentionally ignored for now because AGP 8.13 + Kotlin FIR crashes while analyzing `debugUnitTest` and `debugAndroidTest` sources on this workstation
+- unit tests and androidTest compilation remain the repo-supported guardrails for those source sets until the toolchain issue is removed or upgraded away
+
 GitHub Actions keeps this loop fast and currently does not gate every PR on device/emulator instrumentation.
 
 ## Device lane 1: Gradle Managed Device
@@ -55,6 +61,11 @@ Exact-alarm regression:
 ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31
 ```
 
+Recorded evidence:
+
+- `docs/qa/windows-emulator-validation.md`
+- `docs/qa/exact-alarm-regression.md`
+
 The preflight summary reports:
 
 - WSL Java version and source
@@ -66,6 +77,61 @@ The preflight summary reports:
 - HypervisorPlatform / WHPX state
 - available AVD names
 
+## Persistence and upgrade validation
+
+Current persistence floor:
+
+- Room schema version is `2`
+- migration `1 -> 2` is explicit and exported under `app/schemas/`
+- androidTest assets include the exported schemas so `MigrationTestHelper` can validate real upgrades
+
+Current startup-maintenance behavior:
+
+- keeps or recreates the main session before scheduler rebuild
+- prunes only `TaskRun` rows older than 30 days
+- prunes only `EventLog` rows older than 14 days
+- does not automatically prune live tasks, live sessions, chat messages, or skill records
+- replays scheduler restore at app startup and on:
+  - `BOOT_COMPLETED`
+  - `MY_PACKAGE_REPLACED`
+  - `TIME_CHANGED`
+  - `TIMEZONE_CHANGED`
+
+Recorded evidence:
+
+- `docs/qa/persistence-validation.md`
+
+Repo-side validation:
+
+```bash
+./gradlew :app:testDebugUnitTest
+./gradlew :app:assembleDebugAndroidTest
+```
+
+Targeted migration instrumentation on any available Windows AVD:
+
+```bash
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd <available-avd> --test-class ai.androidclaw.data.db.AndroidClawDatabaseMigrationTest
+```
+
+Targeted startup-maintenance / restore coverage lives in JVM tests:
+
+- `ai.androidclaw.app.StartupMaintenanceTest`
+- `ai.androidclaw.runtime.scheduler.SchedulerRestoreReceiverTest`
+
 ## Deprecated lane
 
 LDPlayer wrappers remain in the repo only as compatibility shims for older notes. They are not an official validation lane for v0 RC.
+
+## Release validation
+
+Current repo-supported release check:
+
+- `./gradlew :app:assembleRelease`
+
+Recorded evidence:
+
+- `docs/qa/release-build-validation.md`
+- `docs/qa/rc-validation.md`
+- `docs/RELEASE_CHECKLIST.md`
+- `docs/KNOWN_LIMITATIONS.md`
