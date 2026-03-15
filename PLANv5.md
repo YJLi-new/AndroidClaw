@@ -1716,7 +1716,7 @@ Use this section as a living checklist. Keep entries short.
 - [x] R8 enabled and measured
 - [x] CI packaging parity expanded
 - [x] skill config surface added
-- [ ] optional Baseline Profile support added or explicitly re-deferred
+- [x] optional Baseline Profile support added or explicitly re-deferred
 - [ ] beta handoff packet produced
 
 ---
@@ -1744,6 +1744,7 @@ Add only facts that changed a real implementation choice.
 - This workstation can intermittently deny local socket creation in the shell sandbox, which breaks Gradle's file-lock listener startup and Linux-side `adb`; when that happens, Windows-host or CI reruns are required for final build proof.
 - The landed v5 skill config surface is intentionally narrow: config values are stored as per-skill strings keyed by `skillKey`, secrets are stored as `skillKey + envName`, and the current runtime uses them for eligibility/UI truth rather than generic tool/provider env injection.
 - On this workstation, the first Robolectric + Room `SkillsViewModelTest` path can exceed short flow timeouts; stable coverage needs a hybrid wait strategy that advances the test dispatcher while allowing real background DB work to finish.
+- Baseline Profiles remain explicitly deferred for the v5 beta path: the optimization is still desirable, but this repo phase is finishing on the documented fallback path instead of carrying an unresolved environment/module risk into the beta packet.
 
 ---
 
@@ -1775,6 +1776,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: keep Baseline Profiles optional in this phase.  
   Rationale: performance benefit is real, but the repo should not stall on an external environment issue. [R16]
+
+- Decision: close `ws7` on the explicit re-deferral path and keep Baseline Profiles out of the beta-critical path.  
+  Rationale: the user-directed beta flow takes precedence over an optional optimization lane, and the repo already has truthful performance/limitations docs for that deferral.
 
 - Decision: continue deprioritizing heavy security work.  
   Rationale: lightweight installability, size, correctness, and testability are the phase priorities.

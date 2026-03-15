@@ -6,7 +6,7 @@
 
 - keep startup work bounded and local
 - avoid keeping screen-only flows hot when no UI is observing them
-- make the eventual Baseline Profile path explicit without breaking the repo on unsupported hosts
+- make the Baseline Profile deferral explicit without breaking the beta repo on unsupported hosts
 - keep release-size decisions explicit and measured
 
 ## Current posture
@@ -18,7 +18,7 @@
   - `ChatViewModel`
   - `TasksViewModel`
   - `HealthViewModel`
-- Baseline Profile dependencies are not checked in yet because this WSL Gradle runtime cannot fetch uncached AndroidX benchmark/profile artifacts from Google Maven without a TLS handshake failure
+- Baseline Profiles remain explicitly deferred for the current beta path; no collection module is checked in yet
 - an installable `qa` build lane now exists for release-like local validation without production signing keys
 - `qa` and `release` now both ship with code shrinking and resource shrinking enabled
 - minified `qa` should be validated with direct install/launch smoke; the shared debug `androidTest` APK remains the debug-oriented instrumentation lane
@@ -27,7 +27,13 @@
 
 ## Baseline Profile support
 
-Current coverage targets:
+Current beta decision:
+
+- Baseline Profiles are not part of the required beta-critical path
+- the repo records that deferral explicitly instead of pretending the optimization lane is finished
+- the next attempt should happen only when the chosen host can support the module and artifact resolution cleanly
+
+If/when the lane is revived, the intended coverage targets remain:
 
 - app launch
 - open chat
