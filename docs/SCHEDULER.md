@@ -150,6 +150,48 @@ v1 的 isolated 只表示“上下文和文件根分离”。
 - 默认 `triggerKind = MANUAL`
 - 结束后仍按原 schedule 计算下一次触发
 
+## 4.5 Typed task tools
+调度合同不只存在于 GUI，也存在于 runtime tools。  
+v5 的最小内建 task tool surface 为：
+
+- `tasks.list`
+- `tasks.get`
+- `tasks.create`
+- `tasks.update`
+- `tasks.enable`
+- `tasks.disable`
+- `tasks.delete`
+- `tasks.run_now`
+
+这些工具的约束：
+
+- 输入必须是 typed JSON 字段，不做自然语言 schedule parser
+- `tasks.create` / `tasks.update` 只接受当前数据模型已经支持的 schedule 语义：
+  - `once`
+  - `interval`
+  - `cron`
+- `targetSessionAlias=current` 只能从当前 `ToolExecutionContext.sessionId` 解析
+- `targetSessionAlias=main` 解析到 main session
+- `once` 必须是未来时间
+- `interval` 必须满足后台最小间隔
+- `cron` 必须 parse 成功且能算出下一次运行
+- `precise=true` 只是用户请求，返回 payload 必须诚实反映最终是 exact 还是 degraded approximate
+- `tasks.run_now` 必须返回明确 queued 结果，不能是 silent no-op
+- `tasks.delete` 必须先取消未来 work，再删除 task，避免 orphaned scheduled work
+
+tool 返回的 task payload 至少要包含：
+
+- `scheduleKind`
+- canonical `schedule` object
+- `executionMode`
+- target session / resolved target session
+- `enabled`
+- `nextRunAt`
+- `preciseRequested`
+- effective scheduling path
+- precision warnings
+- latest run summary（如果存在）
+
 ---
 
 ## 5. Android 约束如何映射为实现策略

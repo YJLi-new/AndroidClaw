@@ -10,6 +10,7 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibility
@@ -19,11 +20,14 @@ import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
+import ai.androidclaw.runtime.providers.ProviderToolCall
+import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
 import ai.androidclaw.runtime.skills.createTestSkillManager
+import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
 import ai.androidclaw.runtime.tools.ToolAvailability
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
@@ -35,6 +39,11 @@ import ai.androidclaw.testutil.buildTestProviderRegistry
 import android.content.res.AssetManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.work.Configuration
+import androidx.work.testing.WorkManagerTestInitHelper
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -63,6 +72,7 @@ class AgentRunnerTest {
     private lateinit var messageRepository: MessageRepository
     private lateinit var sessionRepository: SessionRepository
     private lateinit var eventLogRepository: EventLogRepository
+    private lateinit var taskRepository: TaskRepository
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var sessionId: String
 
@@ -73,6 +83,7 @@ class AgentRunnerTest {
         messageRepository = MessageRepository(database.messageDao())
         sessionRepository = SessionRepository(database.sessionDao())
         eventLogRepository = EventLogRepository(database.eventLogDao())
+        taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
         settingsDataStore = SettingsDataStore(application)
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
         sessionId = sessionRepository.createSession("Test session").id
@@ -421,6 +432,84 @@ class AgentRunnerTest {
         assertTrue(toolEvents.any { it.message.contains("completed") })
         assertTrue(toolEvents.all { it.details?.contains("\"sessionId\":\"$sessionId\"") == true })
         assertTrue(toolEvents.any { it.details?.contains("\"activeSkillId\":\"list_tasks\"") == true })
+    }
+
+    @Test
+    fun `provider tool call can create a task through the built in task tools`() = runTest {
+        WorkManagerTestInitHelper.initializeTestWorkManager(
+            application,
+            Configuration.Builder().build(),
+        )
+        val schedulerCoordinator = SchedulerCoordinator(
+            application = application,
+            clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+            taskRepository = taskRepository,
+            eventLogRepository = eventLogRepository,
+        )
+        val toolRegistry = createBuiltInToolRegistry(
+            application = application,
+            settingsDataStore = settingsDataStore,
+            sessionRepository = sessionRepository,
+            taskRepository = taskRepository,
+            schedulerCoordinator = schedulerCoordinator,
+            bundledSkillsProvider = { emptyList() },
+            eventLogRepository = eventLogRepository,
+        )
+        var providerCalls = 0
+        val runner = AgentRunner(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
+
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        providerCalls += 1
+                        return if (providerCalls == 1) {
+                            ModelResponse(
+                                text = "",
+                                finishReason = "tool_use",
+                                toolCalls = listOf(
+                                    ProviderToolCall(
+                                        id = "call-create",
+                                        name = "tasks.create",
+                                        argumentsJson = buildJsonObject {
+                                            put("name", "Morning summary")
+                                            put("prompt", "Summarize today")
+                                            put("scheduleKind", "once")
+                                            put("atIso", "2026-03-20T08:00:00Z")
+                                            put("targetSessionAlias", "current")
+                                        },
+                                    ),
+                                ),
+                            )
+                        } else {
+                            ModelResponse(
+                                text = "Created the task.",
+                                finishReason = "stop",
+                            )
+                        }
+                    }
+                },
+            ),
+            settingsDataStore = settingsDataStore,
+            messageRepository = messageRepository,
+            skillManager = buildSkillManager(toolRegistry),
+            toolRegistry = toolRegistry,
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
+        )
+
+        val result = runner.runInteractiveTurn(
+            AgentTurnRequest(
+                sessionId = sessionId,
+                userMessage = "Create a task for tomorrow morning.",
+            ),
+        )
+
+        val tasks = taskRepository.observeTasks().first()
+        assertEquals(1, tasks.size)
+        assertEquals("Morning summary", tasks.single().name)
+        assertEquals(sessionId, tasks.single().targetSessionId)
+        assertTrue(result.assistantMessage.contains("Created the task."))
     }
 
     private fun buildSkillManager(toolRegistry: ToolRegistry): SkillManager {

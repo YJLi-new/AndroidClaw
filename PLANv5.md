@@ -1711,7 +1711,7 @@ Use this section as a living checklist. Keep entries short.
 - [x] README + architecture/testing/performance/release docs exist
 - [x] `PLANv5.md` adopted as canonical
 - [x] tool execution context added
-- [ ] task tools contract completed
+- [x] task tools contract completed
 - [ ] installable `qa` build lane added
 - [ ] R8 enabled and measured
 - [ ] CI packaging parity expanded
@@ -1737,6 +1737,7 @@ Add only facts that changed a real implementation choice.
 - The repository currently needs an installable release-like artifact before it can validate shrink/optimization on real devices honestly.
 - The repository’s docs currently claim more about skill config semantics than the UI/runtime can actually satisfy.
 - Tool audit logs need to preserve both the requested tool name and the canonical resolved name, because alias-based invocations are meaningful for diagnostics even when execution resolves to a single handler.
+- `SchedulerCoordinator.scheduleTask()` reuses persisted `nextRunAt` when it is already present, so any task-tool schedule patch must recompute `nextRunAt` before rescheduling or the old schedule survives.
 
 ---
 
@@ -1771,6 +1772,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: keep tool event logging bounded to invocation metadata and terminal status, not raw arguments or payload dumps.  
   Rationale: health diagnostics need actionable auditability without leaking secrets or turning logs into unbounded transcripts.
+
+- Decision: keep the task tool contract flat and typed with explicit schedule fields rather than nested natural-language or prose schedule payloads.  
+  Rationale: it maps directly onto the current repository model, keeps provider tool schemas legible, and avoids inventing a second scheduler language.
 
 ---
 

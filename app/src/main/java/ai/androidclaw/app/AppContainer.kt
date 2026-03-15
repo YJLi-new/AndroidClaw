@@ -54,11 +54,19 @@ class AppContainer(application: Application) {
         cacheDir = application.cacheDir,
     )
 
+    val schedulerCoordinator = SchedulerCoordinator(
+        application = application,
+        clock = clock,
+        taskRepository = taskRepository,
+        eventLogRepository = eventLogRepository,
+    )
+
     val toolRegistry = createBuiltInToolRegistry(
         application = application,
         settingsDataStore = settingsDataStore,
         sessionRepository = sessionRepository,
         taskRepository = taskRepository,
+        schedulerCoordinator = schedulerCoordinator,
         bundledSkillsProvider = { skillManagerRef.refreshSkills() },
         eventLogRepository = eventLogRepository,
     )
@@ -127,13 +135,6 @@ class AppContainer(application: Application) {
         messageRepository = messageRepository,
         agentRunner = agentRunner,
         sessionLaneCoordinator = sessionLaneCoordinator,
-    )
-
-    val schedulerCoordinator = SchedulerCoordinator(
-        application = application,
-        clock = clock,
-        taskRepository = taskRepository,
-        eventLogRepository = eventLogRepository,
     )
     val startupMaintenance = StartupMaintenance(
         clock = clock,
