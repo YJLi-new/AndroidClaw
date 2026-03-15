@@ -10,6 +10,7 @@ source "$script_root/java_env.sh"
 test_class="ai.androidclaw.app.MainActivitySmokeTest"
 avd_name="AndroidClawApi34"
 boot_timeout="300"
+variant="debug"
 instrumentation_args=()
 no_window=0
 wipe_data=0
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --boot-timeout)
       boot_timeout="$2"
+      shift 2
+      ;;
+    --variant)
+      variant="$2"
       shift 2
       ;;
     --instrumentation-arg)
@@ -50,7 +55,7 @@ done
 "$script_root/check_host_prereqs.sh" --required-avd "$avd_name"
 androidclaw_use_java17
 
-androidclaw_build_android_test_artifacts "$repo_root"
+androidclaw_build_android_test_artifacts "$repo_root" "$variant"
 
 script_path_windows="$(wslpath -w "$script_root/run_windows_android_test.ps1")"
 repo_root_windows="$(wslpath -w "$repo_root")"
@@ -65,6 +70,8 @@ powershell_args=(
   "$repo_root_windows"
   -AvdName
   "$avd_name"
+  -Variant
+  "$variant"
   -BootTimeoutSeconds
   "$boot_timeout"
   -TestClass

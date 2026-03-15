@@ -46,6 +46,11 @@ android {
                 "proguard-rules.pro",
             )
         }
+        create("qa") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release", "debug")
+        }
     }
 
     compileOptions {
@@ -141,5 +146,7 @@ dependencies {
 // ./gradlew :app:pixel8Api36DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 // Canonical Windows-emulator fallback from WSL:
 // ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+// Installable release-like QA lane:
+// ./gradlew :app:assembleQa :app:assembleAndroidTest
 // Exact-alarm regression sweep:
 // ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31

@@ -18,6 +18,27 @@ Current lint posture:
 
 GitHub Actions keeps this loop fast and currently does not gate every PR on device/emulator instrumentation.
 
+## Installable QA lane
+
+Use `qa` when you need a locally installable, release-like APK before production signing exists.
+
+Repo tasks:
+
+- `./gradlew :app:assembleQa`
+- `./gradlew :app:assembleAndroidTest`
+
+Windows AVD smoke through the WSL wrapper:
+
+```bash
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+```
+
+This lane is intentionally separate from `release`:
+
+- `debug` = fastest local correctness loop
+- `qa` = installable release-like validation lane
+- `release` = eventual production packaging lane
+
 ## Device lane 1: Gradle Managed Device
 
 Use this on hosts where the Android emulator can run directly under Gradle-managed infrastructure.
@@ -63,6 +84,7 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --a
 
 Recorded evidence:
 
+- `docs/qa/qa-build-validation.md`
 - `docs/qa/windows-emulator-validation.md`
 - `docs/qa/exact-alarm-regression.md`
 
@@ -127,6 +149,7 @@ LDPlayer wrappers remain in the repo only as compatibility shims for older notes
 
 Current repo-supported release check:
 
+- `./gradlew :app:assembleQa`
 - `./gradlew :app:assembleRelease`
 
 Recorded evidence:

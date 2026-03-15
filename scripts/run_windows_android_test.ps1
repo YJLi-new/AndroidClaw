@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$RepoRoot,
     [string]$AvdName = "AndroidClawApi34",
+    [string]$Variant = "debug",
     [int]$BootTimeoutSeconds = 300,
     [string]$TestClass = "ai.androidclaw.app.MainActivitySmokeTest",
     [string[]]$InstrumentationArg = @(),
@@ -21,7 +22,7 @@ $serial = Start-AndroidAvd `
     -NoWindow:$NoWindow `
     -WipeData:$WipeData
 
-Install-AndroidTestPackages -Adb $toolPaths.Adb -Serial $serial -RepoRoot $RepoRoot
+Install-AndroidTestPackages -Adb $toolPaths.Adb -Serial $serial -RepoRoot $RepoRoot -Variant $Variant
 Invoke-AndroidInstrumentation `
     -Adb $toolPaths.Adb `
     -Serial $serial `

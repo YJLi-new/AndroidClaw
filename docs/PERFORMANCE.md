@@ -19,7 +19,8 @@
   - `TasksViewModel`
   - `HealthViewModel`
 - Baseline Profile dependencies are not checked in yet because this WSL Gradle runtime cannot fetch uncached AndroidX benchmark/profile artifacts from Google Maven without a TLS handshake failure
-- release shrinking remains disabled for now; the decision is explicit and tied to a future release-validation pass rather than left implicit
+- an installable `qa` build lane now exists for release-like local validation without production signing keys
+- release shrinking remains disabled for now; the decision is explicit and tied to the `qa` optimization lane rather than left implicit
 - production lint stays enabled, but test-source lint is disabled because AGP 8.13 + Kotlin FIR crashes while analyzing `debugUnitTest` and `debugAndroidTest` sources in this environment
 - the lint fast loop also disables network-backed version-check detectors so validation stays deterministic and local
 
@@ -49,6 +50,7 @@ Fast repo validation:
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:lintDebug
+./gradlew :app:assembleQa
 ./gradlew :app:assembleRelease
 ```
 
@@ -68,13 +70,14 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/check_host_prereqs.sh --required-
 
 Current release posture:
 
+- `qa` is installable locally via debug signing and is the optimization/test target
 - `isMinifyEnabled = false`
 - resource shrinking is not enabled
-- `:app:assembleRelease` is green on the current repo state
+- `:app:assembleQa` and `:app:assembleRelease` are green on the current repo state
 
 Current decision:
 
-- keep release shrinking disabled until there is a dedicated release-validation pass with install/launch evidence
+- keep release shrinking disabled until there is a dedicated `qa` validation pass with install/launch evidence
 - do not turn on R8 or resource shrinking speculatively just to claim a size win
 
 Current measured artifact:

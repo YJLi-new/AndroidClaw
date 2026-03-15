@@ -164,10 +164,12 @@ function Install-AndroidTestPackages {
         [Parameter(Mandatory = $true)]
         [string]$Serial,
         [Parameter(Mandatory = $true)]
-        [string]$RepoRoot
+        [string]$RepoRoot,
+        [string]$Variant = "debug"
     )
 
-    $appApk = Join-Path $RepoRoot "app\build\outputs\apk\debug\app-debug.apk"
+    $normalizedVariant = $Variant.ToLowerInvariant()
+    $appApk = Join-Path $RepoRoot "app\build\outputs\apk\$normalizedVariant\app-$normalizedVariant.apk"
     $testApk = Join-Path $RepoRoot "app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk"
 
     foreach ($path in @($appApk, $testApk)) {
@@ -178,11 +180,11 @@ function Install-AndroidTestPackages {
 
     & $Adb -s $Serial install -r $appApk
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install debug APK on $Serial."
+        throw "Failed to install $normalizedVariant APK on $Serial."
     }
     & $Adb -s $Serial install -r -t $testApk
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install androidTest APK on $Serial."
+        throw "Failed to install shared androidTest APK on $Serial."
     }
 }
 

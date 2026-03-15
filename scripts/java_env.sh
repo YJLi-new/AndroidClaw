@@ -99,14 +99,18 @@ EOF
 
 androidclaw_build_android_test_artifacts() {
   local repo_root="$1"
+  local variant="${2:-debug}"
+  local capitalized_variant
+
+  capitalized_variant="${variant^}"
 
   "$repo_root/gradlew" --stop >/dev/null 2>&1 || true
   "$repo_root/gradlew" \
     --no-daemon \
     -Dkotlin.compiler.execution.strategy=in-process \
     -Dkotlin.incremental=false \
-    :app:assembleDebug \
-    :app:assembleDebugAndroidTest \
+    ":app:assemble${capitalized_variant}" \
+    :app:assembleAndroidTest \
     --no-configuration-cache \
     --no-build-cache
 }

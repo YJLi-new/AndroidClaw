@@ -1712,7 +1712,7 @@ Use this section as a living checklist. Keep entries short.
 - [x] `PLANv5.md` adopted as canonical
 - [x] tool execution context added
 - [x] task tools contract completed
-- [ ] installable `qa` build lane added
+- [x] installable `qa` build lane added
 - [ ] R8 enabled and measured
 - [ ] CI packaging parity expanded
 - [ ] skill config surface added
@@ -1738,6 +1738,7 @@ Add only facts that changed a real implementation choice.
 - The repository’s docs currently claim more about skill config semantics than the UI/runtime can actually satisfy.
 - Tool audit logs need to preserve both the requested tool name and the canonical resolved name, because alias-based invocations are meaningful for diagnostics even when execution resolves to a single handler.
 - `SchedulerCoordinator.scheduleTask()` reuses persisted `nextRunAt` when it is already present, so any task-tool schedule patch must recompute `nextRunAt` before rescheduling or the old schedule survives.
+- AGP 8.13 exposes a shared `assembleAndroidTest` task for this app instead of a per-build-type `assembleQaAndroidTest`; the `qa` lane therefore reuses the shared androidTest APK while keeping the app APK variant-specific.
 
 ---
 
@@ -1775,6 +1776,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: keep the task tool contract flat and typed with explicit schedule fields rather than nested natural-language or prose schedule payloads.  
   Rationale: it maps directly onto the current repository model, keeps provider tool schemas legible, and avoids inventing a second scheduler language.
+
+- Decision: keep `qa` installable via debug signing and the base application id, without an `applicationIdSuffix` unless same-device coexistence becomes necessary later.  
+  Rationale: it keeps the local release-like lane simple, installable, and close to production packaging without coupling it to production signing keys.
 
 ---
 
