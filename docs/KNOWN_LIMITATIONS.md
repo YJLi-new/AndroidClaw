@@ -2,7 +2,7 @@
 
 Date: 2026-03-15
 
-## Current v0 RC limitations
+## Current v0 beta limitations
 
 - Exact alarms may be denied by default on Android 14+ devices. AndroidClaw degrades precise work to WorkManager and surfaces that state in diagnostics instead of pretending exact delivery is available.
 - Notifications may be denied or disabled on Android 13+ devices. Scheduler diagnostics and reminder visibility therefore depend on notification state, not only on exact-alarm state.

@@ -1,12 +1,17 @@
-# RC Validation
+# RC Validation (Historical)
+
+> Historical pre-beta validation record. The active tester packet is now documented in:
+>
+> - `docs/BETA_HANDOFF.md`
+> - `docs/qa/beta-validation.md`
 
 Date: 2026-03-12
 
-## Scope state
+## Historical scope state
 
-- Scope is frozen for the current RC pass.
-- Baseline Profiles are explicitly deferred for this pass.
-- Release shrinking remains disabled for this pass.
+- Scope was frozen for the historical RC pass.
+- Baseline Profiles were explicitly deferred for that pass.
+- Release shrinking was still disabled at that point.
 
 ## Automated validation matrix
 
@@ -103,7 +108,7 @@ These are not hidden failures. They remain manual or external prerequisites for 
 
 - `docs/KNOWN_LIMITATIONS.md`
 
-## RC status
+## Historical RC status
 
 - The automated RC matrix is green.
 - Remaining gaps are manual/external and are explicitly documented above rather than hidden.

@@ -1,6 +1,6 @@
 # TESTING
 
-> This file records the supported validation lanes for AndroidClaw v0 RC work.
+> This file records the supported validation lanes for the current AndroidClaw v0 beta packet.
 
 ## Fast loop
 
@@ -169,7 +169,7 @@ Targeted startup-maintenance / restore coverage lives in JVM tests:
 
 ## Deprecated lane
 
-LDPlayer wrappers remain in the repo only as compatibility shims for older notes. They are not an official validation lane for v0 RC.
+LDPlayer wrappers remain in the repo only as compatibility shims for older notes. They are not an official validation lane for the current beta packet.
 
 ## Release validation
 
@@ -183,6 +183,14 @@ Current repo-supported release check:
 Recorded evidence:
 
 - `docs/qa/release-build-validation.md`
-- `docs/qa/rc-validation.md`
+- `docs/qa/beta-validation.md`
+- `docs/BETA_HANDOFF.md`
 - `docs/RELEASE_CHECKLIST.md`
 - `docs/KNOWN_LIMITATIONS.md`
+
+## Beta handoff
+
+For the current tester packet, use:
+
+- `docs/BETA_HANDOFF.md` for artifact, install, and manual-QA instructions
+- `docs/qa/beta-validation.md` for the current automated validation summary

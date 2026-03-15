@@ -244,7 +244,7 @@ The current repository also contains release and RC documentation from the previ
 7. CI does not yet mirror packaging or androidTest compile truth strongly enough for the next phase.
 8. `docs/SKILLS_COMPAT.md` is ahead of the runtime on config/env editing.
 9. Baseline Profiles are still a documented deferral rather than an implemented optimization.
-10. There is no explicit **beta handoff packet** yet.
+10. The beta handoff packet needed to be made explicit instead of leaving release/QA/install truth scattered across older RC-era docs.
 
 ---
 
@@ -1717,7 +1717,7 @@ Use this section as a living checklist. Keep entries short.
 - [x] CI packaging parity expanded
 - [x] skill config surface added
 - [x] optional Baseline Profile support added or explicitly re-deferred
-- [ ] beta handoff packet produced
+- [x] beta handoff packet produced
 
 ---
 
@@ -1736,6 +1736,7 @@ Add only facts that changed a real implementation choice.
 - The repository’s current task tool surface is inspection-heavy and creation-light; this is the clearest remaining runtime contract gap.
 - The repository currently needs an installable release-like artifact before it can validate shrink/optimization on real devices honestly.
 - The repository’s docs currently claim more about skill config semantics than the UI/runtime can actually satisfy.
+- The active tester packet is now anchored on the installable `qa` APK plus the release AAB, with RC-era docs retained only as historical evidence.
 - Tool audit logs need to preserve both the requested tool name and the canonical resolved name, because alias-based invocations are meaningful for diagnostics even when execution resolves to a single handler.
 - `SchedulerCoordinator.scheduleTask()` reuses persisted `nextRunAt` when it is already present, so any task-tool schedule patch must recompute `nextRunAt` before rescheduling or the old schedule survives.
 - AGP 8.13 exposes a shared `assembleAndroidTest` task for this app instead of a per-build-type `assembleQaAndroidTest`; the `qa` lane therefore reuses the shared androidTest APK while keeping the app APK variant-specific.
@@ -1779,6 +1780,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: close `ws7` on the explicit re-deferral path and keep Baseline Profiles out of the beta-critical path.  
   Rationale: the user-directed beta flow takes precedence over an optional optimization lane, and the repo already has truthful performance/limitations docs for that deferral.
+
+- Decision: make `docs/BETA_HANDOFF.md` and `docs/qa/beta-validation.md` the active tester packet, while retaining `docs/qa/rc-validation.md` only as historical context.  
+  Rationale: beta instructions, artifact truth, and validation evidence need one current entrypoint instead of being scattered across RC-era notes.
 
 - Decision: continue deprioritizing heavy security work.  
   Rationale: lightweight installability, size, correctness, and testability are the phase priorities.

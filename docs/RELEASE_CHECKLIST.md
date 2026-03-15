@@ -1,6 +1,6 @@
 # RELEASE CHECKLIST
 
-> Use this checklist for the current AndroidClaw v0 RC pass. Baseline Profiles are explicitly deferred for this pass and must be recorded as absent in release evidence.
+> Use this checklist for the current AndroidClaw v0 beta handoff. Baseline Profiles are explicitly deferred for this beta packet and must be recorded as absent in release evidence.
 
 ## Scope freeze
 
@@ -31,29 +31,42 @@ Recommended supporting validation:
 - send one `FakeProvider` message
 - create, switch, rename, and archive a session
 - create `once`, `interval`, and `cron` tasks
+- create at least one task through the agent/tool path
 - use `Run now`
 - inspect task run history
 - import a local skill zip
 - enable and disable a skill
+- configure a skill secret/config field
 - slash-invoke an eligible skill
 - verify health/task diagnostics
 - verify exact-alarm degrade messaging
 - verify notification warning behavior when notifications are denied
+- install and launch the shrunk `qa` APK
+
+## Optional bundle distribution guidance
+
+- local `bundletool` testing is only meaningful once you have a signed bundle or local signing flags
+- if Play Console access exists, prefer:
+  - Internal App Sharing for quick install checks
+  - Internal testing track for broader tester rollout
+- if neither is available, keep the tester install path on:
+  - `app/build/outputs/apk/qa/app-qa.apk`
 
 ## External/manual blockers to record honestly
 
 - real-provider send requires a valid API key and endpoint
-- Baseline Profiles are not present in this RC pass
+- Baseline Profiles are not present in this beta packet
 - minified `qa` should be launch-smoked directly; the shared debug `androidTest` APK is not the release-like proof lane
 - `qa` is the installable release-like lane; `release` remains the unsigned production packaging lane until real signing is introduced
 
 ## Evidence docs
 
+- `docs/BETA_HANDOFF.md`
+- `docs/qa/beta-validation.md`
 - `docs/qa/windows-emulator-validation.md`
 - `docs/qa/exact-alarm-regression.md`
 - `docs/qa/qa-build-validation.md`
 - `docs/qa/release-size-validation.md`
 - `docs/qa/persistence-validation.md`
 - `docs/qa/release-build-validation.md`
-- `docs/qa/rc-validation.md`
 - `docs/KNOWN_LIMITATIONS.md`

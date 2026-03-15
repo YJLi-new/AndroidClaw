@@ -26,11 +26,13 @@ AndroidClaw already includes:
 - a tool-call runtime loop
 - bundled, local, and workspace skill loading
 - task scheduling, run history, exact-alarm degradation, and scheduler diagnostics
+- an installable `qa` APK lane plus release AAB packaging
 - Windows-emulator and Android instrumentation validation paths
 
 ## Key docs
 
 - [Execution plan](PLANv5.md)
+- [Beta handoff](docs/BETA_HANDOFF.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scheduler](docs/SCHEDULER.md)
 - [Skills compatibility](docs/SKILLS_COMPAT.md)
