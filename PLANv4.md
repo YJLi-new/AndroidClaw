@@ -1,6 +1,8 @@
 # AndroidClaw Execution Plan v4
 
-> Status: canonical execution plan as of 2026-03-12.
+> Historical plan. Superseded by `PLANv5.md`.
+
+> Status: historical execution plan snapshot as of 2026-03-12.
 >
 > `AGENTS.md` now points here. `PLANv1.md`, `PLANv2.md`, and `PLANv3.md` are retained as historical context only.
 

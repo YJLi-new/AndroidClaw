@@ -30,7 +30,7 @@ AndroidClaw already includes:
 
 ## Key docs
 
-- [Execution plan](PLANv4.md)
+- [Execution plan](PLANv5.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scheduler](docs/SCHEDULER.md)
 - [Skills compatibility](docs/SKILLS_COMPAT.md)
