@@ -9,8 +9,12 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.tools.ToolDescriptor
+import ai.androidclaw.runtime.tools.ToolExecutionContext
+import ai.androidclaw.runtime.tools.ToolExecutionResult
+import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
@@ -90,6 +94,42 @@ class HealthViewModelTest {
             message = "Task Daily check completed.",
             details = "taskRunId=run-1",
         )
+        val toolRegistry = ToolRegistry(
+            tools = listOf(
+                ToolRegistry.Entry(
+                    descriptor = ToolDescriptor(
+                        name = "health.status",
+                        description = "Health",
+                    ),
+                ) { _, _ ->
+                    ToolExecutionResult(
+                        summary = "ok",
+                        payload = buildJsonObject {},
+                    )
+                },
+            ),
+            eventLogger = { level, message, details ->
+                eventLogRepository.log(
+                    category = EventCategory.Tool,
+                    level = level,
+                    message = message,
+                    details = details,
+                )
+            },
+        )
+        toolRegistry.execute(
+            context = ToolExecutionContext(
+                sessionId = "session-1",
+                taskRunId = "run-1",
+                origin = ToolInvocationOrigin.ScheduledModel,
+                runMode = ModelRunMode.Scheduled,
+                requestedName = "health.status",
+                canonicalName = "health.status",
+                requestId = "req-1",
+                activeSkillId = "skill-1",
+            ),
+            arguments = buildJsonObject {},
+        )
         val viewModel = HealthViewModel(
             schedulerCoordinator = SchedulerCoordinator(
                 application = application,
@@ -97,21 +137,7 @@ class HealthViewModelTest {
                 taskRepository = taskRepository,
                 eventLogRepository = eventLogRepository,
             ),
-            toolRegistry = ToolRegistry(
-                tools = listOf(
-                    ToolRegistry.Entry(
-                        descriptor = ToolDescriptor(
-                            name = "health.status",
-                            description = "Health",
-                        ),
-                    ) { _ ->
-                        ai.androidclaw.runtime.tools.ToolExecutionResult(
-                            summary = "ok",
-                            payload = buildJsonObject {},
-                        )
-                    },
-                ),
-            ),
+            toolRegistry = toolRegistry,
             providerRegistry = buildTestProviderRegistry(),
             settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
@@ -125,5 +151,6 @@ class HealthViewModelTest {
         assertEquals("taskId=task-1 stopReason=quota", state.lastWorkerStopReason)
         assertNotNull(state.lastSchedulerWake)
         assertTrue(state.recentEvents.any { it.message == "Something happened" })
+        assertTrue(state.recentEvents.any { it.category == EventCategory.Tool && it.message.contains("completed") })
     }
 }

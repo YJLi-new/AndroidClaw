@@ -6,8 +6,10 @@ import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibility
@@ -37,6 +39,7 @@ import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -59,6 +62,7 @@ class AgentRunnerTest {
     private lateinit var database: AndroidClawDatabase
     private lateinit var messageRepository: MessageRepository
     private lateinit var sessionRepository: SessionRepository
+    private lateinit var eventLogRepository: EventLogRepository
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var sessionId: String
 
@@ -68,6 +72,7 @@ class AgentRunnerTest {
         database = buildTestDatabase(application)
         messageRepository = MessageRepository(database.messageDao())
         sessionRepository = SessionRepository(database.sessionDao())
+        eventLogRepository = EventLogRepository(database.eventLogDao())
         settingsDataStore = SettingsDataStore(application)
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
         sessionId = sessionRepository.createSession("Test session").id
@@ -88,7 +93,7 @@ class AgentRunnerTest {
                         name = "tasks.list",
                         description = "List tasks",
                     ),
-                ) { arguments ->
+                ) { _, arguments ->
                     ToolExecutionResult.success(
                         summary = "Tasks tool reached",
                         payload = buildJsonObject {
@@ -150,7 +155,7 @@ class AgentRunnerTest {
                             reason = "Grant task access.",
                         )
                     },
-                ) { _ ->
+                ) { _, _ ->
                     ToolExecutionResult.success(
                         summary = "should not run",
                         payload = buildJsonObject {},
@@ -194,7 +199,7 @@ class AgentRunnerTest {
                         name = "health.status",
                         description = "Report health",
                     ),
-                ) { _ ->
+                ) { _, _ ->
                     ToolExecutionResult.success(
                         summary = "Health okay",
                         payload = buildJsonObject {
@@ -303,16 +308,16 @@ class AgentRunnerTest {
         try {
             val toolRegistry = ToolRegistry(
                 tools = listOf(
-                    ToolRegistry.Entry(
-                        descriptor = ToolDescriptor(
-                            name = "health.status",
-                            description = "Report health",
-                        ),
-                    ) { _ ->
-                        ToolExecutionResult.success(
-                            summary = "Health okay",
-                            payload = buildJsonObject {
-                                put("status", "ok")
+                ToolRegistry.Entry(
+                    descriptor = ToolDescriptor(
+                        name = "health.status",
+                        description = "Report health",
+                    ),
+                ) { _, _ ->
+                    ToolExecutionResult.success(
+                        summary = "Health okay",
+                        payload = buildJsonObject {
+                            put("status", "ok")
                             },
                         )
                     },
@@ -362,6 +367,62 @@ class AgentRunnerTest {
         }
     }
 
+    @Test
+    fun `tool execution writes bounded tool event logs with context metadata`() = runTest {
+        val toolRegistry = ToolRegistry(
+            tools = listOf(
+                ToolRegistry.Entry(
+                    descriptor = ToolDescriptor(
+                        name = "tasks.list",
+                        description = "List tasks",
+                    ),
+                ) { context, _ ->
+                    assertEquals(sessionId, context.sessionId)
+                    assertEquals("list_tasks", context.activeSkillId)
+                    ToolExecutionResult.success(
+                        summary = "Tasks tool reached",
+                        payload = buildJsonObject {},
+                    )
+                },
+            ),
+            eventLogger = { level, message, details ->
+                eventLogRepository.log(
+                    category = EventCategory.Tool,
+                    level = level,
+                    message = message,
+                    details = details,
+                )
+            },
+        )
+        val runner = AgentRunner(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = failOnGenerateProvider(),
+            ),
+            settingsDataStore = settingsDataStore,
+            messageRepository = messageRepository,
+            skillManager = buildSkillManager(toolRegistry),
+            toolRegistry = toolRegistry,
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
+        )
+
+        runner.runInteractiveTurn(
+            AgentTurnRequest(
+                sessionId = sessionId,
+                userMessage = "/list_tasks pending",
+            ),
+        )
+
+        val toolEvents = eventLogRepository.observeRecent(limit = 10).first()
+            .filter { it.category == EventCategory.Tool }
+
+        assertEquals(2, toolEvents.size)
+        assertTrue(toolEvents.any { it.message.contains("started") })
+        assertTrue(toolEvents.any { it.message.contains("completed") })
+        assertTrue(toolEvents.all { it.details?.contains("\"sessionId\":\"$sessionId\"") == true })
+        assertTrue(toolEvents.any { it.details?.contains("\"activeSkillId\":\"list_tasks\"") == true })
+    }
+
     private fun buildSkillManager(toolRegistry: ToolRegistry): SkillManager {
         return createTestSkillManager(
             application = application,
@@ -369,10 +430,10 @@ class AgentRunnerTest {
             toolDescriptor = toolRegistry::findDescriptor,
             bundledSkillLoader = StaticBundledSkillLoader(
                 assetManager = application.assets,
-                skills = listOf(
-                    skillSnapshot(
-                        id = "list_tasks",
-                        name = "list_tasks",
+            skills = listOf(
+                skillSnapshot(
+                    id = "list_tasks",
+                    name = "list_tasks",
                         commandDispatch = SkillCommandDispatch.Tool,
                         commandTool = "tasks.list",
                     ),

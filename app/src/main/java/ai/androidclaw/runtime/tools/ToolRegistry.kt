@@ -1,12 +1,14 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.model.EventLevel
+import ai.androidclaw.runtime.providers.ModelRunMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 
 data class ToolArgumentSpec(
@@ -77,13 +79,55 @@ data class ToolExecutionResult(
     }
 }
 
+enum class ToolInvocationOrigin {
+    Model,
+    SlashCommand,
+    ScheduledModel,
+    Internal,
+}
+
+data class ToolExecutionContext(
+    val sessionId: String?,
+    val taskRunId: String?,
+    val origin: ToolInvocationOrigin,
+    val runMode: ModelRunMode?,
+    val requestedName: String,
+    val canonicalName: String,
+    val requestId: String?,
+    val activeSkillId: String? = null,
+) {
+    companion object {
+        fun internal(
+            requestedName: String,
+            canonicalName: String = requestedName,
+            sessionId: String? = null,
+            taskRunId: String? = null,
+            requestId: String? = null,
+            runMode: ModelRunMode? = null,
+            activeSkillId: String? = null,
+        ): ToolExecutionContext {
+            return ToolExecutionContext(
+                sessionId = sessionId,
+                taskRunId = taskRunId,
+                origin = ToolInvocationOrigin.Internal,
+                runMode = runMode,
+                requestedName = requestedName,
+                canonicalName = canonicalName,
+                requestId = requestId,
+                activeSkillId = activeSkillId,
+            )
+        }
+    }
+}
+
 class ToolRegistry(
     tools: List<Entry>,
+    private val eventLogger: suspend (EventLevel, String, String?) -> Unit = { _, _, _ -> },
 ) {
     data class Entry(
         val descriptor: ToolDescriptor,
         val availabilityProvider: () -> ToolAvailability = { descriptor.availability },
-        val handler: suspend (JsonObject) -> ToolExecutionResult,
+        val handler: suspend (ToolExecutionContext, JsonObject) -> ToolExecutionResult,
     ) {
         fun resolvedDescriptor(): ToolDescriptor = descriptor.copy(availability = availabilityProvider())
     }
@@ -113,38 +157,89 @@ class ToolRegistry(
     fun descriptors(): List<ToolDescriptor> = canonicalEntries
         .map { it.resolvedDescriptor() }
 
-    suspend fun execute(name: String, arguments: JsonObject): ToolExecutionResult {
-        val entry = entriesByName[name] ?: return ToolExecutionResult.failure(
-            summary = "Unknown tool: $name",
+    suspend fun execute(
+        context: ToolExecutionContext,
+        arguments: JsonObject,
+    ): ToolExecutionResult {
+        val entry = entriesByName[context.requestedName] ?: return ToolExecutionResult.failure(
+            summary = "Unknown tool: ${context.requestedName}",
             errorCode = "UNKNOWN_TOOL",
             payload = buildJsonObject {
                 put("errorCode", "UNKNOWN_TOOL")
-                put("toolName", name)
+                put("toolName", context.requestedName)
             },
-        )
+        ).also { result ->
+            logToolEvent(
+                level = EventLevel.Warn,
+                message = "Tool ${context.requestedName} failed before execution.",
+                context = context,
+                result = result,
+            )
+        }
         val descriptor = entry.resolvedDescriptor()
+        val resolvedContext = context.copy(canonicalName = descriptor.name)
         validateArguments(
             descriptor = descriptor,
             arguments = arguments,
-        )?.let { return it }
+        )?.let { result ->
+            logToolEvent(
+                level = EventLevel.Warn,
+                message = "Tool ${descriptor.name} failed argument validation.",
+                context = resolvedContext,
+                result = result,
+            )
+            return result
+        }
         availabilityFailure(
             descriptor = descriptor,
-            requestedName = name,
-        )?.let { return it }
+            requestedName = resolvedContext.requestedName,
+        )?.let { result ->
+            logToolEvent(
+                level = EventLevel.Warn,
+                message = "Tool ${descriptor.name} is unavailable for the current execution context.",
+                context = resolvedContext,
+                result = result,
+            )
+            return result
+        }
+        logToolEvent(
+            level = EventLevel.Info,
+            message = "Tool ${descriptor.name} started.",
+            context = resolvedContext,
+            result = null,
+        )
         return try {
-            entry.handler(arguments)
+            entry.handler(resolvedContext, arguments).also { result ->
+                logToolEvent(
+                    level = if (result.success) EventLevel.Info else EventLevel.Warn,
+                    message = if (result.success) {
+                        "Tool ${descriptor.name} completed."
+                    } else {
+                        "Tool ${descriptor.name} returned a structured failure."
+                    },
+                    context = resolvedContext,
+                    result = result,
+                )
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             ToolExecutionResult.failure(
-                summary = error.message ?: "Tool $name failed.",
+                summary = error.message ?: "Tool ${descriptor.name} failed.",
                 errorCode = "TOOL_EXECUTION_FAILED",
                 payload = buildJsonObject {
                     put("errorCode", "TOOL_EXECUTION_FAILED")
-                    put("toolName", name)
+                    put("toolName", descriptor.name)
                     put("message", error.message ?: "Unknown error")
                 },
-            )
+            ).also { result ->
+                logToolEvent(
+                    level = EventLevel.Error,
+                    message = "Tool ${descriptor.name} threw an exception.",
+                    context = resolvedContext,
+                    result = result,
+                )
+            }
         }
     }
 
@@ -155,8 +250,10 @@ class ToolRegistry(
         val missingRequiredArguments = descriptor.arguments
             .filter { it.required }
             .mapNotNull { argument ->
-                val value = arguments[argument.name]?.jsonPrimitive?.content
-                argument.name.takeIf { value.isNullOrBlank() }
+                val value = arguments[argument.name]
+                argument.name.takeIf {
+                    value == null || (value is JsonPrimitive && value.content.isBlank())
+                }
             }
         if (missingRequiredArguments.isEmpty()) {
             return null
@@ -202,6 +299,30 @@ class ToolRegistry(
                 put("availabilityStatus", availability.status.name)
                 put("requiredPermissions", descriptor.requiredPermissions.toPermissionJsonArray())
             },
+        )
+    }
+
+    private suspend fun logToolEvent(
+        level: EventLevel,
+        message: String,
+        context: ToolExecutionContext,
+        result: ToolExecutionResult?,
+    ) {
+        eventLogger(
+            level,
+            message,
+            buildJsonObject {
+                put("requestedName", context.requestedName)
+                put("canonicalName", context.canonicalName)
+                put("origin", context.origin.name)
+                put("sessionId", context.sessionId?.let(::JsonPrimitive) ?: JsonNull)
+                put("taskRunId", context.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                put("runMode", context.runMode?.name?.let(::JsonPrimitive) ?: JsonNull)
+                put("requestId", context.requestId?.let(::JsonPrimitive) ?: JsonNull)
+                put("activeSkillId", context.activeSkillId?.let(::JsonPrimitive) ?: JsonNull)
+                put("success", result?.success?.let(::JsonPrimitive) ?: JsonNull)
+                put("errorCode", result?.errorCode?.let(::JsonPrimitive) ?: JsonNull)
+            }.toString(),
         )
     }
 }

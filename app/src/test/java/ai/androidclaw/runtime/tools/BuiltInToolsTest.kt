@@ -61,7 +61,7 @@ class BuiltInToolsTest {
         val registry = buildRegistry()
 
         val result = registry.execute(
-            name = "sessions.list",
+            context = ToolExecutionContext.internal(requestedName = "sessions.list"),
             arguments = buildJsonObject {},
         )
 
@@ -88,7 +88,7 @@ class BuiltInToolsTest {
         val registry = buildRegistry()
 
         val result = registry.execute(
-            name = "task.list",
+            context = ToolExecutionContext.internal(requestedName = "task.list"),
             arguments = buildJsonObject {},
         )
 
@@ -119,7 +119,7 @@ class BuiltInToolsTest {
         )
 
         val result = registry.execute(
-            name = "skills.list",
+            context = ToolExecutionContext.internal(requestedName = "skills.list"),
             arguments = buildJsonObject {},
         )
 
@@ -144,7 +144,7 @@ class BuiltInToolsTest {
         val registry = buildRegistry()
 
         val result = registry.execute(
-            name = "health.status",
+            context = ToolExecutionContext.internal(requestedName = "health.status"),
             arguments = buildJsonObject {},
         )
 

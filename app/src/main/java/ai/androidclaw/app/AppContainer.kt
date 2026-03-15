@@ -60,6 +60,7 @@ class AppContainer(application: Application) {
         sessionRepository = sessionRepository,
         taskRepository = taskRepository,
         bundledSkillsProvider = { skillManagerRef.refreshSkills() },
+        eventLogRepository = eventLogRepository,
     )
 
     private val bundledSkillLoader = BundledSkillLoader(

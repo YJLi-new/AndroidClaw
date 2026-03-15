@@ -1709,8 +1709,8 @@ Use this section as a living checklist. Keep entries short.
 - [x] repo-owned Windows-emulator scripts exist
 - [x] exact-alarm regression tests and docs exist
 - [x] README + architecture/testing/performance/release docs exist
-- [ ] `PLANv5.md` adopted as canonical
-- [ ] tool execution context added
+- [x] `PLANv5.md` adopted as canonical
+- [x] tool execution context added
 - [ ] task tools contract completed
 - [ ] installable `qa` build lane added
 - [ ] R8 enabled and measured
@@ -1736,6 +1736,7 @@ Add only facts that changed a real implementation choice.
 - The repository’s current task tool surface is inspection-heavy and creation-light; this is the clearest remaining runtime contract gap.
 - The repository currently needs an installable release-like artifact before it can validate shrink/optimization on real devices honestly.
 - The repository’s docs currently claim more about skill config semantics than the UI/runtime can actually satisfy.
+- Tool audit logs need to preserve both the requested tool name and the canonical resolved name, because alias-based invocations are meaningful for diagnostics even when execution resolves to a single handler.
 
 ---
 
@@ -1767,6 +1768,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: continue deprioritizing heavy security work.  
   Rationale: lightweight installability, size, correctness, and testability are the phase priorities.
+
+- Decision: keep tool event logging bounded to invocation metadata and terminal status, not raw arguments or payload dumps.  
+  Rationale: health diagnostics need actionable auditability without leaking secrets or turning logs into unbounded transcripts.
 
 ---
 

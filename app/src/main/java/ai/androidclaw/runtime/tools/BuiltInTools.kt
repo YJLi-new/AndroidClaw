@@ -1,7 +1,9 @@
 package ai.androidclaw.runtime.tools
 
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.SessionRepository
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import android.app.Application
@@ -25,9 +27,18 @@ internal fun createBuiltInToolRegistry(
     sessionRepository: SessionRepository,
     taskRepository: TaskRepository,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
+    eventLogRepository: EventLogRepository? = null,
 ): ToolRegistry {
     lateinit var toolRegistry: ToolRegistry
     toolRegistry = ToolRegistry(
+        eventLogger = { level, message, details ->
+            eventLogRepository?.log(
+                category = EventCategory.Tool,
+                level = level,
+                message = message,
+                details = details,
+            )
+        },
         tools = listOf(
             ToolRegistry.Entry(
                 descriptor = ToolDescriptor(
@@ -35,7 +46,7 @@ internal fun createBuiltInToolRegistry(
                     aliases = listOf("task.list"),
                     description = "List known automation capabilities and any saved tasks.",
                 ),
-            ) { _ ->
+            ) { _, _ ->
                 val tasks = taskRepository.observeTasks().first()
                 ToolExecutionResult.success(
                     summary = if (tasks.isEmpty()) {
@@ -60,7 +71,7 @@ internal fun createBuiltInToolRegistry(
                     aliases = listOf("health.check"),
                     description = "Return lightweight runtime health information and tool availability.",
                 ),
-            ) { _ ->
+            ) { _, _ ->
                 val providerType = settingsDataStore.settings.first().providerType
                 ToolExecutionResult.success(
                     summary = "Runtime bootstrapped with ${providerType.displayName}, bundled skills, and scheduler preview support.",
@@ -91,7 +102,7 @@ internal fun createBuiltInToolRegistry(
                     aliases = listOf("session.list"),
                     description = "List known chat sessions.",
                 ),
-            ) { _ ->
+            ) { _, _ ->
                 val sessions = sessionRepository.observeSessions().first()
                 ToolExecutionResult.success(
                     summary = if (sessions.isEmpty()) {
@@ -122,7 +133,7 @@ internal fun createBuiltInToolRegistry(
                     aliases = listOf("skill.list"),
                     description = "List bundled skills and their current eligibility.",
                 ),
-            ) { _ ->
+            ) { _, _ ->
                 val skills = bundledSkillsProvider()
                 ToolExecutionResult.success(
                     summary = if (skills.isEmpty()) {
@@ -175,7 +186,7 @@ internal fun createBuiltInToolRegistry(
                     ),
                 ),
                 availabilityProvider = { notificationToolAvailability(application) },
-            ) { arguments ->
+            ) { _, arguments ->
                 val title = arguments["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val body = arguments["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val notificationManager = NotificationManagerCompat.from(application)

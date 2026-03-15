@@ -15,6 +15,8 @@ import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.tools.ToolExecutionResult
+import ai.androidclaw.runtime.tools.ToolExecutionContext
+import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -127,6 +129,7 @@ class AgentRunner(
                             slashCommand = slashCommand,
                             slashSkill = slashSkill,
                             toolName = frontmatter.commandTool,
+                            runMode = runMode,
                             taskRunId = taskRunId,
                         )
                         return@withLane persistAssistantResponse(
@@ -206,6 +209,8 @@ class AgentRunner(
                     val toolResultMessages = executeProviderToolCalls(
                         sessionId = sessionId,
                         toolCalls = response.toolCalls,
+                        runMode = runMode,
+                        requestId = response.providerRequestId,
                         taskRunId = taskRunId,
                     )
                     messageHistory = messageHistory +
@@ -252,6 +257,7 @@ class AgentRunner(
         slashCommand: SlashCommand,
         slashSkill: SkillSnapshot,
         toolName: String,
+        runMode: ModelRunMode,
         taskRunId: String?,
     ): ToolExecutionResult {
         val toolCallId = UUID.randomUUID().toString()
@@ -268,7 +274,16 @@ class AgentRunner(
             taskRunId = taskRunId,
         )
         val toolResult = toolRegistry.execute(
-            name = toolName,
+            context = ToolExecutionContext(
+                sessionId = sessionId,
+                taskRunId = taskRunId,
+                origin = ToolInvocationOrigin.SlashCommand,
+                runMode = runMode,
+                requestedName = toolName,
+                canonicalName = toolName,
+                requestId = toolCallId,
+                activeSkillId = slashSkill.id,
+            ),
             arguments = toolArguments,
         )
         messageRepository.addMessage(
@@ -284,6 +299,8 @@ class AgentRunner(
     private suspend fun executeProviderToolCalls(
         sessionId: String,
         toolCalls: List<ProviderToolCall>,
+        runMode: ModelRunMode,
+        requestId: String?,
         taskRunId: String?,
     ): List<ModelMessage> {
         return buildList {
@@ -296,7 +313,19 @@ class AgentRunner(
                     taskRunId = taskRunId,
                 )
                 val toolResult = toolRegistry.execute(
-                    name = toolCall.name,
+                    context = ToolExecutionContext(
+                        sessionId = sessionId,
+                        taskRunId = taskRunId,
+                        origin = if (runMode == ModelRunMode.Scheduled) {
+                            ToolInvocationOrigin.ScheduledModel
+                        } else {
+                            ToolInvocationOrigin.Model
+                        },
+                        runMode = runMode,
+                        requestedName = toolCall.name,
+                        canonicalName = toolCall.name,
+                        requestId = requestId ?: toolCall.id,
+                    ),
                     arguments = toolCall.argumentsJson,
                 )
                 messageRepository.addMessage(
