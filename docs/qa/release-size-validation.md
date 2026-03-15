@@ -9,20 +9,30 @@ Date: 2026-03-15
 
 ## Current repo state
 
-- `qa` is the active shrinking lane
+- `qa` and `release` both ship with:
   - `isMinifyEnabled = true`
   - `isShrinkResources = true`
-- `release` remains unshrunk for now
-  - `isMinifyEnabled = false`
-  - `isShrinkResources = false`
 - narrow keep-rule change currently needed:
   - `-dontwarn java.beans.*` for SnakeYAML's unused desktop bean-introspection path on Android
 
-## Current measured artifact
+## Current measured artifacts
 
-- `app/build/outputs/apk/qa/app-qa.apk`: `2,500,568` bytes
+- `app/build/outputs/apk/qa/app-qa.apk`: `2,109,200` bytes
+- `app/build/outputs/apk/release/app-release-unsigned.apk`: `2,096,912` bytes
+- `app/build/outputs/bundle/release/app-release.aab`: `4,657,005` bytes
 
-That is a reduction of `7,733,581` bytes from the earlier `qa` baseline.
+Size reduction:
+
+- `qa` APK: `-8,124,949` bytes from baseline
+- `release` APK: `-8,092,181` bytes from baseline
+
+Largest uncompressed entries in the optimized release APK:
+
+- `classes.dex`: `3,231,588` bytes (`1,566,526` compressed)
+- `resources.arsc`: `100,268` bytes
+- `lib/arm64-v8a/libdatastore_shared_counter.so`: `54,304` bytes
+- `lib/x86_64/libdatastore_shared_counter.so`: `53,840` bytes
+- `okhttp3/internal/publicsuffix/publicsuffixes.gz`: `41,394` bytes
 
 ## Install and smoke truth
 
@@ -48,21 +58,26 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh \
 Observed direct launch result on `AndroidClawApi34`:
 
 ```text
+Performing Streamed Install
+Success
+Starting: Intent { cmp=ai.androidclaw.app/.MainActivity }
 Status: ok
 LaunchState: COLD
 Activity: ai.androidclaw.app/.MainActivity
+TotalTime: 2812
+WaitTime: 2823
 Complete
 ```
 
-## Remaining blocker to close ws4 fully
+## Packaging validation
 
-The current shell session later lost local-socket access needed by Gradle's file-lock listener and Linux-side `adb`, so the repo could not finish the final local rerun of:
+Local validation completed with:
 
-- `:app:assembleRelease`
-- `:app:bundleRelease`
-- post-change device proof from the shell-side wrappers
+```bash
+./gradlew :app:assembleQa :app:assembleRelease :app:bundleRelease
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+```
 
-Because of that, `release` shrinking remains intentionally disabled until the next clean rerun on either:
-
-- the Windows host path, or
-- CI after the packaging workflow update lands
+All of those commands passed on the current repo state after the shrinking changes.

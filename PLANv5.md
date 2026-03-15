@@ -1713,8 +1713,8 @@ Use this section as a living checklist. Keep entries short.
 - [x] tool execution context added
 - [x] task tools contract completed
 - [x] installable `qa` build lane added
-- [ ] R8 enabled and measured
-- [ ] CI packaging parity expanded
+- [x] R8 enabled and measured
+- [x] CI packaging parity expanded
 - [ ] skill config surface added
 - [ ] optional Baseline Profile support added or explicitly re-deferred
 - [ ] beta handoff packet produced
@@ -1739,7 +1739,8 @@ Add only facts that changed a real implementation choice.
 - Tool audit logs need to preserve both the requested tool name and the canonical resolved name, because alias-based invocations are meaningful for diagnostics even when execution resolves to a single handler.
 - `SchedulerCoordinator.scheduleTask()` reuses persisted `nextRunAt` when it is already present, so any task-tool schedule patch must recompute `nextRunAt` before rescheduling or the old schedule survives.
 - AGP 8.13 exposes a shared `assembleAndroidTest` task for this app instead of a per-build-type `assembleQaAndroidTest`; the `qa` lane therefore reuses the shared androidTest APK while keeping the app APK variant-specific.
-- The shared debug `androidTest` APK is good for debug instrumentation and exact-alarm regression, but it is not a truthful release-like smoke partner for a minified `qa` APK; minified `qa` needs direct install/launch smoke instead.
+- Once `qa` is minified/resource-shrunk, the shared debug `androidTest` APK is no longer a truthful release-like proof lane; direct install-and-launch smoke is the stable way to validate shrunk `qa` packaging without destabilizing debug instrumentation or exact-alarm regression.
+- The current shrinking pass reduced the installable APKs from roughly `10.2 MB` to roughly `2.1 MB` with only a narrow SnakeYAML `java.beans.*` `-dontwarn` adjustment.
 - This workstation can intermittently deny local socket creation in the shell sandbox, which breaks Gradle's file-lock listener startup and Linux-side `adb`; when that happens, Windows-host or CI reruns are required for final build proof.
 
 ---
@@ -1782,8 +1783,8 @@ Add only facts that changed a real implementation choice.
 - Decision: keep `qa` installable via debug signing and the base application id, without an `applicationIdSuffix` unless same-device coexistence becomes necessary later.  
   Rationale: it keeps the local release-like lane simple, installable, and close to production packaging without coupling it to production signing keys.
 
-- Decision: use direct install/launch smoke for minified `qa`, while keeping the shared `androidTest` APK on the debug-oriented instrumentation lanes.
-  Rationale: it keeps release-like smoke truthful without destabilizing the existing debug and exact-alarm regression paths.
+- Decision: keep the shared debug `androidTest` APK as the debug/exact-alarm instrumentation lane, and use direct launch smoke for minified `qa` instead of forcing a mismatched mixed-variant instrumentation path.
+  Rationale: it preserves truthful release-like validation while keeping the existing debug-oriented instrumentation surface stable.
 
 ---
 

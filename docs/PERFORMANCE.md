@@ -20,7 +20,7 @@
   - `HealthViewModel`
 - Baseline Profile dependencies are not checked in yet because this WSL Gradle runtime cannot fetch uncached AndroidX benchmark/profile artifacts from Google Maven without a TLS handshake failure
 - an installable `qa` build lane now exists for release-like local validation without production signing keys
-- `qa` now carries the shrinking experiment (`isMinifyEnabled = true`, `isShrinkResources = true`) while `release` remains unshrunk until the `qa` evidence lane is fully closed
+- `qa` and `release` now both ship with code shrinking and resource shrinking enabled
 - minified `qa` should be validated with direct install/launch smoke; the shared debug `androidTest` APK remains the debug-oriented instrumentation lane
 - production lint stays enabled, but test-source lint is disabled because AGP 8.13 + Kotlin FIR crashes while analyzing `debugUnitTest` and `debugAndroidTest` sources in this environment
 - the lint fast loop also disables network-backed version-check detectors so validation stays deterministic and local
@@ -74,31 +74,34 @@ Current release posture:
 
 - `qa` is installable locally via debug signing and is the optimization/test target
 - `qa` currently has `isMinifyEnabled = true` and `isShrinkResources = true`
-- `release` remains `isMinifyEnabled = false` and `isShrinkResources = false` until the `qa` shrink lane is fully evidenced
+- `release` now also has `isMinifyEnabled = true` and `isShrinkResources = true`
 - release-like launch validation should use:
   - `./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity`
 
 Current decision:
 
-- keep release shrinking disabled until there is a dedicated `qa` validation pass with install/launch evidence
 - keep debug instrumentation and exact-alarm regression on the shared debug `androidTest` path
-- do not turn on `release` shrinking speculatively just to claim a size win
+- keep the keep-rule surface narrow and evidence-based
+- use direct launch smoke for minified `qa` instead of mixing the shared debug `androidTest` APK with a shrunk release-like app
 
 Current measured artifacts:
 
-- `app/build/outputs/apk/qa/app-qa.apk`: `2,500,568` bytes after the current `qa` shrinking pass
-- `app/build/outputs/apk/release/app-release-unsigned.apk`: `10,189,093` bytes on 2026-03-12
+- baseline before shrinking:
+  - `app/build/outputs/apk/qa/app-qa.apk`: `10,234,149` bytes
+  - `app/build/outputs/apk/release/app-release-unsigned.apk`: `10,189,093` bytes
+- current optimized outputs:
+  - `app/build/outputs/apk/qa/app-qa.apk`: `2,109,200` bytes
+  - `app/build/outputs/apk/release/app-release-unsigned.apk`: `2,096,912` bytes
+  - `app/build/outputs/bundle/release/app-release.aab`: `4,657,005` bytes
 
-Largest uncompressed entries in the current release artifact baseline:
+Largest uncompressed entries in the current optimized release APK:
 
-- `classes.dex`: `13,963,960` bytes (`4,800,740` compressed)
-- `classes2.dex`: `10,023,716` bytes (`3,494,842` compressed)
-- `classes3.dex`: `2,570,396` bytes (`966,887` compressed)
-- `resources.arsc`: `474,928` bytes
+- `classes.dex`: `3,231,588` bytes (`1,566,526` compressed)
+- `resources.arsc`: `100,268` bytes
+- `lib/arm64-v8a/libdatastore_shared_counter.so`: `54,304` bytes
+- `lib/x86_64/libdatastore_shared_counter.so`: `53,840` bytes
 - `okhttp3/internal/publicsuffix/publicsuffixes.gz`: `41,394` bytes
 
-That future shrinking pass should still record:
+Keep rules currently required:
 
-- the release APK size before the change
-- the release APK size after the change
-- any keep rules added to preserve behavior
+- narrow `-dontwarn java.beans.*` rules for SnakeYAML's unused desktop bean-introspection path on Android

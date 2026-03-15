@@ -49,3 +49,5 @@ OK (1 test)
 - `qa` is the installable release-like lane and is signed with the local debug key.
 - This repo/AGP setup exposes a shared `assembleAndroidTest` artifact rather than a separate `assembleQaAndroidTest` task.
 - The `qa` lane intentionally keeps the base application id so device smoke stays close to the production packaging shape.
+- Current minified `qa` validation has moved to the direct launch-smoke path documented in:
+  - `docs/qa/release-size-validation.md`
