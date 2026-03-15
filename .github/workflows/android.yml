@@ -6,8 +6,11 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
-  verify:
+  fast:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,5 +33,49 @@ jobs:
       - name: Ensure Gradle wrapper is executable
         run: chmod +x ./gradlew
 
-      - name: Build, unit test, and lint
+      - name: Fast validation
         run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+
+      - name: Upload fast reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-reports
+          if-no-files-found: error
+          path: |
+            app/build/reports/**
+            app/build/test-results/**
+
+  packaging:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x ./gradlew
+
+      - name: Packaging validation
+        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest :app:assembleQa :app:assembleRelease :app:bundleRelease
+
+      - name: Upload packaging outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaging-outputs
+          if-no-files-found: error
+          path: |
+            app/build/outputs/apk/**
+            app/build/outputs/bundle/**

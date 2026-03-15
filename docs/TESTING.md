@@ -18,6 +18,29 @@ Current lint posture:
 
 GitHub Actions keeps this loop fast and currently does not gate every PR on device/emulator instrumentation.
 
+## CI parity
+
+GitHub Actions now runs two required jobs on pushes and pull requests:
+
+- `fast`
+  - `:app:assembleDebug`
+  - `:app:testDebugUnitTest`
+  - `:app:lintDebug`
+- `packaging`
+  - `:app:assembleDebugAndroidTest`
+  - `:app:assembleQa`
+  - `:app:assembleRelease`
+  - `:app:bundleRelease`
+
+Uploaded workflow artifacts:
+
+- `fast-reports`
+  - lint output and unit-test reports
+- `packaging-outputs`
+  - debug APKs, the installable `qa` APK, and the release bundle/output directories
+
+The device-smoke and exact-alarm emulator lanes remain repo-owned manual or workflow-dispatch style paths, not mandatory PR gates.
+
 ## Installable QA lane
 
 Use `qa` when you need a locally installable, release-like APK before production signing exists.
@@ -27,11 +50,13 @@ Repo tasks:
 - `./gradlew :app:assembleQa`
 - `./gradlew :app:assembleAndroidTest`
 
-Windows AVD smoke through the WSL wrapper:
+Windows AVD launch smoke through the WSL wrapper:
 
 ```bash
-ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity
 ```
+
+Use the dedicated launch-smoke mode for minified `qa`. The shared `androidTest` APK remains the repo-owned debug instrumentation lane, but it is not a truthful release-like proof once `qa` is shrunk.
 
 This lane is intentionally separate from `release`:
 
@@ -85,6 +110,7 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --a
 Recorded evidence:
 
 - `docs/qa/qa-build-validation.md`
+- `docs/qa/release-size-validation.md`
 - `docs/qa/windows-emulator-validation.md`
 - `docs/qa/exact-alarm-regression.md`
 
@@ -151,6 +177,8 @@ Current repo-supported release check:
 
 - `./gradlew :app:assembleQa`
 - `./gradlew :app:assembleRelease`
+- `./gradlew :app:bundleRelease`
+- `ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity`
 
 Recorded evidence:
 

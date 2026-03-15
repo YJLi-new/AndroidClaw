@@ -12,6 +12,8 @@ avd_name="AndroidClawApi34"
 boot_timeout="300"
 variant="debug"
 instrumentation_args=()
+launch_smoke_only=0
+launch_component="ai.androidclaw.app/.MainActivity"
 no_window=0
 wipe_data=0
 
@@ -35,6 +37,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --instrumentation-arg)
       instrumentation_args+=("$2")
+      shift 2
+      ;;
+    --launch-smoke)
+      launch_smoke_only=1
+      shift
+      ;;
+    --launch-component)
+      launch_component="$2"
       shift 2
       ;;
     --no-window)
@@ -88,6 +98,10 @@ fi
 
 if [[ "$wipe_data" -eq 1 ]]; then
   powershell_args+=(-WipeData)
+fi
+
+if [[ "$launch_smoke_only" -eq 1 ]]; then
+  powershell_args+=(-LaunchSmokeOnly -LaunchComponent "$launch_component")
 fi
 
 powershell.exe "${powershell_args[@]}"

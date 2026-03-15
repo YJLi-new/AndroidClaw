@@ -14,7 +14,8 @@
 - `./gradlew :app:lintDebug`
 - `./gradlew :app:assembleQa`
 - `./gradlew :app:assembleRelease`
-- `ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest --no-window`
+- `./gradlew :app:bundleRelease`
+- `ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity --no-window`
 - `ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest --no-window`
 - `ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest --no-window`
 - `ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31 --no-window`
@@ -43,7 +44,7 @@ Recommended supporting validation:
 
 - real-provider send requires a valid API key and endpoint
 - Baseline Profiles are not present in this RC pass
-- release shrinking remains disabled in this RC pass
+- minified `qa` should be launch-smoked directly; the shared debug `androidTest` APK is not the release-like proof lane
 - `qa` is the installable release-like lane; `release` remains the unsigned production packaging lane until real signing is introduced
 
 ## Evidence docs
@@ -51,6 +52,7 @@ Recommended supporting validation:
 - `docs/qa/windows-emulator-validation.md`
 - `docs/qa/exact-alarm-regression.md`
 - `docs/qa/qa-build-validation.md`
+- `docs/qa/release-size-validation.md`
 - `docs/qa/persistence-validation.md`
 - `docs/qa/release-build-validation.md`
 - `docs/qa/rc-validation.md`

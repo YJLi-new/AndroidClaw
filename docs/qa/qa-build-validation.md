@@ -2,6 +2,8 @@
 
 Date: 2026-03-15
 
+> This document records the pre-shrink `qa` lane proof. Minified `qa` shrink evidence now lives in `docs/qa/release-size-validation.md`.
+
 ## Commands
 
 ```bash

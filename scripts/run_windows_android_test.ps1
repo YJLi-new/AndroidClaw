@@ -6,6 +6,8 @@ param(
     [int]$BootTimeoutSeconds = 300,
     [string]$TestClass = "ai.androidclaw.app.MainActivitySmokeTest",
     [string[]]$InstrumentationArg = @(),
+    [switch]$LaunchSmokeOnly,
+    [string]$LaunchComponent = "ai.androidclaw.app/.MainActivity",
     [switch]$NoWindow,
     [switch]$WipeData
 )
@@ -22,10 +24,15 @@ $serial = Start-AndroidAvd `
     -NoWindow:$NoWindow `
     -WipeData:$WipeData
 
-Install-AndroidTestPackages -Adb $toolPaths.Adb -Serial $serial -RepoRoot $RepoRoot -Variant $Variant
-Invoke-AndroidInstrumentation `
-    -Adb $toolPaths.Adb `
-    -Serial $serial `
-    -TestRunner "ai.androidclaw.app.test/androidx.test.runner.AndroidJUnitRunner" `
-    -TestClass $TestClass `
-    -InstrumentationArgs $InstrumentationArg
+if ($LaunchSmokeOnly) {
+    Install-AndroidAppPackage -Adb $toolPaths.Adb -Serial $serial -RepoRoot $RepoRoot -Variant $Variant
+    Invoke-AndroidLaunchSmoke -Adb $toolPaths.Adb -Serial $serial -ComponentName $LaunchComponent
+} else {
+    Install-AndroidTestPackages -Adb $toolPaths.Adb -Serial $serial -RepoRoot $RepoRoot -Variant $Variant
+    Invoke-AndroidInstrumentation `
+        -Adb $toolPaths.Adb `
+        -Serial $serial `
+        -TestRunner "ai.androidclaw.app.test/androidx.test.runner.AndroidJUnitRunner" `
+        -TestClass $TestClass `
+        -InstrumentationArgs $InstrumentationArg
+}

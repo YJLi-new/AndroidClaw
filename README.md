@@ -60,8 +60,18 @@ Windows AVD from WSL:
 
 ```bash
 ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity
 ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31
 ```
+
+## CI
+
+GitHub Actions now separates:
+
+- `fast`: debug assemble, unit tests, and lint
+- `packaging`: `assembleDebugAndroidTest`, `assembleQa`, `assembleRelease`, and `bundleRelease`
+
+The workflow uploads fast-loop reports plus packaging outputs so the `qa` APK and release bundle can be downloaded from the Actions UI.
 
 ## Product boundaries
 

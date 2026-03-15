@@ -41,6 +41,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -48,6 +49,8 @@ android {
         }
         create("qa") {
             initWith(getByName("release"))
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release", "debug")
         }
@@ -146,6 +149,8 @@ dependencies {
 // ./gradlew :app:pixel8Api36DebugAndroidTest -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 // Canonical Windows-emulator fallback from WSL:
 // ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
+// Release-like install/launch smoke without androidTest:
+// ./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity
 // Installable release-like QA lane:
 // ./gradlew :app:assembleQa :app:assembleAndroidTest
 // Exact-alarm regression sweep:

@@ -169,22 +169,57 @@ function Install-AndroidTestPackages {
     )
 
     $normalizedVariant = $Variant.ToLowerInvariant()
-    $appApk = Join-Path $RepoRoot "app\build\outputs\apk\$normalizedVariant\app-$normalizedVariant.apk"
     $testApk = Join-Path $RepoRoot "app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk"
 
-    foreach ($path in @($appApk, $testApk)) {
-        if (!(Test-Path $path)) {
-            throw "Required APK not found: $path"
-        }
+    Install-AndroidAppPackage -Adb $Adb -Serial $Serial -RepoRoot $RepoRoot -Variant $normalizedVariant
+
+    if (!(Test-Path $testApk)) {
+        throw "Required APK not found: $testApk"
+    }
+
+    & $Adb -s $Serial install -r -t $testApk
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install shared androidTest APK on $Serial."
+    }
+}
+
+function Install-AndroidAppPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Adb,
+        [Parameter(Mandatory = $true)]
+        [string]$Serial,
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot,
+        [string]$Variant = "debug"
+    )
+
+    $normalizedVariant = $Variant.ToLowerInvariant()
+    $appApk = Join-Path $RepoRoot "app\build\outputs\apk\$normalizedVariant\app-$normalizedVariant.apk"
+
+    if (!(Test-Path $appApk)) {
+        throw "Required APK not found: $appApk"
     }
 
     & $Adb -s $Serial install -r $appApk
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to install $normalizedVariant APK on $Serial."
     }
-    & $Adb -s $Serial install -r -t $testApk
+}
+
+function Invoke-AndroidLaunchSmoke {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Adb,
+        [Parameter(Mandatory = $true)]
+        [string]$Serial,
+        [Parameter(Mandatory = $true)]
+        [string]$ComponentName
+    )
+
+    & $Adb -s $Serial shell am start -W -n $ComponentName
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to install shared androidTest APK on $Serial."
+        throw "Launch smoke failed for $ComponentName on $Serial."
     }
 }
 

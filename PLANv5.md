@@ -1739,6 +1739,8 @@ Add only facts that changed a real implementation choice.
 - Tool audit logs need to preserve both the requested tool name and the canonical resolved name, because alias-based invocations are meaningful for diagnostics even when execution resolves to a single handler.
 - `SchedulerCoordinator.scheduleTask()` reuses persisted `nextRunAt` when it is already present, so any task-tool schedule patch must recompute `nextRunAt` before rescheduling or the old schedule survives.
 - AGP 8.13 exposes a shared `assembleAndroidTest` task for this app instead of a per-build-type `assembleQaAndroidTest`; the `qa` lane therefore reuses the shared androidTest APK while keeping the app APK variant-specific.
+- The shared debug `androidTest` APK is good for debug instrumentation and exact-alarm regression, but it is not a truthful release-like smoke partner for a minified `qa` APK; minified `qa` needs direct install/launch smoke instead.
+- This workstation can intermittently deny local socket creation in the shell sandbox, which breaks Gradle's file-lock listener startup and Linux-side `adb`; when that happens, Windows-host or CI reruns are required for final build proof.
 
 ---
 
@@ -1779,6 +1781,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: keep `qa` installable via debug signing and the base application id, without an `applicationIdSuffix` unless same-device coexistence becomes necessary later.  
   Rationale: it keeps the local release-like lane simple, installable, and close to production packaging without coupling it to production signing keys.
+
+- Decision: use direct install/launch smoke for minified `qa`, while keeping the shared `androidTest` APK on the debug-oriented instrumentation lanes.
+  Rationale: it keeps release-like smoke truthful without destabilizing the existing debug and exact-alarm regression paths.
 
 ---
 

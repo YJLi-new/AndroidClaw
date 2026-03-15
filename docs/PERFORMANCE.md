@@ -20,7 +20,8 @@
   - `HealthViewModel`
 - Baseline Profile dependencies are not checked in yet because this WSL Gradle runtime cannot fetch uncached AndroidX benchmark/profile artifacts from Google Maven without a TLS handshake failure
 - an installable `qa` build lane now exists for release-like local validation without production signing keys
-- release shrinking remains disabled for now; the decision is explicit and tied to the `qa` optimization lane rather than left implicit
+- `qa` now carries the shrinking experiment (`isMinifyEnabled = true`, `isShrinkResources = true`) while `release` remains unshrunk until the `qa` evidence lane is fully closed
+- minified `qa` should be validated with direct install/launch smoke; the shared debug `androidTest` APK remains the debug-oriented instrumentation lane
 - production lint stays enabled, but test-source lint is disabled because AGP 8.13 + Kotlin FIR crashes while analyzing `debugUnitTest` and `debugAndroidTest` sources in this environment
 - the lint fast loop also disables network-backed version-check detectors so validation stays deterministic and local
 
@@ -52,6 +53,7 @@ Fast repo validation:
 ./gradlew :app:lintDebug
 ./gradlew :app:assembleQa
 ./gradlew :app:assembleRelease
+./gradlew :app:bundleRelease
 ```
 
 Future Baseline Profile task discovery, once the dependency-resolution blocker is cleared:
@@ -71,20 +73,23 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/check_host_prereqs.sh --required-
 Current release posture:
 
 - `qa` is installable locally via debug signing and is the optimization/test target
-- `isMinifyEnabled = false`
-- resource shrinking is not enabled
-- `:app:assembleQa` and `:app:assembleRelease` are green on the current repo state
+- `qa` currently has `isMinifyEnabled = true` and `isShrinkResources = true`
+- `release` remains `isMinifyEnabled = false` and `isShrinkResources = false` until the `qa` shrink lane is fully evidenced
+- release-like launch validation should use:
+  - `./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity`
 
 Current decision:
 
 - keep release shrinking disabled until there is a dedicated `qa` validation pass with install/launch evidence
-- do not turn on R8 or resource shrinking speculatively just to claim a size win
+- keep debug instrumentation and exact-alarm regression on the shared debug `androidTest` path
+- do not turn on `release` shrinking speculatively just to claim a size win
 
-Current measured artifact:
+Current measured artifacts:
 
+- `app/build/outputs/apk/qa/app-qa.apk`: `2,500,568` bytes after the current `qa` shrinking pass
 - `app/build/outputs/apk/release/app-release-unsigned.apk`: `10,189,093` bytes on 2026-03-12
 
-Largest uncompressed entries in the current release artifact:
+Largest uncompressed entries in the current release artifact baseline:
 
 - `classes.dex`: `13,963,960` bytes (`4,800,740` compressed)
 - `classes2.dex`: `10,023,716` bytes (`3,494,842` compressed)
