@@ -270,8 +270,9 @@ v1 计划支持或识别以下字段：
 AndroidClaw 用本地 config + Keystore 实现这一语义，而不是 host process `process.env`。
 
 #### `requires.config`
-仅支持 **AndroidClaw 明确映射过的 config paths**。  
-未知 path 不静默放过，应显示为 `UNSUPPORTED_REQUIREMENT` 或 `MISSING_CONFIG_REQUIREMENT`。
+v5 当前把声明出来的 config path 当作 **per-skill string field** 处理。  
+存储键使用 `skillKey + config path`，eligibility 只检查该值是否为非空字符串。  
+当前不做 typed mapping、host-level config bridge、也不做自动 provider/tool 注入。
 
 #### `requires.bins` / `requires.anyBins`
 在 AndroidClaw v1 中，默认视为 **本地不支持**。  
@@ -330,18 +331,27 @@ metadata:
 
 Skill 在运行时必须有一个结构化 eligibility 结果，而不是只有“能用/不能用”。
 
-建议状态：
+当前实现的 eligibility 状态较小：
 
 - `ELIGIBLE`
-- `DISABLED`
 - `INVALID`
-- `MISSING_PERMISSION`
 - `MISSING_TOOL`
-- `MISSING_ENV`
-- `MISSING_CONFIG`
-- `FOREGROUND_REQUIRED`
-- `UNSUPPORTED_ON_ANDROID`
 - `BRIDGE_ONLY`
+
+### v5 说明
+- enabled / disabled 仍然是独立的 skill 开关，不编码进 eligibility enum
+- 缺失 `requires.env`
+- 缺失 `requires.config`
+- 缺失 required tool
+- tool 权限/能力受阻
+
+当前都会落到 `MISSING_TOOL`，再通过：
+
+- eligibility reasons
+- `secretStatuses`
+- `configStatuses`
+
+把具体缺失项展示给 UI 和 `skills.list`。
 
 ### 设计原则
 - 一条 skill 可以同时有多个 missing requirements。
@@ -491,18 +501,42 @@ OpenClaw 里的：
 
 在 AndroidClaw 中映射为：
 
-- `DataStore` 中的 skill override
-- `Keystore` / encrypted storage 中的敏感 key
-- runtime 注入上下文
+- Room 里的 enabled state / skill inventory
+- `DataStore` 中按 `skillKey` 保存的非敏感 config path 字符串值
+- `Keystore`-backed encrypted storage 中按 `skillKey + envName` 保存的 secret
+- Skills 页面里的 per-skill Configure 对话框
 
 ## 14.2 注入原则
 - secret 不进 prompt
 - secret 不进 message history
 - secret 不进普通 event log
-- tool / provider 在调用时按需注入
+- v5 当前用这些值驱动 eligibility 和 Skills UI
+- v5 当前 **不**承诺 generic tool/provider env injection 已经落地
 
 ## 14.3 `primaryEnv`
-若 skill 指定 `metadata.openclaw.primaryEnv`，则 `apiKey` 字段应映射到该环境变量名。
+若 skill 指定 `metadata.openclaw.primaryEnv`，Skills 页面会把它显示为对应 env 名的 secret field。
+
+### v5 行为
+- 保存后只显示 `Configured` / `Not configured`
+- 不把 secret 明文重新显示给用户
+- 清除后 eligibility 会重新计算
+
+## 14.4 v5 当前支持的最小配置面
+
+当前已落地：
+
+- 每个 effective skill 的 `enabled`
+- `skillKey` 作为 config / secret 的稳定键
+- `primaryEnv` / `requires.env` 对应的 secret fields
+- `requires.config` 对应的 string config fields
+- 保存/清除后即时刷新 eligibility、`secretStatuses`、`configStatuses`
+
+当前仍未落地：
+
+- generic host-process env injection
+- arbitrary runtime secret injection into every tool/provider
+- typed config editors
+- `requires.bins` / `requires.anyBins` 本地支持
 
 ---
 
@@ -660,7 +694,7 @@ skill 的基本单位是目录 + `SKILL.md` + 可选资源。
 precedence 固定为 workspace > local > bundled。
 
 ### K-004
-v1 支持 slash、tool dispatch、eligibility、config/env/apiKey 注入语义。
+v5 支持 slash、tool dispatch、eligibility，以及最小 per-skill config/env/apiKey 存储语义；generic runtime injection 仍是后续工作。
 
 ### K-005
 v1 不支持 installer / package-manager / arbitrary shell 型 skill。

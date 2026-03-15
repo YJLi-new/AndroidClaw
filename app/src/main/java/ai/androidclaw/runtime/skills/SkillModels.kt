@@ -58,6 +58,8 @@ data class SkillSnapshot(
     val rawFrontmatter: String? = null,
     val resolutionState: SkillResolutionState = SkillResolutionState.Effective,
     val shadowedBy: String? = null,
+    val secretStatuses: Map<String, Boolean> = emptyMap(),
+    val configStatuses: Map<String, Boolean> = emptyMap(),
 ) {
     val displayName: String
         get() = frontmatter?.name ?: skillKey
@@ -67,6 +69,24 @@ enum class SkillResolutionState {
     Effective,
     Shadowed,
 }
+
+data class SkillConfigurationSnapshot(
+    val skillId: String? = null,
+    val skillKey: String,
+    val displayName: String? = null,
+    val secretFields: List<SkillSecretField> = emptyList(),
+    val configFields: List<SkillConfigField> = emptyList(),
+)
+
+data class SkillSecretField(
+    val envName: String,
+    val configured: Boolean,
+)
+
+data class SkillConfigField(
+    val path: String,
+    val value: String?,
+)
 
 data class ParsedSkillDocument(
     val frontmatter: SkillFrontmatter,

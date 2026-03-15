@@ -1715,7 +1715,7 @@ Use this section as a living checklist. Keep entries short.
 - [x] installable `qa` build lane added
 - [x] R8 enabled and measured
 - [x] CI packaging parity expanded
-- [ ] skill config surface added
+- [x] skill config surface added
 - [ ] optional Baseline Profile support added or explicitly re-deferred
 - [ ] beta handoff packet produced
 
@@ -1742,6 +1742,8 @@ Add only facts that changed a real implementation choice.
 - Once `qa` is minified/resource-shrunk, the shared debug `androidTest` APK is no longer a truthful release-like proof lane; direct install-and-launch smoke is the stable way to validate shrunk `qa` packaging without destabilizing debug instrumentation or exact-alarm regression.
 - The current shrinking pass reduced the installable APKs from roughly `10.2 MB` to roughly `2.1 MB` with only a narrow SnakeYAML `java.beans.*` `-dontwarn` adjustment.
 - This workstation can intermittently deny local socket creation in the shell sandbox, which breaks Gradle's file-lock listener startup and Linux-side `adb`; when that happens, Windows-host or CI reruns are required for final build proof.
+- The landed v5 skill config surface is intentionally narrow: config values are stored as per-skill strings keyed by `skillKey`, secrets are stored as `skillKey + envName`, and the current runtime uses them for eligibility/UI truth rather than generic tool/provider env injection.
+- On this workstation, the first Robolectric + Room `SkillsViewModelTest` path can exceed short flow timeouts; stable coverage needs a hybrid wait strategy that advances the test dispatcher while allowing real background DB work to finish.
 
 ---
 
@@ -1767,6 +1769,9 @@ Add only facts that changed a real implementation choice.
 
 - Decision: implement only the smallest useful skill config surface in v5.  
   Rationale: closes docs/runtime mismatch without building a generic plugin platform.
+
+- Decision: keep v5 skill config fields as simple per-`skillKey` string/secret stores and use them for eligibility plus Skills UI, not generic runtime injection.  
+  Rationale: it makes `docs/SKILLS_COMPAT.md` materially true now without inventing a broader plugin/config subsystem before beta.
 
 - Decision: keep Baseline Profiles optional in this phase.  
   Rationale: performance benefit is real, but the repo should not stall on an external environment issue. [R16]

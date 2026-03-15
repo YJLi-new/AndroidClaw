@@ -38,6 +38,17 @@ internal fun SkillFrontmatter.requiredConfigPaths(): List<String> {
         .orEmpty()
 }
 
+internal fun SkillFrontmatter.declaredSecretNames(): List<String> {
+    return buildList {
+        primaryEnv()?.let(::add)
+        addAll(requiredEnvNames())
+    }.distinct()
+}
+
+internal fun SkillFrontmatter.declaredConfigPaths(): List<String> {
+    return requiredConfigPaths().distinct()
+}
+
 internal fun SkillFrontmatter.requiredBins(): List<String> {
     return openClawMetadata()
         ?.nestedObject("requires")

@@ -1,6 +1,8 @@
 package ai.androidclaw.runtime.skills
 
 import android.net.Uri
+import ai.androidclaw.data.SkillConfigStore
+import ai.androidclaw.data.SkillSecretStore
 import ai.androidclaw.data.model.SkillRecord
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
@@ -18,7 +20,8 @@ class SkillManager(
     private val localSkillImporter: LocalSkillImporter,
     private val skillRepository: SkillRepository,
     private val toolDescriptor: (String) -> ToolDescriptor?,
-    private val hasStoredOpenAiKey: suspend () -> Boolean,
+    private val skillConfigStore: SkillConfigStore,
+    private val skillSecretStore: SkillSecretStore,
 ) {
     private val cacheMutex = Mutex()
     private var globalSourceSynced: Boolean = false
@@ -85,6 +88,67 @@ class SkillManager(
         return result
     }
 
+    suspend fun readSkillConfiguration(skill: SkillSnapshot): SkillConfigurationSnapshot {
+        val frontmatter = skill.frontmatter ?: return SkillConfigurationSnapshot(
+            skillId = skill.id,
+            skillKey = skill.skillKey,
+            displayName = skill.displayName,
+        )
+        val secretFields = frontmatter.declaredSecretNames().map { secretName ->
+            SkillSecretField(
+                envName = secretName,
+                configured = !skillSecretStore.readSecret(skill.skillKey, secretName).isNullOrBlank(),
+            )
+        }
+        val configFields = frontmatter.declaredConfigPaths().map { configPath ->
+            SkillConfigField(
+                path = configPath,
+                value = skillConfigStore.readConfig(skill.skillKey, configPath),
+            )
+        }
+        return SkillConfigurationSnapshot(
+            skillId = skill.id,
+            skillKey = skill.skillKey,
+            displayName = skill.displayName,
+            secretFields = secretFields,
+            configFields = configFields,
+        )
+    }
+
+    suspend fun readConfiguration(skill: SkillSnapshot): SkillConfigurationSnapshot {
+        return readSkillConfiguration(skill)
+    }
+
+    suspend fun saveSkillConfiguration(
+        skillKey: String,
+        secretUpdates: Map<String, String?>,
+        configUpdates: Map<String, String?>,
+    ) {
+        secretUpdates.forEach { (envName, value) ->
+            skillSecretStore.writeSecret(skillKey, envName, value)
+        }
+        configUpdates.forEach { (configPath, value) ->
+            skillConfigStore.writeConfig(skillKey, configPath, value)
+        }
+        invalidateCaches()
+    }
+
+    suspend fun saveConfiguration(
+        skillKey: String,
+        secretUpdates: Map<String, String>,
+        clearedSecrets: Set<String>,
+        configUpdates: Map<String, String?>,
+    ) {
+        saveSkillConfiguration(
+            skillKey = skillKey,
+            secretUpdates = buildMap {
+                putAll(secretUpdates)
+                clearedSecrets.forEach { envName -> put(envName, null) }
+            },
+            configUpdates = configUpdates,
+        )
+    }
+
     fun selectModelSkills(skills: List<SkillSnapshot>): List<SkillSnapshot> {
         return skills.filter { skill ->
             val frontmatter = skill.frontmatter ?: return@filter false
@@ -120,15 +184,12 @@ class SkillManager(
                 SkillSourceType.Workspace -> record.workspaceSessionId == sessionId
             }
         }
-        val requirementContext = SkillRequirementContext(
-            hasStoredOpenAiKey = hasStoredOpenAiKey(),
-        )
         val evaluated = relevantRecords
             .map { it.toSnapshot() }
-            .map { skill -> applyEligibility(skill, requirementContext) }
+            .map { skill -> applyEligibility(skill) }
 
         return evaluated
-            .groupBy { skill -> skill.displayName }
+            .groupBy { skill -> skill.skillKey }
             .values
             .flatMap(::resolvePrecedence)
             .sortedWith(
@@ -238,11 +299,15 @@ class SkillManager(
             }
     }
 
-    private fun applyEligibility(
-        skill: SkillSnapshot,
-        context: SkillRequirementContext,
-    ): SkillSnapshot {
+    private suspend fun applyEligibility(skill: SkillSnapshot): SkillSnapshot {
         val frontmatter = skill.frontmatter ?: return skill
+        val secretStatuses = frontmatter.declaredSecretNames().associateWith { secretName ->
+            !skillSecretStore.readSecret(skill.skillKey, secretName).isNullOrBlank()
+        }
+        val configStatuses = frontmatter.declaredConfigPaths().associateWith { configPath ->
+            !skillConfigStore.readConfig(skill.skillKey, configPath).isNullOrBlank()
+        }
+
         val android = frontmatter.androidMetadata()
         val bridgeOnly = android?.get("bridgeOnly")?.jsonPrimitive?.booleanOrNull == true
         if (bridgeOnly) {
@@ -251,6 +316,8 @@ class SkillManager(
                     status = SkillEligibilityStatus.BridgeOnly,
                     reasons = listOf("This skill is marked bridgeOnly and is not runnable locally."),
                 ),
+                secretStatuses = secretStatuses,
+                configStatuses = configStatuses,
             )
         }
 
@@ -260,20 +327,20 @@ class SkillManager(
             eligibilityReasons += "Unsupported on Android: requires.bins ${unsupportedBins.joinToString()}"
         }
 
-        val primaryEnv = frontmatter.primaryEnv()
-        val missingEnvRequirements = frontmatter.requiredEnvNames().mapNotNull { requiredEnv ->
-            val satisfiedByOpenAiKey = context.hasStoredOpenAiKey &&
-                (requiredEnv == "OPENAI_API_KEY" || requiredEnv == primaryEnv)
-            if (satisfiedByOpenAiKey) {
+        eligibilityReasons += frontmatter.requiredEnvNames().mapNotNull { requiredEnv ->
+            if (secretStatuses[requiredEnv] == true) {
                 null
             } else {
                 "Missing env requirement: $requiredEnv"
             }
         }
-        eligibilityReasons += missingEnvRequirements
 
-        eligibilityReasons += frontmatter.requiredConfigPaths().map { requiredConfig ->
-            "Unsupported config requirement on Android: $requiredConfig"
+        eligibilityReasons += frontmatter.requiredConfigPaths().mapNotNull { requiredConfig ->
+            if (configStatuses[requiredConfig] == true) {
+                null
+            } else {
+                "Missing config requirement: $requiredConfig"
+            }
         }
 
         val requiredTools = mutableSetOf<String>()
@@ -302,6 +369,8 @@ class SkillManager(
                 status = status,
                 reasons = eligibilityReasons,
             ),
+            secretStatuses = secretStatuses,
+            configStatuses = configStatuses,
         )
     }
 
@@ -312,10 +381,6 @@ class SkillManager(
         globalSourceSynced = false
         workspaceSourceSynced.clear()
     }
-
-    private data class SkillRequirementContext(
-        val hasStoredOpenAiKey: Boolean,
-    )
 }
 
 private fun SkillSnapshot.toRecord(existing: SkillRecord?): SkillRecord {

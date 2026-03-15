@@ -3,6 +3,8 @@ package ai.androidclaw.runtime.skills
 import android.app.Application
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.runtime.tools.ToolDescriptor
+import ai.androidclaw.testutil.InMemorySkillConfigStore
+import ai.androidclaw.testutil.InMemorySkillSecretStore
 import java.io.File
 import java.util.UUID
 
@@ -15,7 +17,8 @@ fun createTestSkillManager(
     ),
     skillRepository: SkillRepository,
     toolDescriptor: (String) -> ToolDescriptor?,
-    hasStoredOpenAiKey: Boolean = false,
+    skillConfigStore: InMemorySkillConfigStore = InMemorySkillConfigStore(),
+    skillSecretStore: InMemorySkillSecretStore = InMemorySkillSecretStore(),
 ): SkillManager {
     val rootDir = File(application.cacheDir, "skill-tests/${UUID.randomUUID()}").apply {
         mkdirs()
@@ -38,7 +41,8 @@ fun createTestSkillManager(
         ),
         skillRepository = skillRepository,
         toolDescriptor = toolDescriptor,
-        hasStoredOpenAiKey = { hasStoredOpenAiKey },
+        skillConfigStore = skillConfigStore,
+        skillSecretStore = skillSecretStore,
     )
 }
 

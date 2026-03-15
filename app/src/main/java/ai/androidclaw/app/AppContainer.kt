@@ -2,6 +2,8 @@ package ai.androidclaw.app
 
 import android.app.Application
 import ai.androidclaw.data.AndroidProviderSecretStore
+import ai.androidclaw.data.AndroidSkillConfigStore
+import ai.androidclaw.data.AndroidSkillSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
@@ -41,6 +43,8 @@ class AppContainer(application: Application) {
     val database = AndroidClawDatabase.build(application)
     val settingsDataStore = SettingsDataStore(application)
     val providerSecretStore = AndroidProviderSecretStore(application)
+    val skillConfigStore = AndroidSkillConfigStore(application)
+    val skillSecretStore = AndroidSkillSecretStore(application)
     val sessionRepository = SessionRepository(database.sessionDao())
     val messageRepository = MessageRepository(database.messageDao())
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
@@ -94,10 +98,9 @@ class AppContainer(application: Application) {
         skillSourceScanner = skillSourceScanner,
         localSkillImporter = localSkillImporter,
         skillRepository = skillRepository,
+        skillConfigStore = skillConfigStore,
+        skillSecretStore = skillSecretStore,
         toolDescriptor = toolRegistry::findDescriptor,
-        hasStoredOpenAiKey = {
-            !providerSecretStore.readApiKey(ProviderType.OpenAiCompatible).isNullOrBlank()
-        },
     ).also { skillManagerRef = it }
 
     val providerRegistry = ProviderRegistry(

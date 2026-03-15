@@ -8,12 +8,20 @@ import ai.androidclaw.runtime.tools.ToolAvailability
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.runtime.tools.ToolPermissionRequirement
+import ai.androidclaw.testutil.InMemorySkillConfigStore
+import ai.androidclaw.testutil.InMemorySkillSecretStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.ArrayDeque
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -176,6 +184,118 @@ class SkillManagerTest {
         assertTrue(skills.single().eligibility.reasons.single().contains("Tool blocked: notifications.post"))
         assertTrue(skills.single().eligibility.reasons.single().contains("Post notifications"))
     }
+
+    @Test
+    fun `required env becomes eligible after skill secret is configured`() = runTest {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val secretStore = InMemorySkillSecretStore()
+        val manager = createTestSkillManager(
+            application = application,
+            skillRepository = skillRepository,
+            bundledSkillLoader = staticLoader(
+                skillSnapshot(
+                    id = "env-skill",
+                    name = "env_skill",
+                    metadata = openClawMetadata(requiredEnv = listOf("X_API_KEY")),
+                ),
+            ),
+            toolDescriptor = { name -> ToolDescriptor(name = name, description = name) },
+            skillSecretStore = secretStore,
+        )
+
+        val missing = manager.refreshBundledSkills(forceRefresh = true).single()
+        assertEquals(SkillEligibilityStatus.MissingTool, missing.eligibility.status)
+        assertEquals(false, missing.secretStatuses["X_API_KEY"])
+
+        manager.saveSkillConfiguration(
+            skillKey = missing.skillKey,
+            secretUpdates = mapOf("X_API_KEY" to "secret-value"),
+            configUpdates = emptyMap(),
+        )
+
+        val configured = manager.refreshBundledSkills(forceRefresh = true).single()
+        assertEquals(SkillEligibilityStatus.Eligible, configured.eligibility.status)
+        assertEquals(true, configured.secretStatuses["X_API_KEY"])
+
+        manager.saveSkillConfiguration(
+            skillKey = configured.skillKey,
+            secretUpdates = mapOf("X_API_KEY" to null),
+            configUpdates = emptyMap(),
+        )
+
+        val cleared = manager.refreshBundledSkills(forceRefresh = true).single()
+        assertEquals(SkillEligibilityStatus.MissingTool, cleared.eligibility.status)
+        assertEquals(false, cleared.secretStatuses["X_API_KEY"])
+    }
+
+    @Test
+    fun `required config path becomes eligible after value is stored`() = runTest {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val configStore = InMemorySkillConfigStore()
+        val manager = createTestSkillManager(
+            application = application,
+            skillRepository = skillRepository,
+            bundledSkillLoader = staticLoader(
+                skillSnapshot(
+                    id = "config-skill",
+                    name = "config_skill",
+                    metadata = openClawMetadata(requiredConfig = listOf("calendar.accountId")),
+                ),
+            ),
+            toolDescriptor = { name -> ToolDescriptor(name = name, description = name) },
+            skillConfigStore = configStore,
+        )
+
+        val missing = manager.refreshBundledSkills(forceRefresh = true).single()
+        assertEquals(SkillEligibilityStatus.MissingTool, missing.eligibility.status)
+        assertEquals(false, missing.configStatuses["calendar.accountId"])
+
+        manager.saveSkillConfiguration(
+            skillKey = missing.skillKey,
+            secretUpdates = emptyMap(),
+            configUpdates = mapOf("calendar.accountId" to "primary"),
+        )
+
+        val configured = manager.refreshBundledSkills(forceRefresh = true).single()
+        assertEquals(SkillEligibilityStatus.Eligible, configured.eligibility.status)
+        assertEquals(true, configured.configStatuses["calendar.accountId"])
+    }
+
+    @Test
+    fun `readSkillConfiguration exposes primary env and stored config state`() = runTest {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val configStore = InMemorySkillConfigStore(
+            initialValues = mapOf(("config_skill" to "calendar.accountId") to "primary"),
+        )
+        val secretStore = InMemorySkillSecretStore(
+            initialValues = mapOf(("config_skill" to "X_API_KEY") to "secret-value"),
+        )
+        val manager = createTestSkillManager(
+            application = application,
+            skillRepository = skillRepository,
+            bundledSkillLoader = staticLoader(
+                skillSnapshot(
+                    id = "config-skill",
+                    name = "config_skill",
+                    metadata = openClawMetadata(
+                        primaryEnv = "X_API_KEY",
+                        requiredConfig = listOf("calendar.accountId"),
+                    ),
+                ),
+            ),
+            toolDescriptor = { name -> ToolDescriptor(name = name, description = name) },
+            skillConfigStore = configStore,
+            skillSecretStore = secretStore,
+        )
+
+        val skill = manager.refreshBundledSkills(forceRefresh = true).single()
+        val configuration = manager.readSkillConfiguration(skill)
+
+        assertEquals("config_skill", configuration.skillKey)
+        assertEquals(listOf("X_API_KEY"), configuration.secretFields.map { it.envName })
+        assertTrue(configuration.secretFields.single().configured)
+        assertEquals("primary", configuration.configFields.single().value)
+    }
 }
 
 private class CountingBundledSkillLoader(
@@ -199,11 +319,22 @@ private class CountingBundledSkillLoader(
     }
 }
 
+private fun staticLoader(skill: SkillSnapshot): BundledSkillLoader {
+    val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+    return CountingBundledSkillLoader(
+        assetManager = application.assets,
+        batches = ArrayDeque<List<SkillSnapshot>>().apply {
+            repeat(6) { add(listOf(skill)) }
+        },
+    )
+}
+
 private fun skillSnapshot(
     id: String,
     name: String,
     commandDispatch: SkillCommandDispatch = SkillCommandDispatch.Model,
     commandTool: String? = null,
+    metadata: kotlinx.serialization.json.JsonObject? = null,
 ): SkillSnapshot {
     return SkillSnapshot(
         id = id,
@@ -220,10 +351,34 @@ private fun skillSnapshot(
             commandDispatch = commandDispatch,
             commandTool = commandTool,
             commandArgMode = "raw",
-            metadata = null,
+            metadata = metadata,
             unknownFields = emptyMap(),
         ),
         instructionsMd = "Do work",
         eligibility = SkillEligibility(status = SkillEligibilityStatus.Eligible),
     )
+}
+
+private fun openClawMetadata(
+    primaryEnv: String? = null,
+    requiredEnv: List<String> = emptyList(),
+    requiredConfig: List<String> = emptyList(),
+): kotlinx.serialization.json.JsonObject {
+    return buildJsonObject {
+        put("openclaw", buildJsonObject {
+            primaryEnv?.let { put("primaryEnv", it) }
+            put("requires", buildJsonObject {
+                if (requiredEnv.isNotEmpty()) {
+                    putJsonArray("env") {
+                        requiredEnv.forEach { add(JsonPrimitive(it)) }
+                    }
+                }
+                if (requiredConfig.isNotEmpty()) {
+                    putJsonArray("config") {
+                        requiredConfig.forEach { add(JsonPrimitive(it)) }
+                    }
+                }
+            })
+        })
+    }
 }

@@ -19,12 +19,14 @@ import ai.androidclaw.testutil.InMemorySkillSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.cash.turbine.ReceiveTurbine
-import app.cash.turbine.test
 import android.content.res.AssetManager
 import java.util.ArrayDeque
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -74,21 +76,19 @@ class SkillsViewModelTest {
             ),
         )
 
-        viewModel.state.test {
-            val loaded = awaitState { !it.loading && it.skills.size == 1 }
-            viewModel.openConfiguration(loaded.skills.single())
+        val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
 
-            val configured = awaitState { it.configurationDialog?.loading == false }
-            val dialog = configured.configurationDialog!!
+        viewModel.openConfiguration(loaded.skills.single())
+        val configured = waitForState(viewModel) { it.configurationDialog?.loading == false }
+        val dialog = configured.configurationDialog!!
 
-            assertEquals("config_skill", dialog.skillKey)
-            assertEquals(listOf("X_API_KEY"), dialog.secretFields.map { it.envName })
-            assertTrue(dialog.secretFields.single().configured)
-            assertEquals("", dialog.secretFields.single().draftValue)
-            assertEquals("calendar.accountId", dialog.configFields.single().path)
-            assertEquals("primary", dialog.configFields.single().storedValue)
-            assertEquals("primary", dialog.configFields.single().draftValue)
-        }
+        assertEquals("config_skill", dialog.skillKey)
+        assertEquals(listOf("X_API_KEY"), dialog.secretFields.map { it.envName })
+        assertTrue(dialog.secretFields.single().configured)
+        assertEquals("", dialog.secretFields.single().draftValue)
+        assertEquals("calendar.accountId", dialog.configFields.single().path)
+        assertEquals("primary", dialog.configFields.single().storedValue)
+        assertEquals("primary", dialog.configFields.single().draftValue)
     }
 
     @Test
@@ -101,38 +101,37 @@ class SkillsViewModelTest {
             ),
         )
 
-        viewModel.state.test {
-            val loaded = awaitState { !it.loading && it.skills.size == 1 }
-            assertEquals(SkillEligibilityStatus.MissingTool, loaded.skills.single().eligibility.status)
-            assertEquals(false, loaded.skills.single().secretStatuses["X_API_KEY"])
-            assertEquals(false, loaded.skills.single().configStatuses["calendar.accountId"])
+        val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
+        assertEquals(SkillEligibilityStatus.MissingTool, loaded.skills.single().eligibility.status)
+        assertEquals(false, loaded.skills.single().secretStatuses["X_API_KEY"])
+        assertEquals(false, loaded.skills.single().configStatuses["calendar.accountId"])
 
-            viewModel.openConfiguration(loaded.skills.single())
-            awaitState { it.configurationDialog?.loading == false }
+        viewModel.openConfiguration(loaded.skills.single())
+        waitForState(viewModel) { it.configurationDialog?.loading == false }
 
-            viewModel.updateSecretDraft("X_API_KEY", "secret-value")
-            viewModel.updateConfigDraft("calendar.accountId", "primary")
-            viewModel.saveConfiguration()
-
-            val saved = awaitState { state ->
-                val skill = state.skills.singleOrNull() ?: return@awaitState false
-                val dialog = state.configurationDialog ?: return@awaitState false
-                !dialog.saving &&
-                    skill.eligibility.status == SkillEligibilityStatus.Eligible &&
-                    skill.secretStatuses["X_API_KEY"] == true &&
-                    skill.configStatuses["calendar.accountId"] == true
-            }
-            val skill = saved.skills.single()
-            val dialog = saved.configurationDialog!!
-
-            assertEquals(SkillEligibilityStatus.Eligible, skill.eligibility.status)
-            assertTrue(dialog.secretFields.single().configured)
-            assertEquals("", dialog.secretFields.single().draftValue)
-            assertFalse(dialog.secretFields.single().clearRequested)
-            assertEquals("primary", dialog.configFields.single().storedValue)
-            assertEquals("primary", dialog.configFields.single().draftValue)
-            assertEquals("Saved configuration for config_skill.", saved.statusMessage)
+        viewModel.updateSecretDraft("X_API_KEY", "secret-value")
+        viewModel.updateConfigDraft("calendar.accountId", "primary")
+        viewModel.saveConfiguration()
+        val saved = waitForState(viewModel) { state ->
+            val skill = state.skills.singleOrNull() ?: return@waitForState false
+            val dialog = state.configurationDialog ?: return@waitForState false
+            !dialog.saving &&
+                skill.eligibility.status == SkillEligibilityStatus.Eligible &&
+                skill.secretStatuses["X_API_KEY"] == true &&
+                skill.configStatuses["calendar.accountId"] == true
         }
+        val skill = saved.skills.single()
+        val dialog = saved.configurationDialog!!
+
+        assertEquals(SkillEligibilityStatus.Eligible, skill.eligibility.status)
+        assertEquals(true, skill.secretStatuses["X_API_KEY"])
+        assertEquals(true, skill.configStatuses["calendar.accountId"])
+        assertTrue(dialog.secretFields.single().configured)
+        assertEquals("", dialog.secretFields.single().draftValue)
+        assertFalse(dialog.secretFields.single().clearRequested)
+        assertEquals("primary", dialog.configFields.single().storedValue)
+        assertEquals("primary", dialog.configFields.single().draftValue)
+        assertEquals("Saved configuration for config_skill.", saved.statusMessage)
     }
 
     @Test
@@ -149,34 +148,35 @@ class SkillsViewModelTest {
             ),
         )
 
-        viewModel.state.test {
-            val loaded = awaitState { !it.loading && it.skills.size == 1 }
-            assertEquals(SkillEligibilityStatus.Eligible, loaded.skills.single().eligibility.status)
+        val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
+        assertEquals(SkillEligibilityStatus.Eligible, loaded.skills.single().eligibility.status)
 
-            viewModel.openConfiguration(loaded.skills.single())
-            awaitState { it.configurationDialog?.loading == false }
+        viewModel.openConfiguration(loaded.skills.single())
+        waitForState(viewModel) { it.configurationDialog?.loading == false }
 
-            viewModel.requestSecretClear("X_API_KEY")
-            viewModel.requestConfigClear("calendar.accountId")
-            viewModel.saveConfiguration()
-
-            val cleared = awaitState { state ->
-                val skill = state.skills.singleOrNull() ?: return@awaitState false
-                val dialog = state.configurationDialog ?: return@awaitState false
-                !dialog.saving &&
-                    skill.eligibility.status == SkillEligibilityStatus.MissingTool &&
-                    skill.secretStatuses["X_API_KEY"] == false &&
-                    skill.configStatuses["calendar.accountId"] == false
-            }
-            val dialog = cleared.configurationDialog!!
-
-            assertFalse(dialog.secretFields.single().configured)
-            assertEquals("", dialog.secretFields.single().draftValue)
-            assertFalse(dialog.secretFields.single().clearRequested)
-            assertEquals(null, dialog.configFields.single().storedValue)
-            assertEquals("", dialog.configFields.single().draftValue)
-            assertFalse(dialog.configFields.single().clearRequested)
+        viewModel.requestSecretClear("X_API_KEY")
+        viewModel.requestConfigClear("calendar.accountId")
+        viewModel.saveConfiguration()
+        val cleared = waitForState(viewModel) { state ->
+            val skill = state.skills.singleOrNull() ?: return@waitForState false
+            val dialog = state.configurationDialog ?: return@waitForState false
+            !dialog.saving &&
+                skill.eligibility.status == SkillEligibilityStatus.MissingTool &&
+                skill.secretStatuses["X_API_KEY"] == false &&
+                skill.configStatuses["calendar.accountId"] == false
         }
+        val skill = cleared.skills.single()
+        val dialog = cleared.configurationDialog!!
+
+        assertEquals(SkillEligibilityStatus.MissingTool, skill.eligibility.status)
+        assertEquals(false, skill.secretStatuses["X_API_KEY"])
+        assertEquals(false, skill.configStatuses["calendar.accountId"])
+        assertFalse(dialog.secretFields.single().configured)
+        assertEquals("", dialog.secretFields.single().draftValue)
+        assertFalse(dialog.secretFields.single().clearRequested)
+        assertEquals(null, dialog.configFields.single().storedValue)
+        assertEquals("", dialog.configFields.single().draftValue)
+        assertFalse(dialog.configFields.single().clearRequested)
     }
 
     private fun createSkillManager(
@@ -195,22 +195,32 @@ class SkillsViewModelTest {
     }
 }
 
-private suspend fun ReceiveTurbine<SkillsUiState>.awaitState(
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun TestScope.waitForState(
+    viewModel: SkillsViewModel,
     predicate: (SkillsUiState) -> Boolean,
 ): SkillsUiState {
-    while (true) {
-        val item = awaitItem()
-        if (predicate(item)) {
-            return item
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+    var lastState = viewModel.state.value
+    while (System.nanoTime() < deadline) {
+        advanceUntilIdle()
+        val state = viewModel.state.value
+        lastState = state
+        if (predicate(state)) {
+            return state
         }
+        Thread.sleep(10)
     }
+    error("Timed out waiting for state. Last state=$lastState")
 }
 
 private fun staticLoader(skill: SkillSnapshot): BundledSkillLoader {
     val application = ApplicationProvider.getApplicationContext<android.app.Application>()
     return CountingBundledSkillLoader(
         assetManager = application.assets,
-        batches = ArrayDeque<List<SkillSnapshot>>().apply { add(listOf(skill)) },
+        batches = ArrayDeque<List<SkillSnapshot>>().apply {
+            repeat(6) { add(listOf(skill)) }
+        },
     )
 }
 
@@ -270,12 +280,12 @@ private fun openClawMetadata(
             put("requires", buildJsonObject {
                 if (requiredEnv.isNotEmpty()) {
                     putJsonArray("env") {
-                        requiredEnv.forEach(::add)
+                        requiredEnv.forEach { add(JsonPrimitive(it)) }
                     }
                 }
                 if (requiredConfig.isNotEmpty()) {
                     putJsonArray("config") {
-                        requiredConfig.forEach(::add)
+                        requiredConfig.forEach { add(JsonPrimitive(it)) }
                     }
                 }
             })

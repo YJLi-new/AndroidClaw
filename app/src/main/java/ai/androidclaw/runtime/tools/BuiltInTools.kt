@@ -145,6 +145,26 @@ internal fun createBuiltInToolRegistry(
                                             put("eligibilityReasons", buildJsonArray {
                                                 skill.eligibility.reasons.forEach { add(JsonPrimitive(it)) }
                                             })
+                                            put("secretStatuses", buildJsonArray {
+                                                skill.secretStatuses.forEach { (envName, configured) ->
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("envName", envName)
+                                                            put("configured", configured)
+                                                        },
+                                                    )
+                                                }
+                                            })
+                                            put("configStatuses", buildJsonArray {
+                                                skill.configStatuses.forEach { (path, configured) ->
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("path", path)
+                                                            put("configured", configured)
+                                                        },
+                                                    )
+                                                }
+                                            })
                                         },
                                     )
                                 }
