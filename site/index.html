@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AndroidClaw | Android-native local AI assistant host</title>
+    <meta
+      name="description"
+      content="AndroidClaw is an Android-native local AI assistant host with durable chat sessions, typed tools, SKILL.md-based skills, and scheduled automations."
+    />
+    <meta name="robots" content="index,follow,max-image-preview:large" />
+    <meta name="googlebot" content="index,follow,max-image-preview:large" />
+    <link rel="canonical" href="https://yjli-new.github.io/AndroidClaw/" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="AndroidClaw" />
+    <meta
+      property="og:description"
+      content="Android-native local AI assistant host with chat sessions, tools, skills, and scheduled automations."
+    />
+    <meta property="og:url" content="https://yjli-new.github.io/AndroidClaw/" />
+    <meta
+      property="og:image"
+      content="https://yjli-new.github.io/AndroidClaw/assets/screenshots/chat.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AndroidClaw" />
+    <meta
+      name="twitter:description"
+      content="A lightweight Android-native assistant host with streaming chat, tools, skills, and scheduled automations."
+    />
+    <meta
+      name="twitter:image"
+      content="https://yjli-new.github.io/AndroidClaw/assets/screenshots/chat.png"
+    />
+    <link rel="stylesheet" href="assets/site.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareSourceCode",
+        "name": "AndroidClaw",
+        "codeRepository": "https://github.com/YJLi-new/AndroidClaw",
+        "url": "https://yjli-new.github.io/AndroidClaw/",
+        "programmingLanguage": "Kotlin",
+        "runtimePlatform": "Android",
+        "description": "Android-native local AI assistant host with durable chat sessions, typed tools, SKILL.md-based skills, and scheduled automations."
+      }
+    </script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <p class="eyebrow">Android-native local AI assistant host</p>
+        <h1>AndroidClaw</h1>
+        <p class="lede">
+          A lightweight single-APK assistant runtime for Android that keeps chat,
+          tools, skills, and scheduled automations on-device.
+        </p>
+        <div class="link-row">
+          <a class="primary-link" href="https://github.com/YJLi-new/AndroidClaw">GitHub Repository</a>
+          <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/PLANv6.md">Execution Plan</a>
+          <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/docs/ARCHITECTURE.md">Architecture</a>
+          <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/docs/TESTING.md">Testing</a>
+        </div>
+      </header>
+
+      <main>
+        <section class="paper-card abstract-card">
+          <div>
+            <p class="section-label">Abstract</p>
+            <p>
+              AndroidClaw is a Kotlin-first reinterpretation of the OpenClaw /
+              NanoClaw runtime model for phones. Instead of transplanting a
+              desktop Node.js host, it keeps the core contracts that matter on
+              Android: durable chat sessions, typed tools, <code>SKILL.md</code>
+              skills, and automation through WorkManager plus exact-alarm-aware
+              scheduling.
+            </p>
+          </div>
+          <dl class="facts">
+            <div>
+              <dt>Runtime</dt>
+              <dd>Kotlin, Compose, Room, WorkManager</dd>
+            </div>
+            <div>
+              <dt>Provider path</dt>
+              <dd>FakeProvider + OpenAI-compatible streaming</dd>
+            </div>
+            <div>
+              <dt>Automation</dt>
+              <dd><code>once</code>, <code>interval</code>, <code>cron</code></dd>
+            </div>
+            <div>
+              <dt>Packaging</dt>
+              <dd>debug, qa, release, bundleRelease</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="grid-section">
+          <article class="paper-card">
+            <p class="section-label">Highlights</p>
+            <ul class="compact-list">
+              <li>Visible streamed assistant output with cancel and retry.</li>
+              <li>Budgeted context assembly instead of a fixed last-N slice.</li>
+              <li>Typed tools and a persisted tool-call runtime loop.</li>
+              <li>Bundled, local, and workspace skills with slash dispatch.</li>
+              <li>Scheduler diagnostics, exact-alarm degradation, and task history.</li>
+            </ul>
+          </article>
+
+          <article class="paper-card">
+            <p class="section-label">Validation</p>
+            <ul class="compact-list">
+              <li>Fast loop: <code>:app:assembleDebug</code>, unit tests, lint.</li>
+              <li>Release-like lane: <code>:app:assembleQa</code>, <code>:app:assembleRelease</code>.</li>
+              <li>Windows AVD smoke path from WSL.</li>
+              <li>Exact-alarm regression lane on API 34 / API 31 emulators.</li>
+            </ul>
+          </article>
+        </section>
+
+        <section class="screenshots">
+          <div class="section-header">
+            <p class="section-label">Application Screens</p>
+            <p>
+              Real emulator captures from the current AndroidClaw build. The page
+              stays concise on purpose: enough to show the runtime shape without
+              turning into a marketing microsite.
+            </p>
+          </div>
+
+          <div class="shot-grid">
+            <figure class="shot-card">
+              <div class="device-frame">
+                <img
+                  src="assets/screenshots/chat.png"
+                  alt="AndroidClaw chat screen with a real assistant response on emulator"
+                  loading="eager"
+                />
+              </div>
+              <figcaption>
+                <strong>Chat</strong>
+                <span>Durable sessions, slash skills, and streamed provider turns.</span>
+              </figcaption>
+            </figure>
+
+            <figure class="shot-card">
+              <div class="device-frame">
+                <img
+                  src="assets/screenshots/tasks.png"
+                  alt="AndroidClaw tasks screen showing scheduler diagnostics and task creation"
+                  loading="lazy"
+                />
+              </div>
+              <figcaption>
+                <strong>Tasks</strong>
+                <span>Automation creation, schedule previews, and diagnostics.</span>
+              </figcaption>
+            </figure>
+
+            <figure class="shot-card">
+              <div class="device-frame">
+                <img
+                  src="assets/screenshots/skills.png"
+                  alt="AndroidClaw skills screen showing bundled skill inventory and import controls"
+                  loading="lazy"
+                />
+              </div>
+              <figcaption>
+                <strong>Skills</strong>
+                <span>Bundled and imported <code>SKILL.md</code> workflows with eligibility state.</span>
+              </figcaption>
+            </figure>
+
+            <figure class="shot-card">
+              <div class="device-frame">
+                <img
+                  src="assets/screenshots/health.png"
+                  alt="AndroidClaw health screen showing provider, scheduler, and tool diagnostics"
+                  loading="lazy"
+                />
+              </div>
+              <figcaption>
+                <strong>Health</strong>
+                <span>Provider, scheduler, and tool visibility for device-side debugging.</span>
+              </figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="paper-card footer-card">
+          <p class="section-label">Project Links</p>
+          <div class="link-grid">
+            <a href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
+            <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.md">README</a>
+            <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/docs/PERFORMANCE.md">Performance Notes</a>
+            <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/docs/SCHEDULER.md">Scheduler Notes</a>
+            <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/docs/SKILLS_COMPAT.md">Skills Compatibility</a>
+            <a href="https://github.com/YJLi-new/AndroidClaw/actions">GitHub Actions</a>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -62,6 +62,7 @@ Still intentionally pending in the current plan:
 
 ## Key docs
 
+- [Project page](https://yjli-new.github.io/AndroidClaw/)
 - [Execution plan](PLANv6.md)
 - [Beta handoff](docs/BETA_HANDOFF.md)
 - [Architecture](docs/ARCHITECTURE.md)

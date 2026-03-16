@@ -1374,6 +1374,20 @@ Implementation:
   - direct APK side-load
   - Play internal testing
   - internal app sharing
+- add a public GitHub Pages project page for AndroidClaw
+- keep the page concise and research-project-like rather than product-marketing-heavy
+- include:
+  - a short project summary
+  - a link to the GitHub repository
+  - real app screenshots from the Android emulator/device lane
+  - links to the key docs or build artifacts that matter to visitors
+- include basic indexability hygiene on the static site:
+  - page title and description
+  - canonical URL
+  - Open Graph / Twitter card metadata
+  - `robots.txt`
+  - `sitemap.xml`
+- deploy the page through GitHub Pages from the repository rather than relying on a manual external host
 - update `docs/BETA_HANDOFF.md` and `docs/RELEASE_CHECKLIST.md`
 
 #### Acceptance criteria
@@ -1382,6 +1396,8 @@ Implementation:
 - network posture is explicit rather than accidental
 - release docs accurately describe the intended distribution route
 - performance docs reflect the post-v6 state
+- the repository has a public GitHub Pages landing page with repository link and real screenshots
+- the GitHub repository `homepageUrl` points at the published GitHub Pages URL
 
 #### Validation
 
@@ -1767,6 +1783,7 @@ Use this section as the running execution ledger after `PLANv6.md` is adopted.
 - 2026-03-16: `WS2` landed OpenAI-compatible SSE streaming, streamed tool-call aggregation, safe batch fallback, and streaming cancellation coverage.
 - 2026-03-16: `WS3` landed chat streaming UX, live turn state, cancel/retry handling, and the related `ChatViewModel` / UI tests.
 - 2026-03-16: `WS4` landed a budgeted context selector via `ContextWindowManager`, integrated it into `PromptAssembler`, and closed the fast-loop validation failures.
+- 2026-03-16: `WS10D` gained a public GitHub Pages landing page with real emulator screenshots, repo/docs links, and a dedicated Pages deployment workflow.
 
 ### Next expected check-ins
 
@@ -1789,6 +1806,7 @@ Record new facts here when they materially change implementation.
 - `AgentRunner` now assembles provider history through `PromptAssembler` + `ContextWindowManager` instead of a fixed recent-message slice.
 - `OpenAiCompatibleProvider` now supports additive SSE streaming with safe fallback to batch generation when streaming is unsupported.
 - WSL fast-loop validation works on this host when `JAVA_HOME` points at JDK 17+, so the local build lane is no longer blocked by the earlier harness issue.
+- The Windows AVD lane is now sufficient to generate real GitHub Pages screenshots without introducing a separate screenshot harness.
 
 ---
 
