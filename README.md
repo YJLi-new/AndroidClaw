@@ -10,7 +10,7 @@ Inspired by NanoClaw and OpenClaw, built from the ground up for Android.
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
 [![License](https://img.shields.io/badge/License-TBD-lightgrey)](#license)
 
-[📖 Project Page](https://yjli-new.github.io/AndroidClaw/) · [⚙️ CI / Actions](https://github.com/YJLi-new/AndroidClaw/actions)
+[📖 Project Page](https://yjli-new.github.io/AndroidClaw/) · [⬇️ Latest Release](https://github.com/YJLi-new/AndroidClaw/releases/latest) · [⚙️ CI / Actions](https://github.com/YJLi-new/AndroidClaw/actions)
 
 </div>
 
@@ -29,13 +29,32 @@ AndroidClaw is a **single-APK** AI assistant host that runs entirely on your And
 | 📜 **SKILL.md Skills** | Import, enable/disable, precedence, and `/slash` invocation |
 | ⏰ **Scheduled Automations** | `once` · `interval` · `cron`, with `MAIN_SESSION` and `ISOLATED_SESSION` modes |
 
+## 📌 Current Status
+
+AndroidClaw already ships a usable local-first runtime:
+
+- durable chat sessions and persisted message history
+- streaming assistant output with cancel / retry
+- typed tool calling with persisted tool-call and tool-result turns
+- bundled, local, and workspace skills with precedence and enable / disable
+- scheduled automations with `once`, `interval`, `cron`, exact-alarm degradation, and task-run history
+- a public GitHub Pages project site and installable release artifacts
+
 ## ✨ Features
 
 **Chat & Provider**
 - Durable chat sessions with a deterministic `FakeProvider` for local testing
-- OpenAI-compatible real-provider path with SSE streaming (safe batch fallback)
+- Real-provider support for:
+  - `OpenAI-compatible`
+  - `MiniMax`
+  - `GLM`
+  - `Kimi`
+  - `Claude` via a native Anthropic Messages provider
+  - `Gemini` via its OpenAI-compatible endpoint
+- SSE streaming with safe batch fallback on compatible providers
 - Visible streamed assistant output, cancel, retry, and clearer failure states
 - Budgeted context assembly via `ContextWindowManager` — no more naive fixed-count slicing
+- Per-provider saved base URL, model ID, timeout, and encrypted API key storage in Settings
 
 **Skills & Tools**
 - Bundled, local, and workspace `SKILL.md` skill loading
@@ -110,12 +129,14 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
 - **Streaming is additive.** Providers that don't support streaming still work through the non-streaming path — no breaking changes.
 - **Ephemeral partial text.** Streamed assistant tokens stay ephemeral until the final message is committed to Room.
 - **Budgeted context selection.** The latest important turns and tool-call closures stay within a bounded prompt budget, replacing naive recent-message slicing.
+- **Hybrid provider strategy.** Claude uses a native Anthropic transport; MiniMax / GLM / Kimi / Gemini reuse the OpenAI-compatible runtime path to keep the app small.
 
 ## 🗺️ Roadmap
 
 | Status | Item |
 |:------:|:-----|
-| 🔲 | Native Anthropic provider support |
+| ✅ | Native Anthropic provider support |
+| ✅ | Named provider presets for MiniMax / GLM / Kimi / Gemini |
 | 🔲 | Session-summary generation (seam already in place) |
 | 🔲 | Chat export / share / search |
 | 🔲 | Room `kapt → ksp` migration |
