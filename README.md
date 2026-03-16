@@ -1,137 +1,142 @@
-# AndroidClaw
+<div align="center">
 
-AndroidClaw is an Android-native local AI assistant host inspired by NanoClaw and OpenClaw.
+# 🤖 AndroidClaw
 
-It is built as a single APK and focuses on four core contracts:
+**Android-native local AI assistant host — your pocket-sized AI command center.**
 
-- chat sessions with durable history
-- typed tools with clear capability reporting
-- `SKILL.md`-based skills with import, enable/disable, precedence, and slash invocation
-- scheduled automations with `once`, `interval`, and `cron`, including `MAIN_SESSION` and `ISOLATED_SESSION` execution modes
+Inspired by NanoClaw and OpenClaw, built from the ground up for Android.
 
-This repository is a Kotlin-first Android app built with:
+[![Kotlin](https://img.shields.io/badge/Kotlin-First-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
+[![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
+[![License](https://img.shields.io/badge/License-TBD-lightgrey)](#license)
 
-- Jetpack Compose
-- Room
-- WorkManager
-- kotlinx serialization
-- OkHttp
+[📖 Project Page](https://yjli-new.github.io/AndroidClaw/) · [⚙️ CI / Actions](https://github.com/YJLi-new/AndroidClaw/actions)
 
-## What it does today
+</div>
 
-AndroidClaw already supports:
+---
 
-- durable chat sessions with a deterministic `FakeProvider`
-- an OpenAI-compatible real-provider path
-- visible streamed assistant output on the chat screen
-- cancel and retry for interactive provider turns
-- typed tools and a persisted tool-call runtime loop
-- bundled, local, and workspace `SKILL.md` skills
-- skill import, enable/disable, precedence, and slash invocation
-- scheduled automations with `once`, `interval`, and `cron`
-- task run history, exact-alarm degradation, and scheduler diagnostics
+## 💡 What is AndroidClaw?
 
-Recent work added:
+AndroidClaw is a **single-APK** AI assistant host that runs entirely on your Android device. It turns your phone into a capable AI workstation with durable chat history, extensible tool use, skill-based customization, and scheduled automations — no cloud dependency required.
 
-- additive streaming provider/runtime contracts
-- OpenAI-compatible SSE streaming with safe batch fallback
-- chat turn UX for live progress, cancel, retry, and clearer failure state
-- budgeted context assembly via `ContextWindowManager` instead of a fixed recent-message slice
+### 🎯 Four Core Contracts
 
-## Current status
+| Contract | Description |
+|:---------|:------------|
+| 💬 **Chat Sessions** | Durable history, streaming output, cancel & retry |
+| 🔧 **Typed Tools** | Clear capability reporting, persisted tool-call runtime loop |
+| 📜 **SKILL.md Skills** | Import, enable/disable, precedence, and `/slash` invocation |
+| ⏰ **Scheduled Automations** | `once` · `interval` · `cron`, with `MAIN_SESSION` and `ISOLATED_SESSION` modes |
 
-AndroidClaw already includes:
+## ✨ Features
 
-- local chat with a deterministic `FakeProvider`
-- an OpenAI-compatible provider path with SSE streaming support
-- a tool-call runtime loop
-- live chat streaming, cancel, and retry handling
-- budgeted prompt/context selection for longer sessions
-- bundled, local, and workspace skill loading
-- task scheduling, run history, exact-alarm degradation, and scheduler diagnostics
-- an installable `qa` APK lane plus release AAB packaging
+**Chat & Provider**
+- Durable chat sessions with a deterministic `FakeProvider` for local testing
+- OpenAI-compatible real-provider path with SSE streaming (safe batch fallback)
+- Visible streamed assistant output, cancel, retry, and clearer failure states
+- Budgeted context assembly via `ContextWindowManager` — no more naive fixed-count slicing
+
+**Skills & Tools**
+- Bundled, local, and workspace `SKILL.md` skill loading
+- Skill import, enable/disable, precedence ordering, and slash invocation
+- Typed tools with a persisted tool-call runtime loop
+
+**Automation & Scheduling**
+- `once` / `interval` / `cron` task scheduling
+- Task run history, exact-alarm degradation, and scheduler diagnostics
+- Scheduled turns use a durable non-streaming execution path
+
+**Build & CI**
+- Installable `qa` APK lane + release AAB packaging
+- GitHub Actions CI: `fast` (assemble + test + lint) and `packaging` (APK + AAB)
 - Windows-emulator and Android instrumentation validation paths
 
-Still intentionally pending:
+## 🏗️ Tech Stack
 
-- native Anthropic provider support
-- session-summary generation beyond the current summary insertion seam
-- chat export/share and search
-- Room `kapt -> ksp` migration
-- Baseline Profiles
+- **Language:** Kotlin
+- **UI:** Jetpack Compose
+- **Persistence:** Room
+- **Background:** WorkManager
+- **Serialization:** kotlinx-serialization
+- **Networking:** OkHttp
 
-## Public links
+## 🚀 Getting Started
 
-- [Project page](https://yjli-new.github.io/AndroidClaw/)
-- [GitHub Actions](https://github.com/YJLi-new/AndroidClaw/actions)
+### Prerequisites
 
-## Build
+- JDK 17+
+- Android SDK (API 31+)
 
-From the repository root:
+### Build
 
 ```bash
 export JAVA_HOME=/path/to/jdk17
+
+# Debug build
 ./gradlew :app:assembleDebug
+
+# Unit tests & lint
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:lintDebug
 ```
 
-Build release-like artifacts:
+### Release Artifacts
 
 ```bash
 ./gradlew :app:assembleRelease
 ./gradlew :app:bundleRelease
-```
 
-## Device validation
-
-Windows AVD from WSL:
-
-```bash
-ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --avd AndroidClawApi34 --test-class ai.androidclaw.app.MainActivitySmokeTest
-ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_windows_android_test.sh --variant qa --launch-smoke --avd AndroidClawApi34 --launch-component ai.androidclaw.app/.MainActivity
-ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 ./scripts/run_exact_alarm_regression.sh --api34-avd AndroidClawApi34 --api31-avd AndroidClawApi31
-```
-
-Fast release-like packaging lane:
-
-```bash
+# Or all packaging lanes at once
 ./gradlew :app:assembleQa :app:assembleRelease :app:bundleRelease
 ```
 
-## CI
+### 📱 Device Validation (Windows AVD from WSL)
 
-GitHub Actions now separates:
+```bash
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
+  ./scripts/run_windows_android_test.sh \
+  --avd AndroidClawApi34 \
+  --test-class ai.androidclaw.app.MainActivitySmokeTest
 
-- `fast`: debug assemble, unit tests, and lint
-- `packaging`: `assembleDebugAndroidTest`, `assembleQa`, `assembleRelease`, and `bundleRelease`
+ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
+  ./scripts/run_exact_alarm_regression.sh \
+  --api34-avd AndroidClawApi34 \
+  --api31-avd AndroidClawApi31
+```
 
-The workflow uploads fast-loop reports plus packaging outputs so the `qa` APK and release bundle can be downloaded from the Actions UI.
+## 📐 Architecture Notes
 
-## Runtime notes
+- **Streaming is additive.** Providers that don't support streaming still work through the non-streaming path — no breaking changes.
+- **Ephemeral partial text.** Streamed assistant tokens stay ephemeral until the final message is committed to Room.
+- **Budgeted context selection.** The latest important turns and tool-call closures stay within a bounded prompt budget, replacing naive recent-message slicing.
 
-- Streaming is additive. Providers that do not support streaming still work through the non-streaming path.
-- Partial streamed assistant text stays ephemeral until the final assistant message is persisted.
-- Context selection is budgeted rather than fixed-count only, which keeps the latest important turns and tool-call closure under a bounded prompt budget.
-- Scheduled turns still use the durable non-streaming execution path.
+## 🗺️ Roadmap
 
-## Product boundaries
+| Status | Item |
+|:------:|:-----|
+| 🔲 | Native Anthropic provider support |
+| 🔲 | Session-summary generation (seam already in place) |
+| 🔲 | Chat export / share / search |
+| 🔲 | Room `kapt → ksp` migration |
+| 🔲 | Baseline Profiles for startup optimization |
 
-AndroidClaw v0 does not include:
+## 🚧 Non-Goals (v0)
 
-- browser automation
-- external chat-channel integrations
-- remote bridge mode as a required baseline
-- shell execution
-- cloud sync
+AndroidClaw v0 intentionally does **not** include: browser automation, external chat-channel integrations, remote bridge mode, shell execution, or cloud sync.
 
-## Why the repo may not show up in Google immediately
+## 🤝 Contributing
 
-Google indexing for a public GitHub repository is not immediate. The best repo-side signals are now:
+Contributions, issues, and feature requests are welcome! Feel free to open an issue or submit a pull request.
 
-- a root `README.md`
-- a clear repository description
-- GitHub topics
-- stable public links to the repo
+## 📄 License
 
-Those changes help discovery, but Google re-crawl timing is still external.
+TBD — License information will be added soon.
+
+---
+
+<div align="center">
+
+Made with ❤️ for the Android AI community
+
+</div>
