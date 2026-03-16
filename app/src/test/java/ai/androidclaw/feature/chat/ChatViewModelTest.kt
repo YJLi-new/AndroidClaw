@@ -17,17 +17,21 @@ import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelResponse
+import ai.androidclaw.runtime.providers.ModelStreamEvent
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolRegistry
-import ai.androidclaw.testutil.buildTestProviderRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
+import ai.androidclaw.testutil.buildTestProviderRegistry
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -76,21 +80,146 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun `sending a message persists both user and assistant messages`() = runTest {
+    fun `sending a message exposes streaming text before the assistant message is persisted`() = runTest {
+        viewModel = buildViewModel(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
+
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        return ModelResponse(text = "Reply: hello")
+                    }
+
+                    override fun streamGenerate(request: ModelRequest) = flow {
+                        emit(ModelStreamEvent.TextDelta("Reply: "))
+                        delay(1)
+                        emit(ModelStreamEvent.Completed(ModelResponse(text = "Reply: hello")))
+                    }
+                },
+            ),
+        )
+
         viewModel.state.test {
             val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
 
             viewModel.onDraftChanged("hello")
             viewModel.sendCurrentDraft()
 
+            awaitState { state ->
+                state.isRunning &&
+                    state.streamingAssistantText == "Reply: " &&
+                    state.activeTurnStage == "Generating response"
+            }
+
             val completed = awaitState { state ->
-                !state.isRunning && state.messages.any { it.role == "assistant" && it.text.contains("Reply: hello") }
+                !state.isRunning &&
+                    state.streamingAssistantText.isEmpty() &&
+                    state.messages.any { it.role == "assistant" && it.text.contains("Reply: hello") }
             }
 
             val stored = messageRepository.observeMessages(ready.currentSessionId).first()
             assertEquals(ready.currentSessionId, completed.currentSessionId)
             assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello" })
             assertTrue(stored.any { it.role == MessageRole.Assistant && it.content.contains("Reply: hello") })
+        }
+    }
+
+    @Test
+    fun `provider failures expose retry and retry does not duplicate the user message`() = runTest {
+        var calls = 0
+        viewModel = buildViewModel(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
+
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        calls += 1
+                        if (calls == 1) {
+                            throw ModelProviderException(
+                                kind = ModelProviderFailureKind.Network,
+                                userMessage = "Provider unavailable",
+                            )
+                        }
+                        return ModelResponse(text = "Recovered reply")
+                    }
+                },
+            ),
+        )
+
+        viewModel.state.test {
+            val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+            viewModel.onDraftChanged("hello")
+            viewModel.sendCurrentDraft()
+
+            awaitState { state ->
+                !state.isRunning &&
+                    state.errorMessage == "Provider unavailable" &&
+                    state.canRetryLastFailedTurn &&
+                    state.messages.any { it.role == "system" && it.text.contains("Turn failed") }
+            }
+
+            viewModel.retryLastFailedTurn()
+
+            val retried = awaitState { state ->
+                !state.isRunning &&
+                    !state.canRetryLastFailedTurn &&
+                    state.messages.any { it.role == "assistant" && it.text.contains("Recovered reply") }
+            }
+
+            val stored = messageRepository.observeMessages(ready.currentSessionId).first()
+            val userMessages = stored.filter { it.role == MessageRole.User && it.content == "hello" }
+            val events = eventLogRepository.observeRecent(limit = 20).first { it.isNotEmpty() }
+
+            assertEquals(1, userMessages.size)
+            assertTrue(retried.messages.any { it.role == "assistant" && it.text.contains("Recovered reply") })
+            assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Provider unavailable" })
+            assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Retrying failed turn." })
+        }
+    }
+
+    @Test
+    fun `cancelActiveTurn clears transient state without persisting a partial assistant message`() = runTest {
+        viewModel = buildViewModel(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
+
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        return ModelResponse(text = "unused")
+                    }
+
+                    override fun streamGenerate(request: ModelRequest) = flow {
+                        emit(ModelStreamEvent.TextDelta("partial"))
+                        awaitCancellation()
+                    }
+                },
+            ),
+        )
+
+        viewModel.state.test {
+            val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+            viewModel.onDraftChanged("hello")
+            viewModel.sendCurrentDraft()
+
+            awaitState { state ->
+                state.isRunning &&
+                    state.streamingAssistantText == "partial"
+            }
+
+            viewModel.cancelActiveTurn()
+
+            val cancelled = awaitState { state ->
+                !state.isRunning &&
+                    state.noticeMessage == "Turn cancelled." &&
+                    state.streamingAssistantText.isEmpty()
+            }
+
+            val stored = messageRepository.observeMessages(ready.currentSessionId).first()
+            assertTrue(cancelled.noticeMessage == "Turn cancelled.")
+            assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello" })
+            assertTrue(stored.none { it.role == MessageRole.Assistant && it.content.contains("partial") })
         }
     }
 
@@ -128,44 +257,6 @@ class ChatViewModelTest {
 
             assertEquals("Project Y", created.sessionTitle)
             assertTrue(created.currentSessionId.isNotBlank())
-        }
-    }
-
-    @Test
-    fun `provider failures do not leave chat stuck and persist a system error message`() = runTest {
-        viewModel = buildViewModel(
-            providerRegistry = buildTestProviderRegistry(
-                fakeProvider = object : ModelProvider {
-                    override val id: String = "fake"
-
-                    override suspend fun generate(request: ModelRequest): ModelResponse {
-                        throw ModelProviderException(
-                            kind = ModelProviderFailureKind.Network,
-                            userMessage = "Provider unavailable",
-                        )
-                    }
-                },
-            ),
-        )
-
-        viewModel.state.test {
-            val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
-
-            viewModel.onDraftChanged("hello")
-            viewModel.sendCurrentDraft()
-
-            val failed = awaitState { state ->
-                !state.isRunning &&
-                    state.errorMessage == "Provider unavailable" &&
-                    state.messages.any { it.role == "system" && it.text.contains("Turn failed") }
-            }
-
-            val stored = messageRepository.observeMessages(ready.currentSessionId).first()
-            val events = eventLogRepository.observeRecent(limit = 10).first { it.isNotEmpty() }
-            assertEquals("Provider unavailable", failed.errorMessage)
-            assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello" })
-            assertTrue(stored.any { it.role == MessageRole.System && it.content.contains("Provider unavailable") })
-            assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Provider unavailable" })
         }
     }
 

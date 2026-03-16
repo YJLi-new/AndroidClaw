@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -64,25 +65,44 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 modifier = Modifier.weight(1f),
                 label = { Text("Session title") },
                 singleLine = true,
+                enabled = !state.isRunning,
             )
             Button(
                 onClick = { viewModel.renameCurrentSession(renameDraft) },
-                enabled = state.currentSessionId.isNotBlank(),
+                enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
             ) {
                 Text("Rename")
             }
             Button(
                 onClick = viewModel::archiveCurrentSession,
-                enabled = state.canArchiveCurrentSession,
+                enabled = state.canArchiveCurrentSession && !state.isRunning,
             ) {
                 Text("Archive")
             }
         }
-        state.errorMessage?.let { errorMessage ->
+        state.noticeMessage?.let { noticeMessage ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Error",
+                        text = "Status",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = noticeMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+        state.errorMessage?.let { errorMessage ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Turn failed",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -90,6 +110,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         text = errorMessage,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    if (state.canRetryLastFailedTurn) {
+                        Button(onClick = viewModel::retryLastFailedTurn) {
+                            Text("Retry")
+                        }
+                    }
                 }
             }
         }
@@ -99,12 +124,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     selected = session.isSelected,
                     onClick = { viewModel.switchSession(session.id) },
                     label = { Text(session.title) },
+                    enabled = !state.isRunning,
                 )
             }
             item {
                 AssistChip(
                     onClick = { viewModel.createNewSession("Session ${state.sessions.size + 1}") },
                     label = { Text("New session") },
+                    enabled = !state.isRunning,
                 )
             }
         }
@@ -114,6 +141,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     AssistChip(
                         onClick = { viewModel.onDraftChanged("$command ") },
                         label = { Text(command) },
+                        enabled = !state.isRunning,
                     )
                 }
             }
@@ -123,9 +151,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(state.messages, key = { it.id }) { message ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
+                Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             text = message.role.uppercase(),
@@ -139,13 +165,56 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     }
                 }
             }
+            if (state.streamingAssistantText.isNotBlank() || (state.isRunning && state.activeTurnStage != null)) {
+                item(key = "streaming-assistant") {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "ASSISTANT",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            state.activeTurnStage?.let { stage ->
+                                Text(
+                                    text = stage,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                )
+                            }
+                            Text(
+                                text = state.streamingAssistantText.ifBlank { "Working..." },
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
+                }
+            }
         }
         if (state.isRunning) {
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator()
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Text(
+                        text = state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        onClick = viewModel::cancelActiveTurn,
+                        enabled = !state.isCancelling,
+                    ) {
+                        Text(if (state.isCancelling) "Cancelling" else "Cancel")
+                    }
+                }
             }
         }
         OutlinedTextField(
@@ -154,13 +223,24 @@ fun ChatScreen(viewModel: ChatViewModel) {
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Message or slash command") },
             minLines = 2,
+            enabled = !state.isRunning,
         )
-        Button(
-            onClick = viewModel::sendCurrentDraft,
-            modifier = Modifier.align(Alignment.End),
-            enabled = !state.isRunning && state.draft.isNotBlank(),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Send")
+            if (state.canRetryLastFailedTurn && !state.isRunning) {
+                Button(onClick = viewModel::retryLastFailedTurn) {
+                    Text("Retry")
+                }
+            }
+            Button(
+                onClick = viewModel::sendCurrentDraft,
+                enabled = !state.isRunning && state.draft.isNotBlank(),
+            ) {
+                Text("Send")
+            }
         }
     }
 }

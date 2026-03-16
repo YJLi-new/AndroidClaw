@@ -38,6 +38,7 @@ data class AgentTurnRequest(
     val sessionId: String,
     val userMessage: String,
     val taskRunId: String? = null,
+    val persistUserMessage: Boolean = true,
 )
 
 enum class AgentTurnExitReason {
@@ -70,6 +71,7 @@ class AgentRunner(
             userMessage = request.userMessage,
             runMode = ModelRunMode.Interactive,
             taskRunId = request.taskRunId,
+            persistUserMessage = request.persistUserMessage,
         )
     }
 
@@ -79,6 +81,7 @@ class AgentRunner(
                 sessionId = request.sessionId,
                 userMessage = request.userMessage,
                 taskRunId = request.taskRunId,
+                persistUserMessage = request.persistUserMessage,
                 emitEvent = { event -> send(event) },
             )
             send(AgentTurnEvent.TurnCompleted(result))
@@ -89,6 +92,7 @@ class AgentRunner(
                 AgentTurnEvent.TurnFailed(
                     message = error.message ?: "Turn failed.",
                     retryable = error.isRetryable(),
+                    kind = error.toFailureKind(),
                 ),
             )
         }
@@ -112,6 +116,7 @@ class AgentRunner(
         userMessage: String,
         runMode: ModelRunMode,
         taskRunId: String?,
+        persistUserMessage: Boolean = true,
     ): AgentTurnResult {
         return sessionLaneCoordinator.withLane(sessionId) {
             executeTurn(
@@ -119,6 +124,7 @@ class AgentRunner(
                 userMessage = userMessage,
                 runMode = runMode,
                 taskRunId = taskRunId,
+                persistUserMessage = persistUserMessage,
             )
         }
     }
@@ -127,6 +133,7 @@ class AgentRunner(
         sessionId: String,
         userMessage: String,
         taskRunId: String?,
+        persistUserMessage: Boolean,
         emitEvent: suspend (AgentTurnEvent) -> Unit,
     ): AgentTurnResult {
         return sessionLaneCoordinator.withLane(sessionId) {
@@ -135,6 +142,7 @@ class AgentRunner(
                 userMessage = userMessage,
                 runMode = ModelRunMode.Interactive,
                 taskRunId = taskRunId,
+                persistUserMessage = persistUserMessage,
                 emitEvent = emitEvent,
                 useStreamingProvider = true,
             )
@@ -146,18 +154,21 @@ class AgentRunner(
         userMessage: String,
         runMode: ModelRunMode,
         taskRunId: String?,
+        persistUserMessage: Boolean = true,
         emitEvent: suspend (AgentTurnEvent) -> Unit = {},
         useStreamingProvider: Boolean = false,
     ): AgentTurnResult {
         val normalizedUserMessage = userMessage.trim()
         val availableSkills = skillManager.refreshSkillInventory(sessionId = sessionId)
         val slashCommand = SlashCommand.parse(normalizedUserMessage)
-        messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.User,
-            content = normalizedUserMessage,
-            taskRunId = taskRunId,
-        )
+        if (persistUserMessage) {
+            messageRepository.addMessage(
+                sessionId = sessionId,
+                role = MessageRole.User,
+                content = normalizedUserMessage,
+                taskRunId = taskRunId,
+            )
+        }
         try {
             if (slashCommand != null) {
                 val slashSkill = skillManager.findSlashSkill(slashCommand.name, availableSkills)
@@ -590,4 +601,18 @@ private fun Throwable.isRetryable(): Boolean {
         kind == ModelProviderFailureKind.Network ||
             kind == ModelProviderFailureKind.Timeout
         )
+}
+
+private fun Throwable.toFailureKind(): AgentTurnFailureKind {
+    return when (this) {
+        is ModelProviderException -> when (kind) {
+            ModelProviderFailureKind.Configuration -> AgentTurnFailureKind.Configuration
+            ModelProviderFailureKind.Authentication -> AgentTurnFailureKind.Authentication
+            ModelProviderFailureKind.Network -> AgentTurnFailureKind.Network
+            ModelProviderFailureKind.Timeout -> AgentTurnFailureKind.Timeout
+            ModelProviderFailureKind.Response -> AgentTurnFailureKind.Response
+        }
+
+        else -> AgentTurnFailureKind.Runtime
+    }
 }

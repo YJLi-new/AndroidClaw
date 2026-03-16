@@ -9,14 +9,16 @@ import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
+import ai.androidclaw.runtime.orchestrator.AgentTurnEvent
+import ai.androidclaw.runtime.orchestrator.AgentTurnFailureKind
 import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
-import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.skills.SkillManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,11 +50,16 @@ data class ChatUiState(
     val sessionTitle: String = "",
     val draft: String = "",
     val isRunning: Boolean = false,
+    val isCancelling: Boolean = false,
     val errorMessage: String? = null,
+    val noticeMessage: String? = null,
     val slashCommands: List<String> = emptyList(),
     val sessions: List<ChatSessionUi> = emptyList(),
     val messages: List<ChatMessageUi> = emptyList(),
     val canArchiveCurrentSession: Boolean = false,
+    val streamingAssistantText: String = "",
+    val canRetryLastFailedTurn: Boolean = false,
+    val activeTurnStage: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -66,12 +73,21 @@ class ChatViewModel(
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val draft = MutableStateFlow("")
     private val isRunning = MutableStateFlow(false)
+    private val isCancelling = MutableStateFlow(false)
     private val errorMessage = MutableStateFlow<String?>(null)
+    private val noticeMessage = MutableStateFlow<String?>(null)
     private val slashCommands = MutableStateFlow<List<String>>(emptyList())
     private val mutableCurrentSessionId = MutableStateFlow("")
+    private val streamingAssistantText = MutableStateFlow("")
+    private val canRetryLastFailedTurn = MutableStateFlow(false)
+    private val activeTurnStage = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String> = mutableCurrentSessionId.asStateFlow()
 
     private val sessionsFlow = sessionRepository.observeSessions()
+    private var activeTurnJob: Job? = null
+    private var cancelRequested: Boolean = false
+    private var lastFailedUserMessageText: String? = null
+    private var lastFailedSessionId: String? = null
 
     private val messagesFlow: Flow<List<ChatMessageUi>> = mutableCurrentSessionId.flatMapLatest { sessionId ->
         if (sessionId.isBlank()) {
@@ -86,19 +102,40 @@ class ChatViewModel(
     private val chromeFlow = combine(
         draft,
         isRunning,
+        isCancelling,
         errorMessage,
+        noticeMessage,
         slashCommands,
         mutableCurrentSessionId,
-    ) { draftValue, isRunningValue, errorMessageValue, slashCommandsValue, currentSessionIdValue ->
+        streamingAssistantText,
+        canRetryLastFailedTurn,
+        activeTurnStage,
+    ) {
+            draftValue,
+            isRunningValue,
+            isCancellingValue,
+            errorMessageValue,
+            noticeMessageValue,
+            slashCommandsValue,
+            currentSessionIdValue,
+            streamingAssistantTextValue,
+            canRetryValue,
+            activeTurnStageValue,
+        ->
         ChatUiState(
             currentSessionId = currentSessionIdValue,
             sessionTitle = "",
             draft = draftValue,
             isRunning = isRunningValue,
+            isCancelling = isCancellingValue,
             errorMessage = errorMessageValue,
+            noticeMessage = noticeMessageValue,
             slashCommands = slashCommandsValue,
             sessions = emptyList(),
             messages = emptyList(),
+            streamingAssistantText = streamingAssistantTextValue,
+            canRetryLastFailedTurn = canRetryValue,
+            activeTurnStage = activeTurnStageValue,
         )
     }
 
@@ -134,6 +171,7 @@ class ChatViewModel(
             if (mutableCurrentSessionId.value.isBlank()) {
                 mutableCurrentSessionId.value = mainSession.id
                 refreshSkillCommands(mainSession.id)
+                syncRetryAvailability(mainSession.id)
             }
             sessionRepository.observeSessions().collect { sessions ->
                 val previousSessionId = mutableCurrentSessionId.value
@@ -149,6 +187,7 @@ class ChatViewModel(
                 }
                 if (mutableCurrentSessionId.value != previousSessionId) {
                     refreshSkillCommands(mutableCurrentSessionId.value)
+                    syncRetryAvailability(mutableCurrentSessionId.value)
                 }
             }
         }
@@ -158,6 +197,7 @@ class ChatViewModel(
     fun onDraftChanged(value: String) {
         draft.value = value
         errorMessage.value = null
+        noticeMessage.value = null
     }
 
     fun sendCurrentDraft() {
@@ -165,68 +205,71 @@ class ChatViewModel(
         val draftValue = draft.value.trim()
         if (sessionId.isBlank() || draftValue.isBlank() || isRunning.value) return
 
-        draft.value = ""
-        isRunning.value = true
-        errorMessage.value = null
+        startTurn(
+            sessionId = sessionId,
+            userMessage = draftValue,
+            persistUserMessage = true,
+            clearDraft = true,
+            isRetry = false,
+        )
+    }
 
-        viewModelScope.launch {
-            try {
-                agentRunner.runInteractiveTurn(
-                    request = AgentTurnRequest(
-                        sessionId = sessionId,
-                        userMessage = draftValue,
-                    ),
-                )
-                refreshSkillCommands()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                val message = error.message ?: "Turn failed."
-                errorMessage.value = message
-                viewModelScope.launch {
-                    eventLogRepository.log(
-                        category = if (error is ModelProviderException) EventCategory.Provider else EventCategory.System,
-                        level = EventLevel.Error,
-                        message = message,
-                        details = if (error is ModelProviderException) {
-                            buildString {
-                                append("kind=")
-                                append(error.kind.name)
-                                error.details?.takeIf { it.isNotBlank() }?.let {
-                                    append("; details=")
-                                    append(it)
-                                }
-                            }
-                        } else {
-                            error.stackTraceToString().take(500)
-                        },
-                    )
-                }
-            } finally {
-                isRunning.value = false
-            }
+    fun cancelActiveTurn() {
+        if (!isRunning.value || activeTurnJob == null || isCancelling.value) {
+            return
         }
+        cancelRequested = true
+        isCancelling.value = true
+        activeTurnStage.value = "Cancelling..."
+        activeTurnJob?.cancel()
+    }
+
+    fun retryLastFailedTurn() {
+        val sessionId = currentSessionId.value
+        val failedMessage = lastFailedUserMessageText
+        if (
+            sessionId.isBlank() ||
+            failedMessage.isNullOrBlank() ||
+            lastFailedSessionId != sessionId ||
+            isRunning.value
+        ) {
+            return
+        }
+
+        startTurn(
+            sessionId = sessionId,
+            userMessage = failedMessage,
+            persistUserMessage = false,
+            clearDraft = false,
+            isRetry = true,
+        )
     }
 
     fun switchSession(sessionId: String) {
+        if (isRunning.value) return
         mutableCurrentSessionId.value = sessionId
         errorMessage.value = null
+        noticeMessage.value = null
         refreshSkillCommands(sessionId)
+        syncRetryAvailability(sessionId)
     }
 
     fun createNewSession(title: String) {
+        if (isRunning.value) return
         viewModelScope.launch {
             val normalizedTitle = title.trim().ifBlank { "Session ${state.value.sessions.size + 1}" }
             val created = sessionRepository.createSession(normalizedTitle)
             mutableCurrentSessionId.value = created.id
             errorMessage.value = null
+            noticeMessage.value = null
             refreshSkillCommands(created.id)
+            syncRetryAvailability(created.id)
         }
     }
 
     fun renameCurrentSession(title: String) {
         val sessionId = currentSessionId.value
-        if (sessionId.isBlank()) return
+        if (sessionId.isBlank() || isRunning.value) return
         viewModelScope.launch {
             sessionRepository.updateTitle(
                 id = sessionId,
@@ -236,6 +279,7 @@ class ChatViewModel(
     }
 
     fun archiveCurrentSession() {
+        if (isRunning.value) return
         val current = state.value.sessions.firstOrNull { it.isSelected } ?: return
         if (current.isMain) {
             errorMessage.value = "The main session cannot be archived."
@@ -244,7 +288,140 @@ class ChatViewModel(
         viewModelScope.launch {
             sessionRepository.archiveSession(current.id)
             errorMessage.value = null
+            noticeMessage.value = null
         }
+    }
+
+    private fun startTurn(
+        sessionId: String,
+        userMessage: String,
+        persistUserMessage: Boolean,
+        clearDraft: Boolean,
+        isRetry: Boolean,
+    ) {
+        val normalizedUserMessage = userMessage.trim()
+        if (normalizedUserMessage.isBlank() || isRunning.value) return
+
+        activeTurnJob?.cancel()
+        activeTurnJob = null
+        cancelRequested = false
+        if (clearDraft) {
+            draft.value = ""
+        }
+        isRunning.value = true
+        isCancelling.value = false
+        errorMessage.value = null
+        noticeMessage.value = null
+        streamingAssistantText.value = ""
+        activeTurnStage.value = "Waiting for response"
+        canRetryLastFailedTurn.value = false
+
+        activeTurnJob = viewModelScope.launch {
+            if (isRetry) {
+                eventLogRepository.log(
+                    category = EventCategory.Provider,
+                    level = EventLevel.Info,
+                    message = "Retrying failed turn.",
+                    details = "sessionId=$sessionId",
+                )
+            }
+            try {
+                agentRunner.runInteractiveTurnStream(
+                    request = AgentTurnRequest(
+                        sessionId = sessionId,
+                        userMessage = normalizedUserMessage,
+                        persistUserMessage = persistUserMessage,
+                    ),
+                ).collect { event ->
+                    when (event) {
+                        is AgentTurnEvent.AssistantTextDelta -> {
+                            streamingAssistantText.value += event.text
+                            if (activeTurnStage.value.isNullOrBlank() || activeTurnStage.value == "Waiting for response") {
+                                activeTurnStage.value = "Generating response"
+                            }
+                        }
+
+                        is AgentTurnEvent.ToolStarted -> {
+                            activeTurnStage.value = "Running ${event.name}"
+                        }
+
+                        is AgentTurnEvent.ToolFinished -> {
+                            activeTurnStage.value = if (event.success) {
+                                "Finished ${event.name}"
+                            } else {
+                                "Tool ${event.name} failed"
+                            }
+                        }
+
+                        is AgentTurnEvent.TurnCompleted -> {
+                            streamingAssistantText.value = ""
+                            activeTurnStage.value = null
+                            errorMessage.value = null
+                            noticeMessage.value = null
+                            lastFailedUserMessageText = null
+                            lastFailedSessionId = null
+                            canRetryLastFailedTurn.value = false
+                            refreshSkillCommands(sessionId)
+                        }
+
+                        is AgentTurnEvent.TurnFailed -> {
+                            streamingAssistantText.value = ""
+                            activeTurnStage.value = null
+                            errorMessage.value = event.message
+                            noticeMessage.value = null
+                            lastFailedUserMessageText = normalizedUserMessage
+                            lastFailedSessionId = sessionId
+                            canRetryLastFailedTurn.value = event.retryable
+                            logTurnFailure(message = event.message, kind = event.kind)
+                        }
+
+                        AgentTurnEvent.Cancelled -> {
+                            streamingAssistantText.value = ""
+                            activeTurnStage.value = null
+                            errorMessage.value = null
+                            noticeMessage.value = "Turn cancelled."
+                            canRetryLastFailedTurn.value = false
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                if (cancelRequested) {
+                    streamingAssistantText.value = ""
+                    activeTurnStage.value = null
+                    errorMessage.value = null
+                    noticeMessage.value = "Turn cancelled."
+                    canRetryLastFailedTurn.value = false
+                } else {
+                    throw error
+                }
+            } finally {
+                isRunning.value = false
+                isCancelling.value = false
+                cancelRequested = false
+                activeTurnJob = null
+            }
+        }
+    }
+
+    private fun logTurnFailure(
+        message: String,
+        kind: AgentTurnFailureKind,
+    ) {
+        viewModelScope.launch {
+            eventLogRepository.log(
+                category = if (kind == AgentTurnFailureKind.Runtime) EventCategory.System else EventCategory.Provider,
+                level = EventLevel.Error,
+                message = message,
+                details = "kind=${kind.name}",
+            )
+        }
+    }
+
+    private fun syncRetryAvailability(sessionId: String) {
+        canRetryLastFailedTurn.value =
+            lastFailedUserMessageText != null &&
+            lastFailedSessionId == sessionId &&
+            !isRunning.value
     }
 
     private fun refreshSkillCommands(

@@ -1,5 +1,14 @@
 package ai.androidclaw.runtime.orchestrator
 
+enum class AgentTurnFailureKind {
+    Configuration,
+    Authentication,
+    Network,
+    Timeout,
+    Response,
+    Runtime,
+}
+
 sealed interface AgentTurnEvent {
     data class AssistantTextDelta(val text: String) : AgentTurnEvent
 
@@ -16,6 +25,7 @@ sealed interface AgentTurnEvent {
     data class TurnFailed(
         val message: String,
         val retryable: Boolean,
+        val kind: AgentTurnFailureKind,
     ) : AgentTurnEvent
 
     data object Cancelled : AgentTurnEvent
