@@ -99,43 +99,54 @@ class ChatViewModel(
         }
     }
 
-    private val chromeFlow = combine(
+    private val baseChromeFlow = combine(
         draft,
         isRunning,
         isCancelling,
         errorMessage,
         noticeMessage,
-        slashCommands,
-        mutableCurrentSessionId,
-        streamingAssistantText,
-        canRetryLastFailedTurn,
-        activeTurnStage,
-    ) {
-            draftValue,
-            isRunningValue,
-            isCancellingValue,
-            errorMessageValue,
-            noticeMessageValue,
-            slashCommandsValue,
-            currentSessionIdValue,
-            streamingAssistantTextValue,
-            canRetryValue,
-            activeTurnStageValue,
-        ->
-        ChatUiState(
-            currentSessionId = currentSessionIdValue,
-            sessionTitle = "",
+    ) { draftValue, isRunningValue, isCancellingValue, errorMessageValue, noticeMessageValue ->
+        BaseChatChrome(
             draft = draftValue,
             isRunning = isRunningValue,
             isCancelling = isCancellingValue,
             errorMessage = errorMessageValue,
             noticeMessage = noticeMessageValue,
-            slashCommands = slashCommandsValue,
-            sessions = emptyList(),
-            messages = emptyList(),
+        )
+    }
+
+    private val turnChromeFlow = combine(
+        streamingAssistantText,
+        canRetryLastFailedTurn,
+        activeTurnStage,
+    ) { streamingAssistantTextValue, canRetryValue, activeTurnStageValue ->
+        TurnChrome(
             streamingAssistantText = streamingAssistantTextValue,
             canRetryLastFailedTurn = canRetryValue,
             activeTurnStage = activeTurnStageValue,
+        )
+    }
+
+    private val chromeFlow = combine(
+        baseChromeFlow,
+        turnChromeFlow,
+        slashCommands,
+        mutableCurrentSessionId,
+    ) { baseChrome, turnChrome, slashCommandsValue, currentSessionIdValue ->
+        ChatUiState(
+            currentSessionId = currentSessionIdValue,
+            sessionTitle = "",
+            draft = baseChrome.draft,
+            isRunning = baseChrome.isRunning,
+            isCancelling = baseChrome.isCancelling,
+            errorMessage = baseChrome.errorMessage,
+            noticeMessage = baseChrome.noticeMessage,
+            slashCommands = slashCommandsValue,
+            sessions = emptyList(),
+            messages = emptyList(),
+            streamingAssistantText = turnChrome.streamingAssistantText,
+            canRetryLastFailedTurn = turnChrome.canRetryLastFailedTurn,
+            activeTurnStage = turnChrome.activeTurnStage,
         )
     }
 
@@ -395,6 +406,14 @@ class ChatViewModel(
                     throw error
                 }
             } finally {
+                val cancelledByUser = cancelRequested
+                if (cancelledByUser) {
+                    streamingAssistantText.value = ""
+                    activeTurnStage.value = null
+                    errorMessage.value = null
+                    noticeMessage.value = "Turn cancelled."
+                    canRetryLastFailedTurn.value = false
+                }
                 isRunning.value = false
                 isCancelling.value = false
                 cancelRequested = false
@@ -455,6 +474,20 @@ class ChatViewModel(
         }
     }
 }
+
+private data class BaseChatChrome(
+    val draft: String,
+    val isRunning: Boolean,
+    val isCancelling: Boolean,
+    val errorMessage: String?,
+    val noticeMessage: String?,
+)
+
+private data class TurnChrome(
+    val streamingAssistantText: String,
+    val canRetryLastFailedTurn: Boolean,
+    val activeTurnStage: String?,
+)
 
 private fun ChatMessage.toUi(): ChatMessageUi {
     return ChatMessageUi(

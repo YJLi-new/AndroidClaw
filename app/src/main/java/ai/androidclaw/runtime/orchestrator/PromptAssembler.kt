@@ -10,24 +10,38 @@ import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 data class PromptAssembly(
     val systemPrompt: String,
     val messageHistory: List<ModelMessage>,
+    val truncated: Boolean = false,
+    val summaryInserted: Boolean = false,
+    val diagnostics: ContextWindowDiagnostics? = null,
 )
 
-class PromptAssembler {
+class PromptAssembler(
+    private val contextWindowManager: ContextWindowManager = ContextWindowManager(),
+) {
     fun assemble(
         persistedMessages: List<ChatMessage>,
         selectedSkills: List<SkillSnapshot>,
         toolDescriptors: List<ToolDescriptor>,
         runMode: ModelRunMode,
+        sessionSummary: String? = null,
     ): PromptAssembly {
+        val systemPrompt = buildSystemPrompt(selectedSkills, toolDescriptors, runMode)
+        val contextSelection = contextWindowManager.select(
+            systemPrompt = systemPrompt,
+            persistedHistory = persistedMessages.mapNotNull(ChatMessage::toModelMessage),
+            summaryText = sessionSummary,
+        )
         return PromptAssembly(
-            systemPrompt = buildSystemPrompt(selectedSkills, toolDescriptors, runMode),
-            messageHistory = persistedMessages.mapNotNull(ChatMessage::toModelMessage),
+            systemPrompt = systemPrompt,
+            messageHistory = contextSelection.messageHistory,
+            truncated = contextSelection.truncated,
+            summaryInserted = contextSelection.summaryInserted,
+            diagnostics = contextSelection.diagnostics,
         )
     }
 }

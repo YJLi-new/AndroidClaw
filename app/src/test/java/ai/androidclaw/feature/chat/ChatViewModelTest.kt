@@ -213,7 +213,8 @@ class ChatViewModelTest {
             val cancelled = awaitState { state ->
                 !state.isRunning &&
                     state.noticeMessage == "Turn cancelled." &&
-                    state.streamingAssistantText.isEmpty()
+                    state.streamingAssistantText.isEmpty() &&
+                    state.messages.any { it.role == "system" && it.text == "Turn cancelled." }
             }
 
             val stored = messageRepository.observeMessages(ready.currentSessionId).first()

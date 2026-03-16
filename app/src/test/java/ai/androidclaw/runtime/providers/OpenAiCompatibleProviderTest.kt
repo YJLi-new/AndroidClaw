@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -503,9 +504,9 @@ class OpenAiCompatibleProviderTest {
                 .setHeader("Content-Type", "text/event-stream")
                 .setBody(
                     """
-                    data: {"id":"resp-tools","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"health.status","arguments":"{\"scope\":""}}]}}]}
+                    data: {"id":"resp-tools","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"health.status","arguments":"{\"scope\":\""}}]}}]}
 
-                    data: {"id":"resp-tools","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"summary"}"}}]},"finish_reason":"tool_calls"}]}
+                    data: {"id":"resp-tools","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"summary\"}"}}]},"finish_reason":"tool_calls"}]}
 
                     data: [DONE]
 

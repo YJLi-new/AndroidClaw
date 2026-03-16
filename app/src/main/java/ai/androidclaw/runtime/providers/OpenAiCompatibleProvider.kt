@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,9 +31,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.sse.EventSource
-import okhttp3.sse.EventSourceListener
-import okhttp3.sse.EventSources
 
 class OpenAiCompatibleProvider(
     private val settingsDataStore: SettingsDataStore,
@@ -83,12 +80,12 @@ class OpenAiCompatibleProvider(
         }
     }
 
-    override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> = callbackFlow {
+    override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> = channelFlow {
         val config = try {
             resolveConfig()
         } catch (error: Exception) {
             close(error)
-            return@callbackFlow
+            return@channelFlow
         }
         val payload = OpenAiChatCompletionsRequest(
             model = config.settings.openAiModelId,
@@ -104,107 +101,105 @@ class OpenAiCompatibleProvider(
         )
         val accumulator = OpenAiStreamAccumulator(json)
         val completed = AtomicBoolean(false)
+        val cancelledByCollector = AtomicBoolean(false)
+        val streamingClient = config.httpClient.newBuilder()
+            .callTimeout(0, TimeUnit.MILLISECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+        val call = streamingClient.newCall(httpRequest)
 
-        fun finishWithResponse(response: ModelResponse) {
-            if (completed.compareAndSet(false, true)) {
-                trySend(ModelStreamEvent.Completed(response))
-                close()
-            }
-        }
-
-        fun finishWithError(error: Throwable) {
-            if (completed.compareAndSet(false, true)) {
-                close(error)
-            }
-        }
-
-        fun fallbackToBatch() {
-            if (!completed.compareAndSet(false, true)) {
-                return
-            }
-            launch {
-                try {
-                    val response = withContext(Dispatchers.IO) { generate(request) }
-                    trySend(ModelStreamEvent.Completed(response))
-                    close()
-                } catch (error: Exception) {
-                    close(error)
-                }
-            }
-        }
-
-        val listener = object : EventSourceListener() {
-            override fun onOpen(eventSource: EventSource, response: Response) {
-                if (completed.get()) {
-                    return
-                }
-                val contentType = response.body?.contentType()?.toString().orEmpty()
-                if (!contentType.startsWith(EVENT_STREAM_CONTENT_TYPE_PREFIX)) {
-                    eventSource.cancel()
-                    fallbackToBatch()
-                }
-            }
-
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String,
-            ) {
-                if (completed.get()) {
-                    return
-                }
-                if (data == DONE_SENTINEL) {
-                    try {
-                        finishWithResponse(accumulator.buildResponse())
-                    } catch (error: Exception) {
-                        finishWithError(error)
+        launch(Dispatchers.IO) {
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val rawBody = response.body?.string().orEmpty()
+                        if (shouldFallbackFromStreaming(response.code, rawBody)) {
+                            val batchResponse = generate(request)
+                            if (completed.compareAndSet(false, true)) {
+                                trySend(ModelStreamEvent.Completed(batchResponse))
+                                close()
+                            }
+                            return@use
+                        }
+                        throw mapFailure(response.code, rawBody)
                     }
-                    return
-                }
-                if (data.isBlank()) {
-                    return
-                }
-                try {
-                    accumulator.applyChunk(data).forEach { event ->
-                        trySend(event)
+
+                    val body = response.body ?: throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "Provider stream ended without a response body.",
+                    )
+                    val contentType = body.contentType()?.toString().orEmpty()
+                    if (!contentType.startsWith(EVENT_STREAM_CONTENT_TYPE_PREFIX)) {
+                        val batchResponse = generate(request)
+                        if (completed.compareAndSet(false, true)) {
+                            trySend(ModelStreamEvent.Completed(batchResponse))
+                            close()
+                        }
+                        return@use
                     }
-                } catch (error: Exception) {
-                    finishWithError(error)
-                }
-            }
 
-            override fun onClosed(eventSource: EventSource) {
+                    val pendingDataLines = mutableListOf<String>()
+                    val source = body.source()
+                    var doneSeen = false
+
+                    while (!doneSeen) {
+                        val line = source.readUtf8Line() ?: break
+                        if (line.isBlank()) {
+                            doneSeen = flushPendingSseEvent(
+                                pendingDataLines = pendingDataLines,
+                                accumulator = accumulator,
+                                onEvent = { event: ModelStreamEvent -> trySend(event) },
+                                onCompleted = { responseValue: ModelResponse ->
+                                    if (completed.compareAndSet(false, true)) {
+                                        trySend(ModelStreamEvent.Completed(responseValue))
+                                        close()
+                                    }
+                                },
+                            )
+                            continue
+                        }
+                        if (line.startsWith("data:")) {
+                            pendingDataLines += line.removePrefix("data:").trimStart()
+                        }
+                    }
+
+                    if (!doneSeen) {
+                        doneSeen = flushPendingSseEvent(
+                            pendingDataLines = pendingDataLines,
+                            accumulator = accumulator,
+                            onEvent = { event: ModelStreamEvent -> trySend(event) },
+                            onCompleted = { responseValue: ModelResponse ->
+                                if (completed.compareAndSet(false, true)) {
+                                    trySend(ModelStreamEvent.Completed(responseValue))
+                                    close()
+                                }
+                            },
+                        )
+                    }
+
+                    if (!doneSeen && completed.compareAndSet(false, true)) {
+                        trySend(ModelStreamEvent.Completed(accumulator.buildResponse()))
+                        close()
+                    }
+                }
+            } catch (error: Exception) {
+                if (cancelledByCollector.get() && error is IOException) {
+                    return@launch
+                }
                 if (completed.get()) {
-                    return
+                    return@launch
                 }
-                try {
-                    finishWithResponse(accumulator.buildResponse())
-                } catch (error: Exception) {
-                    finishWithError(error)
+                if (completed.compareAndSet(false, true)) {
+                    close(mapStreamingFailure(config.settings, null, "", error))
                 }
-            }
-
-            override fun onFailure(
-                eventSource: EventSource,
-                t: Throwable?,
-                response: Response?,
-            ) {
-                if (completed.get() || channel.isClosedForSend) {
-                    return
-                }
-                val rawBody = response?.body?.string().orEmpty()
-                if (response != null && shouldFallbackFromStreaming(response.code, rawBody)) {
-                    fallbackToBatch()
-                    return
-                }
-                finishWithError(mapStreamingFailure(config.settings, response, rawBody, t))
             }
         }
 
-        val eventSource = EventSources.createFactory(config.httpClient).newEventSource(httpRequest, listener)
         awaitClose {
-            eventSource.cancel()
+            if (!completed.get()) {
+                cancelledByCollector.set(true)
+                call.cancel()
+            }
         }
     }
 
@@ -732,4 +727,26 @@ private class OpenAiStreamAccumulator(
         val name: StringBuilder = StringBuilder(),
         val arguments: StringBuilder = StringBuilder(),
     )
+}
+
+private fun flushPendingSseEvent(
+    pendingDataLines: MutableList<String>,
+    accumulator: OpenAiStreamAccumulator,
+    onEvent: (ModelStreamEvent) -> Unit,
+    onCompleted: (ModelResponse) -> Unit,
+): Boolean {
+    if (pendingDataLines.isEmpty()) {
+        return false
+    }
+    val data = pendingDataLines.joinToString(separator = "\n").trim()
+    pendingDataLines.clear()
+    if (data.isBlank()) {
+        return false
+    }
+    if (data == "[DONE]") {
+        onCompleted(accumulator.buildResponse())
+        return true
+    }
+    accumulator.applyChunk(data).forEach(onEvent)
+    return false
 }

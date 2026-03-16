@@ -239,7 +239,10 @@ class AgentRunner(
             val toolDescriptors = toolRegistry.descriptors()
             val providerSettings = settingsDataStore.settings.first()
             val provider = providerRegistry.require(providerSettings.providerType)
-            val persistedMessages = messageRepository.getRecentMessages(sessionId, limit = 32).asReversed()
+            val persistedMessages = messageRepository.getRecentMessages(
+                sessionId = sessionId,
+                limit = MESSAGE_CONTEXT_FETCH_LIMIT,
+            ).asReversed()
             val promptAssembly = promptAssembler.assemble(
                 persistedMessages = persistedMessages,
                 selectedSkills = selectedSkills,
@@ -581,6 +584,7 @@ class AgentRunner(
 
     companion object {
         private const val MAX_TOOL_ROUNDS = 6
+        private const val MESSAGE_CONTEXT_FETCH_LIMIT = 256
         private const val TOOL_USE_FINISH_REASON = "tool_use"
     }
 }

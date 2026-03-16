@@ -266,20 +266,16 @@ These should **not** be treated as major open gaps anymore:
 
 These still matter and should drive the next phase:
 
-1. **No streaming provider UX yet.**
-2. **Context window management is still crude.**
-   `AgentRunner` still pulls a fixed recent-message slice rather than using a budgeted selector.
-3. **Retry/cancel/recovery UX is still thin.**
-4. **Only one real provider family is supported.**
-5. **No chat export/share yet.**
-6. **No search yet for sessions/messages/tasks.**
-7. **Session summaries are not actually in use yet.**
-8. **`kapt` is still in use for Room.**
-9. **Baseline Profiles are still deferred.**
-10. **There is still no explicit network security config.**
-11. **Secret preference backup/restore hygiene is not yet correct.**
-12. **There are still no meaningful Compose UI tests for the live chat UX.**
-13. **No end-to-end scripted tool-loop test focuses on the real user path.**
+1. **Only one real provider family is supported.**
+2. **No chat export/share yet.**
+3. **No search yet for sessions/messages/tasks.**
+4. **Session summaries are not actually in use yet.**
+5. **`kapt` is still in use for Room.**
+6. **Baseline Profiles are still deferred.**
+7. **There is still no explicit network security config.**
+8. **Secret preference backup/restore hygiene is not yet correct.**
+9. **There are still no meaningful Compose UI tests for the live chat UX.**
+10. **No end-to-end scripted tool-loop test focuses on the real user path.**
 
 ### 5.3 Items from the review that are directionally right but should be re-prioritized
 
@@ -1768,14 +1764,14 @@ Use this section as the running execution ledger after `PLANv6.md` is adopted.
 
 - 2026-03-16: `WS0` adopted `PLANv6.md` as canonical, repointed top-level docs, and marked `PLANv5.md` historical.
 - 2026-03-16: `WS1` landed the streaming-capable provider/runtime contract, interactive streaming turn path, and cancellation/lane cleanup coverage.
+- 2026-03-16: `WS2` landed OpenAI-compatible SSE streaming, streamed tool-call aggregation, safe batch fallback, and streaming cancellation coverage.
+- 2026-03-16: `WS3` landed chat streaming UX, live turn state, cancel/retry handling, and the related `ChatViewModel` / UI tests.
+- 2026-03-16: `WS4` landed a budgeted context selector via `ContextWindowManager`, integrated it into `PromptAssembler`, and closed the fast-loop validation failures.
 
 ### Next expected check-ins
 
-- `PLANv6.md` adoption
-- streaming SPI landed
-- OpenAI-compatible SSE landed
-- chat streaming UX landed
-- budgeted context selector landed
+- summary foundations landed
+- chat streaming instrumentation landed
 - KSP migration landed
 - Anthropic provider landed
 - beta handoff refreshed
@@ -1790,11 +1786,9 @@ Record new facts here when they materially change implementation.
 - Exact-alarm regression evidence is already closed in the latest `docs/qa/`.
 - The repo already uses AndroidKeystore-backed AES/GCM for secrets.
 - Secret preference backup exclusion is still missing even though secrets are encrypted.
-- `AgentRunner` still uses a hardcoded recent-message count and therefore still needs context work.
-- `OpenAiCompatibleProvider` is still whole-response only and therefore still needs streaming.
-- Linux-side Gradle validation is currently blocked in this harness because the sandbox denies `java.net.NetworkInterface.getNetworkInterfaces()`, so WSL fast-loop verification needs either a relaxed harness or an external Windows/device lane.
-- This WSL runtime currently denies Java socket creation for `NetworkInterface` enumeration, so local Gradle startup can fail with the wildcard-IP error; GitHub Actions is the fallback validation lane when that host restriction is active.
-- This shell currently cannot open outbound sockets to GitHub either, so `git push` / `gh` validation handoff can be temporarily blocked even when repo work is ready; local milestone commits should stay segmented so they can be pushed in order once connectivity returns.
+- `AgentRunner` now assembles provider history through `PromptAssembler` + `ContextWindowManager` instead of a fixed recent-message slice.
+- `OpenAiCompatibleProvider` now supports additive SSE streaming with safe fallback to batch generation when streaming is unsupported.
+- WSL fast-loop validation works on this host when `JAVA_HOME` points at JDK 17+, so the local build lane is no longer blocked by the earlier harness issue.
 
 ---
 
