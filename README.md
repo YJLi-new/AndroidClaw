@@ -31,7 +31,7 @@ AndroidClaw already includes:
 
 ## Key docs
 
-- [Execution plan](PLANv5.md)
+- [Execution plan](PLANv6.md)
 - [Beta handoff](docs/BETA_HANDOFF.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Scheduler](docs/SCHEDULER.md)

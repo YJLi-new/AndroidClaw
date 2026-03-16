@@ -1,9 +1,9 @@
 
 # AndroidClaw Execution Plan v5
 
-> Status: canonical execution plan as of 2026-03-13.
+> Historical plan. Superseded by `PLANv6.md` on 2026-03-16.
 >
-> This file supersedes `PLANv4.md` as the active plan. `PLANv1.md` through `PLANv4.md` remain historical records.
+> Keep this file for execution history only. `PLANv6.md` is the active plan.
 
 ---
 
