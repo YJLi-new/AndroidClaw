@@ -6,16 +6,13 @@ import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
+import app.cash.turbine.test
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,25 +53,26 @@ class TaskRepositoryTest {
     @Test
     fun `create task emits observeTasks and preserves typed schedule mapping`() = runTest {
         val emissions = mutableListOf<List<ai.androidclaw.data.model.Task>>()
-        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            repository.observeTasks().take(2).toList(emissions)
+        lateinit var created: ai.androidclaw.data.model.Task
+        repository.observeTasks().test {
+            emissions += awaitItem()
+
+            created = repository.createTask(
+                name = "Morning check",
+                prompt = "Check status",
+                schedule = TaskSchedule.Interval(
+                    anchorAt = Instant.ofEpochMilli(1_000L),
+                    repeatEvery = Duration.ofHours(1),
+                ),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = "main",
+                precise = true,
+                maxRetries = 5,
+            )
+
+            emissions += awaitItem()
+            cancelAndIgnoreRemainingEvents()
         }
-        runCurrent()
-
-        val created = repository.createTask(
-            name = "Morning check",
-            prompt = "Check status",
-            schedule = TaskSchedule.Interval(
-                anchorAt = Instant.ofEpochMilli(1_000L),
-                repeatEvery = Duration.ofHours(1),
-            ),
-            executionMode = TaskExecutionMode.MainSession,
-            targetSessionId = "main",
-            precise = true,
-            maxRetries = 5,
-        )
-
-        job.join()
 
         val stored = repository.getTask(created.id)
         assertNotNull(stored)
@@ -107,13 +105,13 @@ class TaskRepositoryTest {
         assertEquals(listOf(dueTask.id), due.map { it.id })
 
         val emissions = mutableListOf<List<ai.androidclaw.data.model.TaskRun>>()
-        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            repository.observeRuns(dueTask.id).take(2).toList(emissions)
+        lateinit var createdRun: ai.androidclaw.data.model.TaskRun
+        repository.observeRuns(dueTask.id).test {
+            emissions += awaitItem()
+            createdRun = repository.recordRun(dueTask.id)
+            emissions += awaitItem()
+            cancelAndIgnoreRemainingEvents()
         }
-        runCurrent()
-
-        val createdRun = repository.recordRun(dueTask.id)
-        job.join()
 
         val completedRun = createdRun.copy(
             status = TaskRunStatus.Success,
@@ -170,7 +168,7 @@ class TaskRepositoryTest {
         val trimmed = repository.trimRunsOlderThan(Instant.ofEpochMilli(5_000L))
 
         assertEquals(1, trimmed)
-        val remaining = repository.observeRuns(task.id).take(1).toList().single()
+        val remaining = repository.observeRuns(task.id).first()
         assertEquals(listOf("run-new"), remaining.map { it.id })
     }
 }

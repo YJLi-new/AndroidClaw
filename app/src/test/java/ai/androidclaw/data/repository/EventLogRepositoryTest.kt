@@ -5,15 +5,12 @@ import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.EventLogEntity
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
+import app.cash.turbine.test
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.time.Instant
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,19 +39,19 @@ class EventLogRepositoryTest {
     @Test
     fun `log emits flow and trim removes older entries`() = runTest {
         val emissions = mutableListOf<List<ai.androidclaw.data.model.EventLogEntry>>()
-        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            repository.observeRecent(limit = 10).take(2).toList(emissions)
+        repository.observeRecent(limit = 10).test {
+            emissions += awaitItem()
+
+            repository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"provider\":\"fake\"}",
+            )
+
+            emissions += awaitItem()
+            cancelAndIgnoreRemainingEvents()
         }
-        runCurrent()
-
-        repository.log(
-            category = EventCategory.Provider,
-            level = EventLevel.Error,
-            message = "Provider offline",
-            details = "{\"provider\":\"fake\"}",
-        )
-
-        job.join()
 
         database.eventLogDao().insert(
             EventLogEntity(
@@ -67,7 +64,7 @@ class EventLogRepositoryTest {
             ),
         )
 
-        val recent = repository.observeRecent(limit = 2).take(1).toList().single()
+        val recent = repository.observeRecent(limit = 2).first()
         assertEquals(emptyList<ai.androidclaw.data.model.EventLogEntry>(), emissions.first())
         assertEquals(1, emissions.last().size)
         assertEquals(EventCategory.Provider, emissions.last().single().category)
