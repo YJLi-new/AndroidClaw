@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -8,8 +9,10 @@ import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.buildTestProviderRegistry
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -47,75 +50,122 @@ class SettingsViewModelTest {
     @Test
     fun `fake provider is considered configured`() = runTest {
         val viewModel = buildViewModel()
-
-        val state = viewModel.state.first {
-            it.providerType == ProviderType.Fake && it.activeProviderId == "fake"
-        }
+        val state = waitForState(viewModel) { it.activeProviderId == "fake" }
 
         assertTrue(state.configured)
         assertEquals("fake", state.activeProviderId)
     }
 
     @Test
-    fun `openai compatible provider remains unconfigured without a stored or drafted api key`() = runTest {
+    fun `remote provider remains unconfigured without a stored or drafted api key`() = runTest {
         settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(
-                providerType = ProviderType.OpenAiCompatible,
-                openAiModelId = "gpt-test",
-            ),
+            ProviderSettingsSnapshot().withEndpointSettings(
+                ProviderType.Gemini,
+                ProviderEndpointSettings(
+                    baseUrl = ProviderType.Gemini.defaultBaseUrl,
+                    modelId = "gemini-2.0-flash",
+                    timeoutSeconds = 60,
+                ),
+            ).copy(providerType = ProviderType.Gemini),
         )
         val viewModel = buildViewModel()
-
-        val state = viewModel.state.first { it.providerType == ProviderType.OpenAiCompatible }
+        val state = waitForState(viewModel) { it.providerType == ProviderType.Gemini }
 
         assertFalse(state.configured)
     }
 
     @Test
-    fun `saving provider settings persists typed settings and api key`() = runTest {
+    fun `saving provider settings persists selected provider settings and api key`() = runTest {
         val viewModel = buildViewModel()
 
-        viewModel.selectProviderType(ProviderType.OpenAiCompatible)
-        viewModel.onOpenAiBaseUrlChanged("https://example.test/v1")
-        viewModel.onOpenAiModelIdChanged("gpt-test")
-        viewModel.onOpenAiTimeoutChanged("15")
-        viewModel.onApiKeyChanged("sk-test")
-        viewModel.save()
+        viewModel.selectProviderType(ProviderType.Anthropic)
+        val selected = waitForState(viewModel) { it.activeProviderId == "anthropic" }
+        assertEquals("anthropic", selected.activeProviderId)
 
-        val state = viewModel.state.first { it.statusMessage == "Provider settings saved." }
+        viewModel.onBaseUrlChanged("https://api.anthropic.com/v1")
+        viewModel.onModelIdChanged("claude-sonnet-4-5")
+        viewModel.onTimeoutChanged("15")
+        viewModel.onApiKeyChanged("sk-ant-test")
+        viewModel.save()
+        val state = waitForState(viewModel) {
+            it.providerType == ProviderType.Anthropic &&
+                it.statusMessage == "Provider settings saved."
+        }
         val storedSettings = settingsDataStore.settings.first()
+        val anthropicSettings = storedSettings.endpointSettings(ProviderType.Anthropic)
 
         assertTrue(state.configured)
-        assertEquals(ProviderType.OpenAiCompatible, storedSettings.providerType)
-        assertEquals("https://example.test/v1", storedSettings.openAiBaseUrl)
-        assertEquals("gpt-test", storedSettings.openAiModelId)
-        assertEquals(15, storedSettings.openAiTimeoutSeconds)
+        assertEquals(ProviderType.Anthropic, storedSettings.providerType)
+        assertEquals("https://api.anthropic.com/v1", anthropicSettings.baseUrl)
+        assertEquals("claude-sonnet-4-5", anthropicSettings.modelId)
+        assertEquals(15, anthropicSettings.timeoutSeconds)
         assertEquals(
-            "sk-test",
-            secretStore.readApiKey(ProviderType.OpenAiCompatible),
+            "sk-ant-test",
+            secretStore.readApiKey(ProviderType.Anthropic),
         )
     }
 
     @Test
-    fun `clearing a stored api key updates configuration state`() = runTest {
+    fun `switching providers loads stored config for each provider`() = runTest {
         settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(
-                providerType = ProviderType.OpenAiCompatible,
-                openAiModelId = "gpt-test",
-            ),
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.OpenAiCompatible,
+                    ProviderEndpointSettings(
+                        baseUrl = "https://openai.example/v1",
+                        modelId = "gpt-test",
+                        timeoutSeconds = 30,
+                    ),
+                )
+                .withEndpointSettings(
+                    ProviderType.Glm,
+                    ProviderEndpointSettings(
+                        baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+                        modelId = "glm-4.5",
+                        timeoutSeconds = 45,
+                    ),
+                ),
         )
-        secretStore.writeApiKey(ProviderType.OpenAiCompatible, "sk-existing")
         val viewModel = buildViewModel()
 
-        viewModel.state.first { it.hasStoredApiKey }
-        viewModel.clearStoredApiKey()
+        viewModel.selectProviderType(ProviderType.Glm)
+        val glmState = waitForState(viewModel) {
+            it.providerType == ProviderType.Glm && it.modelId == "glm-4.5"
+        }
+        assertEquals("glm-4.5", glmState.modelId)
 
-        val cleared = viewModel.state.first {
-            !it.hasStoredApiKey && it.statusMessage == "Stored API key cleared."
+        viewModel.selectProviderType(ProviderType.OpenAiCompatible)
+        val openAiState = waitForState(viewModel) {
+            it.providerType == ProviderType.OpenAiCompatible && it.modelId == "gpt-test"
+        }
+        assertEquals("gpt-test", openAiState.modelId)
+    }
+
+    @Test
+    fun `clearing a stored api key updates configuration state for selected provider`() = runTest {
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot().withEndpointSettings(
+                ProviderType.Kimi,
+                ProviderEndpointSettings(
+                    baseUrl = ProviderType.Kimi.defaultBaseUrl,
+                    modelId = "moonshot-v1-8k",
+                    timeoutSeconds = 60,
+                ),
+            ).copy(providerType = ProviderType.Kimi),
+        )
+        secretStore.writeApiKey(ProviderType.Kimi, "sk-existing")
+        val viewModel = buildViewModel()
+        waitForState(viewModel) { it.providerType == ProviderType.Kimi && it.hasStoredApiKey }
+
+        viewModel.clearStoredApiKey()
+        val cleared = waitForState(viewModel) {
+            it.providerType == ProviderType.Kimi &&
+                !it.hasStoredApiKey &&
+                it.statusMessage == "Stored API key cleared."
         }
 
         assertFalse(cleared.configured)
-        assertNull(secretStore.readApiKey(ProviderType.OpenAiCompatible))
+        assertNull(secretStore.readApiKey(ProviderType.Kimi))
     }
 
     private fun buildViewModel(): SettingsViewModel {
@@ -124,5 +174,23 @@ class SettingsViewModelTest {
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
         )
+    }
+
+    private fun TestScope.waitForState(
+        viewModel: SettingsViewModel,
+        predicate: (SettingsUiState) -> Boolean,
+    ): SettingsUiState {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20)
+        var lastState = viewModel.state.value
+        while (System.nanoTime() < deadline) {
+            testScheduler.advanceUntilIdle()
+            val state = viewModel.state.value
+            lastState = state
+            if (predicate(state)) {
+                return state
+            }
+            Thread.sleep(10)
+        }
+        error("Timed out waiting for state. Last state=$lastState")
     }
 }

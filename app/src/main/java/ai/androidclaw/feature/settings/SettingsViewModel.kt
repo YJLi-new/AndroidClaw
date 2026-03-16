@@ -1,11 +1,11 @@
 package ai.androidclaw.feature.settings
 
 import ai.androidclaw.app.SettingsDependencies
+import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
-import ai.androidclaw.data.OPENAI_DEFAULT_TIMEOUT_SECONDS
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -21,9 +21,9 @@ data class SettingsUiState(
     val activeProviderId: String = "",
     val availableProviders: List<ProviderType> = emptyList(),
     val providerType: ProviderType = ProviderType.Fake,
-    val openAiBaseUrl: String = "",
-    val openAiModelId: String = "",
-    val openAiTimeoutSeconds: String = "",
+    val baseUrl: String = "",
+    val modelId: String = "",
+    val timeoutSeconds: String = "",
     val apiKeyDraft: String = "",
     val hasStoredApiKey: Boolean = false,
     val configured: Boolean = false,
@@ -39,7 +39,7 @@ class SettingsViewModel(
     private val mutableState = MutableStateFlow(
         SettingsUiState(
             availableProviders = providerRegistry.descriptors().map { it.type },
-            buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible provider.",
+            buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
         ),
     )
     val state: StateFlow<SettingsUiState> = mutableState.asStateFlow()
@@ -49,30 +49,40 @@ class SettingsViewModel(
     }
 
     fun selectProviderType(providerType: ProviderType) {
-        mutableState.update {
-            it.copy(
-                providerType = providerType,
-                activeProviderId = providerRegistry.require(providerType).id,
-                configured = isConfigured(
+        viewModelScope.launch {
+            val settings = settingsDataStore.settings.first()
+            val storedApiKey = providerSecretStore.readApiKey(providerType)
+            val endpointSettings = settings.endpointSettings(providerType)
+            mutableState.update {
+                it.copy(
                     providerType = providerType,
-                    baseUrl = it.openAiBaseUrl,
-                    modelId = it.openAiModelId,
-                    apiKeyDraft = it.apiKeyDraft,
-                    hasStoredApiKey = it.hasStoredApiKey,
-                ),
-                statusMessage = null,
-            )
+                    activeProviderId = providerRegistry.require(providerType).id,
+                    baseUrl = endpointSettings.baseUrl,
+                    modelId = endpointSettings.modelId,
+                    timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    apiKeyDraft = "",
+                    hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                    configured = isConfigured(
+                        providerType = providerType,
+                        baseUrl = endpointSettings.baseUrl,
+                        modelId = endpointSettings.modelId,
+                        apiKeyDraft = "",
+                        hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                    ),
+                    statusMessage = null,
+                )
+            }
         }
     }
 
-    fun onOpenAiBaseUrlChanged(value: String) {
+    fun onBaseUrlChanged(value: String) {
         mutableState.update {
             it.copy(
-                openAiBaseUrl = value,
+                baseUrl = value,
                 configured = isConfigured(
                     providerType = it.providerType,
                     baseUrl = value,
-                    modelId = it.openAiModelId,
+                    modelId = it.modelId,
                     apiKeyDraft = it.apiKeyDraft,
                     hasStoredApiKey = it.hasStoredApiKey,
                 ),
@@ -81,13 +91,13 @@ class SettingsViewModel(
         }
     }
 
-    fun onOpenAiModelIdChanged(value: String) {
+    fun onModelIdChanged(value: String) {
         mutableState.update {
             it.copy(
-                openAiModelId = value,
+                modelId = value,
                 configured = isConfigured(
                     providerType = it.providerType,
-                    baseUrl = it.openAiBaseUrl,
+                    baseUrl = it.baseUrl,
                     modelId = value,
                     apiKeyDraft = it.apiKeyDraft,
                     hasStoredApiKey = it.hasStoredApiKey,
@@ -97,10 +107,10 @@ class SettingsViewModel(
         }
     }
 
-    fun onOpenAiTimeoutChanged(value: String) {
+    fun onTimeoutChanged(value: String) {
         mutableState.update {
             it.copy(
-                openAiTimeoutSeconds = value,
+                timeoutSeconds = value,
                 statusMessage = null,
             )
         }
@@ -112,8 +122,8 @@ class SettingsViewModel(
                 apiKeyDraft = value,
                 configured = isConfigured(
                     providerType = it.providerType,
-                    baseUrl = it.openAiBaseUrl,
-                    modelId = it.openAiModelId,
+                    baseUrl = it.baseUrl,
+                    modelId = it.modelId,
                     apiKeyDraft = value,
                     hasStoredApiKey = it.hasStoredApiKey,
                 ),
@@ -123,16 +133,20 @@ class SettingsViewModel(
     }
 
     fun clearStoredApiKey() {
+        val providerType = state.value.providerType
+        if (!providerType.requiresRemoteSettings) {
+            return
+        }
         viewModelScope.launch {
-            providerSecretStore.writeApiKey(ProviderType.OpenAiCompatible, null)
+            providerSecretStore.writeApiKey(providerType, null)
             mutableState.update {
                 it.copy(
                     apiKeyDraft = "",
                     hasStoredApiKey = false,
                     configured = isConfigured(
                         providerType = it.providerType,
-                        baseUrl = it.openAiBaseUrl,
-                        modelId = it.openAiModelId,
+                        baseUrl = it.baseUrl,
+                        modelId = it.modelId,
                         apiKeyDraft = "",
                         hasStoredApiKey = false,
                     ),
@@ -144,28 +158,32 @@ class SettingsViewModel(
 
     fun save() {
         val snapshot = state.value
-        val timeoutSeconds = snapshot.openAiTimeoutSeconds.toIntOrNull()
-        if (
-            snapshot.providerType == ProviderType.OpenAiCompatible &&
-            (timeoutSeconds == null || timeoutSeconds <= 0)
-        ) {
+        val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
+        if (snapshot.providerType.requiresRemoteSettings && (timeoutSeconds == null || timeoutSeconds <= 0)) {
             mutableState.update { it.copy(statusMessage = "Timeout must be a positive integer.") }
             return
         }
-        val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 } ?: OPENAI_DEFAULT_TIMEOUT_SECONDS
+        val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 }
+            ?: snapshot.providerType.defaultTimeoutSeconds
 
         viewModelScope.launch {
-            settingsDataStore.saveProviderSettings(
-                ProviderSettingsSnapshot(
-                    providerType = snapshot.providerType,
-                    openAiBaseUrl = snapshot.openAiBaseUrl,
-                    openAiModelId = snapshot.openAiModelId,
-                    openAiTimeoutSeconds = normalizedTimeoutSeconds,
-                ),
-            )
-            if (snapshot.apiKeyDraft.isNotBlank()) {
+            val currentSettings = settingsDataStore.settings.first()
+            val updatedSettings = if (snapshot.providerType.requiresRemoteSettings) {
+                currentSettings.withEndpointSettings(
+                    snapshot.providerType,
+                    ProviderEndpointSettings(
+                        baseUrl = snapshot.baseUrl,
+                        modelId = snapshot.modelId,
+                        timeoutSeconds = normalizedTimeoutSeconds,
+                    ),
+                ).copy(providerType = snapshot.providerType)
+            } else {
+                currentSettings.copy(providerType = snapshot.providerType)
+            }
+            settingsDataStore.saveProviderSettings(updatedSettings)
+            if (snapshot.providerType.requiresRemoteSettings && snapshot.apiKeyDraft.isNotBlank()) {
                 providerSecretStore.writeApiKey(
-                    providerType = ProviderType.OpenAiCompatible,
+                    providerType = snapshot.providerType,
                     apiKey = snapshot.apiKeyDraft,
                 )
             }
@@ -176,25 +194,27 @@ class SettingsViewModel(
     private fun refresh(statusMessage: String? = null) {
         viewModelScope.launch {
             val settings = settingsDataStore.settings.first()
-            val storedApiKey = providerSecretStore.readApiKey(ProviderType.OpenAiCompatible)
+            val providerType = settings.providerType
+            val endpointSettings = settings.endpointSettings(providerType)
+            val storedApiKey = providerSecretStore.readApiKey(providerType)
             mutableState.value = SettingsUiState(
-                activeProviderId = providerRegistry.require(settings.providerType).id,
+                activeProviderId = providerRegistry.require(providerType).id,
                 availableProviders = providerRegistry.descriptors().map { it.type },
-                providerType = settings.providerType,
-                openAiBaseUrl = settings.openAiBaseUrl,
-                openAiModelId = settings.openAiModelId,
-                openAiTimeoutSeconds = settings.openAiTimeoutSeconds.toString(),
+                providerType = providerType,
+                baseUrl = endpointSettings.baseUrl,
+                modelId = endpointSettings.modelId,
+                timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
                 apiKeyDraft = "",
                 hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                 configured = isConfigured(
-                    providerType = settings.providerType,
-                    baseUrl = settings.openAiBaseUrl,
-                    modelId = settings.openAiModelId,
+                    providerType = providerType,
+                    baseUrl = endpointSettings.baseUrl,
+                    modelId = endpointSettings.modelId,
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                 ),
                 statusMessage = statusMessage,
-                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible provider.",
+                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
             )
         }
     }
@@ -206,9 +226,9 @@ class SettingsViewModel(
         apiKeyDraft: String,
         hasStoredApiKey: Boolean,
     ): Boolean {
-        return when (providerType) {
-            ProviderType.Fake -> true
-            ProviderType.OpenAiCompatible -> {
+        return when {
+            !providerType.requiresRemoteSettings -> true
+            else -> {
                 baseUrl.isNotBlank() &&
                     modelId.isNotBlank() &&
                     (apiKeyDraft.isNotBlank() || hasStoredApiKey)

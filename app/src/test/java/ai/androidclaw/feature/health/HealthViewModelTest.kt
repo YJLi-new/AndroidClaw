@@ -56,10 +56,16 @@ class HealthViewModelTest {
         taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
         settingsDataStore = SettingsDataStore(application)
         settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(
-                providerType = ProviderType.OpenAiCompatible,
-                openAiModelId = "gpt-test",
-            ),
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.OpenAiCompatible,
+                    ai.androidclaw.data.ProviderEndpointSettings(
+                        baseUrl = ProviderType.OpenAiCompatible.defaultBaseUrl,
+                        modelId = "gpt-test",
+                        timeoutSeconds = ProviderType.OpenAiCompatible.defaultTimeoutSeconds,
+                    ),
+                )
+                .copy(providerType = ProviderType.OpenAiCompatible),
         )
     }
 

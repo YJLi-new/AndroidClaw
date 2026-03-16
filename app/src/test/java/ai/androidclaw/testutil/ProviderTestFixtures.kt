@@ -40,7 +40,8 @@ class InMemoryProviderSecretStore(
 
 fun buildTestProviderRegistry(
     fakeProvider: ModelProvider = FakeProvider(clock = testClock),
-    openAiProvider: ModelProvider = StubModelProvider(ProviderType.OpenAiCompatible.providerId),
+    openAiCompatibleProvider: ModelProvider = StubModelProvider(ProviderType.OpenAiCompatible.providerId),
+    anthropicProvider: ModelProvider = StubModelProvider(ProviderType.Anthropic.providerId),
 ): ProviderRegistry {
     return ProviderRegistry(
         providers = listOf(
@@ -49,12 +50,17 @@ fun buildTestProviderRegistry(
                 displayName = ProviderType.Fake.displayName,
                 provider = fakeProvider,
             ),
+        ) + ProviderType.configurableProviders.map { providerType ->
             ProviderRegistry.RegisteredProviderEntry(
-                type = ProviderType.OpenAiCompatible,
-                displayName = ProviderType.OpenAiCompatible.displayName,
-                provider = openAiProvider,
-            ),
-        ),
+                type = providerType,
+                displayName = providerType.displayName,
+                provider = when (providerType) {
+                    ProviderType.Anthropic -> anthropicProvider
+                    ProviderType.OpenAiCompatible -> openAiCompatibleProvider
+                    else -> StubModelProvider(providerType.providerId)
+                },
+            )
+        },
     )
 }
 

@@ -265,12 +265,16 @@ class AgentRunnerTest {
             initialSecrets = mapOf(ProviderType.OpenAiCompatible to "sk-test"),
         )
         settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(
-                providerType = ProviderType.OpenAiCompatible,
-                openAiBaseUrl = server.url("/v1/").toString().removeSuffix("/"),
-                openAiModelId = "gpt-test",
-                openAiTimeoutSeconds = 5,
-            ),
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.OpenAiCompatible,
+                    ai.androidclaw.data.ProviderEndpointSettings(
+                        baseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                        modelId = "gpt-test",
+                        timeoutSeconds = 5,
+                    ),
+                )
+                .copy(providerType = ProviderType.OpenAiCompatible),
         )
         server.enqueue(
             MockResponse()
@@ -344,7 +348,7 @@ class AgentRunnerTest {
             val runner = AgentRunner(
                 providerRegistry = buildTestProviderRegistry(
                     fakeProvider = failOnGenerateProvider(),
-                    openAiProvider = buildOpenAiProvider(secretStore),
+                    openAiCompatibleProvider = buildOpenAiProvider(secretStore),
                 ),
                 settingsDataStore = settingsDataStore,
                 messageRepository = messageRepository,
@@ -633,6 +637,7 @@ class AgentRunnerTest {
 
     private fun buildOpenAiProvider(secretStore: ProviderSecretStore): OpenAiCompatibleProvider {
         return OpenAiCompatibleProvider(
+            providerType = ProviderType.OpenAiCompatible,
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
             baseHttpClient = OkHttpClient(),

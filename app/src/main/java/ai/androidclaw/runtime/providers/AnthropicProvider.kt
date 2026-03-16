@@ -1,7 +1,7 @@
 package ai.androidclaw.runtime.providers
 
-import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import java.io.IOException
@@ -23,6 +23,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,14 +32,13 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
-class OpenAiCompatibleProvider(
-    private val providerType: ProviderType,
+class AnthropicProvider(
     private val settingsDataStore: SettingsDataStore,
     private val providerSecretStore: ProviderSecretStore,
     private val baseHttpClient: OkHttpClient,
     private val json: Json,
 ) : ModelProvider {
-    override val id: String = providerType.providerId
+    override val id: String = ProviderType.Anthropic.providerId
     override val capabilities: ProviderCapabilities = ProviderCapabilities(
         supportsStreamingText = true,
         supportsStreamingToolCalls = true,
@@ -46,11 +46,7 @@ class OpenAiCompatibleProvider(
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
         val config = resolveConfig()
-        val payload = OpenAiChatCompletionsRequest(
-            model = config.endpointSettings.modelId,
-            messages = buildMessages(request),
-            tools = buildTools(request),
-        )
+        val payload = buildRequestPayload(request, config.endpointSettings, stream = false)
         val httpRequest = buildHttpRequest(
             url = config.url,
             apiKey = config.apiKey,
@@ -87,19 +83,14 @@ class OpenAiCompatibleProvider(
             close(error)
             return@channelFlow
         }
-        val payload = OpenAiChatCompletionsRequest(
-            model = config.endpointSettings.modelId,
-            messages = buildMessages(request),
-            tools = buildTools(request),
-            stream = true,
-        )
+        val payload = buildRequestPayload(request, config.endpointSettings, stream = true)
         val httpRequest = buildHttpRequest(
             url = config.url,
             apiKey = config.apiKey,
             requestId = request.requestId,
             payload = payload,
         )
-        val accumulator = OpenAiStreamAccumulator(json)
+        val accumulator = AnthropicStreamAccumulator(json)
         val completed = AtomicBoolean(false)
         val cancelledByCollector = AtomicBoolean(false)
         val streamingClient = config.httpClient.newBuilder()
@@ -113,14 +104,6 @@ class OpenAiCompatibleProvider(
                 call.execute().use { response ->
                     if (!response.isSuccessful) {
                         val rawBody = response.body?.string().orEmpty()
-                        if (shouldFallbackFromStreaming(response.code, rawBody)) {
-                            val batchResponse = generate(request)
-                            if (completed.compareAndSet(false, true)) {
-                                trySend(ModelStreamEvent.Completed(batchResponse))
-                                close()
-                            }
-                            return@use
-                        }
                         throw mapFailure(response.code, rawBody)
                     }
 
@@ -130,12 +113,11 @@ class OpenAiCompatibleProvider(
                     )
                     val contentType = body.contentType()?.toString().orEmpty()
                     if (!contentType.startsWith(EVENT_STREAM_CONTENT_TYPE_PREFIX)) {
-                        val batchResponse = generate(request)
-                        if (completed.compareAndSet(false, true)) {
-                            trySend(ModelStreamEvent.Completed(batchResponse))
-                            close()
-                        }
-                        return@use
+                        throw ModelProviderException(
+                            kind = ModelProviderFailureKind.Response,
+                            userMessage = "Provider stream did not return an event stream.",
+                            details = contentType,
+                        )
                     }
 
                     val pendingDataLines = mutableListOf<String>()
@@ -144,8 +126,11 @@ class OpenAiCompatibleProvider(
 
                     while (!doneSeen) {
                         val line = source.readUtf8Line() ?: break
+                        if (line.startsWith("event:")) {
+                            continue
+                        }
                         if (line.isBlank()) {
-                            doneSeen = flushPendingSseEvent(
+                            doneSeen = flushPendingAnthropicEvent(
                                 pendingDataLines = pendingDataLines,
                                 accumulator = accumulator,
                                 onEvent = { event: ModelStreamEvent -> trySend(event) },
@@ -164,7 +149,7 @@ class OpenAiCompatibleProvider(
                     }
 
                     if (!doneSeen) {
-                        doneSeen = flushPendingSseEvent(
+                        doneSeen = flushPendingAnthropicEvent(
                             pendingDataLines = pendingDataLines,
                             accumulator = accumulator,
                             onEvent = { event: ModelStreamEvent -> trySend(event) },
@@ -205,21 +190,21 @@ class OpenAiCompatibleProvider(
 
     private suspend fun resolveConfig(): ResolvedRequestConfig {
         val settings = settingsDataStore.settings.first()
-        val endpointSettings = settings.endpointSettings(providerType)
-        val apiKey = providerSecretStore.readApiKey(providerType)
+        val endpointSettings = settings.endpointSettings(ProviderType.Anthropic)
+        val apiKey = providerSecretStore.readApiKey(ProviderType.Anthropic)
 
         validateSettings(endpointSettings, apiKey)
 
         val url = endpointSettings.baseUrl.toHttpUrlOrNull()
             ?.newBuilder()
-            ?.addPathSegment("chat")
-            ?.addPathSegment("completions")
+            ?.addPathSegment("messages")
             ?.build()
             ?: throw ModelProviderException(
                 kind = ModelProviderFailureKind.Configuration,
                 userMessage = "Provider base URL is invalid.",
                 details = "Configured base URL: ${endpointSettings.baseUrl}",
             )
+
         return ResolvedRequestConfig(
             endpointSettings = endpointSettings,
             apiKey = apiKey.orEmpty(),
@@ -254,17 +239,107 @@ class OpenAiCompatibleProvider(
         }
     }
 
+    private fun buildRequestPayload(
+        request: ModelRequest,
+        endpointSettings: ProviderEndpointSettings,
+        stream: Boolean,
+    ): AnthropicMessagesRequest {
+        return AnthropicMessagesRequest(
+            model = endpointSettings.modelId,
+            system = request.systemPrompt.takeIf { it.isNotBlank() },
+            messages = buildMessages(request.messageHistory),
+            tools = request.toolDescriptors
+                .takeIf { it.isNotEmpty() }
+                ?.map { descriptor ->
+                    AnthropicToolDefinition(
+                        name = descriptor.name,
+                        description = descriptor.description,
+                        inputSchema = descriptor.inputSchema,
+                    )
+                },
+            stream = stream,
+            maxTokens = DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
+        )
+    }
+
+    private fun buildMessages(messageHistory: List<ModelMessage>): List<AnthropicMessage> {
+        return messageHistory.map { message ->
+            when (message.role) {
+                ModelMessageRole.System -> AnthropicMessage(
+                    role = "user",
+                    content = listOf(
+                        AnthropicRequestContentBlock(
+                            type = "text",
+                            text = "System message: ${message.content}",
+                        ),
+                    ),
+                )
+
+                ModelMessageRole.User -> AnthropicMessage(
+                    role = "user",
+                    content = listOf(
+                        AnthropicRequestContentBlock(
+                            type = "text",
+                            text = message.content,
+                        ),
+                    ),
+                )
+
+                ModelMessageRole.Assistant -> AnthropicMessage(
+                    role = "assistant",
+                    content = buildList {
+                        message.content
+                            .takeIf { it.isNotBlank() }
+                            ?.let { text ->
+                                add(
+                                    AnthropicRequestContentBlock(
+                                        type = "text",
+                                        text = text,
+                                    ),
+                                )
+                            }
+                        message.toolCalls.forEach { toolCall ->
+                            add(
+                                AnthropicRequestContentBlock(
+                                    type = "tool_use",
+                                    id = toolCall.id,
+                                    name = toolCall.name,
+                                    input = toolCall.argumentsJson,
+                                ),
+                            )
+                        }
+                    },
+                )
+
+                ModelMessageRole.Tool -> AnthropicMessage(
+                    role = "user",
+                    content = listOf(
+                        AnthropicRequestContentBlock(
+                            type = "tool_result",
+                            toolUseId = message.toolCallId ?: throw ModelProviderException(
+                                kind = ModelProviderFailureKind.Response,
+                                userMessage = "Provider request included a tool result without a tool call id.",
+                            ),
+                            content = message.content,
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
     private fun buildHttpRequest(
         url: HttpUrl,
         apiKey: String,
         requestId: String?,
-        payload: OpenAiChatCompletionsRequest,
+        payload: AnthropicMessagesRequest,
     ): Request {
-        val body = json.encodeToString(OpenAiChatCompletionsRequest.serializer(), payload)
+        val body = json.encodeToString(AnthropicMessagesRequest.serializer(), payload)
             .toRequestBody(JSON_MEDIA_TYPE)
         return Request.Builder()
             .url(url)
-            .header("Authorization", "Bearer $apiKey")
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", ANTHROPIC_VERSION)
             .header("Content-Type", "application/json")
             .apply {
                 requestId?.let { header("X-Request-Id", it) }
@@ -273,74 +348,9 @@ class OpenAiCompatibleProvider(
             .build()
     }
 
-    private fun buildMessages(request: ModelRequest): List<OpenAiChatMessage> {
-        val messages = mutableListOf<OpenAiChatMessage>()
-        if (request.systemPrompt.isNotBlank()) {
-            messages += OpenAiChatMessage(
-                role = "system",
-                content = request.systemPrompt,
-            )
-        }
-        messages += request.messageHistory.map(::toOpenAiChatMessage)
-        return messages
-    }
-
-    private fun buildTools(request: ModelRequest): List<OpenAiToolDefinition>? {
-        return request.toolDescriptors
-            .takeIf { it.isNotEmpty() }
-            ?.map { descriptor ->
-                OpenAiToolDefinition(
-                    function = OpenAiFunctionDefinition(
-                        name = descriptor.name,
-                        description = descriptor.description,
-                        parameters = descriptor.inputSchema,
-                    ),
-                )
-            }
-    }
-
-    private fun toOpenAiChatMessage(message: ModelMessage): OpenAiChatMessage {
-        return when (message.role) {
-            ModelMessageRole.System -> OpenAiChatMessage(
-                role = "system",
-                content = message.content,
-            )
-
-            ModelMessageRole.User -> OpenAiChatMessage(
-                role = "user",
-                content = message.content,
-            )
-
-            ModelMessageRole.Assistant -> OpenAiChatMessage(
-                role = "assistant",
-                content = message.content.takeIf { it.isNotBlank() },
-                toolCalls = message.toolCalls
-                    .takeIf { it.isNotEmpty() }
-                    ?.map { toolCall ->
-                        OpenAiToolCall(
-                            id = toolCall.id,
-                            function = OpenAiToolFunctionCall(
-                                name = toolCall.name,
-                                arguments = json.encodeToString(JsonObject.serializer(), toolCall.argumentsJson),
-                            ),
-                        )
-                    },
-            )
-
-            ModelMessageRole.Tool -> OpenAiChatMessage(
-                role = "tool",
-                content = message.content,
-                toolCallId = message.toolCallId ?: throw ModelProviderException(
-                    kind = ModelProviderFailureKind.Response,
-                    userMessage = "Provider request included a tool result without a tool call id.",
-                ),
-            )
-        }
-    }
-
     private fun parseBatchResponse(rawBody: String): ModelResponse {
         val parsed = try {
-            json.decodeFromString(OpenAiChatCompletionsResponse.serializer(), rawBody)
+            json.decodeFromString(AnthropicMessagesResponse.serializer(), rawBody)
         } catch (error: SerializationException) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
@@ -350,23 +360,27 @@ class OpenAiCompatibleProvider(
             )
         }
 
-        val choice = parsed.choices.firstOrNull()
-            ?: throw ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
-                userMessage = "Provider response did not contain an assistant message.",
-                details = rawBody.take(MAX_ERROR_BODY_CHARS),
-            )
-        val assistantText = choice.message.content?.trim().orEmpty()
-        val toolCalls = choice.message.toolCalls.orEmpty().map(::toProviderToolCall)
-        if (toolCalls.isNotEmpty()) {
-            return ModelResponse(
-                text = assistantText,
-                providerRequestId = parsed.id,
-                finishReason = "tool_use",
-                toolCalls = toolCalls,
-            )
-        }
-        if (assistantText.isBlank()) {
+        val assistantText = parsed.content
+            .filter { it.type == "text" }
+            .joinToString(separator = "") { it.text.orEmpty() }
+            .trim()
+        val toolCalls = parsed.content
+            .filter { it.type == "tool_use" }
+            .map { block ->
+                ProviderToolCall(
+                    id = block.id ?: throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "Provider returned a tool call without an id.",
+                    ),
+                    name = block.name ?: throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "Provider returned a tool call without a name.",
+                    ),
+                    argumentsJson = block.input ?: buildJsonObject {},
+                )
+            }
+
+        if (assistantText.isBlank() && toolCalls.isEmpty()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
                 userMessage = "Provider response did not contain an assistant message.",
@@ -377,45 +391,33 @@ class OpenAiCompatibleProvider(
         return ModelResponse(
             text = assistantText,
             providerRequestId = parsed.id,
-            finishReason = choice.finishReason ?: "stop",
+            finishReason = when {
+                toolCalls.isNotEmpty() || parsed.stopReason == "tool_use" -> "tool_use"
+                parsed.stopReason.isNullOrBlank() -> "stop"
+                else -> parsed.stopReason
+            },
+            toolCalls = toolCalls,
         )
     }
 
-    private fun toProviderToolCall(toolCall: OpenAiToolCall): ProviderToolCall {
-        val parsedArguments = try {
-            if (toolCall.function.arguments.isBlank()) {
-                buildJsonObject {}
-            } else {
-                json.parseToJsonElement(toolCall.function.arguments).jsonObject
-            }
-        } catch (error: Exception) {
-            throw ModelProviderException(
+    private fun mapFailure(statusCode: Int, rawBody: String): ModelProviderException {
+        val parsedMessage = runCatching {
+            json.decodeFromString(AnthropicErrorEnvelope.serializer(), rawBody).error?.message
+        }.getOrNull().orEmpty()
+
+        return when (statusCode) {
+            401, 403 -> ModelProviderException(
+                kind = ModelProviderFailureKind.Authentication,
+                userMessage = "Provider authentication failed.",
+                details = parsedMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
+            )
+
+            else -> ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
-                userMessage = "Provider returned malformed tool arguments.",
-                details = toolCall.function.arguments.take(MAX_ERROR_BODY_CHARS),
-                cause = error,
+                userMessage = "Provider request failed with HTTP $statusCode.",
+                details = parsedMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
             )
         }
-        return ProviderToolCall(
-            id = toolCall.id,
-            name = toolCall.function.name,
-            argumentsJson = parsedArguments,
-        )
-    }
-
-    private fun shouldFallbackFromStreaming(statusCode: Int, rawBody: String): Boolean {
-        if (statusCode in STREAMING_FALLBACK_STATUS_CODES) {
-            return true
-        }
-        if (statusCode !in STREAMING_MAYBE_UNSUPPORTED_STATUS_CODES) {
-            return false
-        }
-        val normalized = rawBody.lowercase()
-        return normalized.contains("stream") && (
-            normalized.contains("unsupported") ||
-                normalized.contains("not implemented") ||
-                normalized.contains("not support")
-            )
     }
 
     private fun mapStreamingFailure(
@@ -461,26 +463,6 @@ class OpenAiCompatibleProvider(
         )
     }
 
-    private fun mapFailure(statusCode: Int, rawBody: String): ModelProviderException {
-        val errorMessage = runCatching {
-            json.decodeFromString(OpenAiErrorEnvelope.serializer(), rawBody).error?.message
-        }.getOrNull().orEmpty()
-
-        return when (statusCode) {
-            401, 403 -> ModelProviderException(
-                kind = ModelProviderFailureKind.Authentication,
-                userMessage = "Provider authentication failed.",
-                details = errorMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
-            )
-
-            else -> ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
-                userMessage = "Provider request failed with HTTP $statusCode.",
-                details = errorMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
-            )
-        }
-    }
-
     private data class ResolvedRequestConfig(
         val endpointSettings: ProviderEndpointSettings,
         val apiKey: String,
@@ -490,183 +472,205 @@ class OpenAiCompatibleProvider(
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
-        const val DONE_SENTINEL = "[DONE]"
         const val EVENT_STREAM_CONTENT_TYPE_PREFIX = "text/event-stream"
         const val MAX_ERROR_BODY_CHARS = 500
-        val STREAMING_FALLBACK_STATUS_CODES = setOf(404, 405, 501)
-        val STREAMING_MAYBE_UNSUPPORTED_STATUS_CODES = setOf(400, 415, 422)
+        const val ANTHROPIC_VERSION = "2023-06-01"
+        const val DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 2048
     }
 }
 
 @Serializable
-private data class OpenAiChatCompletionsRequest(
+private data class AnthropicMessagesRequest(
     val model: String,
-    val messages: List<OpenAiChatMessage>,
-    val tools: List<OpenAiToolDefinition>? = null,
+    val system: String? = null,
+    val messages: List<AnthropicMessage>,
+    val tools: List<AnthropicToolDefinition>? = null,
     val stream: Boolean = false,
+    @SerialName("max_tokens")
+    val maxTokens: Int,
 )
 
 @Serializable
-private data class OpenAiChatMessage(
+private data class AnthropicMessage(
     val role: String,
+    val content: List<AnthropicRequestContentBlock>,
+)
+
+@Serializable
+private data class AnthropicRequestContentBlock(
+    val type: String,
+    val text: String? = null,
+    val id: String? = null,
+    val name: String? = null,
+    val input: JsonObject? = null,
+    @SerialName("tool_use_id")
+    val toolUseId: String? = null,
     val content: String? = null,
-    @SerialName("tool_call_id")
-    val toolCallId: String? = null,
-    @SerialName("tool_calls")
-    val toolCalls: List<OpenAiToolCall>? = null,
 )
 
 @Serializable
-private data class OpenAiToolDefinition(
-    val type: String = "function",
-    val function: OpenAiFunctionDefinition,
-)
-
-@Serializable
-private data class OpenAiFunctionDefinition(
+private data class AnthropicToolDefinition(
     val name: String,
     val description: String,
-    val parameters: JsonObject,
+    @SerialName("input_schema")
+    val inputSchema: JsonObject,
 )
 
 @Serializable
-private data class OpenAiToolCall(
-    val id: String,
-    val type: String = "function",
-    val function: OpenAiToolFunctionCall,
-)
-
-@Serializable
-private data class OpenAiToolFunctionCall(
-    val name: String,
-    val arguments: String,
-)
-
-@Serializable
-private data class OpenAiChatCompletionsResponse(
+private data class AnthropicMessagesResponse(
     val id: String? = null,
-    val choices: List<OpenAiChatChoice> = emptyList(),
+    val content: List<AnthropicOutputContentBlock> = emptyList(),
+    @SerialName("stop_reason")
+    val stopReason: String? = null,
 )
 
 @Serializable
-private data class OpenAiChatChoice(
-    val message: OpenAiAssistantMessage,
-    @SerialName("finish_reason")
-    val finishReason: String? = null,
+private data class AnthropicOutputContentBlock(
+    val type: String,
+    val text: String? = null,
+    val id: String? = null,
+    val name: String? = null,
+    val input: JsonObject? = null,
 )
 
 @Serializable
-private data class OpenAiAssistantMessage(
-    val role: String? = null,
-    val content: String? = null,
-    @SerialName("tool_calls")
-    val toolCalls: List<OpenAiToolCall>? = null,
+private data class AnthropicErrorEnvelope(
+    val error: AnthropicErrorPayload? = null,
 )
 
 @Serializable
-private data class OpenAiErrorEnvelope(
-    val error: OpenAiErrorPayload? = null,
-)
-
-@Serializable
-private data class OpenAiErrorPayload(
+private data class AnthropicErrorPayload(
     val message: String? = null,
 )
 
 @Serializable
-private data class OpenAiChatCompletionsChunkResponse(
+private data class AnthropicStreamEnvelope(
+    val type: String,
+    val index: Int? = null,
+    val message: AnthropicStreamMessageStart? = null,
+    @SerialName("content_block")
+    val contentBlock: AnthropicStreamContentBlock? = null,
+    val delta: AnthropicStreamDelta? = null,
+)
+
+@Serializable
+private data class AnthropicStreamMessageStart(
     val id: String? = null,
-    val choices: List<OpenAiStreamChoice> = emptyList(),
 )
 
 @Serializable
-private data class OpenAiStreamChoice(
-    val index: Int = 0,
-    val delta: OpenAiStreamDelta = OpenAiStreamDelta(),
-    @SerialName("finish_reason")
-    val finishReason: String? = null,
-)
-
-@Serializable
-private data class OpenAiStreamDelta(
-    val content: String? = null,
-    @SerialName("tool_calls")
-    val toolCalls: List<OpenAiStreamToolCallDelta>? = null,
-)
-
-@Serializable
-private data class OpenAiStreamToolCallDelta(
-    val index: Int,
+private data class AnthropicStreamContentBlock(
+    val type: String,
+    val text: String? = null,
     val id: String? = null,
-    val type: String? = null,
-    val function: OpenAiStreamToolFunctionDelta? = null,
-)
-
-@Serializable
-private data class OpenAiStreamToolFunctionDelta(
     val name: String? = null,
-    val arguments: String? = null,
 )
 
-private class OpenAiStreamAccumulator(
+@Serializable
+private data class AnthropicStreamDelta(
+    val type: String? = null,
+    val text: String? = null,
+    @SerialName("partial_json")
+    val partialJson: String? = null,
+    @SerialName("stop_reason")
+    val stopReason: String? = null,
+)
+
+private class AnthropicStreamAccumulator(
     private val json: Json,
 ) {
     private val assistantText = StringBuilder()
     private val toolCalls = linkedMapOf<Int, ToolCallAccumulator>()
     private var providerRequestId: String? = null
     private var finishReason: String? = null
-    private var sawChunk = false
+    private var sawEvent = false
 
-    fun applyChunk(rawChunk: String): List<ModelStreamEvent> {
-        val chunk = try {
-            json.decodeFromString(OpenAiChatCompletionsChunkResponse.serializer(), rawChunk)
+    fun applyEnvelope(rawEnvelope: String): List<ModelStreamEvent> {
+        val envelope = try {
+            json.decodeFromString(AnthropicStreamEnvelope.serializer(), rawEnvelope)
         } catch (error: SerializationException) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
-                userMessage = "Provider returned malformed SSE chunk.",
-                details = rawChunk.take(500),
+                userMessage = "Provider returned malformed SSE event.",
+                details = rawEnvelope.take(500),
                 cause = error,
             )
         }
 
-        sawChunk = true
-        providerRequestId = chunk.id ?: providerRequestId
-        return buildList {
-            chunk.choices.forEach { choice ->
-                choice.delta.content
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.let { contentPart ->
-                        assistantText.append(contentPart)
-                        add(ModelStreamEvent.TextDelta(contentPart))
-                    }
-                choice.delta.toolCalls.orEmpty().forEach { toolCallDelta ->
-                    val accumulator = toolCalls.getOrPut(toolCallDelta.index) { ToolCallAccumulator() }
-                    toolCallDelta.id
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.let { idPart ->
-                            accumulator.id.append(idPart)
-                            add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, idPart = idPart))
-                        }
-                    toolCallDelta.function?.name
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.let { namePart ->
-                            accumulator.name.append(namePart)
-                            add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, namePart = namePart))
-                        }
-                    toolCallDelta.function?.arguments
-                        ?.takeIf { it.isNotEmpty() }
-                        ?.let { argumentsPart ->
-                            accumulator.arguments.append(argumentsPart)
-                            add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, argumentsPart = argumentsPart))
-                        }
-                }
-                choice.finishReason?.let { finishReason = it }
+        sawEvent = true
+        return when (envelope.type) {
+            "ping" -> emptyList()
+            "message_start" -> {
+                providerRequestId = envelope.message?.id ?: providerRequestId
+                emptyList()
             }
+
+            "content_block_start" -> {
+                when (envelope.contentBlock?.type) {
+                    "tool_use" -> {
+                        val index = envelope.index ?: 0
+                        val accumulator = toolCalls.getOrPut(index) { ToolCallAccumulator() }
+                        buildList {
+                            envelope.contentBlock.id
+                                ?.takeIf { it.isNotEmpty() }
+                                ?.let { idPart ->
+                                    accumulator.id.append(idPart)
+                                    add(ModelStreamEvent.ToolCallDelta(index = index, idPart = idPart))
+                                }
+                            envelope.contentBlock.name
+                                ?.takeIf { it.isNotEmpty() }
+                                ?.let { namePart ->
+                                    accumulator.name.append(namePart)
+                                    add(ModelStreamEvent.ToolCallDelta(index = index, namePart = namePart))
+                                }
+                        }
+                    }
+
+                    else -> emptyList()
+                }
+            }
+
+            "content_block_delta" -> {
+                when (envelope.delta?.type) {
+                    "text_delta" -> {
+                        val textPart = envelope.delta.text.orEmpty()
+                        if (textPart.isBlank()) {
+                            emptyList()
+                        } else {
+                            assistantText.append(textPart)
+                            listOf(ModelStreamEvent.TextDelta(textPart))
+                        }
+                    }
+
+                    "input_json_delta" -> {
+                        val index = envelope.index ?: 0
+                        val accumulator = toolCalls.getOrPut(index) { ToolCallAccumulator() }
+                        val argumentsPart = envelope.delta.partialJson.orEmpty()
+                        if (argumentsPart.isBlank()) {
+                            emptyList()
+                        } else {
+                            accumulator.arguments.append(argumentsPart)
+                            listOf(ModelStreamEvent.ToolCallDelta(index = index, argumentsPart = argumentsPart))
+                        }
+                    }
+
+                    else -> emptyList()
+                }
+            }
+
+            "message_delta" -> {
+                envelope.delta?.stopReason?.let { finishReason = it }
+                emptyList()
+            }
+
+            "content_block_stop" -> emptyList()
+            "message_stop" -> emptyList()
+            else -> emptyList()
         }
     }
 
     fun buildResponse(): ModelResponse {
-        if (!sawChunk) {
+        if (!sawEvent) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
                 userMessage = "Provider stream ended without any data.",
@@ -685,23 +689,21 @@ private class OpenAiStreamAccumulator(
                 argumentsJson = parseToolArguments(accumulator.arguments.toString()),
             )
         }
-        val assistantMessage = assistantText.toString()
+        val assistantMessage = assistantText.toString().trim()
         if (assistantMessage.isBlank() && resolvedToolCalls.isEmpty()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
                 userMessage = "Provider stream ended without an assistant message.",
             )
         }
-        val normalizedFinishReason = when {
-            resolvedToolCalls.isNotEmpty() -> "tool_use"
-            finishReason.isNullOrBlank() -> "stop"
-            finishReason == "tool_calls" -> "tool_use"
-            else -> finishReason.orEmpty()
-        }
         return ModelResponse(
             text = assistantMessage,
             providerRequestId = providerRequestId,
-            finishReason = normalizedFinishReason,
+            finishReason = when {
+                resolvedToolCalls.isNotEmpty() || finishReason == "tool_use" -> "tool_use"
+                finishReason.isNullOrBlank() -> "stop"
+                else -> finishReason.orEmpty()
+            },
             toolCalls = resolvedToolCalls,
         )
     }
@@ -730,9 +732,9 @@ private class OpenAiStreamAccumulator(
     )
 }
 
-private fun flushPendingSseEvent(
+private fun flushPendingAnthropicEvent(
     pendingDataLines: MutableList<String>,
-    accumulator: OpenAiStreamAccumulator,
+    accumulator: AnthropicStreamAccumulator,
     onEvent: (ModelStreamEvent) -> Unit,
     onCompleted: (ModelResponse) -> Unit,
 ): Boolean {
@@ -748,6 +750,13 @@ private fun flushPendingSseEvent(
         onCompleted(accumulator.buildResponse())
         return true
     }
-    accumulator.applyChunk(data).forEach(onEvent)
+    val envelopeType = runCatching {
+        Json.parseToJsonElement(data).jsonObject["type"]?.jsonPrimitive?.content
+    }.getOrNull()
+    accumulator.applyEnvelope(data).forEach(onEvent)
+    if (envelopeType == "message_stop") {
+        onCompleted(accumulator.buildResponse())
+        return true
+    }
     return false
 }

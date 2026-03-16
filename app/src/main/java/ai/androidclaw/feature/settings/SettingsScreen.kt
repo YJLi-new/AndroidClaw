@@ -2,7 +2,7 @@ package ai.androidclaw.feature.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,7 +35,10 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Provider", style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     state.availableProviders.forEach { providerType ->
                         FilterChip(
                             selected = state.providerType == providerType,
@@ -46,24 +49,24 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 }
                 Text("Active provider: ${state.activeProviderId}")
                 Text("Configured: ${state.configured}")
-                if (state.providerType == ai.androidclaw.data.ProviderType.OpenAiCompatible) {
+                if (state.providerType.requiresRemoteSettings) {
                     OutlinedTextField(
-                        value = state.openAiBaseUrl,
-                        onValueChange = viewModel::onOpenAiBaseUrlChanged,
+                        value = state.baseUrl,
+                        onValueChange = viewModel::onBaseUrlChanged,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Base URL") },
                         singleLine = true,
                     )
                     OutlinedTextField(
-                        value = state.openAiModelId,
-                        onValueChange = viewModel::onOpenAiModelIdChanged,
+                        value = state.modelId,
+                        onValueChange = viewModel::onModelIdChanged,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Model ID") },
                         singleLine = true,
                     )
                     OutlinedTextField(
-                        value = state.openAiTimeoutSeconds,
-                        onValueChange = viewModel::onOpenAiTimeoutChanged,
+                        value = state.timeoutSeconds,
+                        onValueChange = viewModel::onTimeoutChanged,
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Timeout seconds") },
                         singleLine = true,

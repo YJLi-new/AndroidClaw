@@ -51,12 +51,16 @@ class OpenAiCompatibleProviderTest {
         server = MockWebServer()
         server.start()
         settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(
-                providerType = ProviderType.OpenAiCompatible,
-                openAiBaseUrl = server.url("/v1/").toString().removeSuffix("/"),
-                openAiModelId = "gpt-test",
-                openAiTimeoutSeconds = 1,
-            ),
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.OpenAiCompatible,
+                    ai.androidclaw.data.ProviderEndpointSettings(
+                        baseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                        modelId = "gpt-test",
+                        timeoutSeconds = 1,
+                    ),
+                )
+                .copy(providerType = ProviderType.OpenAiCompatible),
         )
         secretStore.writeApiKey(ProviderType.OpenAiCompatible, "sk-test")
     }
@@ -614,8 +618,53 @@ class OpenAiCompatibleProviderTest {
         assertEquals("Provider returned malformed SSE chunk.", error.userMessage)
     }
 
-    private fun buildProvider(): OpenAiCompatibleProvider {
+    @Test
+    fun `named compatible providers use their own settings and secrets`() = runTest {
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.Gemini,
+                    ai.androidclaw.data.ProviderEndpointSettings(
+                        baseUrl = server.url("/v1beta/openai").toString().removeSuffix("/"),
+                        modelId = "gemini-2.0-flash",
+                        timeoutSeconds = 5,
+                    ),
+                )
+                .copy(providerType = ProviderType.Gemini),
+        )
+        secretStore.writeApiKey(ProviderType.Gemini, "gem-test")
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-gemini",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "Hello from Gemini-compatible path"
+                          }
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val response = buildProvider(ProviderType.Gemini).generate(buildRequest())
+        val recordedRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: error("Expected provider request.")
+
+        assertEquals("Hello from Gemini-compatible path", response.text)
+        assertEquals("/v1beta/openai/chat/completions", recordedRequest.path)
+        assertEquals("Bearer gem-test", recordedRequest.getHeader("Authorization"))
+    }
+
+    private fun buildProvider(providerType: ProviderType = ProviderType.OpenAiCompatible): OpenAiCompatibleProvider {
         return OpenAiCompatibleProvider(
+            providerType = providerType,
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
             baseHttpClient = OkHttpClient(),

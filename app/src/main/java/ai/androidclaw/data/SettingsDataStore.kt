@@ -1,6 +1,7 @@
 package ai.androidclaw.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -17,9 +18,9 @@ class SettingsDataStore(
     private val context: Context,
 ) {
     private val providerTypeKey = stringPreferencesKey("provider_type")
-    private val openAiBaseUrlKey = stringPreferencesKey("openai_base_url")
-    private val openAiModelIdKey = stringPreferencesKey("openai_model_id")
-    private val openAiTimeoutSecondsKey = intPreferencesKey("openai_timeout_seconds")
+    private val legacyOpenAiBaseUrlKey = stringPreferencesKey("openai_base_url")
+    private val legacyOpenAiModelIdKey = stringPreferencesKey("openai_model_id")
+    private val legacyOpenAiTimeoutSecondsKey = intPreferencesKey("openai_timeout_seconds")
 
     val settings: Flow<ProviderSettingsSnapshot> = context.settingsDataStore.data
         .catch { error ->
@@ -32,18 +33,30 @@ class SettingsDataStore(
         .map { preferences ->
             ProviderSettingsSnapshot(
                 providerType = ProviderType.fromStorage(preferences[providerTypeKey]),
-                openAiBaseUrl = preferences[openAiBaseUrlKey] ?: OPENAI_DEFAULT_BASE_URL,
-                openAiModelId = preferences[openAiModelIdKey] ?: "",
-                openAiTimeoutSeconds = preferences[openAiTimeoutSecondsKey] ?: OPENAI_DEFAULT_TIMEOUT_SECONDS,
+                providerConfigs = ProviderType.configurableProviders.associateWith { providerType ->
+                    ProviderEndpointSettings(
+                        baseUrl = readBaseUrl(preferences, providerType),
+                        modelId = readModelId(preferences, providerType),
+                        timeoutSeconds = readTimeoutSeconds(preferences, providerType),
+                    )
+                },
             )
         }
 
     suspend fun saveProviderSettings(settings: ProviderSettingsSnapshot) {
         context.settingsDataStore.edit { preferences ->
             preferences[providerTypeKey] = settings.providerType.storageValue
-            preferences[openAiBaseUrlKey] = settings.openAiBaseUrl.trim()
-            preferences[openAiModelIdKey] = settings.openAiModelId.trim()
-            preferences[openAiTimeoutSecondsKey] = settings.openAiTimeoutSeconds
+            ProviderType.configurableProviders.forEach { providerType ->
+                val providerSettings = settings.endpointSettings(providerType)
+                preferences[baseUrlKey(providerType)] = providerSettings.baseUrl.trim()
+                preferences[modelIdKey(providerType)] = providerSettings.modelId.trim()
+                preferences[timeoutSecondsKey(providerType)] = providerSettings.timeoutSeconds
+                if (providerType == ProviderType.OpenAiCompatible) {
+                    preferences[legacyOpenAiBaseUrlKey] = providerSettings.baseUrl.trim()
+                    preferences[legacyOpenAiModelIdKey] = providerSettings.modelId.trim()
+                    preferences[legacyOpenAiTimeoutSecondsKey] = providerSettings.timeoutSeconds
+                }
+            }
         }
     }
 
@@ -52,4 +65,58 @@ class SettingsDataStore(
             preferences[providerTypeKey] = providerType.storageValue
         }
     }
+
+    private fun readBaseUrl(
+        preferences: Preferences,
+        providerType: ProviderType,
+    ): String {
+        return when (providerType) {
+            ProviderType.OpenAiCompatible -> {
+                preferences[baseUrlKey(providerType)]
+                    ?: preferences[legacyOpenAiBaseUrlKey]
+                    ?: providerType.defaultBaseUrl
+            }
+
+            else -> preferences[baseUrlKey(providerType)] ?: providerType.defaultBaseUrl
+        }
+    }
+
+    private fun readModelId(
+        preferences: Preferences,
+        providerType: ProviderType,
+    ): String {
+        return when (providerType) {
+            ProviderType.OpenAiCompatible -> {
+                preferences[modelIdKey(providerType)]
+                    ?: preferences[legacyOpenAiModelIdKey]
+                    ?: ""
+            }
+
+            else -> preferences[modelIdKey(providerType)] ?: ""
+        }
+    }
+
+    private fun readTimeoutSeconds(
+        preferences: Preferences,
+        providerType: ProviderType,
+    ): Int {
+        return when (providerType) {
+            ProviderType.OpenAiCompatible -> {
+                preferences[timeoutSecondsKey(providerType)]
+                    ?: preferences[legacyOpenAiTimeoutSecondsKey]
+                    ?: providerType.defaultTimeoutSeconds
+            }
+
+            else -> preferences[timeoutSecondsKey(providerType)] ?: providerType.defaultTimeoutSeconds
+        }
+    }
+
+    private fun baseUrlKey(providerType: ProviderType) =
+        stringPreferencesKey("provider_${providerType.storageValue}_base_url")
+
+    private fun modelIdKey(providerType: ProviderType) =
+        stringPreferencesKey("provider_${providerType.storageValue}_model_id")
+
+    private fun timeoutSecondsKey(providerType: ProviderType) =
+        intPreferencesKey("provider_${providerType.storageValue}_timeout_seconds")
 }

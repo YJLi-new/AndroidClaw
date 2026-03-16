@@ -16,6 +16,7 @@ import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
+import ai.androidclaw.runtime.providers.AnthropicProvider
 import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
@@ -40,6 +41,7 @@ class AppContainer(application: Application) {
     private val json = Json {
         ignoreUnknownKeys = true
     }
+    private val providerHttpClient = OkHttpClient()
     val database = AndroidClawDatabase.build(application)
     val settingsDataStore = SettingsDataStore(application)
     val providerSecretStore = AndroidProviderSecretStore(application)
@@ -110,17 +112,28 @@ class AppContainer(application: Application) {
                 displayName = ProviderType.Fake.displayName,
                 provider = FakeProvider(clock = clock),
             ),
+        ) + ProviderType.configurableProviders.map { providerType ->
             ProviderRegistry.RegisteredProviderEntry(
-                type = ProviderType.OpenAiCompatible,
-                displayName = ProviderType.OpenAiCompatible.displayName,
-                provider = OpenAiCompatibleProvider(
-                    settingsDataStore = settingsDataStore,
-                    providerSecretStore = providerSecretStore,
-                    baseHttpClient = OkHttpClient(),
-                    json = json,
-                ),
-            ),
-        ),
+                type = providerType,
+                displayName = providerType.displayName,
+                provider = when (providerType) {
+                    ProviderType.Anthropic -> AnthropicProvider(
+                        settingsDataStore = settingsDataStore,
+                        providerSecretStore = providerSecretStore,
+                        baseHttpClient = providerHttpClient,
+                        json = json,
+                    )
+
+                    else -> OpenAiCompatibleProvider(
+                        providerType = providerType,
+                        settingsDataStore = settingsDataStore,
+                        providerSecretStore = providerSecretStore,
+                        baseHttpClient = providerHttpClient,
+                        json = json,
+                    )
+                },
+            )
+        },
     )
 
     val agentRunner = AgentRunner(

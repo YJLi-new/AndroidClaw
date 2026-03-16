@@ -323,9 +323,7 @@ class BuiltInToolsTest {
     @Test
     fun `health status reports selected provider and current tool availability`() = runTest {
         settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(
-                providerType = ProviderType.OpenAiCompatible,
-            ),
+            ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCompatible),
         )
         val registry = buildRegistry()
 
