@@ -1794,6 +1794,7 @@ Record new facts here when they materially change implementation.
 - `OpenAiCompatibleProvider` is still whole-response only and therefore still needs streaming.
 - Linux-side Gradle validation is currently blocked in this harness because the sandbox denies `java.net.NetworkInterface.getNetworkInterfaces()`, so WSL fast-loop verification needs either a relaxed harness or an external Windows/device lane.
 - This WSL runtime currently denies Java socket creation for `NetworkInterface` enumeration, so local Gradle startup can fail with the wildcard-IP error; GitHub Actions is the fallback validation lane when that host restriction is active.
+- This shell currently cannot open outbound sockets to GitHub either, so `git push` / `gh` validation handoff can be temporarily blocked even when repo work is ready; local milestone commits should stay segmented so they can be pushed in order once connectivity returns.
 
 ---
 
@@ -1817,6 +1818,8 @@ Record intentional trade-offs here.
 6. **Use summary foundations without blocking v0.2.0 on perfect automatic summarization.**
 
 7. **When the host blocks local Gradle startup, use GitHub Actions as the truthful validation lane rather than pretending local verification happened.**
+
+8. **If outbound GitHub connectivity is blocked, keep milestone work in ordered local commits rather than collapsing multiple workstreams into one opaque diff.**
 
 7. **Keep manual DI during v6.**
    Refactor for readability if needed, but do not adopt Hilt/Koin in this phase.

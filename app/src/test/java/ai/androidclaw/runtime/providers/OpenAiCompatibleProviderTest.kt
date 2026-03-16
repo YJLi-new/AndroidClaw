@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -22,7 +24,6 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -245,6 +246,162 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun `streamGenerate emits text deltas and final response for sse text streams`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    : keepalive
+
+                    data: {"id":"resp-stream-1","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}
+
+                    data: {"id":"resp-stream-1","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}
+
+                    data: {"id":"resp-stream-1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+                    data: [DONE]
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val events = buildProvider().streamGenerate(buildRequest()).toList()
+        val recordedRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: error("Expected streaming provider request.")
+        val payload = json.parseToJsonElement(recordedRequest.body.readUtf8()).jsonObject
+        val completed = events.last() as ModelStreamEvent.Completed
+
+        assertEquals("true", payload.getValue("stream").jsonPrimitive.content)
+        assertEquals(ModelStreamEvent.TextDelta("Hel"), events[0])
+        assertEquals(ModelStreamEvent.TextDelta("lo"), events[1])
+        assertEquals("Hello", completed.response.text)
+        assertEquals("resp-stream-1", completed.response.providerRequestId)
+        assertEquals("stop", completed.response.finishReason)
+    }
+
+    @Test
+    fun `streamGenerate reconstructs streamed tool call fragments`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"id":"resp-stream-tools","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"health.status","arguments":"{\"scope\""}}]},"finish_reason":null}]}
+
+                    data: {"id":"resp-stream-tools","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"summary\"}"}}]},"finish_reason":"tool_calls"}]}
+
+                    data: [DONE]
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val events = buildProvider().streamGenerate(
+            buildRequest(
+                toolDescriptors = listOf(
+                    ai.androidclaw.runtime.tools.ToolDescriptor(
+                        name = "health.status",
+                        description = "Report health",
+                    ),
+                ),
+            ),
+        ).toList()
+
+        val completed = events.last() as ModelStreamEvent.Completed
+
+        assertTrue(events.any { it is ModelStreamEvent.ToolCallDelta })
+        assertEquals("tool_use", completed.response.finishReason)
+        assertEquals("call-1", completed.response.toolCalls.single().id)
+        assertEquals("health.status", completed.response.toolCalls.single().name)
+        assertEquals("summary", completed.response.toolCalls.single().argumentsJson.getValue("scope").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `streamGenerate falls back to batch generate when streaming is unsupported`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(501)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":{"message":"stream not supported"}}"""),
+        )
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-fallback",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "Fallback answer"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val events = buildProvider().streamGenerate(buildRequest()).toList()
+        val firstRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: error("Expected first provider request.")
+        val secondRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: error("Expected fallback provider request.")
+        val firstPayload = json.parseToJsonElement(firstRequest.body.readUtf8()).jsonObject
+        val secondPayload = json.parseToJsonElement(secondRequest.body.readUtf8()).jsonObject
+        val completed = events.single() as ModelStreamEvent.Completed
+
+        assertEquals("true", firstPayload.getValue("stream").jsonPrimitive.content)
+        assertTrue(secondPayload["stream"] == null)
+        assertEquals("Fallback answer", completed.response.text)
+        assertEquals("resp-fallback", completed.response.providerRequestId)
+    }
+
+    @Test
+    fun `malformed sse chunk is mapped to response failure`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {not-json}
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val error = assertProviderException {
+            buildProvider().streamGenerate(buildRequest()).toList()
+        }
+
+        assertEquals(ModelProviderFailureKind.Response, error.kind)
+        assertEquals("Provider returned malformed SSE chunk.", error.userMessage)
+    }
+
+    @Test
+    fun `streamGenerate can be cancelled after the first delta`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"id":"resp-stream-cancel","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}
+
+                    """.trimIndent(),
+                )
+                .setSocketPolicy(SocketPolicy.KEEP_OPEN),
+        )
+
+        val events = buildProvider().streamGenerate(buildRequest()).take(1).toList()
+
+        assertEquals(listOf(ModelStreamEvent.TextDelta("Hel")), events)
+    }
+
+    @Test
     fun `missing api key fails with configuration error`() = runTest {
         secretStore.writeApiKey(ProviderType.OpenAiCompatible, null)
 
@@ -302,6 +459,158 @@ class OpenAiCompatibleProviderTest {
 
         assertEquals(ModelProviderFailureKind.Timeout, error.kind)
         assertEquals("Provider request timed out.", error.userMessage)
+    }
+
+    @Test
+    fun `streaming text chunks are emitted incrementally and complete with the aggregated response`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"id":"resp-stream","choices":[{"delta":{"content":"Hello "}}]}
+
+                    data: {"id":"resp-stream","choices":[{"delta":{"content":"world"}}]}
+
+                    data: {"id":"resp-stream","choices":[{"delta":{},"finish_reason":"stop"}]}
+
+                    data: [DONE]
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val events = buildProvider().streamGenerate(buildRequest()).toList()
+        val recordedRequest = server.takeRequest(5, TimeUnit.SECONDS)
+            ?: error("Expected provider request.")
+        val payload = json.parseToJsonElement(recordedRequest.body.readUtf8()).jsonObject
+
+        assertEquals(true, payload.getValue("stream").jsonPrimitive.boolean)
+        assertEquals(
+            listOf("Hello ", "world"),
+            events.filterIsInstance<ModelStreamEvent.TextDelta>().map { it.text },
+        )
+        val completed = events.last() as ModelStreamEvent.Completed
+        assertEquals("Hello world", completed.response.text)
+        assertEquals("resp-stream", completed.response.providerRequestId)
+        assertEquals("stop", completed.response.finishReason)
+    }
+
+    @Test
+    fun `streamed tool call fragments are reassembled into a final tool use response`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"id":"resp-tools","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"health.status","arguments":"{\"scope\":""}}]}}]}
+
+                    data: {"id":"resp-tools","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"summary"}"}}]},"finish_reason":"tool_calls"}]}
+
+                    data: [DONE]
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val events = buildProvider().streamGenerate(
+            buildRequest(
+                toolDescriptors = listOf(
+                    ai.androidclaw.runtime.tools.ToolDescriptor(
+                        name = "health.status",
+                        description = "Report health",
+                    ),
+                ),
+            ),
+        ).toList()
+
+        assertTrue(events.filterIsInstance<ModelStreamEvent.ToolCallDelta>().isNotEmpty())
+        val completed = events.last() as ModelStreamEvent.Completed
+        assertEquals("tool_use", completed.response.finishReason)
+        assertEquals("call-1", completed.response.toolCalls.single().id)
+        assertEquals("health.status", completed.response.toolCalls.single().name)
+        assertEquals(
+            "summary",
+            completed.response.toolCalls.single().argumentsJson.getValue("scope").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `non sse success response falls back to batch generation`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "ignored-stream-body",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "ignored"
+                          }
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "id": "resp-fallback",
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": "Fallback batch reply"
+                          },
+                          "finish_reason": "stop"
+                        }
+                      ]
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val events = buildProvider().streamGenerate(buildRequest()).toList()
+        val firstRequest = server.takeRequest(5, TimeUnit.SECONDS) ?: error("Expected first request.")
+        val secondRequest = server.takeRequest(5, TimeUnit.SECONDS) ?: error("Expected fallback request.")
+        val firstPayload = json.parseToJsonElement(firstRequest.body.readUtf8()).jsonObject
+        val secondPayload = json.parseToJsonElement(secondRequest.body.readUtf8()).jsonObject
+
+        assertEquals(true, firstPayload.getValue("stream").jsonPrimitive.boolean)
+        assertTrue("stream" !in secondPayload)
+        val completed = events.last() as ModelStreamEvent.Completed
+        assertEquals("Fallback batch reply", completed.response.text)
+        assertEquals("resp-fallback", completed.response.providerRequestId)
+    }
+
+    @Test
+    fun `malformed sse chunk is mapped to a response failure`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {not-json}
+
+                    data: [DONE]
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val error = assertProviderException {
+            buildProvider().streamGenerate(buildRequest()).toList()
+        }
+
+        assertEquals(ModelProviderFailureKind.Response, error.kind)
+        assertEquals("Provider returned malformed SSE chunk.", error.userMessage)
     }
 
     private fun buildProvider(): OpenAiCompatibleProvider {
