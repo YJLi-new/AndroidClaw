@@ -1767,6 +1767,7 @@ Use this section as the running execution ledger after `PLANv6.md` is adopted.
 ### Completed in `PLANv6`
 
 - 2026-03-16: `WS0` adopted `PLANv6.md` as canonical, repointed top-level docs, and marked `PLANv5.md` historical.
+- 2026-03-16: `WS1` landed the streaming-capable provider/runtime contract, interactive streaming turn path, and cancellation/lane cleanup coverage.
 
 ### Next expected check-ins
 
@@ -1791,6 +1792,7 @@ Record new facts here when they materially change implementation.
 - Secret preference backup exclusion is still missing even though secrets are encrypted.
 - `AgentRunner` still uses a hardcoded recent-message count and therefore still needs context work.
 - `OpenAiCompatibleProvider` is still whole-response only and therefore still needs streaming.
+- Linux-side Gradle validation is currently blocked in this harness because the sandbox denies `java.net.NetworkInterface.getNetworkInterfaces()`, so WSL fast-loop verification needs either a relaxed harness or an external Windows/device lane.
 - This WSL runtime currently denies Java socket creation for `NetworkInterface` enumeration, so local Gradle startup can fail with the wildcard-IP error; GitHub Actions is the fallback validation lane when that host restriction is active.
 
 ---
