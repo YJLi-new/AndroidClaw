@@ -1791,6 +1791,7 @@ Record new facts here when they materially change implementation.
 - Secret preference backup exclusion is still missing even though secrets are encrypted.
 - `AgentRunner` still uses a hardcoded recent-message count and therefore still needs context work.
 - `OpenAiCompatibleProvider` is still whole-response only and therefore still needs streaming.
+- This WSL runtime currently denies Java socket creation for `NetworkInterface` enumeration, so local Gradle startup can fail with the wildcard-IP error; GitHub Actions is the fallback validation lane when that host restriction is active.
 
 ---
 
@@ -1812,6 +1813,8 @@ Record intentional trade-offs here.
 5. **Improve context with a budgeted selector before adding a heavy tokenizer.**
 
 6. **Use summary foundations without blocking v0.2.0 on perfect automatic summarization.**
+
+7. **When the host blocks local Gradle startup, use GitHub Actions as the truthful validation lane rather than pretending local verification happened.**
 
 7. **Keep manual DI during v6.**
    Refactor for readability if needed, but do not adopt Hilt/Koin in this phase.

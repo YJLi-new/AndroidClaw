@@ -18,6 +18,7 @@ import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelRequest
+import ai.androidclaw.runtime.providers.ModelStreamEvent
 import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderToolCall
@@ -48,8 +49,14 @@ import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -432,6 +439,99 @@ class AgentRunnerTest {
         assertTrue(toolEvents.any { it.message.contains("completed") })
         assertTrue(toolEvents.all { it.details?.contains("\"sessionId\":\"$sessionId\"") == true })
         assertTrue(toolEvents.any { it.details?.contains("\"activeSkillId\":\"list_tasks\"") == true })
+    }
+
+    @Test
+    fun `interactive stream fallback emits assistant delta and persists final assistant message`() = runTest {
+        val runner = AgentRunner(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
+
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        return ModelResponse(text = "Stream fallback reply")
+                    }
+                },
+            ),
+            settingsDataStore = settingsDataStore,
+            messageRepository = messageRepository,
+            skillManager = buildSkillManager(ToolRegistry(emptyList())),
+            toolRegistry = ToolRegistry(emptyList()),
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
+        )
+
+        val events = runner.runInteractiveTurnStream(
+            AgentTurnRequest(
+                sessionId = sessionId,
+                userMessage = "hello stream",
+            ),
+        ).toList()
+
+        assertTrue(events.any { it == AgentTurnEvent.AssistantTextDelta("Stream fallback reply") })
+        val completed = events.last() as AgentTurnEvent.TurnCompleted
+        assertTrue(completed.result.assistantMessage.contains("Stream fallback reply"))
+        val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
+        assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.Assistant && it.content.contains("Stream fallback reply") })
+    }
+
+    @Test
+    fun `cancelling interactive stream propagates cancellation and releases the session lane`() = runTest {
+        val cancelled = CompletableDeferred<Unit>()
+        val runner = AgentRunner(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = object : ModelProvider {
+                    override val id: String = "fake"
+
+                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                        return ModelResponse(text = "Recovered after cancel")
+                    }
+
+                    override fun streamGenerate(request: ModelRequest) = kotlinx.coroutines.flow.flow {
+                        emit(ModelStreamEvent.TextDelta("partial"))
+                        try {
+                            awaitCancellation()
+                        } finally {
+                            cancelled.complete(Unit)
+                        }
+                    }
+                },
+            ),
+            settingsDataStore = settingsDataStore,
+            messageRepository = messageRepository,
+            skillManager = buildSkillManager(ToolRegistry(emptyList())),
+            toolRegistry = ToolRegistry(emptyList()),
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
+        )
+
+        val firstEvents = runner.runInteractiveTurnStream(
+            AgentTurnRequest(
+                sessionId = sessionId,
+                userMessage = "cancel me",
+            ),
+        ).take(1).toList()
+
+        withTimeout(5_000) {
+            cancelled.await()
+        }
+
+        val result = runner.runInteractiveTurn(
+            AgentTurnRequest(
+                sessionId = sessionId,
+                userMessage = "second turn",
+            ),
+        )
+        val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
+
+        assertEquals(listOf(AgentTurnEvent.AssistantTextDelta("partial")), firstEvents)
+        assertTrue(result.assistantMessage.contains("Recovered after cancel"))
+        assertTrue(
+            storedMessages.any { message ->
+                message.role == ai.androidclaw.data.model.MessageRole.System &&
+                    message.content == "Turn cancelled."
+            },
+        )
     }
 
     @Test
