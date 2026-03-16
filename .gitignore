@@ -1,10 +1,12 @@
 .gradle/
 .idea/
 .kotlin/
+AGENTS.md
 build/
 captures/
+docs/
 local.properties
 *.iml
+PLANv*.md
 app/build/
 app/release/
-

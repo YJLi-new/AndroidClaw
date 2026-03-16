@@ -31,7 +31,7 @@ AndroidClaw already supports:
 - scheduled automations with `once`, `interval`, and `cron`
 - task run history, exact-alarm degradation, and scheduler diagnostics
 
-Recent `PLANv6` work added:
+Recent work added:
 
 - additive streaming provider/runtime contracts
 - OpenAI-compatible SSE streaming with safe batch fallback
@@ -52,7 +52,7 @@ AndroidClaw already includes:
 - an installable `qa` APK lane plus release AAB packaging
 - Windows-emulator and Android instrumentation validation paths
 
-Still intentionally pending in the current plan:
+Still intentionally pending:
 
 - native Anthropic provider support
 - session-summary generation beyond the current summary insertion seam
@@ -60,17 +60,10 @@ Still intentionally pending in the current plan:
 - Room `kapt -> ksp` migration
 - Baseline Profiles
 
-## Key docs
+## Public links
 
 - [Project page](https://yjli-new.github.io/AndroidClaw/)
-- [Execution plan](PLANv6.md)
-- [Beta handoff](docs/BETA_HANDOFF.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Scheduler](docs/SCHEDULER.md)
-- [Skills compatibility](docs/SKILLS_COMPAT.md)
-- [Testing](docs/TESTING.md)
-- [Release checklist](docs/RELEASE_CHECKLIST.md)
-- [Known limitations](docs/KNOWN_LIMITATIONS.md)
+- [GitHub Actions](https://github.com/YJLi-new/AndroidClaw/actions)
 
 ## Build
 
