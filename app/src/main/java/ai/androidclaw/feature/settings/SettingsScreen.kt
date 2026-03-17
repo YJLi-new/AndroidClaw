@@ -18,10 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ai.androidclaw.ui.components.ScreenHeader
 
 @Composable
 fun SettingsScreen(
@@ -36,12 +35,10 @@ fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            "Settings",
-            modifier = Modifier
-                .semantics { heading() }
-                .testTag("settingsHeading"),
-            style = MaterialTheme.typography.headlineSmall,
+        ScreenHeader(
+            title = "Settings",
+            subtitle = "Choose providers, theme preferences, and connection defaults for AndroidClaw.",
+            titleTestTag = "settingsHeading",
         )
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(

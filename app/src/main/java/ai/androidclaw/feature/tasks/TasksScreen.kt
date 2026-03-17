@@ -37,11 +37,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ai.androidclaw.ui.components.ScreenHeader
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -80,12 +80,10 @@ fun TasksScreen(viewModel: TasksViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text(
-                "Tasks",
-                modifier = Modifier
-                    .semantics { heading() }
-                    .testTag("tasksHeading"),
-                style = MaterialTheme.typography.headlineSmall,
+            ScreenHeader(
+                title = "Tasks",
+                subtitle = "Schedule once, interval, and cron automations with precise or approximate delivery.",
+                titleTestTag = "tasksHeading",
             )
         }
         item {

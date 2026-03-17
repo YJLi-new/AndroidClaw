@@ -30,12 +30,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ai.androidclaw.ui.components.ScreenHeader
 
 @Composable
 fun SkillsScreen(viewModel: SkillsViewModel) {
@@ -58,12 +58,10 @@ fun SkillsScreen(viewModel: SkillsViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            "Skills",
-            modifier = Modifier
-                .semantics { heading() }
-                .testTag("skillsHeading"),
-            style = MaterialTheme.typography.headlineSmall,
+        ScreenHeader(
+            title = "Skills",
+            subtitle = "Manage bundled, local, and workspace SKILL.md capabilities available to the runtime.",
+            titleTestTag = "skillsHeading",
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

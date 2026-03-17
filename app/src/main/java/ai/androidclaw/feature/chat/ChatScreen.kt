@@ -41,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -49,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ai.androidclaw.ui.components.ScreenHeader
 import java.io.File
 import kotlinx.coroutines.flow.collect
 
@@ -131,14 +131,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
             .testTag("chatScreen"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = state.sessionTitle.ifBlank { "Loading session..." },
-            modifier = Modifier
-                .semantics { heading() }
-                .testTag("chatHeading"),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
+        ScreenHeader(
+            title = state.sessionTitle.ifBlank { "Loading session..." },
+            subtitle = "Rename this session, search history, and export or share the transcript.",
+            titleTestTag = "chatHeading",
         )
+        Text("Session", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -164,6 +162,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Text("Archive")
             }
         }
+        Text("Search", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
