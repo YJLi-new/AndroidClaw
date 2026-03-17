@@ -11,6 +11,11 @@ import kotlinx.coroutines.flow.map
 class SessionRepository(
     private val dao: SessionDao,
 ) {
+    data class SearchResult(
+        val sessionId: String,
+        val sessionTitle: String,
+    )
+
     suspend fun createSession(title: String, isMain: Boolean = false): Session {
         val now = Instant.now()
         val entity = SessionEntity(
@@ -66,6 +71,15 @@ class SessionRepository(
                 updatedAt = Instant.now().toEpochMilli(),
             ),
         )
+    }
+
+    suspend fun searchSessions(query: String, limit: Int): List<SearchResult> {
+        return dao.searchByTitle(query.trim(), limit).map { session ->
+            SearchResult(
+                sessionId = session.id,
+                sessionTitle = session.title,
+            )
+        }
     }
 }
 

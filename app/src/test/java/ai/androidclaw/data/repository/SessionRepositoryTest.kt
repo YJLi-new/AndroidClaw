@@ -62,4 +62,16 @@ class SessionRepositoryTest {
         assertTrue(stored?.archived == true)
         assertTrue(repository.observeSessions().first().isEmpty())
     }
+
+    @Test
+    fun `search sessions matches active titles only`() = runTest {
+        val alpha = repository.createSession("Alpha plan")
+        val beta = repository.createSession("Beta notes")
+        repository.archiveSession(beta.id)
+
+        val results = repository.searchSessions("plan", limit = 10)
+
+        assertEquals(listOf(alpha.id), results.map { it.sessionId })
+        assertEquals("Alpha plan", results.single().sessionTitle)
+    }
 }

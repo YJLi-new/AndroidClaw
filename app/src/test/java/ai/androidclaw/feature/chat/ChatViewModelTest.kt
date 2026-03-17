@@ -274,6 +274,38 @@ class ChatViewModelTest {
         }
     }
 
+    @Test
+    fun `search opens matching session message and highlights it`() = runTest {
+        val otherSession = sessionRepository.createSession("Project Alpha")
+        messageRepository.addMessage(
+            sessionId = otherSession.id,
+            role = MessageRole.Assistant,
+            content = "Alpha task is scheduled for tomorrow.",
+        )
+
+        viewModel.state.test {
+            awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+            viewModel.onSearchQueryChanged("Alpha")
+            viewModel.runSearch()
+
+            val searchReady = awaitState { it.searchResults.isNotEmpty() }
+            val messageHit = searchReady.searchResults.first { it.messageId != null }
+
+            viewModel.openSearchResult(messageHit)
+
+            val opened = awaitState {
+                it.currentSessionId == otherSession.id &&
+                    it.highlightedMessageId == messageHit.messageId &&
+                    it.messages.any { message -> message.id == messageHit.messageId }
+            }
+
+            assertEquals(otherSession.id, opened.currentSessionId)
+            assertEquals(messageHit.messageId, opened.highlightedMessageId)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun buildViewModel(
         providerRegistry: ai.androidclaw.runtime.providers.ProviderRegistry = buildTestProviderRegistry(),
         toolRegistry: ToolRegistry = ToolRegistry(emptyList()),

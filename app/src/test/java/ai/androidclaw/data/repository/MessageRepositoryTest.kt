@@ -130,4 +130,36 @@ class MessageRepositoryTest {
         assertEquals(listOf("a1", "a2", "b1", "b2"), observed.map { it.content })
         assertEquals(listOf("a1", "a2", "b1", "b2"), recent.map { it.content })
     }
+
+    @Test
+    fun `search messages returns active session matches with session titles`() = runTest {
+        database.sessionDao().insert(
+            SessionEntity(
+                id = "archived",
+                title = "Archived session",
+                isMain = false,
+                createdAt = 2L,
+                updatedAt = 2L,
+                archivedAt = 3L,
+                summaryText = null,
+            ),
+        )
+        repository.addMessage(
+            sessionId = "main",
+            role = MessageRole.Assistant,
+            content = "Alpha status is green",
+        )
+        repository.addMessage(
+            sessionId = "archived",
+            role = MessageRole.Assistant,
+            content = "Alpha from archived session",
+        )
+
+        val results = repository.searchMessages("Alpha", limit = 10)
+
+        assertEquals(1, results.size)
+        assertEquals("main", results.single().sessionId)
+        assertEquals("Main session", results.single().sessionTitle)
+        assertEquals("Alpha status is green", results.single().content)
+    }
 }

@@ -7,8 +7,8 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
-import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.AgentTurnEvent
@@ -47,10 +47,21 @@ data class ChatSessionUi(
     val isMain: Boolean,
 )
 
+data class ChatSearchResultUi(
+    val sessionId: String,
+    val sessionTitle: String,
+    val preview: String,
+    val matchType: String,
+    val messageId: String? = null,
+)
+
 data class ChatUiState(
     val currentSessionId: String = "",
     val sessionTitle: String = "",
     val sessionSummary: String? = null,
+    val searchQuery: String = "",
+    val searchResults: List<ChatSearchResultUi> = emptyList(),
+    val highlightedMessageId: String? = null,
     val draft: String = "",
     val isRunning: Boolean = false,
     val isCancelling: Boolean = false,
@@ -82,6 +93,9 @@ class ChatViewModel(
     private val errorMessage = MutableStateFlow<String?>(null)
     private val noticeMessage = MutableStateFlow<String?>(null)
     private val slashCommands = MutableStateFlow<List<String>>(emptyList())
+    private val searchQuery = MutableStateFlow("")
+    private val searchResults = MutableStateFlow<List<ChatSearchResultUi>>(emptyList())
+    private val highlightedMessageId = MutableStateFlow<String?>(null)
     private val mutableCurrentSessionId = MutableStateFlow("")
     private val streamingAssistantText = MutableStateFlow("")
     private val canRetryLastFailedTurn = MutableStateFlow(false)
@@ -132,6 +146,18 @@ class ChatViewModel(
         )
     }
 
+    private val searchChromeFlow = combine(
+        searchQuery,
+        searchResults,
+        highlightedMessageId,
+    ) { searchQueryValue, searchResultsValue, highlightedMessageIdValue ->
+        SearchChrome(
+            searchQuery = searchQueryValue,
+            searchResults = searchResultsValue,
+            highlightedMessageId = highlightedMessageIdValue,
+        )
+    }
+
     private val providerNoticeFlow = settingsDataStore.settings.map { settings ->
         if (settings.providerType == ProviderType.Fake) {
             "Offline demo mode is active. Replies are coming from FakeProvider."
@@ -140,17 +166,20 @@ class ChatViewModel(
         }
     }
 
-    private val chromeFlow = combine(
+    private val chromeCoreFlow = combine(
         baseChromeFlow,
         turnChromeFlow,
+        searchChromeFlow,
         slashCommands,
         mutableCurrentSessionId,
-        providerNoticeFlow,
-    ) { baseChrome, turnChrome, slashCommandsValue, currentSessionIdValue, providerNoticeValue ->
+    ) { baseChrome, turnChrome, searchChrome, slashCommandsValue, currentSessionIdValue ->
         ChatUiState(
             currentSessionId = currentSessionIdValue,
             sessionTitle = "",
             sessionSummary = null,
+            searchQuery = searchChrome.searchQuery,
+            searchResults = searchChrome.searchResults,
+            highlightedMessageId = searchChrome.highlightedMessageId,
             draft = baseChrome.draft,
             isRunning = baseChrome.isRunning,
             isCancelling = baseChrome.isCancelling,
@@ -162,6 +191,14 @@ class ChatViewModel(
             streamingAssistantText = turnChrome.streamingAssistantText,
             canRetryLastFailedTurn = turnChrome.canRetryLastFailedTurn,
             activeTurnStage = turnChrome.activeTurnStage,
+        )
+    }
+
+    private val chromeFlow = combine(
+        chromeCoreFlow,
+        providerNoticeFlow,
+    ) { chromeCore, providerNoticeValue ->
+        chromeCore.copy(
             providerNotice = providerNoticeValue,
         )
     }
@@ -277,6 +314,7 @@ class ChatViewModel(
     fun switchSession(sessionId: String) {
         if (isRunning.value) return
         mutableCurrentSessionId.value = sessionId
+        highlightedMessageId.value = null
         errorMessage.value = null
         noticeMessage.value = null
         refreshSkillCommands(sessionId)
@@ -289,6 +327,7 @@ class ChatViewModel(
             val normalizedTitle = title.trim().ifBlank { "Session ${state.value.sessions.size + 1}" }
             val created = sessionRepository.createSession(normalizedTitle)
             mutableCurrentSessionId.value = created.id
+            highlightedMessageId.value = null
             errorMessage.value = null
             noticeMessage.value = null
             refreshSkillCommands(created.id)
@@ -319,6 +358,76 @@ class ChatViewModel(
             errorMessage.value = null
             noticeMessage.value = null
         }
+    }
+
+    fun onSearchQueryChanged(value: String) {
+        searchQuery.value = value
+        if (value.isBlank()) {
+            searchResults.value = emptyList()
+            highlightedMessageId.value = null
+        }
+    }
+
+    fun runSearch() {
+        val query = searchQuery.value.trim()
+        if (query.isBlank()) {
+            searchResults.value = emptyList()
+            highlightedMessageId.value = null
+            noticeMessage.value = "Enter search text."
+            return
+        }
+        viewModelScope.launch {
+            val sessionMatches = sessionRepository.searchSessions(query, limit = SEARCH_SESSION_LIMIT)
+                .map { match ->
+                    ChatSearchResultUi(
+                        sessionId = match.sessionId,
+                        sessionTitle = match.sessionTitle,
+                        preview = "Session title match",
+                        matchType = "Session",
+                    )
+                }
+            val messageMatches = messageRepository.searchMessages(query, limit = SEARCH_MESSAGE_LIMIT)
+                .map { match ->
+                    ChatSearchResultUi(
+                        sessionId = match.sessionId,
+                        sessionTitle = match.sessionTitle,
+                        preview = buildSearchPreview(match.content, query),
+                        matchType = "Message",
+                        messageId = match.messageId,
+                    )
+                }
+            val combined = (sessionMatches + messageMatches).take(MAX_SEARCH_RESULTS)
+            searchResults.value = combined
+            highlightedMessageId.value = null
+            noticeMessage.value = if (combined.isEmpty()) {
+                "No matches found for \"$query\"."
+            } else {
+                "Found ${combined.size} matches for \"$query\"."
+            }
+        }
+    }
+
+    fun clearSearch() {
+        searchQuery.value = ""
+        searchResults.value = emptyList()
+        highlightedMessageId.value = null
+        if (noticeMessage.value?.contains("match", ignoreCase = true) == true) {
+            noticeMessage.value = null
+        }
+    }
+
+    fun openSearchResult(result: ChatSearchResultUi) {
+        if (isRunning.value) return
+        mutableCurrentSessionId.value = result.sessionId
+        highlightedMessageId.value = result.messageId
+        errorMessage.value = null
+        noticeMessage.value = if (result.messageId != null) {
+            "Showing search match in ${result.sessionTitle}."
+        } else {
+            "Opened session ${result.sessionTitle}."
+        }
+        refreshSkillCommands(result.sessionId)
+        syncRetryAvailability(result.sessionId)
     }
 
     private fun startTurn(
@@ -476,6 +585,10 @@ class ChatViewModel(
     }
 
     companion object {
+        private const val SEARCH_SESSION_LIMIT = 6
+        private const val SEARCH_MESSAGE_LIMIT = 10
+        private const val MAX_SEARCH_RESULTS = 12
+
         fun factory(dependencies: ChatDependencies): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
@@ -507,6 +620,34 @@ private data class TurnChrome(
     val canRetryLastFailedTurn: Boolean,
     val activeTurnStage: String?,
 )
+
+private data class SearchChrome(
+    val searchQuery: String,
+    val searchResults: List<ChatSearchResultUi>,
+    val highlightedMessageId: String?,
+)
+
+private fun buildSearchPreview(
+    content: String,
+    query: String,
+): String {
+    val normalizedContent = content.trim().replace('\n', ' ')
+    if (normalizedContent.isBlank()) {
+        return "Message match"
+    }
+    val index = normalizedContent.indexOf(query, ignoreCase = true)
+    if (index < 0 || normalizedContent.length <= SEARCH_PREVIEW_LIMIT) {
+        return normalizedContent.take(SEARCH_PREVIEW_LIMIT)
+    }
+    val start = (index - SEARCH_PREVIEW_WINDOW).coerceAtLeast(0)
+    val end = (index + query.length + SEARCH_PREVIEW_WINDOW).coerceAtMost(normalizedContent.length)
+    val prefix = if (start > 0) "…" else ""
+    val suffix = if (end < normalizedContent.length) "…" else ""
+    return prefix + normalizedContent.substring(start, end) + suffix
+}
+
+private const val SEARCH_PREVIEW_WINDOW = 48
+private const val SEARCH_PREVIEW_LIMIT = 120
 
 private fun ChatMessage.toUi(): ChatMessageUi {
     return ChatMessageUi(

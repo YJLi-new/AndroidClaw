@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -37,9 +39,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun ChatScreen(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
+    val messageListState = rememberLazyListState()
 
     LaunchedEffect(state.sessionTitle, state.currentSessionId) {
         renameDraft = state.sessionTitle
+    }
+
+    LaunchedEffect(state.highlightedMessageId, state.messages) {
+        val highlightedMessageId = state.highlightedMessageId ?: return@LaunchedEffect
+        val targetIndex = state.messages.indexOfFirst { it.id == highlightedMessageId }
+        if (targetIndex >= 0) {
+            messageListState.animateScrollToItem(targetIndex)
+        }
     }
 
     Column(
@@ -78,6 +89,60 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 enabled = state.canArchiveCurrentSession && !state.isRunning,
             ) {
                 Text("Archive")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = state.searchQuery,
+                onValueChange = viewModel::onSearchQueryChanged,
+                modifier = Modifier.weight(1f),
+                label = { Text("Search sessions and messages") },
+                singleLine = true,
+                enabled = !state.isRunning,
+            )
+            Button(
+                onClick = viewModel::runSearch,
+                enabled = !state.isRunning,
+            ) {
+                Text("Search")
+            }
+            Button(
+                onClick = viewModel::clearSearch,
+                enabled = !state.isRunning && (state.searchQuery.isNotBlank() || state.searchResults.isNotEmpty()),
+            ) {
+                Text("Clear")
+            }
+        }
+        if (state.searchResults.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Search results",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    state.searchResults.forEach { result ->
+                        Button(
+                            onClick = { viewModel.openSearchResult(result) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.isRunning,
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text("${result.matchType}: ${result.sessionTitle}")
+                                Text(result.preview, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
             }
         }
         state.providerNotice?.let { providerNotice ->
@@ -178,10 +243,20 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
         LazyColumn(
             modifier = Modifier.weight(1f),
+            state = messageListState,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(state.messages, key = { it.id }) { message ->
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (message.id == state.highlightedMessageId) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                    ),
+                ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
                             text = message.role.uppercase(),

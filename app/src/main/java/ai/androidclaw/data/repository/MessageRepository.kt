@@ -1,6 +1,7 @@
 package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.dao.MessageDao
+import ai.androidclaw.data.db.dao.MessageSearchRow
 import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
@@ -12,6 +13,15 @@ import kotlinx.coroutines.flow.map
 class MessageRepository(
     private val dao: MessageDao,
 ) {
+    data class SearchResult(
+        val messageId: String,
+        val sessionId: String,
+        val sessionTitle: String,
+        val role: MessageRole,
+        val content: String,
+        val createdAt: Instant,
+    )
+
     suspend fun addMessage(
         sessionId: String,
         role: MessageRole,
@@ -44,6 +54,10 @@ class MessageRepository(
 
     suspend fun getMessageCount(sessionId: String): Int {
         return dao.countBySessionId(sessionId)
+    }
+
+    suspend fun searchMessages(query: String, limit: Int): List<SearchResult> {
+        return dao.searchByContent(query.trim(), limit).map(MessageSearchRow::toSearchResult)
     }
 
     suspend fun deleteSessionMessages(sessionId: String) {
@@ -83,4 +97,15 @@ private fun String.toMessageRole(): MessageRole {
         "system" -> MessageRole.System
         else -> MessageRole.System
     }
+}
+
+private fun MessageSearchRow.toSearchResult(): MessageRepository.SearchResult {
+    return MessageRepository.SearchResult(
+        messageId = id,
+        sessionId = sessionId,
+        sessionTitle = sessionTitle,
+        role = role.toMessageRole(),
+        content = content,
+        createdAt = Instant.ofEpochMilli(createdAt),
+    )
 }

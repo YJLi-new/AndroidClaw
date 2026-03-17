@@ -38,5 +38,15 @@ interface SessionDao {
         """,
     )
     fun getArchivedSessions(): Flow<List<SessionEntity>>
-}
 
+    @Query(
+        """
+        SELECT * FROM sessions
+        WHERE archivedAt IS NULL
+          AND title LIKE '%' || :query || '%'
+        ORDER BY updatedAt DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchByTitle(query: String, limit: Int): List<SessionEntity>
+}
