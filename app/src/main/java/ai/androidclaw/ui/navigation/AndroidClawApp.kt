@@ -2,6 +2,7 @@ package ai.androidclaw.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -9,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -56,6 +58,7 @@ fun AndroidClawApp(container: AppContainer) {
                                 ?.hierarchy
                                 ?.any { it.route == destination.route } == true
                             NavigationBarItem(
+                                modifier = Modifier.testTag("navItem-${destination.route}"),
                                 selected = selected,
                                 onClick = {
                                     if (!selected) {
@@ -68,7 +71,12 @@ fun AndroidClawApp(container: AppContainer) {
                                         }
                                     }
                                 },
-                                icon = { Text(destination.glyph) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(destination.iconRes),
+                                        contentDescription = null,
+                                    )
+                                },
                                 label = { Text(destination.label) },
                             )
                         }
