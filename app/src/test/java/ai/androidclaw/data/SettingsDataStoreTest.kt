@@ -97,4 +97,12 @@ class SettingsDataStoreTest {
             ProviderType.fromStorage("openai"),
         )
     }
+
+    @Test
+    fun `theme preference round trips independently from provider settings`() = runTest {
+        settingsDataStore.setThemePreference(ThemePreference.Dark)
+
+        assertEquals(ThemePreference.Dark, settingsDataStore.themePreference.first())
+        assertEquals(ProviderType.Fake, settingsDataStore.settings.first().providerType)
+    }
 }

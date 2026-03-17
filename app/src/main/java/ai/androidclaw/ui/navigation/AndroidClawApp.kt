@@ -30,6 +30,7 @@ import ai.androidclaw.feature.skills.SkillsScreen
 import ai.androidclaw.feature.skills.SkillsViewModel
 import ai.androidclaw.feature.tasks.TasksScreen
 import ai.androidclaw.feature.tasks.TasksViewModel
+import ai.androidclaw.ui.theme.AndroidClawTheme
 
 @Composable
 fun AndroidClawApp(container: AppContainer) {
@@ -44,93 +45,95 @@ fun AndroidClawApp(container: AppContainer) {
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
     val onboardingState by onboardingViewModel.state.collectAsStateWithLifecycle()
 
-    Box {
-        Scaffold(
-            bottomBar = {
-                NavigationBar(modifier = Modifier.testTag("topLevelNav")) {
-                    TopLevelDestination.entries.forEach { destination ->
-                        val selected = backStackEntry
-                            ?.destination
-                            ?.hierarchy
-                            ?.any { it.route == destination.route } == true
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                if (!selected) {
-                                    navController.navigate(destination.route) {
-                                        launchSingleTop = true
-                                        restoreState = true
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = true
+    AndroidClawTheme(themePreference = settingsState.themePreference) {
+        Box {
+            Scaffold(
+                bottomBar = {
+                    NavigationBar(modifier = Modifier.testTag("topLevelNav")) {
+                        TopLevelDestination.entries.forEach { destination ->
+                            val selected = backStackEntry
+                                ?.destination
+                                ?.hierarchy
+                                ?.any { it.route == destination.route } == true
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = {
+                                    if (!selected) {
+                                        navController.navigate(destination.route) {
+                                            launchSingleTop = true
+                                            restoreState = true
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = true
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            icon = { Text(destination.glyph) },
-                            label = { Text(destination.label) },
+                                },
+                                icon = { Text(destination.glyph) },
+                                label = { Text(destination.label) },
+                            )
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                NavHost(
+                    navController = navController,
+                    startDestination = TopLevelDestination.Chat.route,
+                    modifier = Modifier.padding(innerPadding),
+                ) {
+                    composable(TopLevelDestination.Chat.route) {
+                        val viewModel: ChatViewModel = viewModel(
+                            factory = ChatViewModel.factory(container.chatDependencies),
+                        )
+                        ChatScreen(viewModel = viewModel)
+                    }
+                    composable(TopLevelDestination.Tasks.route) {
+                        val viewModel: TasksViewModel = viewModel(
+                            factory = TasksViewModel.factory(container.tasksDependencies),
+                        )
+                        TasksScreen(viewModel = viewModel)
+                    }
+                    composable(TopLevelDestination.Skills.route) {
+                        val viewModel: SkillsViewModel = viewModel(
+                            factory = SkillsViewModel.factory(container.skillsDependencies),
+                        )
+                        SkillsScreen(viewModel = viewModel)
+                    }
+                    composable(TopLevelDestination.Settings.route) {
+                        SettingsScreen(
+                            viewModel = settingsViewModel,
+                            onOpenSetupGuide = onboardingViewModel::showProviderSetup,
                         )
                     }
-                }
-            }
-        ) { innerPadding ->
-            NavHost(
-                navController = navController,
-                startDestination = TopLevelDestination.Chat.route,
-                modifier = Modifier.padding(innerPadding),
-            ) {
-                composable(TopLevelDestination.Chat.route) {
-                    val viewModel: ChatViewModel = viewModel(
-                        factory = ChatViewModel.factory(container.chatDependencies),
-                    )
-                    ChatScreen(viewModel = viewModel)
-                }
-                composable(TopLevelDestination.Tasks.route) {
-                    val viewModel: TasksViewModel = viewModel(
-                        factory = TasksViewModel.factory(container.tasksDependencies),
-                    )
-                    TasksScreen(viewModel = viewModel)
-                }
-                composable(TopLevelDestination.Skills.route) {
-                    val viewModel: SkillsViewModel = viewModel(
-                        factory = SkillsViewModel.factory(container.skillsDependencies),
-                    )
-                    SkillsScreen(viewModel = viewModel)
-                }
-                composable(TopLevelDestination.Settings.route) {
-                    SettingsScreen(
-                        viewModel = settingsViewModel,
-                        onOpenSetupGuide = onboardingViewModel::showProviderSetup,
-                    )
-                }
-                composable(TopLevelDestination.Health.route) {
-                    val viewModel: HealthViewModel = viewModel(
-                        factory = HealthViewModel.factory(container.healthDependencies),
-                    )
-                    HealthScreen(viewModel = viewModel)
-                }
-            }
-        }
-        if (onboardingState.visible) {
-            OnboardingDialog(
-                onboardingState = onboardingState,
-                settingsState = settingsState,
-                onConfigureRealProvider = {
-                    onboardingViewModel.showProviderSetup()
-                    navController.navigate(TopLevelDestination.Settings.route) {
-                        launchSingleTop = true
+                    composable(TopLevelDestination.Health.route) {
+                        val viewModel: HealthViewModel = viewModel(
+                            factory = HealthViewModel.factory(container.healthDependencies),
+                        )
+                        HealthScreen(viewModel = viewModel)
                     }
-                },
-                onUseFakeMode = onboardingViewModel::useFakeMode,
-                onCompleteLater = onboardingViewModel::completeLater,
-                onBackToWelcome = onboardingViewModel::showWelcome,
-                onSelectProvider = settingsViewModel::selectProviderType,
-                onBaseUrlChanged = settingsViewModel::onBaseUrlChanged,
-                onModelIdChanged = settingsViewModel::onModelIdChanged,
-                onTimeoutChanged = settingsViewModel::onTimeoutChanged,
-                onApiKeyChanged = settingsViewModel::onApiKeyChanged,
-                onValidateConnection = settingsViewModel::validateConnection,
-                onFinish = onboardingViewModel::finish,
-            )
+                }
+            }
+            if (onboardingState.visible) {
+                OnboardingDialog(
+                    onboardingState = onboardingState,
+                    settingsState = settingsState,
+                    onConfigureRealProvider = {
+                        onboardingViewModel.showProviderSetup()
+                        navController.navigate(TopLevelDestination.Settings.route) {
+                            launchSingleTop = true
+                        }
+                    },
+                    onUseFakeMode = onboardingViewModel::useFakeMode,
+                    onCompleteLater = onboardingViewModel::completeLater,
+                    onBackToWelcome = onboardingViewModel::showWelcome,
+                    onSelectProvider = settingsViewModel::selectProviderType,
+                    onBaseUrlChanged = settingsViewModel::onBaseUrlChanged,
+                    onModelIdChanged = settingsViewModel::onModelIdChanged,
+                    onTimeoutChanged = settingsViewModel::onTimeoutChanged,
+                    onApiKeyChanged = settingsViewModel::onApiKeyChanged,
+                    onValidateConnection = settingsViewModel::validateConnection,
+                    onFinish = onboardingViewModel::finish,
+                )
+            }
         }
     }
 }

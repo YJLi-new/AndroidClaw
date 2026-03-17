@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.data.ThemePreference
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -33,6 +34,27 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemePreference.entries.forEach { themePreference ->
+                        FilterChip(
+                            selected = state.themePreference == themePreference,
+                            onClick = { viewModel.selectThemePreference(themePreference) },
+                            label = { Text(themePreference.displayName) },
+                        )
+                    }
+                }
+                Text("Current theme: ${state.themePreference.displayName}")
+            }
+        }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.padding(14.dp),

@@ -18,6 +18,7 @@ class SettingsDataStore(
     private val context: Context,
 ) {
     private val providerTypeKey = stringPreferencesKey("provider_type")
+    private val themePreferenceKey = stringPreferencesKey("theme_preference")
     private val legacyOpenAiBaseUrlKey = stringPreferencesKey("openai_base_url")
     private val legacyOpenAiModelIdKey = stringPreferencesKey("openai_model_id")
     private val legacyOpenAiTimeoutSecondsKey = intPreferencesKey("openai_timeout_seconds")
@@ -43,6 +44,18 @@ class SettingsDataStore(
             )
         }
 
+    val themePreference: Flow<ThemePreference> = context.settingsDataStore.data
+        .catch { error ->
+            if (error is IOException) {
+                emit(emptyPreferences())
+            } else {
+                throw error
+            }
+        }
+        .map { preferences ->
+            ThemePreference.fromStorage(preferences[themePreferenceKey])
+        }
+
     suspend fun saveProviderSettings(settings: ProviderSettingsSnapshot) {
         context.settingsDataStore.edit { preferences ->
             preferences[providerTypeKey] = settings.providerType.storageValue
@@ -63,6 +76,12 @@ class SettingsDataStore(
     suspend fun setProviderType(providerType: ProviderType) {
         context.settingsDataStore.edit { preferences ->
             preferences[providerTypeKey] = providerType.storageValue
+        }
+    }
+
+    suspend fun setThemePreference(themePreference: ThemePreference) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[themePreferenceKey] = themePreference.storageValue
         }
     }
 

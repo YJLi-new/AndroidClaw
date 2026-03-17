@@ -6,6 +6,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.ThemePreference
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelProviderException
@@ -39,6 +40,7 @@ data class SettingsUiState(
     val lastValidationSucceeded: Boolean = false,
     val statusMessage: String? = null,
     val buildPosture: String = "",
+    val themePreference: ThemePreference = ThemePreference.System,
 )
 
 class SettingsViewModel(
@@ -64,6 +66,7 @@ class SettingsViewModel(
         val mutationVersion = nextMutationVersion()
         viewModelScope.launch {
             val settings = settingsDataStore.settings.first()
+            val themePreference = settingsDataStore.themePreference.first()
             val storedApiKey = providerSecretStore.readApiKey(providerType)
             val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val endpointSettings = settings.endpointSettings(providerType)
@@ -96,6 +99,23 @@ class SettingsViewModel(
                         recoveredApiKey = recoveredApiKey,
                         networkConnected = networkStatus.isConnected,
                     ),
+                    themePreference = themePreference,
+                )
+            }
+        }
+    }
+
+    fun selectThemePreference(themePreference: ThemePreference) {
+        val mutationVersion = nextMutationVersion()
+        viewModelScope.launch {
+            settingsDataStore.setThemePreference(themePreference)
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
+            }
+            mutableState.update {
+                it.copy(
+                    themePreference = themePreference,
+                    statusMessage = "Theme preference saved.",
                 )
             }
         }
@@ -305,6 +325,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             val refreshVersion = stateMutationVersion
             val settings = settingsDataStore.settings.first()
+            val themePreference = settingsDataStore.themePreference.first()
             val providerType = settings.providerType
             val endpointSettings = settings.endpointSettings(providerType)
             val storedApiKey = providerSecretStore.readApiKey(providerType)
@@ -339,6 +360,7 @@ class SettingsViewModel(
                     networkConnected = networkStatus.isConnected,
                 ),
                 buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
+                themePreference = themePreference,
             )
         }
     }

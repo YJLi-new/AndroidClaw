@@ -1,5 +1,6 @@
 package ai.androidclaw.ui.theme
 
+import ai.androidclaw.data.ThemePreference
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -31,12 +32,16 @@ private val DarkColors = darkColorScheme(
 
 @Composable
 fun AndroidClawTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themePreference: ThemePreference = ThemePreference.System,
     content: @Composable () -> Unit,
 ) {
+    val darkTheme = when (themePreference) {
+        ThemePreference.System -> isSystemInDarkTheme()
+        ThemePreference.Light -> false
+        ThemePreference.Dark -> true
+    }
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         content = content,
     )
 }
-

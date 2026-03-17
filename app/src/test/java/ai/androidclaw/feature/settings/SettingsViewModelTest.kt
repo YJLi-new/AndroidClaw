@@ -4,6 +4,7 @@ import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.ThemePreference
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.testutil.MainDispatcherRule
@@ -226,6 +227,19 @@ class SettingsViewModelTest {
         assertEquals("Connection test succeeded.", state.statusMessage)
         assertEquals(ProviderType.OpenAiCompatible, settingsDataStore.settings.first().providerType)
         assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
+    }
+
+    @Test
+    fun `selectThemePreference persists and updates state`() = runTest {
+        val viewModel = buildViewModel()
+        waitForState(viewModel) { it.activeProviderId == "fake" }
+
+        viewModel.selectThemePreference(ThemePreference.Dark)
+
+        val state = waitForState(viewModel) { it.themePreference == ThemePreference.Dark }
+
+        assertEquals(ThemePreference.Dark, state.themePreference)
+        assertEquals(ThemePreference.Dark, settingsDataStore.themePreference.first())
     }
 
     private fun buildViewModel(): SettingsViewModel {
