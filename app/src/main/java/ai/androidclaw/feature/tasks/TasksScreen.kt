@@ -36,6 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.Duration
@@ -76,7 +79,13 @@ fun TasksScreen(viewModel: TasksViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Tasks", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Tasks",
+                modifier = Modifier
+                    .semantics { heading() }
+                    .testTag("tasksHeading"),
+                style = MaterialTheme.typography.headlineSmall,
+            )
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -256,6 +265,13 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Switch(
+                            modifier = Modifier.semantics {
+                                stateDescription = if (precise) {
+                                    "Precise scheduling enabled"
+                                } else {
+                                    "Approximate scheduling enabled"
+                                }
+                            },
                             checked = precise,
                             onCheckedChange = { precise = it },
                         )

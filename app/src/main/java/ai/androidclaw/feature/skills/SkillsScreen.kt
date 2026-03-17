@@ -29,6 +29,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,7 +58,13 @@ fun SkillsScreen(viewModel: SkillsViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Skills", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Skills",
+            modifier = Modifier
+                .semantics { heading() }
+                .testTag("skillsHeading"),
+            style = MaterialTheme.typography.headlineSmall,
+        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -156,6 +166,9 @@ private fun SkillCard(
                     }
                 }
                 Switch(
+                    modifier = Modifier.semantics {
+                        stateDescription = if (skill.enabled) "Enabled" else "Disabled"
+                    },
                     checked = skill.enabled,
                     onCheckedChange = onToggle,
                 )

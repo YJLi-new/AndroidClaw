@@ -101,16 +101,25 @@ androidclaw_build_android_test_artifacts() {
   local repo_root="$1"
   local variant="${2:-debug}"
   local capitalized_variant
+  local gradle_flags=()
 
   capitalized_variant="${variant^}"
+  # Prefer cached offline resolution for repo-owned emulator smoke runs. This
+  # host can otherwise stall on remote metadata HEAD requests even when the
+  # required Android artifacts are already present locally.
+  if [[ "${ANDROIDCLAW_GRADLE_OFFLINE:-1}" == "1" ]]; then
+    gradle_flags+=(--offline)
+  fi
 
   "$repo_root/gradlew" --stop >/dev/null 2>&1 || true
   "$repo_root/gradlew" \
+    "${gradle_flags[@]}" \
     --no-daemon \
     -Dkotlin.compiler.execution.strategy=in-process \
     -Dkotlin.incremental=false \
     ":app:assemble${capitalized_variant}" \
     :app:assembleAndroidTest \
+    --console=plain \
     --no-configuration-cache \
     --no-build-cache
 }

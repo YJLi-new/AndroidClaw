@@ -37,9 +37,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -128,6 +133,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
     ) {
         Text(
             text = state.sessionTitle.ifBlank { "Loading session..." },
+            modifier = Modifier
+                .semantics { heading() }
+                .testTag("chatHeading"),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
         )
@@ -292,7 +300,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
         }
         state.noticeMessage?.let { noticeMessage ->
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
                         text = "Status",
@@ -307,7 +319,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
         }
         state.errorMessage?.let { errorMessage ->
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Assertive },
+            ) {
                 Column(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -457,9 +473,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    val runningStateDescription =
+                        state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response"
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .semantics { stateDescription = runningStateDescription },
+                    )
                     Text(
-                        text = state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response",
+                        text = runningStateDescription,
                         modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.bodyMedium,
                     )

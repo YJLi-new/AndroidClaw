@@ -15,6 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.format.DateTimeFormatter
@@ -33,7 +36,13 @@ fun HealthScreen(viewModel: HealthViewModel) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Health", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Health",
+            modifier = Modifier
+                .semantics { heading() }
+                .testTag("healthHeading"),
+            style = MaterialTheme.typography.headlineSmall,
+        )
         Button(onClick = viewModel::refreshDiagnostics) {
             Text("Refresh diagnostics")
         }
