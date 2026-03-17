@@ -28,6 +28,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -302,6 +303,57 @@ class ChatViewModelTest {
 
             assertEquals(otherSession.id, opened.currentSessionId)
             assertEquals(messageHit.messageId, opened.highlightedMessageId)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `export current session emits markdown document payload`() = runTest {
+        val mainSession = sessionRepository.getOrCreateMainSession()
+        messageRepository.addMessage(
+            sessionId = mainSession.id,
+            role = MessageRole.Assistant,
+            content = "Export this session.",
+        )
+
+        viewModel.state.test {
+            awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
+            val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+
+            viewModel.exportCurrentSession(ChatExportFormat.Markdown)
+
+            val action = actionDeferred.await()
+            val exported = awaitState { it.noticeMessage?.contains("Ready to save") == true }
+            val payload = (action as ChatExternalAction.ExportDocument).payload
+
+            assertTrue(payload.fileName.endsWith(".md"))
+            assertTrue(payload.content.contains("Export this session."))
+            assertTrue(payload.content.contains("## Transcript"))
+            assertEquals(mainSession.id, exported.currentSessionId)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `share current session as file emits share file payload`() = runTest {
+        val mainSession = sessionRepository.getOrCreateMainSession()
+        messageRepository.addMessage(
+            sessionId = mainSession.id,
+            role = MessageRole.Assistant,
+            content = "Share this session.",
+        )
+
+        viewModel.state.test {
+            awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
+            val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+
+            viewModel.shareCurrentSessionAsFile(ChatExportFormat.Json)
+
+            val action = actionDeferred.await()
+            val payload = (action as ChatExternalAction.ShareFile).payload
+
+            assertTrue(payload.fileName.endsWith(".json"))
+            assertTrue(payload.content.contains("\"messages\""))
             cancelAndIgnoreRemainingEvents()
         }
     }

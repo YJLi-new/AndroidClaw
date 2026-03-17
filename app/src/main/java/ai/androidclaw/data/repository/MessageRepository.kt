@@ -48,6 +48,10 @@ class MessageRepository(
         messages.map(MessageEntity::toDomain)
     }
 
+    suspend fun getMessages(sessionId: String): List<ChatMessage> {
+        return dao.getAllBySessionId(sessionId).map(MessageEntity::toDomain)
+    }
+
     suspend fun getRecentMessages(sessionId: String, limit: Int): List<ChatMessage> {
         return dao.getRecentBySessionId(sessionId, limit).map(MessageEntity::toDomain)
     }

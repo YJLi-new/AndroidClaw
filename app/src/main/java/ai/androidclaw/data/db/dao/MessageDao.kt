@@ -27,6 +27,15 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE sessionId = :sessionId
+        ORDER BY createdAt ASC, rowid ASC
+        """,
+    )
+    suspend fun getAllBySessionId(sessionId: String): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
         ORDER BY createdAt DESC, rowid DESC
         LIMIT :limit
         """,

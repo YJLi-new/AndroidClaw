@@ -54,7 +54,9 @@ class MessageDaoTest {
         )
 
         val messages = dao.getBySessionId("main").first()
+        val allMessages = dao.getAllBySessionId("main")
         assertEquals(listOf("m1", "m2", "m3"), messages.map { it.id })
+        assertEquals(listOf("m1", "m2", "m3"), allMessages.map { it.id })
 
         val recent = dao.getRecentBySessionId("main", limit = 2)
         assertEquals(listOf("m3", "m2"), recent.map { it.id })
@@ -64,4 +66,3 @@ class MessageDaoTest {
         assertEquals(0, dao.countBySessionId("main"))
     }
 }
-

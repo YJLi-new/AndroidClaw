@@ -1,5 +1,11 @@
 package ai.androidclaw.feature.chat
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,18 +34,50 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.io.File
+import kotlinx.coroutines.flow.collect
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
+    var pendingExport by remember { mutableStateOf<ChatExportPayload?>(null) }
     val messageListState = rememberLazyListState()
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val payload = pendingExport
+        pendingExport = null
+        if (payload == null) return@rememberLauncherForActivityResult
+        if (result.resultCode != Activity.RESULT_OK) {
+            viewModel.onExportCancelled()
+            return@rememberLauncherForActivityResult
+        }
+        val uri = result.data?.data
+        if (uri == null) {
+            viewModel.onExternalActionFailed("Failed to export ${payload.fileName}: no file destination selected.")
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            writeExportPayload(context, uri, payload)
+        }.onSuccess {
+            viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
+        }.onFailure { error ->
+            viewModel.onExternalActionFailed(
+                "Failed to export ${payload.fileName}: ${error.message ?: "unknown error"}.",
+            )
+        }
+    }
 
     LaunchedEffect(state.sessionTitle, state.currentSessionId) {
         renameDraft = state.sessionTitle
@@ -50,6 +88,32 @@ fun ChatScreen(viewModel: ChatViewModel) {
         val targetIndex = state.messages.indexOfFirst { it.id == highlightedMessageId }
         if (targetIndex >= 0) {
             messageListState.animateScrollToItem(targetIndex)
+        }
+    }
+
+    LaunchedEffect(viewModel, context) {
+        viewModel.actions.collect { action ->
+            when (action) {
+                is ChatExternalAction.ExportDocument -> {
+                    pendingExport = action.payload
+                    exportLauncher.launch(createExportDocumentIntent(action.payload))
+                }
+
+                is ChatExternalAction.ShareText -> {
+                    launchShareText(context, action)
+                }
+
+                is ChatExternalAction.ShareFile -> {
+                    runCatching {
+                        val uri = writeShareFile(context, action.payload)
+                        launchShareFile(context, action.payload, uri)
+                    }.onFailure { error ->
+                        viewModel.onExternalActionFailed(
+                            "Failed to share ${action.payload.fileName}: ${error.message ?: "unknown error"}.",
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -157,6 +221,57 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         text = providerNotice,
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            }
+        }
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Export and share",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        AssistChip(
+                            onClick = { viewModel.exportCurrentSession(ChatExportFormat.Text) },
+                            label = { Text("Export TXT") },
+                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                        )
+                    }
+                    item {
+                        AssistChip(
+                            onClick = { viewModel.exportCurrentSession(ChatExportFormat.Markdown) },
+                            label = { Text("Export MD") },
+                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                        )
+                    }
+                    item {
+                        AssistChip(
+                            onClick = { viewModel.exportCurrentSession(ChatExportFormat.Json) },
+                            label = { Text("Export JSON") },
+                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                        )
+                    }
+                }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        AssistChip(
+                            onClick = viewModel::shareCurrentSessionAsText,
+                            label = { Text("Share text") },
+                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                        )
+                    }
+                    item {
+                        AssistChip(
+                            onClick = { viewModel.shareCurrentSessionAsFile(ChatExportFormat.Markdown) },
+                            label = { Text("Share file") },
+                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                        )
+                    }
                 }
             }
         }
@@ -348,4 +463,63 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
         }
     }
+}
+
+private fun createExportDocumentIntent(payload: ChatExportPayload): Intent {
+    return Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = payload.mimeType
+        putExtra(Intent.EXTRA_TITLE, payload.fileName)
+    }
+}
+
+private fun writeExportPayload(
+    context: Context,
+    uri: Uri,
+    payload: ChatExportPayload,
+) {
+    context.contentResolver.openOutputStream(uri)?.bufferedWriter().use { writer ->
+        requireNotNull(writer) { "Unable to open destination for ${payload.fileName}" }
+        writer.write(payload.content)
+    }
+}
+
+private fun launchShareText(
+    context: Context,
+    action: ChatExternalAction.ShareText,
+) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, action.subject)
+        putExtra(Intent.EXTRA_TEXT, action.text)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share session"))
+}
+
+private fun writeShareFile(
+    context: Context,
+    payload: ChatExportPayload,
+): Uri {
+    val exportDirectory = File(context.cacheDir, "chat-exports").apply { mkdirs() }
+    val exportFile = File(exportDirectory, payload.fileName)
+    exportFile.writeText(payload.content)
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.chat-export-provider",
+        exportFile,
+    )
+}
+
+private fun launchShareFile(
+    context: Context,
+    payload: ChatExportPayload,
+    uri: Uri,
+) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = payload.mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, payload.fileName)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share session file"))
 }

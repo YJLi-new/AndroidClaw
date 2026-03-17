@@ -146,6 +146,10 @@ private class ThrowingMessageDao(
 
     override fun getBySessionId(sessionId: String): Flow<List<MessageEntity>> = delegate.getBySessionId(sessionId)
 
+    override suspend fun getAllBySessionId(sessionId: String): List<MessageEntity> {
+        return delegate.getAllBySessionId(sessionId)
+    }
+
     override suspend fun getRecentBySessionId(sessionId: String, limit: Int): List<MessageEntity> {
         return delegate.getRecentBySessionId(sessionId, limit)
     }

@@ -23,8 +23,10 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -96,11 +98,13 @@ class ChatViewModel(
     private val searchQuery = MutableStateFlow("")
     private val searchResults = MutableStateFlow<List<ChatSearchResultUi>>(emptyList())
     private val highlightedMessageId = MutableStateFlow<String?>(null)
+    private val externalActions = MutableSharedFlow<ChatExternalAction>(extraBufferCapacity = 4)
     private val mutableCurrentSessionId = MutableStateFlow("")
     private val streamingAssistantText = MutableStateFlow("")
     private val canRetryLastFailedTurn = MutableStateFlow(false)
     private val activeTurnStage = MutableStateFlow<String?>(null)
     val currentSessionId: StateFlow<String> = mutableCurrentSessionId.asStateFlow()
+    val actions = externalActions.asSharedFlow()
 
     private val sessionsFlow = sessionRepository.observeSessions()
     private var activeTurnJob: Job? = null
@@ -430,6 +434,71 @@ class ChatViewModel(
         syncRetryAvailability(result.sessionId)
     }
 
+    fun exportCurrentSession(format: ChatExportFormat) {
+        if (isRunning.value) return
+        viewModelScope.launch {
+            runCatching { buildExportPayload(format) }
+                .onSuccess { payload ->
+                    errorMessage.value = null
+                    noticeMessage.value = "Ready to save ${payload.fileName}."
+                    externalActions.emit(ChatExternalAction.ExportDocument(payload))
+                }
+                .onFailure { throwable ->
+                    errorMessage.value = throwable.userFacingMessage("prepare export")
+                }
+        }
+    }
+
+    fun shareCurrentSessionAsText() {
+        if (isRunning.value) return
+        viewModelScope.launch {
+            runCatching { buildExportPayload(ChatExportFormat.Text) }
+                .onSuccess { payload ->
+                    errorMessage.value = null
+                    noticeMessage.value = "Opening share sheet."
+                    externalActions.emit(
+                        ChatExternalAction.ShareText(
+                            subject = state.value.sessionTitle.ifBlank { "AndroidClaw session" },
+                            text = payload.content,
+                        ),
+                    )
+                }
+                .onFailure { throwable ->
+                    errorMessage.value = throwable.userFacingMessage("prepare share text")
+                }
+        }
+    }
+
+    fun shareCurrentSessionAsFile(format: ChatExportFormat = ChatExportFormat.Markdown) {
+        if (isRunning.value) return
+        viewModelScope.launch {
+            runCatching { buildExportPayload(format) }
+                .onSuccess { payload ->
+                    errorMessage.value = null
+                    noticeMessage.value = "Opening share sheet."
+                    externalActions.emit(ChatExternalAction.ShareFile(payload))
+                }
+                .onFailure { throwable ->
+                    errorMessage.value = throwable.userFacingMessage("prepare share file")
+                }
+        }
+    }
+
+    fun onExternalActionCompleted(message: String?) {
+        if (!message.isNullOrBlank()) {
+            errorMessage.value = null
+            noticeMessage.value = message
+        }
+    }
+
+    fun onExternalActionFailed(message: String) {
+        errorMessage.value = message
+    }
+
+    fun onExportCancelled() {
+        noticeMessage.value = "Export cancelled."
+    }
+
     private fun startTurn(
         sessionId: String,
         userMessage: String,
@@ -584,6 +653,19 @@ class ChatViewModel(
         }
     }
 
+    private suspend fun buildExportPayload(format: ChatExportFormat): ChatExportPayload {
+        val sessionId = currentSessionId.value.takeIf { it.isNotBlank() }
+            ?: error("No active session to export.")
+        val session = sessionRepository.getSession(sessionId)
+            ?: error("Session is no longer available.")
+        val messages = messageRepository.getMessages(sessionId)
+        return ChatExportFormatter.buildExportPayload(
+            session = session,
+            messages = messages,
+            format = format,
+        )
+    }
+
     companion object {
         private const val SEARCH_SESSION_LIMIT = 6
         private const val SEARCH_MESSAGE_LIMIT = 10
@@ -648,6 +730,15 @@ private fun buildSearchPreview(
 
 private const val SEARCH_PREVIEW_WINDOW = 48
 private const val SEARCH_PREVIEW_LIMIT = 120
+
+private fun Throwable.userFacingMessage(operation: String): String {
+    val details = message?.takeIf { it.isNotBlank() }
+    return if (details != null) {
+        "Failed to $operation: $details"
+    } else {
+        "Failed to $operation."
+    }
+}
 
 private fun ChatMessage.toUi(): ChatMessageUi {
     return ChatMessageUi(

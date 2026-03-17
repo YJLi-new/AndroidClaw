@@ -71,7 +71,9 @@ class MessageRepositoryTest {
         assertEquals(MessageRole.User, user.role)
         assertTrue(emitted.await().any { it.content == "hello" })
 
+        val allMessages = repository.getMessages("main")
         val recent = repository.getRecentMessages("main", limit = 2)
+        assertEquals(listOf(MessageRole.User, MessageRole.Assistant), allMessages.map { it.role })
         assertEquals(listOf(MessageRole.Assistant, MessageRole.User), recent.map { it.role })
         assertTrue(recent.first().providerMeta?.contains("fake") == true)
     }
