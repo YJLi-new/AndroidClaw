@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -409,6 +410,7 @@ private fun TaskCard(
     onDelete: () -> Unit,
     context: Context,
 ) {
+    val latestRun = recentRuns.firstOrNull()
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -416,8 +418,113 @@ private fun TaskCard(
         ) {
             Text(task.name, style = MaterialTheme.typography.titleMedium)
             Text(task.prompt, style = MaterialTheme.typography.bodyMedium)
+            TaskFactRow(
+                label = "Execution",
+                value = when (task.executionMode) {
+                    TaskExecutionMode.MainSession -> "Main session"
+                    TaskExecutionMode.IsolatedSession -> "Isolated session"
+                },
+            )
+            TaskFactRow(
+                label = "Target",
+                value = task.targetSessionId ?: "Main session",
+            )
+            TaskFactRow(
+                label = "Delivery path",
+                value = when (decision.path) {
+                    TaskSchedulingPath.ExactAlarm -> "Precise exact alarm"
+                    TaskSchedulingPath.WorkManagerApproximate -> {
+                        if (task.precise) {
+                            "Approximate WorkManager fallback"
+                        } else {
+                            "Approximate WorkManager"
+                        }
+                    }
+                },
+            )
+            TaskFactRow(
+                label = "Next wake",
+                value = task.nextRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unscheduled",
+            )
+            TaskFactRow(
+                label = "Retry state",
+                value = retryStateText(task, latestRun),
+            )
+            latestRun?.let { run ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = when (run.status) {
+                            ai.androidclaw.data.model.TaskRunStatus.Success -> MaterialTheme.colorScheme.secondaryContainer
+                            ai.androidclaw.data.model.TaskRunStatus.Failure -> MaterialTheme.colorScheme.errorContainer
+                            ai.androidclaw.data.model.TaskRunStatus.Skipped -> MaterialTheme.colorScheme.tertiaryContainer
+                            ai.androidclaw.data.model.TaskRunStatus.Pending,
+                            ai.androidclaw.data.model.TaskRunStatus.Running,
+                                -> MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Latest run", style = MaterialTheme.typography.labelLarge)
+                        TaskFactRow(label = "Status", value = run.status.name)
+                        TaskFactRow(
+                            label = "Scheduled",
+                            value = DateTimeFormatter.ISO_INSTANT.format(run.scheduledAt),
+                        )
+                        TaskFactRow(
+                            label = "Finished",
+                            value = run.finishedAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Still running",
+                        )
+                        run.errorCode?.let { code ->
+                            TaskFactRow(label = "Error code", value = code)
+                        }
+                        run.errorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+                            Text(
+                                text = message,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        run.resultSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                            Text(
+                                text = summary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
+            if (decision.degradedReason != null || preciseWarnings.isNotEmpty() || restrictedBucket) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Scheduling notes", style = MaterialTheme.typography.labelLarge)
+                        decision.degradedReason?.let { reason ->
+                            Text(reason, style = MaterialTheme.typography.bodySmall)
+                        }
+                        preciseWarnings
+                            .filterNot { it == decision.degradedReason }
+                            .forEach { warning ->
+                                Text(warning, style = MaterialTheme.typography.bodySmall)
+                            }
+                        if (restrictedBucket) {
+                            Text(
+                                "App standby bucket is restricted; background work may be delayed.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
             Text(
-                text = taskCardBody(task, decision, preciseWarnings, restrictedBucket),
+                text = if (task.enabled) "Task is enabled." else "Task is disabled.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
@@ -443,10 +550,10 @@ private fun TaskCard(
                     Text("Delete")
                 }
             }
-            if (recentRuns.isNotEmpty()) {
+            if (recentRuns.size > 1) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Recent runs", style = MaterialTheme.typography.labelMedium)
-                    recentRuns.forEach { run ->
+                    recentRuns.drop(1).forEach { run ->
                         Text(
                             text = buildString {
                                 append(run.status.name)
@@ -481,6 +588,34 @@ private fun TaskCard(
     }
 }
 
+internal fun retryStateText(
+    task: Task,
+    latestRun: TaskRun?,
+): String {
+    return when {
+        latestRun == null -> "No runs yet"
+        task.failureCount <= 0 -> "Healthy"
+        task.failureCount >= task.maxRetries -> "Retries exhausted (${task.failureCount}/${task.maxRetries})"
+        else -> {
+            val nextWake = task.nextRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "unscheduled"
+            "Retry budget used ${task.failureCount}/${task.maxRetries}; next wake $nextWake"
+        }
+    }
+}
+
+@Composable
+private fun TaskFactRow(
+    label: String,
+    value: String,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        Text(value, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
 @Composable
 private fun SchedulerCard(title: String, body: String) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -490,39 +625,6 @@ private fun SchedulerCard(title: String, body: String) {
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(body, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-private fun taskCardBody(
-    task: Task,
-    decision: TaskSchedulingDecision,
-    preciseWarnings: List<String>,
-    restrictedBucket: Boolean,
-): String {
-    return buildString {
-        append("Enabled: ").append(task.enabled)
-        append("\nExecution: ").append(task.executionMode.name)
-        append("\nTarget session: ").append(task.targetSessionId ?: "Main session")
-        append("\nNext: ").append(task.nextRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unscheduled")
-        append("\nLast run: ").append(task.lastRunAt?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Never")
-        append("\nPrecision: ").append(if (task.precise) "Precise user-visible" else "Approximate")
-        append("\nScheduling path: ").append(
-            when (decision.path) {
-                TaskSchedulingPath.ExactAlarm -> "Exact alarm"
-                TaskSchedulingPath.WorkManagerApproximate -> "WorkManager"
-            },
-        )
-        decision.degradedReason?.let { reason ->
-            append("\n").append(reason)
-        }
-        preciseWarnings
-            .filterNot { it == decision.degradedReason }
-            .forEach { warning ->
-                append("\n").append(warning)
-            }
-        if (restrictedBucket) {
-            append("\nApp standby bucket is restricted; background work may be delayed.")
         }
     }
 }
