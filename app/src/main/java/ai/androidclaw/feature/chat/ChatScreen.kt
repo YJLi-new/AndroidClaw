@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -361,33 +362,67 @@ fun ChatScreen(viewModel: ChatViewModel) {
             state = messageListState,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (state.messages.isEmpty() && state.streamingAssistantText.isBlank() && !state.isRunning) {
+                item(key = "empty-chat") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = "No messages yet",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = "Start a conversation, run a slash command, or export/share the current session once it has content.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
             items(state.messages, key = { it.id }) { message ->
+                val appearance = messageAppearance(
+                    role = message.role,
+                    isHighlighted = message.id == state.highlightedMessageId,
+                )
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (message.id == state.highlightedMessageId) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        },
+                        containerColor = appearance.containerColor,
                     ),
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         Text(
-                            text = message.role.uppercase(),
+                            text = appearance.label,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
+                            color = appearance.labelColor,
                         )
-                        Text(
+                        ChatRichText(
                             text = message.text,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                color = appearance.contentColor,
+                            ),
                         )
                     }
                 }
             }
             if (state.streamingAssistantText.isNotBlank() || (state.isRunning && state.activeTurnStage != null)) {
                 item(key = "streaming-assistant") {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        ),
+                    ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -401,10 +436,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 Text(
                                     text = stage,
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    color = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            Text(
+                            ChatRichText(
                                 text = state.streamingAssistantText.ifBlank { "Working..." },
                                 style = MaterialTheme.typography.bodyLarge,
                             )
@@ -522,4 +557,61 @@ private fun launchShareFile(
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Share session file"))
+}
+
+private data class MessageAppearance(
+    val label: String,
+    val containerColor: Color,
+    val labelColor: Color,
+    val contentColor: Color,
+)
+
+@Composable
+private fun messageAppearance(
+    role: String,
+    isHighlighted: Boolean,
+): MessageAppearance {
+    val base = when (role.lowercase()) {
+        "user" -> MessageAppearance(
+            label = "User",
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+        "assistant" -> MessageAppearance(
+            label = "Assistant",
+            containerColor = MaterialTheme.colorScheme.surface,
+            labelColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        )
+        "tool_call" -> MessageAppearance(
+            label = "Tool call",
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        )
+        "tool_result" -> MessageAppearance(
+            label = "Tool result",
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        )
+        "system" -> MessageAppearance(
+            label = "System",
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            labelColor = MaterialTheme.colorScheme.onErrorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        else -> MessageAppearance(
+            label = role,
+            containerColor = MaterialTheme.colorScheme.surface,
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+    return if (isHighlighted) {
+        base.copy(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    } else {
+        base
+    }
 }
