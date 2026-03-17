@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.tasks
 
+import android.content.Context
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.runtime.scheduler.CronExpression
@@ -33,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,6 +52,7 @@ private enum class TaskScheduleKindUi {
 @Composable
 fun TasksScreen(viewModel: TasksViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var name by rememberSaveable { mutableStateOf("") }
     var prompt by rememberSaveable { mutableStateOf("") }
     var scheduleKind by rememberSaveable { mutableStateOf(TaskScheduleKindUi.Once) }
@@ -260,10 +263,20 @@ fun TasksScreen(viewModel: TasksViewModel) {
                     if (precise) {
                         val creationWarnings = state.diagnostics.preciseSchedulingWarnings()
                         if (creationWarnings.isNotEmpty()) {
-                            SchedulerCard(
-                                title = "Precise reminder warning",
-                                body = creationWarnings.joinToString("\n"),
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SchedulerCard(
+                                    title = "Precise reminder warning",
+                                    body = creationWarnings.joinToString("\n"),
+                                )
+                                if (state.diagnostics.supportsExactAlarms && !state.diagnostics.exactAlarmGranted ||
+                                    state.diagnostics.preciseReminderVisibilityWarning != null
+                                ) {
+                                    ExactAlarmActionRow(
+                                        diagnostics = state.diagnostics,
+                                        context = context,
+                                    )
+                                }
+                            }
                         }
                     }
                     Button(
@@ -336,10 +349,12 @@ fun TasksScreen(viewModel: TasksViewModel) {
                     decision = decision,
                     preciseWarnings = task.userVisiblePreciseWarnings(state.diagnostics),
                     restrictedBucket = state.diagnostics.isRestrictedBucket,
+                    diagnostics = state.diagnostics,
                     recentRuns = state.recentRunsByTaskId[task.id].orEmpty(),
                     onToggleEnabled = { viewModel.toggleEnabled(task.id) },
                     onRunNow = { viewModel.runNow(task.id) },
                     onDelete = { viewModel.deleteTask(task.id) },
+                    context = context,
                 )
             }
         }
@@ -352,10 +367,12 @@ private fun TaskCard(
     decision: TaskSchedulingDecision,
     preciseWarnings: List<String>,
     restrictedBucket: Boolean,
+    diagnostics: ai.androidclaw.runtime.scheduler.SchedulerDiagnostics,
     recentRuns: List<TaskRun>,
     onToggleEnabled: () -> Unit,
     onRunNow: () -> Unit,
     onDelete: () -> Unit,
+    context: Context,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -412,6 +429,19 @@ private fun TaskCard(
                     }
                 }
             }
+            if (
+                task.precise &&
+                preciseWarnings.isNotEmpty() &&
+                (
+                    diagnostics.supportsExactAlarms && !diagnostics.exactAlarmGranted ||
+                        diagnostics.preciseReminderVisibilityWarning != null
+                    )
+            ) {
+                ExactAlarmActionRow(
+                    diagnostics = diagnostics,
+                    context = context,
+                )
+            }
         }
     }
 }
@@ -458,6 +488,34 @@ private fun taskCardBody(
             }
         if (restrictedBucket) {
             append("\nApp standby bucket is restricted; background work may be delayed.")
+        }
+    }
+}
+
+@Composable
+private fun ExactAlarmActionRow(
+    diagnostics: ai.androidclaw.runtime.scheduler.SchedulerDiagnostics,
+    context: Context,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (diagnostics.supportsExactAlarms && !diagnostics.exactAlarmGranted) {
+            Button(
+                onClick = { context.startActivity(buildExactAlarmSettingsIntent(context)) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Open exact alarm access")
+            }
+        }
+        if (diagnostics.preciseReminderVisibilityWarning != null) {
+            Button(
+                onClick = { context.startActivity(buildNotificationSettingsIntent(context)) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Open notification settings")
+            }
         }
     }
 }
