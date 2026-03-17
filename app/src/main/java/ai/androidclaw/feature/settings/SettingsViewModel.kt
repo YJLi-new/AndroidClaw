@@ -6,6 +6,12 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.runtime.providers.ModelMessage
+import ai.androidclaw.runtime.providers.ModelMessageRole
+import ai.androidclaw.runtime.providers.ModelProviderException
+import ai.androidclaw.runtime.providers.ModelProviderFailureKind
+import ai.androidclaw.runtime.providers.ModelRequest
+import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import androidx.lifecycle.ViewModel
@@ -29,6 +35,8 @@ data class SettingsUiState(
     val apiKeyDraft: String = "",
     val hasStoredApiKey: Boolean = false,
     val configured: Boolean = false,
+    val isValidatingConnection: Boolean = false,
+    val lastValidationSucceeded: Boolean = false,
     val statusMessage: String? = null,
     val buildPosture: String = "",
 )
@@ -46,18 +54,23 @@ class SettingsViewModel(
         ),
     )
     val state: StateFlow<SettingsUiState> = mutableState.asStateFlow()
+    private var stateMutationVersion: Long = 0
 
     init {
         refresh()
     }
 
     fun selectProviderType(providerType: ProviderType) {
+        val mutationVersion = nextMutationVersion()
         viewModelScope.launch {
             val settings = settingsDataStore.settings.first()
             val storedApiKey = providerSecretStore.readApiKey(providerType)
             val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val endpointSettings = settings.endpointSettings(providerType)
             val networkStatus = networkStatusProvider.currentStatus()
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
+            }
             mutableState.update {
                 it.copy(
                     providerType = providerType,
@@ -75,6 +88,8 @@ class SettingsViewModel(
                         apiKeyDraft = "",
                         hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                     ),
+                    isValidatingConnection = false,
+                    lastValidationSucceeded = false,
                     statusMessage = resolveStatusMessage(
                         explicit = null,
                         providerType = providerType,
@@ -87,7 +102,7 @@ class SettingsViewModel(
     }
 
     fun onBaseUrlChanged(value: String) {
-        mutableState.update {
+        mutateState {
             it.copy(
                 baseUrl = value,
                 configured = isConfigured(
@@ -97,13 +112,14 @@ class SettingsViewModel(
                     apiKeyDraft = it.apiKeyDraft,
                     hasStoredApiKey = it.hasStoredApiKey,
                 ),
+                lastValidationSucceeded = false,
                 statusMessage = null,
             )
         }
     }
 
     fun onModelIdChanged(value: String) {
-        mutableState.update {
+        mutateState {
             it.copy(
                 modelId = value,
                 configured = isConfigured(
@@ -113,22 +129,24 @@ class SettingsViewModel(
                     apiKeyDraft = it.apiKeyDraft,
                     hasStoredApiKey = it.hasStoredApiKey,
                 ),
+                lastValidationSucceeded = false,
                 statusMessage = null,
             )
         }
     }
 
     fun onTimeoutChanged(value: String) {
-        mutableState.update {
+        mutateState {
             it.copy(
                 timeoutSeconds = value,
+                lastValidationSucceeded = false,
                 statusMessage = null,
             )
         }
     }
 
     fun onApiKeyChanged(value: String) {
-        mutableState.update {
+        mutateState {
             it.copy(
                 apiKeyDraft = value,
                 configured = isConfigured(
@@ -138,6 +156,7 @@ class SettingsViewModel(
                     apiKeyDraft = value,
                     hasStoredApiKey = it.hasStoredApiKey,
                 ),
+                lastValidationSucceeded = false,
                 statusMessage = null,
             )
         }
@@ -148,8 +167,12 @@ class SettingsViewModel(
         if (!providerType.requiresRemoteSettings) {
             return
         }
+        val mutationVersion = nextMutationVersion()
         viewModelScope.launch {
             providerSecretStore.writeApiKey(providerType, null)
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
+            }
             mutableState.update {
                 it.copy(
                     apiKeyDraft = "",
@@ -161,6 +184,7 @@ class SettingsViewModel(
                         apiKeyDraft = "",
                         hasStoredApiKey = false,
                     ),
+                    lastValidationSucceeded = false,
                     statusMessage = "Stored API key cleared.",
                 )
             }
@@ -171,45 +195,124 @@ class SettingsViewModel(
         val snapshot = state.value
         val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
         if (snapshot.providerType.requiresRemoteSettings && (timeoutSeconds == null || timeoutSeconds <= 0)) {
-            mutableState.update { it.copy(statusMessage = "Timeout must be a positive integer.") }
+            mutateState { it.copy(statusMessage = "Timeout must be a positive integer.") }
             return
         }
         val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 }
             ?: snapshot.providerType.defaultTimeoutSeconds
+        val mutationVersion = nextMutationVersion()
 
         viewModelScope.launch {
-            val currentSettings = settingsDataStore.settings.first()
-            val updatedSettings = if (snapshot.providerType.requiresRemoteSettings) {
-                currentSettings.withEndpointSettings(
-                    snapshot.providerType,
-                    ProviderEndpointSettings(
-                        baseUrl = snapshot.baseUrl,
-                        modelId = snapshot.modelId,
-                        timeoutSeconds = normalizedTimeoutSeconds,
-                    ),
-                ).copy(providerType = snapshot.providerType)
-            } else {
-                currentSettings.copy(providerType = snapshot.providerType)
-            }
-            settingsDataStore.saveProviderSettings(updatedSettings)
-            if (snapshot.providerType.requiresRemoteSettings && snapshot.apiKeyDraft.isNotBlank()) {
-                providerSecretStore.writeApiKey(
-                    providerType = snapshot.providerType,
-                    apiKey = snapshot.apiKeyDraft,
-                )
+            persistSettings(snapshot, normalizedTimeoutSeconds)
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
             }
             refresh(statusMessage = "Provider settings saved.")
         }
     }
 
+    fun validateConnection() {
+        val snapshot = state.value
+        val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
+        if (snapshot.providerType.requiresRemoteSettings && (timeoutSeconds == null || timeoutSeconds <= 0)) {
+            mutateState {
+                it.copy(
+                    isValidatingConnection = false,
+                    lastValidationSucceeded = false,
+                    statusMessage = "Timeout must be a positive integer.",
+                )
+            }
+            return
+        }
+        if (snapshot.providerType == ProviderType.Fake) {
+            mutateState {
+                it.copy(
+                    isValidatingConnection = false,
+                    lastValidationSucceeded = true,
+                    statusMessage = "FakeProvider is ready. It works offline.",
+                )
+            }
+            return
+        }
+        val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 }
+            ?: snapshot.providerType.defaultTimeoutSeconds
+        val mutationVersion = nextMutationVersion()
+
+        viewModelScope.launch {
+            mutableState.update {
+                it.copy(
+                    isValidatingConnection = true,
+                    lastValidationSucceeded = false,
+                    statusMessage = "Testing connection…",
+                )
+            }
+            try {
+                persistSettings(snapshot, normalizedTimeoutSeconds)
+                providerRegistry.require(snapshot.providerType).generate(
+                    ModelRequest(
+                        sessionId = "provider-validation",
+                        requestId = "provider-validation",
+                        messageHistory = listOf(
+                            ModelMessage(
+                                role = ModelMessageRole.User,
+                                content = "Reply with OK.",
+                            ),
+                        ),
+                        systemPrompt = "You are validating AndroidClaw connectivity. Reply briefly with OK.",
+                        enabledSkills = emptyList(),
+                        toolDescriptors = emptyList(),
+                        runMode = ModelRunMode.Interactive,
+                    ),
+                )
+                if (!isCurrentMutation(mutationVersion)) {
+                    return@launch
+                }
+                mutableState.update {
+                    it.copy(
+                        isValidatingConnection = false,
+                        lastValidationSucceeded = true,
+                        configured = true,
+                        statusMessage = "Connection test succeeded.",
+                    )
+                }
+            } catch (error: ModelProviderException) {
+                if (!isCurrentMutation(mutationVersion)) {
+                    return@launch
+                }
+                mutableState.update {
+                    it.copy(
+                        isValidatingConnection = false,
+                        lastValidationSucceeded = false,
+                        statusMessage = validationFailureMessage(error),
+                    )
+                }
+            } catch (error: Exception) {
+                if (!isCurrentMutation(mutationVersion)) {
+                    return@launch
+                }
+                mutableState.update {
+                    it.copy(
+                        isValidatingConnection = false,
+                        lastValidationSucceeded = false,
+                        statusMessage = error.message ?: "Connection test failed.",
+                    )
+                }
+            }
+        }
+    }
+
     private fun refresh(statusMessage: String? = null) {
         viewModelScope.launch {
+            val refreshVersion = stateMutationVersion
             val settings = settingsDataStore.settings.first()
             val providerType = settings.providerType
             val endpointSettings = settings.endpointSettings(providerType)
             val storedApiKey = providerSecretStore.readApiKey(providerType)
             val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val networkStatus = networkStatusProvider.currentStatus()
+            if (!isCurrentMutation(refreshVersion)) {
+                return@launch
+            }
             mutableState.value = SettingsUiState(
                 activeProviderId = providerRegistry.require(providerType).id,
                 availableProviders = providerRegistry.descriptors().map { it.type },
@@ -227,6 +330,8 @@ class SettingsViewModel(
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                 ),
+                isValidatingConnection = false,
+                lastValidationSucceeded = false,
                 statusMessage = resolveStatusMessage(
                     explicit = statusMessage,
                     providerType = providerType,
@@ -236,6 +341,20 @@ class SettingsViewModel(
                 buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
             )
         }
+    }
+
+    private fun mutateState(transform: (SettingsUiState) -> SettingsUiState) {
+        nextMutationVersion()
+        mutableState.update(transform)
+    }
+
+    private fun nextMutationVersion(): Long {
+        stateMutationVersion += 1
+        return stateMutationVersion
+    }
+
+    private fun isCurrentMutation(version: Long): Boolean {
+        return version == stateMutationVersion
     }
 
     private fun isConfigured(
@@ -255,6 +374,32 @@ class SettingsViewModel(
         }
     }
 
+    private suspend fun persistSettings(
+        snapshot: SettingsUiState,
+        normalizedTimeoutSeconds: Int,
+    ) {
+        val currentSettings = settingsDataStore.settings.first()
+        val updatedSettings = if (snapshot.providerType.requiresRemoteSettings) {
+            currentSettings.withEndpointSettings(
+                snapshot.providerType,
+                ProviderEndpointSettings(
+                    baseUrl = snapshot.baseUrl,
+                    modelId = snapshot.modelId,
+                    timeoutSeconds = normalizedTimeoutSeconds,
+                ),
+            ).copy(providerType = snapshot.providerType)
+        } else {
+            currentSettings.copy(providerType = snapshot.providerType)
+        }
+        settingsDataStore.saveProviderSettings(updatedSettings)
+        if (snapshot.providerType.requiresRemoteSettings && snapshot.apiKeyDraft.isNotBlank()) {
+            providerSecretStore.writeApiKey(
+                providerType = snapshot.providerType,
+                apiKey = snapshot.apiKeyDraft,
+            )
+        }
+    }
+
     private fun resolveStatusMessage(
         explicit: String?,
         providerType: ProviderType,
@@ -267,6 +412,19 @@ class SettingsViewModel(
             providerType.requiresRemoteSettings && !networkConnected ->
                 "No active network connection. Remote providers may fail until connectivity returns."
             else -> null
+        }
+    }
+
+    private fun validationFailureMessage(error: ModelProviderException): String {
+        return when (error.kind) {
+            ModelProviderFailureKind.Configuration -> error.userMessage
+            ModelProviderFailureKind.Authentication -> "Authentication failed. Check the API key."
+            ModelProviderFailureKind.Network ->
+                "Network error. Check your connection and the provider base URL."
+            ModelProviderFailureKind.Timeout ->
+                "Connection test timed out. Check the endpoint and timeout."
+            ModelProviderFailureKind.Response ->
+                error.userMessage.ifBlank { "Provider returned an unexpected response." }
         }
     }
 

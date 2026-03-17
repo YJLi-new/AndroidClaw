@@ -3,6 +3,7 @@ package ai.androidclaw.feature.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,7 +20,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel) {
+fun SettingsScreen(
+    viewModel: SettingsViewModel,
+    onOpenSetupGuide: (() -> Unit)? = null,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(
@@ -35,6 +39,11 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Provider", style = MaterialTheme.typography.titleMedium)
+                onOpenSetupGuide?.let { openSetupGuide ->
+                    Button(onClick = openSetupGuide) {
+                        Text("Run setup guide")
+                    }
+                }
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -93,8 +102,19 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                         }
                     }
                 }
-                Button(onClick = viewModel::save) {
-                    Text("Save provider settings")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = viewModel::save,
+                        enabled = !state.isValidatingConnection,
+                    ) {
+                        Text("Save provider settings")
+                    }
+                    Button(
+                        onClick = viewModel::validateConnection,
+                        enabled = !state.isValidatingConnection,
+                    ) {
+                        Text(if (state.isValidatingConnection) "Testing…" else "Test connection")
+                    }
                 }
                 state.statusMessage?.let { message ->
                     Text(message, style = MaterialTheme.typography.bodyMedium)

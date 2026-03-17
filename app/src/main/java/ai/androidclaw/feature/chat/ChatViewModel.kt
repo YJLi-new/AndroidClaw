@@ -1,6 +1,8 @@
 package ai.androidclaw.feature.chat
 
 import ai.androidclaw.app.ChatDependencies
+import ai.androidclaw.data.ProviderType
+import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.ChatMessage
@@ -60,6 +62,7 @@ data class ChatUiState(
     val streamingAssistantText: String = "",
     val canRetryLastFailedTurn: Boolean = false,
     val activeTurnStage: String? = null,
+    val providerNotice: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,6 +72,7 @@ class ChatViewModel(
     private val eventLogRepository: EventLogRepository,
     private val agentRunner: AgentRunner,
     private val skillManager: SkillManager,
+    private val settingsDataStore: SettingsDataStore,
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val draft = MutableStateFlow("")
@@ -127,12 +131,21 @@ class ChatViewModel(
         )
     }
 
+    private val providerNoticeFlow = settingsDataStore.settings.map { settings ->
+        if (settings.providerType == ProviderType.Fake) {
+            "Offline demo mode is active. Replies are coming from FakeProvider."
+        } else {
+            null
+        }
+    }
+
     private val chromeFlow = combine(
         baseChromeFlow,
         turnChromeFlow,
         slashCommands,
         mutableCurrentSessionId,
-    ) { baseChrome, turnChrome, slashCommandsValue, currentSessionIdValue ->
+        providerNoticeFlow,
+    ) { baseChrome, turnChrome, slashCommandsValue, currentSessionIdValue, providerNoticeValue ->
         ChatUiState(
             currentSessionId = currentSessionIdValue,
             sessionTitle = "",
@@ -147,6 +160,7 @@ class ChatViewModel(
             streamingAssistantText = turnChrome.streamingAssistantText,
             canRetryLastFailedTurn = turnChrome.canRetryLastFailedTurn,
             activeTurnStage = turnChrome.activeTurnStage,
+            providerNotice = providerNoticeValue,
         )
     }
 
@@ -468,6 +482,7 @@ class ChatViewModel(
                         eventLogRepository = dependencies.eventLogRepository,
                         agentRunner = dependencies.agentRunner,
                         skillManager = dependencies.skillManager,
+                        settingsDataStore = dependencies.settingsDataStore,
                     ) as T
                 }
             }

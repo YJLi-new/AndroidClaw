@@ -1,6 +1,7 @@
 package ai.androidclaw.app
 
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -20,6 +21,7 @@ data class ChatDependencies(
     val eventLogRepository: EventLogRepository,
     val agentRunner: AgentRunner,
     val skillManager: SkillManager,
+    val settingsDataStore: SettingsDataStore,
 )
 
 data class TasksDependencies(
@@ -37,6 +39,11 @@ data class SettingsDependencies(
     val settingsDataStore: SettingsDataStore,
     val providerSecretStore: ProviderSecretStore,
     val networkStatusProvider: NetworkStatusProvider,
+)
+
+data class OnboardingDependencies(
+    val onboardingDataStore: OnboardingDataStore,
+    val settingsDataStore: SettingsDataStore,
 )
 
 data class HealthDependencies(

@@ -80,6 +80,21 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Text("Archive")
             }
         }
+        state.providerNotice?.let { providerNotice ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Provider",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text(
+                        text = providerNotice,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
         state.noticeMessage?.let { noticeMessage ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {

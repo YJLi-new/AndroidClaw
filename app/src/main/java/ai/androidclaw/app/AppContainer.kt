@@ -4,6 +4,7 @@ import android.app.Application
 import ai.androidclaw.data.AndroidProviderSecretStore
 import ai.androidclaw.data.AndroidSkillConfigStore
 import ai.androidclaw.data.AndroidSkillSecretStore
+import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
@@ -46,6 +47,7 @@ class AppContainer(application: Application) {
     private val providerHttpClient = createProviderBaseHttpClient()
     val database = AndroidClawDatabase.build(application)
     val settingsDataStore = SettingsDataStore(application)
+    val onboardingDataStore = OnboardingDataStore(application)
     val providerSecretStore = AndroidProviderSecretStore(application)
     val skillConfigStore = AndroidSkillConfigStore(application)
     val skillSecretStore = AndroidSkillSecretStore(application)
@@ -171,6 +173,7 @@ class AppContainer(application: Application) {
             eventLogRepository = eventLogRepository,
             agentRunner = agentRunner,
             skillManager = skillManager,
+            settingsDataStore = settingsDataStore,
         )
 
     val tasksDependencies: TasksDependencies
@@ -191,6 +194,12 @@ class AppContainer(application: Application) {
             settingsDataStore = settingsDataStore,
             providerSecretStore = providerSecretStore,
             networkStatusProvider = networkStatusProvider,
+        )
+
+    val onboardingDependencies: OnboardingDependencies
+        get() = OnboardingDependencies(
+            onboardingDataStore = onboardingDataStore,
+            settingsDataStore = settingsDataStore,
         )
 
     val healthDependencies: HealthDependencies

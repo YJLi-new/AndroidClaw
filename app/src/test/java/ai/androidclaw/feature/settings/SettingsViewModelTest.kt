@@ -209,6 +209,25 @@ class SettingsViewModelTest {
         assertFalse(state.hasStoredApiKey)
     }
 
+    @Test
+    fun `validateConnection persists settings and reports success for configured provider`() = runTest {
+        val viewModel = buildViewModel()
+
+        viewModel.selectProviderType(ProviderType.OpenAiCompatible)
+        waitForState(viewModel) { it.providerType == ProviderType.OpenAiCompatible }
+        viewModel.onBaseUrlChanged("https://openai.example/v1")
+        viewModel.onModelIdChanged("gpt-test")
+        viewModel.onTimeoutChanged("30")
+        viewModel.onApiKeyChanged("sk-test")
+        viewModel.validateConnection()
+
+        val state = waitForState(viewModel) { it.lastValidationSucceeded }
+
+        assertEquals("Connection test succeeded.", state.statusMessage)
+        assertEquals(ProviderType.OpenAiCompatible, settingsDataStore.settings.first().providerType)
+        assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
+    }
+
     private fun buildViewModel(): SettingsViewModel {
         return SettingsViewModel(
             providerRegistry = buildTestProviderRegistry(),

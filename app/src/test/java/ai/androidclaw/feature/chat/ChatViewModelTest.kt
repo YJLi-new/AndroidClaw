@@ -280,6 +280,7 @@ class ChatViewModelTest {
                 promptAssembler = PromptAssembler(),
             ),
             skillManager = skillManager,
+            settingsDataStore = settingsDataStore,
         )
     }
 }

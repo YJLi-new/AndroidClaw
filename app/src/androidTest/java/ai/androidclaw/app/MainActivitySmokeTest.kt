@@ -1,6 +1,8 @@
 package ai.androidclaw.app
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -17,6 +19,10 @@ class MainActivitySmokeTest {
     @Test
     fun launchesNavigationShellAndNavigatesToTasks() {
         composeRule.onNodeWithTag("topLevelNav").fetchSemanticsNode()
+        val onboardingButtons = composeRule.onAllNodesWithText("Use Fake (offline)")
+        if (onboardingButtons.fetchSemanticsNodes().isNotEmpty()) {
+            onboardingButtons.onFirst().performClick()
+        }
         composeRule.onNodeWithTag("chatScreen").fetchSemanticsNode()
 
         composeRule.onNodeWithText("Tasks", useUnmergedTree = true).performClick()
