@@ -21,15 +21,36 @@ internal class EncryptedStringStore(
 
     fun read(storageKey: String): String? {
         val payload = preferences.getString(storageKey, null) ?: return null
-        return runCatching { decrypt(payload) }.getOrNull()
+        return runCatching { decrypt(payload) }.getOrElse {
+            preferences.edit()
+                .remove(storageKey)
+                .putBoolean(recoveryKey(storageKey), true)
+                .apply()
+            null
+        }
     }
 
     fun write(storageKey: String, value: String?) {
         if (value.isNullOrBlank()) {
-            preferences.edit().remove(storageKey).apply()
+            preferences.edit()
+                .remove(storageKey)
+                .remove(recoveryKey(storageKey))
+                .apply()
             return
         }
-        preferences.edit().putString(storageKey, encrypt(value.trim())).apply()
+        preferences.edit()
+            .putString(storageKey, encrypt(value.trim()))
+            .remove(recoveryKey(storageKey))
+            .apply()
+    }
+
+    fun consumeRecoveryNotice(storageKey: String): Boolean {
+        val recoveryKey = recoveryKey(storageKey)
+        val recovered = preferences.getBoolean(recoveryKey, false)
+        if (recovered) {
+            preferences.edit().remove(recoveryKey).apply()
+        }
+        return recovered
     }
 
     private fun encrypt(plaintext: String): String {
@@ -84,5 +105,10 @@ internal class EncryptedStringStore(
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val KEY_SIZE_BITS = 256
         const val GCM_TAG_LENGTH_BITS = 128
+        const val RECOVERY_PREFIX = "recovered_secret_"
+    }
+
+    private fun recoveryKey(storageKey: String): String {
+        return "$RECOVERY_PREFIX$storageKey"
     }
 }

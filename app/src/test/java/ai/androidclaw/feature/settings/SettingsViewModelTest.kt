@@ -4,6 +4,8 @@ import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.buildTestProviderRegistry
@@ -32,6 +34,16 @@ class SettingsViewModelTest {
 
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var secretStore: InMemoryProviderSecretStore
+    private val networkStatusProvider = object : NetworkStatusProvider {
+        override fun currentStatus(): NetworkStatusSnapshot {
+            return NetworkStatusSnapshot(
+                supported = true,
+                isConnected = true,
+                isValidated = true,
+                isMetered = false,
+            )
+        }
+    }
 
     @Before
     fun setUp() = runTest {
@@ -168,11 +180,41 @@ class SettingsViewModelTest {
         assertNull(secretStore.readApiKey(ProviderType.Kimi))
     }
 
+    @Test
+    fun `provider recovery notice is surfaced when encrypted api key cannot be restored`() = runTest {
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.Anthropic,
+                    ProviderEndpointSettings(
+                        baseUrl = ProviderType.Anthropic.defaultBaseUrl,
+                        modelId = "claude-sonnet-4-5",
+                        timeoutSeconds = 60,
+                    ),
+                )
+                .copy(providerType = ProviderType.Anthropic),
+        )
+        secretStore.markRecoveryNotice(ProviderType.Anthropic)
+
+        val viewModel = buildViewModel()
+        val state = waitForState(viewModel) {
+            it.providerType == ProviderType.Anthropic &&
+                it.statusMessage?.contains("could not be restored", ignoreCase = true) == true
+        }
+
+        assertEquals(
+            "Stored API key could not be restored on this device. Please enter it again.",
+            state.statusMessage,
+        )
+        assertFalse(state.hasStoredApiKey)
+    }
+
     private fun buildViewModel(): SettingsViewModel {
         return SettingsViewModel(
             providerRegistry = buildTestProviderRegistry(),
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
+            networkStatusProvider = networkStatusProvider,
         )
     }
 

@@ -91,7 +91,7 @@ class SkillsViewModel(
                 updateDialog { dialog ->
                     dialog.copy(
                         loading = false,
-                        message = null,
+                        message = configuration.recoveryMessage,
                         secretFields = configuration.secretFields.toEditableSecretFields(),
                         configFields = configuration.configFields.toEditableConfigFields(),
                     )

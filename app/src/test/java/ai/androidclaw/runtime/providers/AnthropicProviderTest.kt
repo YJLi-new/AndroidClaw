@@ -18,7 +18,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -108,6 +107,8 @@ class AnthropicProviderTest {
         assertEquals("/v1/messages", recordedRequest.path)
         assertEquals("anth-test", recordedRequest.getHeader("x-api-key"))
         assertEquals("2023-06-01", recordedRequest.getHeader("anthropic-version"))
+        assertEquals("0.1.0", recordedRequest.getHeader("X-AndroidClaw-Version"))
+        assertEquals("AndroidClaw/0.1.0 (ai.androidclaw.app)", recordedRequest.getHeader("User-Agent"))
         assertEquals("claude-sonnet-4-5", payload.getValue("model").jsonPrimitive.content)
         assertTrue(messages.isNotEmpty())
     }
@@ -191,7 +192,7 @@ class AnthropicProviderTest {
         return AnthropicProvider(
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
-            baseHttpClient = OkHttpClient(),
+            baseHttpClient = createProviderBaseHttpClient(),
             json = json,
         )
     }

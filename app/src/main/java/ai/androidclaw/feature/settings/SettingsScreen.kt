@@ -48,6 +48,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     }
                 }
                 Text("Active provider: ${state.activeProviderId}")
+                Text("Network: ${state.networkSummary}")
                 Text("Configured: ${state.configured}")
                 if (state.providerType.requiresRemoteSettings) {
                     OutlinedTextField(

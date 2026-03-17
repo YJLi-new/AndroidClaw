@@ -17,7 +17,10 @@ import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import ai.androidclaw.runtime.providers.AnthropicProvider
+import ai.androidclaw.runtime.providers.AndroidNetworkStatusProvider
 import ai.androidclaw.runtime.providers.FakeProvider
+import ai.androidclaw.runtime.providers.createProviderBaseHttpClient
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -32,7 +35,6 @@ import ai.androidclaw.runtime.skills.SkillStorage
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
 import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
 import java.time.Clock
 
 class AppContainer(application: Application) {
@@ -41,12 +43,13 @@ class AppContainer(application: Application) {
     private val json = Json {
         ignoreUnknownKeys = true
     }
-    private val providerHttpClient = OkHttpClient()
+    private val providerHttpClient = createProviderBaseHttpClient()
     val database = AndroidClawDatabase.build(application)
     val settingsDataStore = SettingsDataStore(application)
     val providerSecretStore = AndroidProviderSecretStore(application)
     val skillConfigStore = AndroidSkillConfigStore(application)
     val skillSecretStore = AndroidSkillSecretStore(application)
+    val networkStatusProvider: NetworkStatusProvider = AndroidNetworkStatusProvider(application)
     val sessionRepository = SessionRepository(database.sessionDao())
     val messageRepository = MessageRepository(database.messageDao())
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
@@ -187,6 +190,7 @@ class AppContainer(application: Application) {
             providerRegistry = providerRegistry,
             settingsDataStore = settingsDataStore,
             providerSecretStore = providerSecretStore,
+            networkStatusProvider = networkStatusProvider,
         )
 
     val healthDependencies: HealthDependencies
@@ -196,6 +200,7 @@ class AppContainer(application: Application) {
             providerRegistry = providerRegistry,
             settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
+            networkStatusProvider = networkStatusProvider,
         )
 
     suspend fun ensureMainSession() {

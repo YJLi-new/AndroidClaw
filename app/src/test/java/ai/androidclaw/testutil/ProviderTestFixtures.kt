@@ -18,8 +18,10 @@ private val testClock: Clock = Clock.fixed(
 
 class InMemoryProviderSecretStore(
     initialSecrets: Map<ProviderType, String> = emptyMap(),
+    initialRecoveryNotices: Set<ProviderType> = emptySet(),
 ) : ProviderSecretStore {
     private val secrets = initialSecrets.toMutableMap()
+    private val recoveryNotices = initialRecoveryNotices.toMutableSet()
 
     override suspend fun readApiKey(providerType: ProviderType): String? {
         return secrets[providerType]
@@ -33,8 +35,17 @@ class InMemoryProviderSecretStore(
         }
     }
 
+    override suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean {
+        return recoveryNotices.remove(providerType)
+    }
+
+    fun markRecoveryNotice(providerType: ProviderType) {
+        recoveryNotices += providerType
+    }
+
     fun clear() {
         secrets.clear()
+        recoveryNotices.clear()
     }
 }
 

@@ -39,7 +39,7 @@ fun HealthScreen(viewModel: HealthViewModel) {
         }
         HealthCard(
             title = "Provider",
-            body = "Active provider: ${state.providerId}",
+            body = "Active provider: ${state.providerId}\nNetwork: ${state.networkSummary}",
         )
         HealthCard(
             title = "Scheduler",

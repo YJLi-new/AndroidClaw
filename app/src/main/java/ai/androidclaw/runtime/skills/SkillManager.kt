@@ -94,10 +94,15 @@ class SkillManager(
             skillKey = skill.skillKey,
             displayName = skill.displayName,
         )
+        val recoveredSecrets = linkedSetOf<String>()
         val secretFields = frontmatter.declaredSecretNames().map { secretName ->
+            val configured = !skillSecretStore.readSecret(skill.skillKey, secretName).isNullOrBlank()
+            if (skillSecretStore.consumeRecoveryNotice(skill.skillKey, secretName)) {
+                recoveredSecrets += secretName
+            }
             SkillSecretField(
                 envName = secretName,
-                configured = !skillSecretStore.readSecret(skill.skillKey, secretName).isNullOrBlank(),
+                configured = configured,
             )
         }
         val configFields = frontmatter.declaredConfigPaths().map { configPath ->
@@ -112,6 +117,11 @@ class SkillManager(
             displayName = skill.displayName,
             secretFields = secretFields,
             configFields = configFields,
+            recoveryMessage = when (recoveredSecrets.size) {
+                0 -> null
+                1 -> "Saved secret ${recoveredSecrets.single()} could not be restored on this device. Please enter it again."
+                else -> "Some saved secrets could not be restored on this device. Please enter them again."
+            },
         )
     }
 

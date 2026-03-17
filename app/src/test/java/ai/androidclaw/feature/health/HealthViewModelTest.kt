@@ -10,6 +10,8 @@ import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.providers.ModelRunMode
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.runtime.tools.ToolExecutionContext
@@ -145,6 +147,16 @@ class HealthViewModelTest {
             ),
             toolRegistry = toolRegistry,
             providerRegistry = buildTestProviderRegistry(),
+            networkStatusProvider = object : NetworkStatusProvider {
+                override fun currentStatus(): NetworkStatusSnapshot {
+                    return NetworkStatusSnapshot(
+                        supported = true,
+                        isConnected = true,
+                        isValidated = true,
+                        isMetered = false,
+                    )
+                }
+            },
             settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
         )
@@ -152,6 +164,7 @@ class HealthViewModelTest {
         val state = viewModel.state.first { it.recentEvents.isNotEmpty() }
 
         assertEquals("openai-compatible", state.providerId)
+        assertEquals("Connected", state.networkSummary)
         assertEquals(listOf("health.status"), state.tools)
         assertTrue(state.lastAutomationResult?.contains("completed") == true)
         assertEquals("taskId=task-1 stopReason=quota", state.lastWorkerStopReason)

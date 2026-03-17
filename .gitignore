@@ -6,6 +6,9 @@ build/
 captures/
 docs/
 local.properties
+keystore.properties
+*.jks
+*.keystore
 *.iml
 PLANv*.md
 app/build/

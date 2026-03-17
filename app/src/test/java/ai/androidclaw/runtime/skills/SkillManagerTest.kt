@@ -262,6 +262,36 @@ class SkillManagerTest {
     }
 
     @Test
+    fun `readSkillConfiguration surfaces recovered secret notice`() = runTest {
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val secretStore = InMemorySkillSecretStore(
+            initialRecoveryNotices = setOf("recoverable_skill" to "X_API_KEY"),
+        )
+        val manager = createTestSkillManager(
+            application = application,
+            skillRepository = skillRepository,
+            bundledSkillLoader = staticLoader(
+                skillSnapshot(
+                    id = "recoverable-skill",
+                    name = "recoverable_skill",
+                    metadata = openClawMetadata(requiredEnv = listOf("X_API_KEY")),
+                ),
+            ),
+            toolDescriptor = { name -> ToolDescriptor(name = name, description = name) },
+            skillSecretStore = secretStore,
+        )
+
+        val skill = manager.refreshBundledSkills(forceRefresh = true).single()
+        val configuration = manager.readSkillConfiguration(skill)
+
+        assertEquals(
+            "Saved secret X_API_KEY could not be restored on this device. Please enter it again.",
+            configuration.recoveryMessage,
+        )
+        assertFalse(configuration.secretFields.single().configured)
+    }
+
+    @Test
     fun `readSkillConfiguration exposes primary env and stored config state`() = runTest {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         val configStore = InMemorySkillConfigStore(

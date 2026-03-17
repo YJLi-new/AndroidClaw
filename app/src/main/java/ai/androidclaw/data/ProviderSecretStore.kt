@@ -6,6 +6,8 @@ interface ProviderSecretStore {
     suspend fun readApiKey(providerType: ProviderType): String?
 
     suspend fun writeApiKey(providerType: ProviderType, apiKey: String?)
+
+    suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean
 }
 
 class AndroidProviderSecretStore(
@@ -23,6 +25,10 @@ class AndroidProviderSecretStore(
 
     override suspend fun writeApiKey(providerType: ProviderType, apiKey: String?) {
         encryptedStore.write(storageKey(providerType), apiKey)
+    }
+
+    override suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean {
+        return encryptedStore.consumeRecoveryNotice(storageKey(providerType))
     }
 
     private fun storageKey(providerType: ProviderType): String {

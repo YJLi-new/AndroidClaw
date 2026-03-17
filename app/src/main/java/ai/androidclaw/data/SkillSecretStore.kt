@@ -6,6 +6,8 @@ interface SkillSecretStore {
     suspend fun readSecret(skillKey: String, envName: String): String?
 
     suspend fun writeSecret(skillKey: String, envName: String, value: String?)
+
+    suspend fun consumeRecoveryNotice(skillKey: String, envName: String): Boolean
 }
 
 class AndroidSkillSecretStore(
@@ -23,6 +25,10 @@ class AndroidSkillSecretStore(
 
     override suspend fun writeSecret(skillKey: String, envName: String, value: String?) {
         encryptedStore.write(storageKey(skillKey, envName), value)
+    }
+
+    override suspend fun consumeRecoveryNotice(skillKey: String, envName: String): Boolean {
+        return encryptedStore.consumeRecoveryNotice(storageKey(skillKey, envName))
     }
 
     private fun storageKey(skillKey: String, envName: String): String {

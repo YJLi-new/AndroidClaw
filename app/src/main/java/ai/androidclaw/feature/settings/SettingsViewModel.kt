@@ -6,6 +6,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +25,7 @@ data class SettingsUiState(
     val baseUrl: String = "",
     val modelId: String = "",
     val timeoutSeconds: String = "",
+    val networkSummary: String = "",
     val apiKeyDraft: String = "",
     val hasStoredApiKey: Boolean = false,
     val configured: Boolean = false,
@@ -35,6 +37,7 @@ class SettingsViewModel(
     private val providerRegistry: ProviderRegistry,
     private val settingsDataStore: SettingsDataStore,
     private val providerSecretStore: ProviderSecretStore,
+    private val networkStatusProvider: NetworkStatusProvider,
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(
         SettingsUiState(
@@ -52,7 +55,9 @@ class SettingsViewModel(
         viewModelScope.launch {
             val settings = settingsDataStore.settings.first()
             val storedApiKey = providerSecretStore.readApiKey(providerType)
+            val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val endpointSettings = settings.endpointSettings(providerType)
+            val networkStatus = networkStatusProvider.currentStatus()
             mutableState.update {
                 it.copy(
                     providerType = providerType,
@@ -60,6 +65,7 @@ class SettingsViewModel(
                     baseUrl = endpointSettings.baseUrl,
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    networkSummary = networkStatus.summary,
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                     configured = isConfigured(
@@ -69,7 +75,12 @@ class SettingsViewModel(
                         apiKeyDraft = "",
                         hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                     ),
-                    statusMessage = null,
+                    statusMessage = resolveStatusMessage(
+                        explicit = null,
+                        providerType = providerType,
+                        recoveredApiKey = recoveredApiKey,
+                        networkConnected = networkStatus.isConnected,
+                    ),
                 )
             }
         }
@@ -197,6 +208,8 @@ class SettingsViewModel(
             val providerType = settings.providerType
             val endpointSettings = settings.endpointSettings(providerType)
             val storedApiKey = providerSecretStore.readApiKey(providerType)
+            val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
+            val networkStatus = networkStatusProvider.currentStatus()
             mutableState.value = SettingsUiState(
                 activeProviderId = providerRegistry.require(providerType).id,
                 availableProviders = providerRegistry.descriptors().map { it.type },
@@ -204,6 +217,7 @@ class SettingsViewModel(
                 baseUrl = endpointSettings.baseUrl,
                 modelId = endpointSettings.modelId,
                 timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                networkSummary = networkStatus.summary,
                 apiKeyDraft = "",
                 hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                 configured = isConfigured(
@@ -213,7 +227,12 @@ class SettingsViewModel(
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                 ),
-                statusMessage = statusMessage,
+                statusMessage = resolveStatusMessage(
+                    explicit = statusMessage,
+                    providerType = providerType,
+                    recoveredApiKey = recoveredApiKey,
+                    networkConnected = networkStatus.isConnected,
+                ),
                 buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
             )
         }
@@ -236,6 +255,21 @@ class SettingsViewModel(
         }
     }
 
+    private fun resolveStatusMessage(
+        explicit: String?,
+        providerType: ProviderType,
+        recoveredApiKey: Boolean,
+        networkConnected: Boolean,
+    ): String? {
+        return when {
+            !explicit.isNullOrBlank() -> explicit
+            recoveredApiKey -> "Stored API key could not be restored on this device. Please enter it again."
+            providerType.requiresRemoteSettings && !networkConnected ->
+                "No active network connection. Remote providers may fail until connectivity returns."
+            else -> null
+        }
+    }
+
     companion object {
         fun factory(dependencies: SettingsDependencies): ViewModelProvider.Factory {
             return object : ViewModelProvider.Factory {
@@ -245,6 +279,7 @@ class SettingsViewModel(
                         providerRegistry = dependencies.providerRegistry,
                         settingsDataStore = dependencies.settingsDataStore,
                         providerSecretStore = dependencies.providerSecretStore,
+                        networkStatusProvider = dependencies.networkStatusProvider,
                     ) as T
                 }
             }

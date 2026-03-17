@@ -19,7 +19,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -105,6 +104,8 @@ class OpenAiCompatibleProviderTest {
         assertEquals("/v1/chat/completions", recordedRequest.path)
         assertEquals("Bearer sk-test", recordedRequest.getHeader("Authorization"))
         assertEquals("req-123", recordedRequest.getHeader("X-Request-Id"))
+        assertEquals("0.1.0", recordedRequest.getHeader("X-AndroidClaw-Version"))
+        assertEquals("AndroidClaw/0.1.0 (ai.androidclaw.app)", recordedRequest.getHeader("User-Agent"))
         assertEquals("gpt-test", payload.getValue("model").jsonPrimitive.content)
         assertEquals("system", messages[0].jsonObject.getValue("role").jsonPrimitive.content)
         assertEquals("system prompt", messages[0].jsonObject.getValue("content").jsonPrimitive.content)
@@ -667,7 +668,7 @@ class OpenAiCompatibleProviderTest {
             providerType = providerType,
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
-            baseHttpClient = OkHttpClient(),
+            baseHttpClient = createProviderBaseHttpClient(),
             json = json,
         )
     }

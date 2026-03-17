@@ -29,8 +29,10 @@ class InMemorySkillConfigStore(
 
 class InMemorySkillSecretStore(
     initialValues: Map<Pair<String, String>, String> = emptyMap(),
+    initialRecoveryNotices: Set<Pair<String, String>> = emptySet(),
 ) : SkillSecretStore {
     private val values = initialValues.toMutableMap()
+    private val recoveryNotices = initialRecoveryNotices.toMutableSet()
 
     override suspend fun readSecret(skillKey: String, envName: String): String? {
         return values[skillKey to envName]
@@ -42,5 +44,13 @@ class InMemorySkillSecretStore(
         } else {
             values[skillKey to envName] = value.trim()
         }
+    }
+
+    override suspend fun consumeRecoveryNotice(skillKey: String, envName: String): Boolean {
+        return recoveryNotices.remove(skillKey to envName)
+    }
+
+    fun markRecoveryNotice(skillKey: String, envName: String) {
+        recoveryNotices += skillKey to envName
     }
 }

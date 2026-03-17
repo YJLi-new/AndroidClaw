@@ -76,6 +76,7 @@ data class SkillConfigurationSnapshot(
     val displayName: String? = null,
     val secretFields: List<SkillSecretField> = emptyList(),
     val configFields: List<SkillConfigField> = emptyList(),
+    val recoveryMessage: String? = null,
 )
 
 data class SkillSecretField(

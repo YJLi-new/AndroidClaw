@@ -6,6 +6,7 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLogEntry
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.runtime.providers.ProviderRegistry
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.tools.ToolRegistry
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.update
 
 data class HealthUiState(
     val providerId: String = "",
+    val networkSummary: String = "",
     val schedulerDiagnostics: SchedulerDiagnostics = SchedulerDiagnostics(),
     val supportedKinds: List<String> = emptyList(),
     val tools: List<String> = emptyList(),
@@ -35,6 +37,7 @@ class HealthViewModel(
     schedulerCoordinator: SchedulerCoordinator,
     toolRegistry: ToolRegistry,
     providerRegistry: ProviderRegistry,
+    networkStatusProvider: NetworkStatusProvider,
     settingsDataStore: SettingsDataStore,
     eventLogRepository: EventLogRepository,
 ) : ViewModel() {
@@ -51,8 +54,10 @@ class HealthViewModel(
     ) { settings, events, _ ->
             val schedulerEvents = events.filter { it.category == EventCategory.Scheduler }
             val diagnostics = schedulerCoordinator.diagnostics()
+            val networkStatus = networkStatusProvider.currentStatus()
             HealthUiState(
                 providerId = providerRegistry.require(settings.providerType).id,
+                networkSummary = networkStatus.summary,
                 schedulerDiagnostics = diagnostics,
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
@@ -80,6 +85,7 @@ class HealthViewModel(
             started = uiSharingStarted,
             initialValue = HealthUiState(
                 providerId = providerRegistry.defaultProvider.id,
+                networkSummary = networkStatusProvider.currentStatus().summary,
                 schedulerDiagnostics = initialDiagnostics,
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
@@ -99,6 +105,7 @@ class HealthViewModel(
                         schedulerCoordinator = dependencies.schedulerCoordinator,
                         toolRegistry = dependencies.toolRegistry,
                         providerRegistry = dependencies.providerRegistry,
+                        networkStatusProvider = dependencies.networkStatusProvider,
                         settingsDataStore = dependencies.settingsDataStore,
                         eventLogRepository = dependencies.eventLogRepository,
                     ) as T

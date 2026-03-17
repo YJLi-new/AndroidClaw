@@ -8,7 +8,7 @@ Inspired by NanoClaw and OpenClaw, built from the ground up for Android.
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-First-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-UI-4285F4?logo=jetpackcompose&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![License](https://img.shields.io/badge/License-TBD-lightgrey)](#license)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 [📖 Project Page](https://yjli-new.github.io/AndroidClaw/) · [⬇️ Latest Release](https://github.com/YJLi-new/AndroidClaw/releases/latest) · [⚙️ CI / Actions](https://github.com/YJLi-new/AndroidClaw/actions)
 
@@ -152,7 +152,7 @@ Contributions, issues, and feature requests are welcome! Feel free to open an is
 
 ## 📄 License
 
-TBD — License information will be added soon.
+Apache-2.0. See [LICENSE](LICENSE).
 
 ---
 
