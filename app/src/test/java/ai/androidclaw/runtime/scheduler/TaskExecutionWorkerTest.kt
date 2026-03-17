@@ -25,8 +25,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
+@Config(sdk = [31])
 class TaskExecutionWorkerTest {
     private lateinit var application: AndroidClawApplication
 
@@ -42,6 +45,7 @@ class TaskExecutionWorkerTest {
         withContext(Dispatchers.IO) {
             application.container.database.clearAllTables()
         }
+        requireNotNull(application.getSystemService(android.app.NotificationManager::class.java)).cancelAll()
         application.container.settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
         application.container.ensureMainSession()
     }
@@ -51,6 +55,7 @@ class TaskExecutionWorkerTest {
         withContext(Dispatchers.IO) {
             application.container.database.clearAllTables()
         }
+        requireNotNull(application.getSystemService(android.app.NotificationManager::class.java)).cancelAll()
         application.container.settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
     }
 
@@ -75,12 +80,20 @@ class TaskExecutionWorkerTest {
         val latestRun = application.container.taskRepository.getLatestRun(task.id)
         val updatedTask = application.container.taskRepository.getTask(task.id)
         val messages = application.container.messageRepository.observeMessages(mainSession.id).first()
+        val notificationManager = requireNotNull(application.getSystemService(android.app.NotificationManager::class.java))
+        val notifications = shadowOf(notificationManager).allNotifications
 
         assertTrue(result is ListenableWorker.Result.Success)
         assertNotNull(latestRun)
         assertEquals(ai.androidclaw.data.model.TaskRunStatus.Success, latestRun?.status)
         assertNull(updatedTask?.nextRunAt)
         assertNotNull(updatedTask?.lastRunAt)
+        assertTrue(
+            notifications.any { notification ->
+                notification.channelId == TASK_RESULTS_NOTIFICATION_CHANNEL_ID &&
+                    notification.extras.getString("android.title") == "Task completed: Daily check"
+            },
+        )
         assertTrue(
             messages.any { message ->
                 message.taskRunId == latestRun?.id &&

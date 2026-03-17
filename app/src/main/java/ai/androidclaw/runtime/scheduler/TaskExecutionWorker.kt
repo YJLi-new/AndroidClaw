@@ -22,6 +22,7 @@ class TaskExecutionWorker(
     private val eventLogRepository: EventLogRepository,
     private val schedulerCoordinator: SchedulerCoordinator,
     private val taskRuntimeExecutor: TaskRuntimeExecutor,
+    private val taskNotifier: TaskNotifier,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
@@ -114,10 +115,17 @@ class TaskExecutionWorker(
                         outputMessageId = execution.outputMessageId,
                     ),
                 )
-                updateTaskStateAfterSuccess(
+                val nextRunAt = updateTaskStateAfterSuccess(
                     task = task,
                     finishedAt = finishedAt,
                     trigger = trigger,
+                )
+                taskNotifier.notifyTaskSucceeded(
+                    task = task,
+                    taskRunId = run.id,
+                    trigger = trigger,
+                    summary = execution.summary,
+                    nextRunAt = nextRunAt,
                 )
                 eventLogRepository.log(
                     category = EventCategory.Scheduler,
@@ -137,13 +145,21 @@ class TaskExecutionWorker(
                         outputMessageId = execution.outputMessageId,
                     ),
                 )
-                updateTaskStateAfterFailure(
+                val nextRunAt = updateTaskStateAfterFailure(
                     task = task,
                     finishedAt = finishedAt,
                     trigger = trigger,
                     errorCode = execution.errorCode ?: "TASK_EXECUTION_FAILED",
                     errorMessage = execution.errorMessage ?: execution.summary,
                     retryable = execution.retryable,
+                )
+                taskNotifier.notifyTaskFailed(
+                    task = task,
+                    taskRunId = run.id,
+                    trigger = trigger,
+                    errorCode = execution.errorCode ?: "TASK_EXECUTION_FAILED",
+                    errorMessage = execution.errorMessage ?: execution.summary,
+                    nextRunAt = nextRunAt,
                 )
             }
         } catch (error: ModelProviderException) {
@@ -158,13 +174,21 @@ class TaskExecutionWorker(
                     resultSummary = error.userMessage,
                 ),
             )
-            updateTaskStateAfterFailure(
+            val nextRunAt = updateTaskStateAfterFailure(
                 task = task,
                 finishedAt = finishedAt,
                 trigger = trigger,
                 errorCode = error.kind.toTaskErrorCode(),
                 errorMessage = error.userMessage,
                 retryable = error.kind.isRetryable(),
+            )
+            taskNotifier.notifyTaskFailed(
+                task = task,
+                taskRunId = run.id,
+                trigger = trigger,
+                errorCode = error.kind.toTaskErrorCode(),
+                errorMessage = error.userMessage,
+                nextRunAt = nextRunAt,
             )
         } catch (error: Exception) {
             val finishedAt = Instant.now()
@@ -179,13 +203,21 @@ class TaskExecutionWorker(
                     resultSummary = message,
                 ),
             )
-            updateTaskStateAfterFailure(
+            val nextRunAt = updateTaskStateAfterFailure(
                 task = task,
                 finishedAt = finishedAt,
                 trigger = trigger,
                 errorCode = "WORK_INTERRUPTED",
                 errorMessage = message,
                 retryable = true,
+            )
+            taskNotifier.notifyTaskFailed(
+                task = task,
+                taskRunId = run.id,
+                trigger = trigger,
+                errorCode = "WORK_INTERRUPTED",
+                errorMessage = message,
+                nextRunAt = nextRunAt,
             )
         } finally {
             if (isStopped) {
@@ -219,7 +251,7 @@ class TaskExecutionWorker(
         task: ai.androidclaw.data.model.Task,
         finishedAt: Instant,
         trigger: TaskTrigger,
-    ) {
+    ): Instant? {
         if (trigger == TaskTrigger.Manual) {
             taskRepository.updateTask(
                 task.copy(
@@ -227,7 +259,7 @@ class TaskExecutionWorker(
                     updatedAt = finishedAt,
                 ),
             )
-            return
+            return task.nextRunAt
         }
 
         val nextRunAt = schedulerCoordinator.taskPlanner.nextScheduledRun(task, finishedAt)
@@ -242,6 +274,7 @@ class TaskExecutionWorker(
         if (task.enabled && nextRunAt != null) {
             schedulerCoordinator.scheduleTask(task.id)
         }
+        return nextRunAt
     }
 
     private suspend fun updateTaskStateAfterFailure(
@@ -251,7 +284,7 @@ class TaskExecutionWorker(
         errorCode: String,
         errorMessage: String,
         retryable: Boolean,
-    ) {
+    ): Instant? {
         if (trigger == TaskTrigger.Manual) {
             taskRepository.updateTask(
                 task.copy(
@@ -265,7 +298,7 @@ class TaskExecutionWorker(
                 message = "Manual task ${task.name} failed.",
                 details = "$errorCode: $errorMessage",
             )
-            return
+            return task.nextRunAt
         }
 
         val newFailureCount = task.failureCount + 1
@@ -293,6 +326,7 @@ class TaskExecutionWorker(
             message = "Task ${task.name} failed.",
             details = "$errorCode: $errorMessage",
         )
+        return nextRunAt
     }
 
     companion object {

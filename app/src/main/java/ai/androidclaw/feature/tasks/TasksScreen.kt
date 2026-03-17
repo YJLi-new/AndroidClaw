@@ -140,6 +140,25 @@ fun TasksScreen(viewModel: TasksViewModel) {
             )
         }
         item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Task notifications", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Scheduled task results and failures use separate Android notification channels so success noise can be muted without hiding failures.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(
+                        onClick = { context.startActivity(buildNotificationSettingsIntent(context)) },
+                    ) {
+                        Text("Open notification settings")
+                    }
+                }
+            }
+        }
+        item {
             SchedulerCard(
                 title = "Next @daily preview",
                 body = state.nextDailyPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",

@@ -26,6 +26,7 @@ import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
+import ai.androidclaw.runtime.scheduler.AndroidTaskNotifier
 import ai.androidclaw.runtime.scheduler.TaskRuntimeExecutor
 import ai.androidclaw.runtime.skills.BundledSkillLoader
 import ai.androidclaw.runtime.skills.FileSkillLoader
@@ -76,6 +77,7 @@ class AppContainer(application: Application) {
         taskRepository = taskRepository,
         eventLogRepository = eventLogRepository,
     )
+    val taskNotifier = AndroidTaskNotifier(application)
 
     val toolRegistry = createBuiltInToolRegistry(
         application = application,

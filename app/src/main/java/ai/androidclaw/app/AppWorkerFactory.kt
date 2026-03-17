@@ -23,6 +23,7 @@ class AppWorkerFactory(
                 eventLogRepository = container.eventLogRepository,
                 schedulerCoordinator = container.schedulerCoordinator,
                 taskRuntimeExecutor = container.taskRuntimeExecutor,
+                taskNotifier = container.taskNotifier,
             )
 
             else -> null
