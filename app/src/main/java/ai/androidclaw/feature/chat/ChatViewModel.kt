@@ -50,6 +50,7 @@ data class ChatSessionUi(
 data class ChatUiState(
     val currentSessionId: String = "",
     val sessionTitle: String = "",
+    val sessionSummary: String? = null,
     val draft: String = "",
     val isRunning: Boolean = false,
     val isCancelling: Boolean = false,
@@ -149,6 +150,7 @@ class ChatViewModel(
         ChatUiState(
             currentSessionId = currentSessionIdValue,
             sessionTitle = "",
+            sessionSummary = null,
             draft = baseChrome.draft,
             isRunning = baseChrome.isRunning,
             isCancelling = baseChrome.isCancelling,
@@ -178,8 +180,10 @@ class ChatViewModel(
             )
         }
         val currentSession = sessionItems.firstOrNull { it.isSelected }
+        val currentSessionSummary = sessions.firstOrNull { it.id == chrome.currentSessionId }?.summaryText
         chrome.copy(
             sessionTitle = currentSession?.title.orEmpty(),
+            sessionSummary = currentSessionSummary,
             sessions = sessionItems,
             messages = messages,
             canArchiveCurrentSession = currentSession?.isMain == false,

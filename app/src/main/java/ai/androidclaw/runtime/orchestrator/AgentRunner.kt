@@ -64,6 +64,8 @@ class AgentRunner(
     private val toolRegistry: ToolRegistry,
     private val sessionLaneCoordinator: SessionLaneCoordinator,
     private val promptAssembler: PromptAssembler,
+    private val sessionSummaryCoordinator: SessionSummaryCoordinator? = null,
+    private val loadSessionSummary: suspend (String) -> String? = { null },
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult {
         return runTurn(
@@ -243,11 +245,13 @@ class AgentRunner(
                 sessionId = sessionId,
                 limit = MESSAGE_CONTEXT_FETCH_LIMIT,
             ).asReversed()
+            val sessionSummary = loadSessionSummary(sessionId)
             val promptAssembly = promptAssembler.assemble(
                 persistedMessages = persistedMessages,
                 selectedSkills = selectedSkills,
                 toolDescriptors = toolDescriptors,
                 runMode = runMode,
+                sessionSummary = sessionSummary,
             )
             var messageHistory = promptAssembly.messageHistory
             var providerRequestId: String? = null
@@ -535,6 +539,7 @@ class AgentRunner(
             providerMeta = providerRequestId,
             taskRunId = taskRunId,
         )
+        sessionSummaryCoordinator?.onTurnCompleted(sessionId)
         return AgentTurnResult(
             assistantMessage = persistedText,
             assistantMessageId = assistantMessage.id,

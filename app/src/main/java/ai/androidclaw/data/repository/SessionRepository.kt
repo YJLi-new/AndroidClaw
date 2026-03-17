@@ -57,6 +57,16 @@ class SessionRepository(
             ),
         )
     }
+
+    suspend fun updateSummary(id: String, summaryText: String?) {
+        val existing = dao.getById(id) ?: return
+        dao.update(
+            existing.copy(
+                summaryText = summaryText,
+                updatedAt = Instant.now().toEpochMilli(),
+            ),
+        )
+    }
 }
 
 private fun SessionEntity.toDomain(): Session {

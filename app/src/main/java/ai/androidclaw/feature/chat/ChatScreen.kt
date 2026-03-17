@@ -95,6 +95,21 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
         }
+        state.sessionSummary?.takeIf { it.isNotBlank() }?.let { sessionSummary ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Session summary",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text(
+                        text = sessionSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
         state.noticeMessage?.let { noticeMessage ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {

@@ -16,6 +16,7 @@ import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
+import ai.androidclaw.runtime.orchestrator.SessionSummaryCoordinator
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import ai.androidclaw.runtime.providers.AnthropicProvider
 import ai.androidclaw.runtime.providers.AndroidNetworkStatusProvider
@@ -37,10 +38,14 @@ import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
 import kotlinx.serialization.json.Json
 import java.time.Clock
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class AppContainer(application: Application) {
     private val clock: Clock = Clock.systemDefaultZone()
     private lateinit var skillManagerRef: SkillManager
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json {
         ignoreUnknownKeys = true
     }
@@ -140,6 +145,16 @@ class AppContainer(application: Application) {
             )
         },
     )
+    val sessionSummaryCoordinator by lazy(LazyThreadSafetyMode.NONE) {
+        SessionSummaryCoordinator(
+            applicationScope = applicationScope,
+            providerRegistry = providerRegistry,
+            settingsDataStore = settingsDataStore,
+            sessionRepository = sessionRepository,
+            messageRepository = messageRepository,
+            sessionLaneCoordinator = sessionLaneCoordinator,
+        )
+    }
 
     val agentRunner = AgentRunner(
         providerRegistry = providerRegistry,
@@ -149,6 +164,8 @@ class AppContainer(application: Application) {
         toolRegistry = toolRegistry,
         sessionLaneCoordinator = sessionLaneCoordinator,
         promptAssembler = promptAssembler,
+        sessionSummaryCoordinator = sessionSummaryCoordinator,
+        loadSessionSummary = { sessionId -> sessionRepository.getSession(sessionId)?.summaryText },
     )
 
     val taskRuntimeExecutor = TaskRuntimeExecutor(

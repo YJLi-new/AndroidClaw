@@ -261,6 +261,19 @@ class ChatViewModelTest {
         }
     }
 
+    @Test
+    fun `stored session summary is surfaced in chat state`() = runTest {
+        viewModel.state.test {
+            val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+            sessionRepository.updateSummary(ready.currentSessionId, "Summary preview for the current session.")
+
+            val withSummary = awaitState { it.sessionSummary == "Summary preview for the current session." }
+
+            assertEquals("Summary preview for the current session.", withSummary.sessionSummary)
+        }
+    }
+
     private fun buildViewModel(
         providerRegistry: ai.androidclaw.runtime.providers.ProviderRegistry = buildTestProviderRegistry(),
         toolRegistry: ToolRegistry = ToolRegistry(emptyList()),

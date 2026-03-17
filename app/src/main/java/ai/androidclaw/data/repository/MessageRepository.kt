@@ -42,6 +42,10 @@ class MessageRepository(
         return dao.getRecentBySessionId(sessionId, limit).map(MessageEntity::toDomain)
     }
 
+    suspend fun getMessageCount(sessionId: String): Int {
+        return dao.countBySessionId(sessionId)
+    }
+
     suspend fun deleteSessionMessages(sessionId: String) {
         dao.deleteBySessionId(sessionId)
     }
