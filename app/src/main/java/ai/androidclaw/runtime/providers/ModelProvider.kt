@@ -125,9 +125,13 @@ class ProviderRegistry(
 
 enum class ModelProviderFailureKind {
     Configuration,
+    InvalidEndpoint,
+    Offline,
     Authentication,
     Network,
     Timeout,
+    Server,
+    StreamInterrupted,
     Response,
 }
 

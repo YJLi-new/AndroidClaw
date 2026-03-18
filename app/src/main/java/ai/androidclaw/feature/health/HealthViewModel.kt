@@ -1,6 +1,7 @@
 package ai.androidclaw.feature.health
 
 import ai.androidclaw.app.HealthDependencies
+import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLogEntry
@@ -24,6 +25,8 @@ import kotlinx.coroutines.flow.update
 data class HealthUiState(
     val providerId: String = "",
     val networkSummary: String = "",
+    val providerStatus: String = "",
+    val lastProviderIssue: String? = null,
     val schedulerDiagnostics: SchedulerDiagnostics = SchedulerDiagnostics(),
     val supportedKinds: List<String> = emptyList(),
     val tools: List<String> = emptyList(),
@@ -53,11 +56,27 @@ class HealthViewModel(
         diagnosticsRefreshes,
     ) { settings, events, _ ->
             val schedulerEvents = events.filter { it.category == EventCategory.Scheduler }
+            val providerEvents = events.filter { it.category == EventCategory.Provider }
             val diagnostics = schedulerCoordinator.diagnostics()
             val networkStatus = networkStatusProvider.currentStatus()
+            val providerType = settings.providerType
+            val lastProviderIssue = providerEvents.firstOrNull()?.let { event ->
+                buildString {
+                    append(event.message)
+                    event.details?.takeIf { it.isNotBlank() }?.let { details ->
+                        append(" (").append(details).append(")")
+                    }
+                }
+            }
             HealthUiState(
                 providerId = providerRegistry.require(settings.providerType).id,
                 networkSummary = networkStatus.summary,
+                providerStatus = buildProviderStatus(
+                    providerType = providerType,
+                    networkStatus = networkStatus,
+                    lastProviderIssue = lastProviderIssue,
+                ),
+                lastProviderIssue = lastProviderIssue,
                 schedulerDiagnostics = diagnostics,
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
@@ -86,6 +105,7 @@ class HealthViewModel(
             initialValue = HealthUiState(
                 providerId = providerRegistry.defaultProvider.id,
                 networkSummary = networkStatusProvider.currentStatus().summary,
+                providerStatus = "FakeProvider is active. It works fully offline.",
                 schedulerDiagnostics = initialDiagnostics,
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
@@ -112,5 +132,24 @@ class HealthViewModel(
                 }
             }
         }
+    }
+}
+
+private fun buildProviderStatus(
+    providerType: ProviderType,
+    networkStatus: ai.androidclaw.runtime.providers.NetworkStatusSnapshot,
+    lastProviderIssue: String?,
+): String {
+    return when {
+        !providerType.requiresRemoteSettings -> "FakeProvider is active. It works fully offline."
+        !networkStatus.isConnected ->
+            "No active network connection. Remote provider calls will fail until connectivity returns."
+        !networkStatus.isValidated ->
+            "Network is connected, but Android has not validated internet access yet."
+        !lastProviderIssue.isNullOrBlank() ->
+            "Last provider issue: $lastProviderIssue"
+        networkStatus.isMetered ->
+            "Remote provider calls are using a metered network."
+        else -> "Remote provider is ready for interactive use."
     }
 }

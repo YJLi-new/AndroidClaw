@@ -45,7 +45,14 @@ fun HealthScreen(viewModel: HealthViewModel) {
         }
         HealthCard(
             title = "Provider",
-            body = "Active provider: ${state.providerId}\nNetwork: ${state.networkSummary}",
+            body = buildString {
+                append("Active provider: ").append(state.providerId)
+                append("\nNetwork: ").append(state.networkSummary)
+                append("\nStatus: ").append(state.providerStatus)
+                state.lastProviderIssue?.let { issue ->
+                    append("\nLast issue: ").append(issue)
+                }
+            },
         )
         HealthCard(
             title = "Scheduler",

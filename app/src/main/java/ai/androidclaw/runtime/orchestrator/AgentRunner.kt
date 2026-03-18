@@ -12,6 +12,8 @@ import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.providers.ModelSkillMetadata
 import ai.androidclaw.runtime.providers.ModelStreamEvent
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.offlineFailure
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.ProviderToolCall
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
@@ -66,6 +68,7 @@ class AgentRunner(
     private val promptAssembler: PromptAssembler,
     private val sessionSummaryCoordinator: SessionSummaryCoordinator? = null,
     private val loadSessionSummary: suspend (String) -> String? = { null },
+    private val networkStatusProvider: NetworkStatusProvider? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult {
         return runTurn(
@@ -240,6 +243,12 @@ class AgentRunner(
             }
             val toolDescriptors = toolRegistry.descriptors()
             val providerSettings = settingsDataStore.settings.first()
+            if (
+                providerSettings.providerType.requiresRemoteSettings &&
+                networkStatusProvider?.currentStatus()?.isConnected == false
+            ) {
+                throw offlineFailure()
+            }
             val provider = providerRegistry.require(providerSettings.providerType)
             val persistedMessages = messageRepository.getRecentMessages(
                 sessionId = sessionId,
@@ -607,8 +616,10 @@ private fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String
 
 private fun Throwable.isRetryable(): Boolean {
     return this is ModelProviderException && (
+        kind == ModelProviderFailureKind.Offline ||
         kind == ModelProviderFailureKind.Network ||
-            kind == ModelProviderFailureKind.Timeout
+            kind == ModelProviderFailureKind.Timeout ||
+            kind == ModelProviderFailureKind.StreamInterrupted
         )
 }
 
@@ -616,9 +627,13 @@ private fun Throwable.toFailureKind(): AgentTurnFailureKind {
     return when (this) {
         is ModelProviderException -> when (kind) {
             ModelProviderFailureKind.Configuration -> AgentTurnFailureKind.Configuration
+            ModelProviderFailureKind.InvalidEndpoint -> AgentTurnFailureKind.InvalidEndpoint
+            ModelProviderFailureKind.Offline -> AgentTurnFailureKind.Offline
             ModelProviderFailureKind.Authentication -> AgentTurnFailureKind.Authentication
             ModelProviderFailureKind.Network -> AgentTurnFailureKind.Network
             ModelProviderFailureKind.Timeout -> AgentTurnFailureKind.Timeout
+            ModelProviderFailureKind.Server -> AgentTurnFailureKind.Server
+            ModelProviderFailureKind.StreamInterrupted -> AgentTurnFailureKind.StreamInterrupted
             ModelProviderFailureKind.Response -> AgentTurnFailureKind.Response
         }
 

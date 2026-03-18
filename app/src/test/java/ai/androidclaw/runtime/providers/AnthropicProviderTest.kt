@@ -188,6 +188,56 @@ class AnthropicProviderTest {
         assertEquals("Provider authentication failed.", error.userMessage)
     }
 
+    @Test
+    fun `http 500 maps to provider server failure`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(500)
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "error": {
+                        "message": "anthropic overloaded"
+                      }
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val error = assertProviderException {
+            buildProvider().generate(buildRequest())
+        }
+
+        assertEquals(ModelProviderFailureKind.Server, error.kind)
+        assertTrue(error.details.orEmpty().contains("anthropic overloaded"))
+    }
+
+    @Test
+    fun `stream ending before message stop maps to stream interrupted`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    event: message_start
+                    data: {"type":"message_start","message":{"id":"msg_stream"}}
+
+                    event: content_block_delta
+                    data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello "}}
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val error = assertProviderException {
+            buildProvider().streamGenerate(buildRequest()).toList()
+        }
+
+        assertEquals(ModelProviderFailureKind.StreamInterrupted, error.kind)
+        assertEquals("Provider stream was interrupted before completion.", error.userMessage)
+    }
+
     private fun buildProvider(): AnthropicProvider {
         return AnthropicProvider(
             settingsDataStore = settingsDataStore,

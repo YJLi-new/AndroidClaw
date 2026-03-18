@@ -13,8 +13,10 @@ import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelRunMode
+import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
+import ai.androidclaw.runtime.providers.offlineFailure
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -33,6 +35,7 @@ data class SettingsUiState(
     val modelId: String = "",
     val timeoutSeconds: String = "",
     val networkSummary: String = "",
+    val connectionHint: String? = null,
     val apiKeyDraft: String = "",
     val hasStoredApiKey: Boolean = false,
     val configured: Boolean = false,
@@ -82,6 +85,10 @@ class SettingsViewModel(
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
                     networkSummary = networkStatus.summary,
+                    connectionHint = buildConnectionHint(
+                        providerType = providerType,
+                        networkStatus = networkStatus,
+                    ),
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                     configured = isConfigured(
@@ -254,6 +261,7 @@ class SettingsViewModel(
             }
             return
         }
+        val networkStatus = networkStatusProvider.currentStatus()
         val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 }
             ?: snapshot.providerType.defaultTimeoutSeconds
         val mutationVersion = nextMutationVersion()
@@ -268,6 +276,9 @@ class SettingsViewModel(
             }
             try {
                 persistSettings(snapshot, normalizedTimeoutSeconds)
+                if (snapshot.providerType.requiresRemoteSettings && !networkStatus.isConnected) {
+                    throw offlineFailure()
+                }
                 providerRegistry.require(snapshot.providerType).generate(
                     ModelRequest(
                         sessionId = "provider-validation",
@@ -342,6 +353,10 @@ class SettingsViewModel(
                 modelId = endpointSettings.modelId,
                 timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
                 networkSummary = networkStatus.summary,
+                connectionHint = buildConnectionHint(
+                    providerType = providerType,
+                    networkStatus = networkStatus,
+                ),
                 apiKeyDraft = "",
                 hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                 configured = isConfigured(
@@ -440,13 +455,35 @@ class SettingsViewModel(
     private fun validationFailureMessage(error: ModelProviderException): String {
         return when (error.kind) {
             ModelProviderFailureKind.Configuration -> error.userMessage
+            ModelProviderFailureKind.InvalidEndpoint -> "Provider base URL is invalid. Check the endpoint format."
+            ModelProviderFailureKind.Offline -> error.userMessage
             ModelProviderFailureKind.Authentication -> "Authentication failed. Check the API key."
             ModelProviderFailureKind.Network ->
-                "Network error. Check your connection and the provider base URL."
+                error.userMessage
             ModelProviderFailureKind.Timeout ->
                 "Connection test timed out. Check the endpoint and timeout."
+            ModelProviderFailureKind.Server ->
+                error.userMessage.ifBlank { "Provider rejected the request." }
+            ModelProviderFailureKind.StreamInterrupted ->
+                "Provider streaming was interrupted before completion. Retry when the connection is stable."
             ModelProviderFailureKind.Response ->
                 error.userMessage.ifBlank { "Provider returned an unexpected response." }
+        }
+    }
+
+    private fun buildConnectionHint(
+        providerType: ProviderType,
+        networkStatus: NetworkStatusSnapshot,
+    ): String? {
+        return when {
+            !providerType.requiresRemoteSettings -> "FakeProvider is active. It works fully offline."
+            !networkStatus.isConnected ->
+                "Remote provider calls will fail until network connectivity returns."
+            !networkStatus.isValidated ->
+                "Network is connected, but Android has not validated internet access yet."
+            networkStatus.isMetered ->
+                "Remote provider calls are using a metered network."
+            else -> "Use Test connection to verify credentials, endpoint, and model."
         }
     }
 

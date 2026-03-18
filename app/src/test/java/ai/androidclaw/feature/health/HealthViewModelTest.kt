@@ -85,6 +85,12 @@ class HealthViewModelTest {
             message = "Something happened",
         )
         eventLogRepository.log(
+            category = EventCategory.Provider,
+            level = EventLevel.Error,
+            message = "Provider stream was interrupted before completion.",
+            details = "kind=StreamInterrupted",
+        )
+        eventLogRepository.log(
             category = EventCategory.Scheduler,
             level = EventLevel.Info,
             message = "Task Daily check started.",
@@ -165,6 +171,8 @@ class HealthViewModelTest {
 
         assertEquals("openai-compatible", state.providerId)
         assertEquals("Connected", state.networkSummary)
+        assertTrue(state.providerStatus.contains("Last provider issue"))
+        assertTrue(state.lastProviderIssue?.contains("StreamInterrupted") == true)
         assertEquals(listOf("health.status"), state.tools)
         assertTrue(state.lastAutomationResult?.contains("completed") == true)
         assertEquals("taskId=task-1 stopReason=quota", state.lastWorkerStopReason)

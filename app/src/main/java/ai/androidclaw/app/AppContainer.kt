@@ -168,6 +168,7 @@ class AppContainer(application: Application) {
         promptAssembler = promptAssembler,
         sessionSummaryCoordinator = sessionSummaryCoordinator,
         loadSessionSummary = { sessionId -> sessionRepository.getSession(sessionId)?.summaryText },
+        networkStatusProvider = networkStatusProvider,
     )
 
     val taskRuntimeExecutor = TaskRuntimeExecutor(

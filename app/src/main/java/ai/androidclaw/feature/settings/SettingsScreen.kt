@@ -86,6 +86,9 @@ fun SettingsScreen(
                 }
                 Text("Active provider: ${state.activeProviderId}")
                 Text("Network: ${state.networkSummary}")
+                state.connectionHint?.let { hint ->
+                    Text(hint)
+                }
                 Text("Configured: ${state.configured}")
                 if (state.providerType.requiresRemoteSettings) {
                     OutlinedTextField(

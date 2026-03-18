@@ -71,12 +71,7 @@ class OpenAiCompatibleProvider(
         } catch (error: InterruptedIOException) {
             throw timeoutFailure(config.endpointSettings, error)
         } catch (error: IOException) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Network,
-                userMessage = "Provider request failed due to a network error.",
-                details = error.message,
-                cause = error,
-            )
+            throw mapTransportFailure(error)
         }
     }
 
@@ -177,9 +172,16 @@ class OpenAiCompatibleProvider(
                         )
                     }
 
-                    if (!doneSeen && completed.compareAndSet(false, true)) {
-                        trySend(ModelStreamEvent.Completed(accumulator.buildResponse()))
-                        close()
+                    if (!doneSeen) {
+                        if (!accumulator.canCompleteWithoutTerminalSignal()) {
+                            throw streamInterruptedFailure(
+                                details = "Provider stream ended before a terminal event was received.",
+                            )
+                        }
+                        if (completed.compareAndSet(false, true)) {
+                            trySend(ModelStreamEvent.Completed(accumulator.buildResponse()))
+                            close()
+                        }
                     }
                 }
             } catch (error: Exception) {
@@ -190,7 +192,15 @@ class OpenAiCompatibleProvider(
                     return@launch
                 }
                 if (completed.compareAndSet(false, true)) {
-                    close(mapStreamingFailure(config.endpointSettings, null, "", error))
+                    close(
+                        mapStreamingFailure(
+                            settings = config.endpointSettings,
+                            response = null,
+                            rawBody = "",
+                            throwable = error,
+                            streamStarted = accumulator.hasSeenChunk(),
+                        ),
+                    )
                 }
             }
         }
@@ -215,11 +225,7 @@ class OpenAiCompatibleProvider(
             ?.addPathSegment("chat")
             ?.addPathSegment("completions")
             ?.build()
-            ?: throw ModelProviderException(
-                kind = ModelProviderFailureKind.Configuration,
-                userMessage = "Provider base URL is invalid.",
-                details = "Configured base URL: ${endpointSettings.baseUrl}",
-            )
+            ?: throw invalidEndpointFailure(endpointSettings.baseUrl)
         return ResolvedRequestConfig(
             endpointSettings = endpointSettings,
             apiKey = apiKey.orEmpty(),
@@ -423,6 +429,7 @@ class OpenAiCompatibleProvider(
         response: Response?,
         rawBody: String,
         throwable: Throwable?,
+        streamStarted: Boolean,
     ): ModelProviderException {
         if (throwable is ModelProviderException) {
             return throwable
@@ -433,12 +440,14 @@ class OpenAiCompatibleProvider(
         return when (throwable) {
             is SocketTimeoutException -> timeoutFailure(settings, throwable)
             is InterruptedIOException -> timeoutFailure(settings, throwable)
-            is IOException -> ModelProviderException(
-                kind = ModelProviderFailureKind.Network,
-                userMessage = "Provider request failed due to a network error.",
-                details = throwable.message,
-                cause = throwable,
-            )
+            is IOException -> if (streamStarted) {
+                streamInterruptedFailure(
+                    details = throwable.message,
+                    cause = throwable,
+                )
+            } else {
+                mapTransportFailure(throwable)
+            }
 
             else -> ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
@@ -447,18 +456,6 @@ class OpenAiCompatibleProvider(
                 cause = throwable,
             )
         }
-    }
-
-    private fun timeoutFailure(
-        settings: ProviderEndpointSettings,
-        error: Throwable,
-    ): ModelProviderException {
-        return ModelProviderException(
-            kind = ModelProviderFailureKind.Timeout,
-            userMessage = "Provider request timed out.",
-            details = "Timed out after ${settings.timeoutSeconds} seconds.",
-            cause = error,
-        )
     }
 
     private fun mapFailure(statusCode: Int, rawBody: String): ModelProviderException {
@@ -474,7 +471,7 @@ class OpenAiCompatibleProvider(
             )
 
             else -> ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
+                kind = ModelProviderFailureKind.Server,
                 userMessage = "Provider request failed with HTTP $statusCode.",
                 details = errorMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
             )
@@ -704,6 +701,12 @@ private class OpenAiStreamAccumulator(
             finishReason = normalizedFinishReason,
             toolCalls = resolvedToolCalls,
         )
+    }
+
+    fun hasSeenChunk(): Boolean = sawChunk
+
+    fun canCompleteWithoutTerminalSignal(): Boolean {
+        return sawChunk && !finishReason.isNullOrBlank()
     }
 
     private fun parseToolArguments(arguments: String): JsonObject {

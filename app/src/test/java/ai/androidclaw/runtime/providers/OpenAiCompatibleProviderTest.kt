@@ -420,6 +420,29 @@ class OpenAiCompatibleProviderTest {
     }
 
     @Test
+    fun `invalid base url fails with invalid endpoint classification`() = runTest {
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.OpenAiCompatible,
+                    ai.androidclaw.data.ProviderEndpointSettings(
+                        baseUrl = "not-a-url",
+                        modelId = "gpt-test",
+                        timeoutSeconds = 5,
+                    ),
+                )
+                .copy(providerType = ProviderType.OpenAiCompatible),
+        )
+
+        val error = assertProviderException {
+            buildProvider().generate(buildRequest())
+        }
+
+        assertEquals(ModelProviderFailureKind.InvalidEndpoint, error.kind)
+        assertEquals("Provider base URL is invalid.", error.userMessage)
+    }
+
+    @Test
     fun `http 401 is mapped to authentication failure`() = runTest {
         server.enqueue(
             MockResponse()
@@ -434,6 +457,23 @@ class OpenAiCompatibleProviderTest {
 
         assertEquals(ModelProviderFailureKind.Authentication, error.kind)
         assertTrue(error.details.orEmpty().contains("bad key"))
+    }
+
+    @Test
+    fun `http 500 is mapped to provider server failure`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(500)
+                .setHeader("Content-Type", "application/json")
+                .setBody("""{"error":{"message":"backend overloaded"}}"""),
+        )
+
+        val error = assertProviderException {
+            buildProvider().generate(buildRequest())
+        }
+
+        assertEquals(ModelProviderFailureKind.Server, error.kind)
+        assertTrue(error.details.orEmpty().contains("backend overloaded"))
     }
 
     @Test
@@ -465,6 +505,27 @@ class OpenAiCompatibleProviderTest {
 
         assertEquals(ModelProviderFailureKind.Timeout, error.kind)
         assertEquals("Provider request timed out.", error.userMessage)
+    }
+
+    @Test
+    fun `stream ending before terminal event is mapped to stream interrupted`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    data: {"id":"resp-stream-cut","choices":[{"index":0,"delta":{"content":"Hel"},"finish_reason":null}]}
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val error = assertProviderException {
+            buildProvider().streamGenerate(buildRequest()).toList()
+        }
+
+        assertEquals(ModelProviderFailureKind.StreamInterrupted, error.kind)
+        assertEquals("Provider stream was interrupted before completion.", error.userMessage)
     }
 
     @Test

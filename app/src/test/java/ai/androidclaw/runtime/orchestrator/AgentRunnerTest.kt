@@ -17,9 +17,13 @@ import ai.androidclaw.runtime.skills.SkillEligibility
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.providers.ModelProvider
+import ai.androidclaw.runtime.providers.ModelProviderException
+import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelStreamEvent
 import ai.androidclaw.runtime.providers.ModelResponse
+import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderToolCall
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -253,6 +257,66 @@ class AgentRunnerTest {
             storedMessages.any { message ->
                 message.role == ai.androidclaw.data.model.MessageRole.Assistant &&
                     message.content.contains("Tool result:")
+            },
+        )
+    }
+
+    @Test
+    fun `remote provider turn fails fast when the device is offline`() = runTest {
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.OpenAiCompatible,
+                    ai.androidclaw.data.ProviderEndpointSettings(
+                        baseUrl = "https://openai.example/v1",
+                        modelId = "gpt-test",
+                        timeoutSeconds = 30,
+                    ),
+                )
+                .copy(providerType = ProviderType.OpenAiCompatible),
+        )
+        val runner = AgentRunner(
+            providerRegistry = buildTestProviderRegistry(
+                fakeProvider = failOnGenerateProvider(),
+                openAiCompatibleProvider = failOnGenerateProvider(),
+            ),
+            settingsDataStore = settingsDataStore,
+            messageRepository = messageRepository,
+            skillManager = buildSkillManager(ToolRegistry(emptyList())),
+            toolRegistry = ToolRegistry(emptyList()),
+            sessionLaneCoordinator = SessionLaneCoordinator(),
+            promptAssembler = PromptAssembler(),
+            networkStatusProvider = object : NetworkStatusProvider {
+                override fun currentStatus(): NetworkStatusSnapshot {
+                    return NetworkStatusSnapshot(
+                        supported = true,
+                        isConnected = false,
+                        isValidated = false,
+                        isMetered = false,
+                    )
+                }
+            },
+        )
+
+        val error = try {
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "Use the remote provider",
+                ),
+            )
+            error("Expected ModelProviderException.")
+        } catch (error: ModelProviderException) {
+            error
+        }
+
+        val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
+
+        assertEquals(ModelProviderFailureKind.Offline, error.kind)
+        assertTrue(
+            storedMessages.any { message ->
+                message.role == ai.androidclaw.data.model.MessageRole.System &&
+                    message.content.contains("No active network connection")
             },
         )
     }

@@ -2,9 +2,13 @@ package ai.androidclaw.runtime.orchestrator
 
 enum class AgentTurnFailureKind {
     Configuration,
+    InvalidEndpoint,
+    Offline,
     Authentication,
     Network,
     Timeout,
+    Server,
+    StreamInterrupted,
     Response,
     Runtime,
 }

@@ -338,11 +338,15 @@ class TaskExecutionWorker(
 
 private fun ModelProviderFailureKind.isRetryable(): Boolean {
     return when (this) {
+        ModelProviderFailureKind.Offline,
         ModelProviderFailureKind.Network,
         ModelProviderFailureKind.Timeout,
+        ModelProviderFailureKind.StreamInterrupted,
             -> true
         ModelProviderFailureKind.Configuration,
+        ModelProviderFailureKind.InvalidEndpoint,
         ModelProviderFailureKind.Authentication,
+        ModelProviderFailureKind.Server,
         ModelProviderFailureKind.Response,
             -> false
     }
@@ -351,9 +355,13 @@ private fun ModelProviderFailureKind.isRetryable(): Boolean {
 private fun ModelProviderFailureKind.toTaskErrorCode(): String {
     return when (this) {
         ModelProviderFailureKind.Configuration -> "MISSING_API_KEY"
+        ModelProviderFailureKind.InvalidEndpoint -> "INVALID_ENDPOINT"
+        ModelProviderFailureKind.Offline -> "NETWORK_OFFLINE"
         ModelProviderFailureKind.Authentication -> "AUTHENTICATION_FAILED"
         ModelProviderFailureKind.Network -> "NETWORK_UNAVAILABLE"
         ModelProviderFailureKind.Timeout -> "WORK_INTERRUPTED"
+        ModelProviderFailureKind.Server -> "PROVIDER_REQUEST_FAILED"
+        ModelProviderFailureKind.StreamInterrupted -> "PROVIDER_STREAM_INTERRUPTED"
         ModelProviderFailureKind.Response -> "PROVIDER_RESPONSE_INVALID"
     }
 }

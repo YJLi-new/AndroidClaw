@@ -35,14 +35,15 @@ class SettingsViewModelTest {
 
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var secretStore: InMemoryProviderSecretStore
+    private var currentNetworkStatus = NetworkStatusSnapshot(
+        supported = true,
+        isConnected = true,
+        isValidated = true,
+        isMetered = false,
+    )
     private val networkStatusProvider = object : NetworkStatusProvider {
         override fun currentStatus(): NetworkStatusSnapshot {
-            return NetworkStatusSnapshot(
-                supported = true,
-                isConnected = true,
-                isValidated = true,
-                isMetered = false,
-            )
+            return currentNetworkStatus
         }
     }
 
@@ -226,6 +227,38 @@ class SettingsViewModelTest {
 
         assertEquals("Connection test succeeded.", state.statusMessage)
         assertEquals(ProviderType.OpenAiCompatible, settingsDataStore.settings.first().providerType)
+        assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
+    }
+
+    @Test
+    fun `validateConnection reports offline state before attempting a remote provider call`() = runTest {
+        currentNetworkStatus = currentNetworkStatus.copy(
+            isConnected = false,
+            isValidated = false,
+        )
+        val viewModel = buildViewModel()
+
+        viewModel.selectProviderType(ProviderType.OpenAiCompatible)
+        waitForState(viewModel) { it.providerType == ProviderType.OpenAiCompatible }
+        viewModel.onBaseUrlChanged("https://openai.example/v1")
+        viewModel.onModelIdChanged("gpt-test")
+        viewModel.onTimeoutChanged("30")
+        viewModel.onApiKeyChanged("sk-test")
+        viewModel.validateConnection()
+
+        val state = waitForState(viewModel) {
+            !it.isValidatingConnection && it.statusMessage?.contains("No active network connection", ignoreCase = true) == true
+        }
+
+        assertFalse(state.lastValidationSucceeded)
+        assertEquals(
+            "No active network connection. Remote providers cannot be reached right now.",
+            state.statusMessage,
+        )
+        assertEquals(
+            "Remote provider calls will fail until network connectivity returns.",
+            state.connectionHint,
+        )
         assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
     }
 

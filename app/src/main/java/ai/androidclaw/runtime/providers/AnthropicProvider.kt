@@ -67,12 +67,7 @@ class AnthropicProvider(
         } catch (error: InterruptedIOException) {
             throw timeoutFailure(config.endpointSettings, error)
         } catch (error: IOException) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Network,
-                userMessage = "Provider request failed due to a network error.",
-                details = error.message,
-                cause = error,
-            )
+            throw mapTransportFailure(error)
         }
     }
 
@@ -162,9 +157,16 @@ class AnthropicProvider(
                         )
                     }
 
-                    if (!doneSeen && completed.compareAndSet(false, true)) {
-                        trySend(ModelStreamEvent.Completed(accumulator.buildResponse()))
-                        close()
+                    if (!doneSeen) {
+                        if (!accumulator.canCompleteWithoutTerminalSignal()) {
+                            throw streamInterruptedFailure(
+                                details = "Provider stream ended before a terminal event was received.",
+                            )
+                        }
+                        if (completed.compareAndSet(false, true)) {
+                            trySend(ModelStreamEvent.Completed(accumulator.buildResponse()))
+                            close()
+                        }
                     }
                 }
             } catch (error: Exception) {
@@ -175,7 +177,15 @@ class AnthropicProvider(
                     return@launch
                 }
                 if (completed.compareAndSet(false, true)) {
-                    close(mapStreamingFailure(config.endpointSettings, null, "", error))
+                    close(
+                        mapStreamingFailure(
+                            settings = config.endpointSettings,
+                            response = null,
+                            rawBody = "",
+                            throwable = error,
+                            streamStarted = accumulator.hasSeenEvent(),
+                        ),
+                    )
                 }
             }
         }
@@ -199,11 +209,7 @@ class AnthropicProvider(
             ?.newBuilder()
             ?.addPathSegment("messages")
             ?.build()
-            ?: throw ModelProviderException(
-                kind = ModelProviderFailureKind.Configuration,
-                userMessage = "Provider base URL is invalid.",
-                details = "Configured base URL: ${endpointSettings.baseUrl}",
-            )
+            ?: throw invalidEndpointFailure(endpointSettings.baseUrl)
 
         return ResolvedRequestConfig(
             endpointSettings = endpointSettings,
@@ -413,7 +419,7 @@ class AnthropicProvider(
             )
 
             else -> ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
+                kind = ModelProviderFailureKind.Server,
                 userMessage = "Provider request failed with HTTP $statusCode.",
                 details = parsedMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
             )
@@ -425,6 +431,7 @@ class AnthropicProvider(
         response: Response?,
         rawBody: String,
         throwable: Throwable?,
+        streamStarted: Boolean,
     ): ModelProviderException {
         if (throwable is ModelProviderException) {
             return throwable
@@ -435,12 +442,14 @@ class AnthropicProvider(
         return when (throwable) {
             is SocketTimeoutException -> timeoutFailure(settings, throwable)
             is InterruptedIOException -> timeoutFailure(settings, throwable)
-            is IOException -> ModelProviderException(
-                kind = ModelProviderFailureKind.Network,
-                userMessage = "Provider request failed due to a network error.",
-                details = throwable.message,
-                cause = throwable,
-            )
+            is IOException -> if (streamStarted) {
+                streamInterruptedFailure(
+                    details = throwable.message,
+                    cause = throwable,
+                )
+            } else {
+                mapTransportFailure(throwable)
+            }
 
             else -> ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
@@ -449,18 +458,6 @@ class AnthropicProvider(
                 cause = throwable,
             )
         }
-    }
-
-    private fun timeoutFailure(
-        settings: ProviderEndpointSettings,
-        error: Throwable,
-    ): ModelProviderException {
-        return ModelProviderException(
-            kind = ModelProviderFailureKind.Timeout,
-            userMessage = "Provider request timed out.",
-            details = "Timed out after ${settings.timeoutSeconds} seconds.",
-            cause = error,
-        )
     }
 
     private data class ResolvedRequestConfig(
@@ -584,6 +581,7 @@ private class AnthropicStreamAccumulator(
     private var providerRequestId: String? = null
     private var finishReason: String? = null
     private var sawEvent = false
+    private var sawMessageStop = false
 
     fun applyEnvelope(rawEnvelope: String): List<ModelStreamEvent> {
         val envelope = try {
@@ -664,7 +662,10 @@ private class AnthropicStreamAccumulator(
             }
 
             "content_block_stop" -> emptyList()
-            "message_stop" -> emptyList()
+            "message_stop" -> {
+                sawMessageStop = true
+                emptyList()
+            }
             else -> emptyList()
         }
     }
@@ -706,6 +707,12 @@ private class AnthropicStreamAccumulator(
             },
             toolCalls = resolvedToolCalls,
         )
+    }
+
+    fun hasSeenEvent(): Boolean = sawEvent
+
+    fun canCompleteWithoutTerminalSignal(): Boolean {
+        return sawEvent && (sawMessageStop || !finishReason.isNullOrBlank())
     }
 
     private fun parseToolArguments(arguments: String): JsonObject {
