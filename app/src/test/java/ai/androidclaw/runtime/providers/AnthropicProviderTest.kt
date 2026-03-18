@@ -10,6 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -20,6 +21,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -250,6 +252,32 @@ class AnthropicProviderTest {
 
         assertEquals(ModelProviderFailureKind.StreamInterrupted, error.kind)
         assertEquals("Provider stream was interrupted before completion.", error.userMessage)
+    }
+
+    @Test
+    fun `streamGenerate can be cancelled after the first anthropic delta`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                    event: message_start
+                    data: {"type":"message_start","message":{"id":"msg_stream_cancel","model":"claude-sonnet-4-5","usage":{"input_tokens":11,"output_tokens":1}}}
+
+                    event: content_block_start
+                    data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+                    event: content_block_delta
+                    data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}
+
+                    """.trimIndent(),
+                )
+                .setSocketPolicy(SocketPolicy.KEEP_OPEN),
+        )
+
+        val events = buildProvider().streamGenerate(buildRequest()).take(1).toList()
+
+        assertEquals(listOf(ModelStreamEvent.TextDelta("Hel")), events)
     }
 
     private fun buildProvider(): AnthropicProvider {
