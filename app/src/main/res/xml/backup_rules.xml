@@ -2,7 +2,4 @@
 <full-backup-content>
     <include domain="file" path="datastore/androidclaw_settings.preferences_pb" />
     <include domain="file" path="datastore/androidclaw_skill_config.preferences_pb" />
-    <include domain="sharedpref" path="." />
-    <exclude domain="sharedpref" path="androidclaw_provider_secrets.xml" />
-    <exclude domain="sharedpref" path="androidclaw_skill_secrets.xml" />
 </full-backup-content>
