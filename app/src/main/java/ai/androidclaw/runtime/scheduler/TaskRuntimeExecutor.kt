@@ -80,7 +80,7 @@ class TaskRuntimeExecutor(
                     sessionId = deliverySessionId,
                     role = MessageRole.Assistant,
                     content = deliveryText,
-                    providerMeta = result.providerRequestId,
+                    providerMeta = result.providerMeta,
                     taskRunId = taskRunId,
                 )
             }

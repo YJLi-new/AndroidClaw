@@ -87,6 +87,7 @@ class OpenAiCompatibleProvider(
             messages = buildMessages(request),
             tools = buildTools(request),
             stream = true,
+            streamOptions = OpenAiStreamOptions(includeUsage = true),
         )
         val httpRequest = buildHttpRequest(
             url = config.url,
@@ -370,6 +371,8 @@ class OpenAiCompatibleProvider(
                 providerRequestId = parsed.id,
                 finishReason = "tool_use",
                 toolCalls = toolCalls,
+                modelId = parsed.model,
+                usage = parsed.usage?.toProviderUsage(),
             )
         }
         if (assistantText.isBlank()) {
@@ -384,6 +387,8 @@ class OpenAiCompatibleProvider(
             text = assistantText,
             providerRequestId = parsed.id,
             finishReason = choice.finishReason ?: "stop",
+            modelId = parsed.model,
+            usage = parsed.usage?.toProviderUsage(),
         )
     }
 
@@ -501,6 +506,14 @@ private data class OpenAiChatCompletionsRequest(
     val messages: List<OpenAiChatMessage>,
     val tools: List<OpenAiToolDefinition>? = null,
     val stream: Boolean = false,
+    @SerialName("stream_options")
+    val streamOptions: OpenAiStreamOptions? = null,
+)
+
+@Serializable
+private data class OpenAiStreamOptions(
+    @SerialName("include_usage")
+    val includeUsage: Boolean,
 )
 
 @Serializable
@@ -542,7 +555,9 @@ private data class OpenAiToolFunctionCall(
 @Serializable
 private data class OpenAiChatCompletionsResponse(
     val id: String? = null,
+    val model: String? = null,
     val choices: List<OpenAiChatChoice> = emptyList(),
+    val usage: OpenAiUsage? = null,
 )
 
 @Serializable
@@ -573,7 +588,19 @@ private data class OpenAiErrorPayload(
 @Serializable
 private data class OpenAiChatCompletionsChunkResponse(
     val id: String? = null,
+    val model: String? = null,
     val choices: List<OpenAiStreamChoice> = emptyList(),
+    val usage: OpenAiUsage? = null,
+)
+
+@Serializable
+private data class OpenAiUsage(
+    @SerialName("prompt_tokens")
+    val promptTokens: Int? = null,
+    @SerialName("completion_tokens")
+    val completionTokens: Int? = null,
+    @SerialName("total_tokens")
+    val totalTokens: Int? = null,
 )
 
 @Serializable
@@ -611,7 +638,9 @@ private class OpenAiStreamAccumulator(
     private val assistantText = StringBuilder()
     private val toolCalls = linkedMapOf<Int, ToolCallAccumulator>()
     private var providerRequestId: String? = null
+    private var modelId: String? = null
     private var finishReason: String? = null
+    private var usage: ProviderUsage? = null
     private var sawChunk = false
 
     fun applyChunk(rawChunk: String): List<ModelStreamEvent> {
@@ -628,6 +657,8 @@ private class OpenAiStreamAccumulator(
 
         sawChunk = true
         providerRequestId = chunk.id ?: providerRequestId
+        modelId = chunk.model ?: modelId
+        usage = chunk.usage?.toProviderUsage() ?: usage
         return buildList {
             chunk.choices.forEach { choice ->
                 choice.delta.content
@@ -700,6 +731,8 @@ private class OpenAiStreamAccumulator(
             providerRequestId = providerRequestId,
             finishReason = normalizedFinishReason,
             toolCalls = resolvedToolCalls,
+            modelId = modelId,
+            usage = usage,
         )
     }
 
@@ -730,6 +763,14 @@ private class OpenAiStreamAccumulator(
         val id: StringBuilder = StringBuilder(),
         val name: StringBuilder = StringBuilder(),
         val arguments: StringBuilder = StringBuilder(),
+    )
+}
+
+private fun OpenAiUsage.toProviderUsage(): ProviderUsage {
+    return ProviderUsage(
+        inputTokens = promptTokens,
+        outputTokens = completionTokens,
+        totalTokens = totalTokens,
     )
 }
 

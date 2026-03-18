@@ -298,6 +298,21 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
         }
+        state.sessionUsageSummary?.let { usageSummary ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Session usage",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text(
+                        text = usageSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
         state.noticeMessage?.let { noticeMessage ->
             Card(
                 modifier = Modifier

@@ -78,6 +78,11 @@ class AnthropicProviderTest {
                     """
                     {
                       "id": "msg_123",
+                      "model": "claude-sonnet-4-5",
+                      "usage": {
+                        "input_tokens": 18,
+                        "output_tokens": 7
+                      },
                       "content": [
                         { "type": "text", "text": "Checking... " },
                         {
@@ -102,6 +107,10 @@ class AnthropicProviderTest {
         assertEquals("Checking...", response.text)
         assertEquals("tool_use", response.finishReason)
         assertEquals("msg_123", response.providerRequestId)
+        assertEquals("claude-sonnet-4-5", response.modelId)
+        assertEquals(18, response.usage?.inputTokens)
+        assertEquals(7, response.usage?.outputTokens)
+        assertEquals(25, response.usage?.totalTokens)
         assertEquals(1, response.toolCalls.size)
         assertEquals("toolu_1", response.toolCalls.single().id)
         assertEquals("/v1/messages", recordedRequest.path)
@@ -121,7 +130,7 @@ class AnthropicProviderTest {
                 .setBody(
                     """
                     event: message_start
-                    data: {"type":"message_start","message":{"id":"msg_stream"}}
+                    data: {"type":"message_start","message":{"id":"msg_stream","model":"claude-sonnet-4-5","usage":{"input_tokens":11,"output_tokens":1}}}
 
                     event: content_block_start
                     data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
@@ -136,7 +145,7 @@ class AnthropicProviderTest {
                     data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"verbose\":true}"}}
 
                     event: message_delta
-                    data: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}
+                    data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}
 
                     event: message_stop
                     data: {"type":"message_stop"}
@@ -161,6 +170,11 @@ class AnthropicProviderTest {
                     it.response.toolCalls.single().name == "health.status"
             },
         )
+        val completed = events.last() as ModelStreamEvent.Completed
+        assertEquals("claude-sonnet-4-5", completed.response.modelId)
+        assertEquals(11, completed.response.usage?.inputTokens)
+        assertEquals(5, completed.response.usage?.outputTokens)
+        assertEquals(16, completed.response.usage?.totalTokens)
     }
 
     @Test

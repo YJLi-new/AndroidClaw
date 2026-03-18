@@ -32,6 +32,12 @@ data class ProviderToolCall(
     val argumentsJson: JsonObject,
 )
 
+data class ProviderUsage(
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val totalTokens: Int? = null,
+)
+
 data class ModelSkillMetadata(
     val id: String,
     val name: String,
@@ -54,6 +60,8 @@ data class ModelResponse(
     val providerRequestId: String? = null,
     val finishReason: String = "stop",
     val toolCalls: List<ProviderToolCall> = emptyList(),
+    val modelId: String? = null,
+    val usage: ProviderUsage? = null,
 )
 
 sealed interface ModelStreamEvent {

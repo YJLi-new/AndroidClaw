@@ -14,6 +14,7 @@ import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.AgentTurnEvent
 import ai.androidclaw.runtime.orchestrator.AgentTurnFailureKind
 import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
+import ai.androidclaw.runtime.providers.parseProviderMessageMeta
 import ai.androidclaw.runtime.skills.SkillManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -61,6 +62,7 @@ data class ChatUiState(
     val currentSessionId: String = "",
     val sessionTitle: String = "",
     val sessionSummary: String? = null,
+    val sessionUsageSummary: String? = null,
     val searchQuery: String = "",
     val searchResults: List<ChatSearchResultUi> = emptyList(),
     val highlightedMessageId: String? = null,
@@ -119,6 +121,14 @@ class ChatViewModel(
             messageRepository.observeMessages(sessionId).map { messages ->
                 messages.map(ChatMessage::toUi)
             }
+        }
+    }
+
+    private val usageSummaryFlow: Flow<String?> = mutableCurrentSessionId.flatMapLatest { sessionId ->
+        if (sessionId.isBlank()) {
+            flowOf(null)
+        } else {
+            messageRepository.observeMessages(sessionId).map(::buildUsageSummary)
         }
     }
 
@@ -211,7 +221,8 @@ class ChatViewModel(
         chromeFlow,
         sessionsFlow,
         messagesFlow,
-    ) { chrome, sessions, messages ->
+        usageSummaryFlow,
+    ) { chrome, sessions, messages, usageSummary ->
         val sessionItems = sessions.map { session ->
             ChatSessionUi(
                 id = session.id,
@@ -225,6 +236,7 @@ class ChatViewModel(
         chrome.copy(
             sessionTitle = currentSession?.title.orEmpty(),
             sessionSummary = currentSessionSummary,
+            sessionUsageSummary = usageSummary,
             sessions = sessionItems,
             messages = messages,
             canArchiveCurrentSession = currentSession?.isMain == false,
@@ -685,6 +697,51 @@ class ChatViewModel(
                     ) as T
                 }
             }
+        }
+    }
+}
+
+private fun buildUsageSummary(messages: List<ChatMessage>): String? {
+    var trackedReplies = 0
+    var inputTokens = 0
+    var outputTokens = 0
+    var totalTokens = 0
+    var hasAnyUsage = false
+
+    messages.forEach { message ->
+        if (message.role != MessageRole.Assistant) {
+            return@forEach
+        }
+        val usage = parseProviderMessageMeta(message.providerMeta)?.usage ?: return@forEach
+        trackedReplies += 1
+        usage.inputTokens?.let {
+            inputTokens += it
+            hasAnyUsage = true
+        }
+        usage.outputTokens?.let {
+            outputTokens += it
+            hasAnyUsage = true
+        }
+        usage.totalTokens?.let {
+            totalTokens += it
+            hasAnyUsage = true
+        }
+    }
+
+    if (!hasAnyUsage || trackedReplies == 0) {
+        return null
+    }
+
+    return buildString {
+        append(trackedReplies).append(" tracked replies")
+        if (inputTokens > 0) {
+            append(" · ").append(inputTokens).append(" input")
+        }
+        if (outputTokens > 0) {
+            append(" · ").append(outputTokens).append(" output")
+        }
+        if (totalTokens > 0) {
+            append(" · ").append(totalTokens).append(" total tokens")
         }
     }
 }

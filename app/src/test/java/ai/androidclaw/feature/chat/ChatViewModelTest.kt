@@ -16,8 +16,11 @@ import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
+import ai.androidclaw.runtime.providers.ProviderMessageMeta
+import ai.androidclaw.runtime.providers.ProviderUsagePayload
 import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.providers.ModelStreamEvent
+import ai.androidclaw.runtime.providers.toStorageString
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolRegistry
@@ -243,6 +246,50 @@ class ChatViewModelTest {
 
             assertEquals("Project X", switched.sessionTitle)
             assertEquals(listOf("other message"), switched.messages.map { it.text })
+        }
+    }
+
+    @Test
+    fun `session usage summary aggregates assistant provider metadata`() = runTest {
+        val mainSession = sessionRepository.getOrCreateMainSession()
+        messageRepository.addMessage(
+            sessionId = mainSession.id,
+            role = MessageRole.Assistant,
+            content = "first",
+            providerMeta = ProviderMessageMeta(
+                providerId = "openai-compatible",
+                requestId = "req-1",
+                modelId = "gpt-test",
+                usage = ProviderUsagePayload(
+                    inputTokens = 10,
+                    outputTokens = 4,
+                    totalTokens = 14,
+                ),
+            ).toStorageString(),
+        )
+        messageRepository.addMessage(
+            sessionId = mainSession.id,
+            role = MessageRole.Assistant,
+            content = "second",
+            providerMeta = ProviderMessageMeta(
+                providerId = "anthropic",
+                requestId = "req-2",
+                modelId = "claude-test",
+                usage = ProviderUsagePayload(
+                    inputTokens = 6,
+                    outputTokens = 3,
+                    totalTokens = 9,
+                ),
+            ).toStorageString(),
+        )
+
+        viewModel.state.test {
+            val state = awaitState {
+                it.currentSessionId == mainSession.id &&
+                    it.sessionUsageSummary?.contains("2 tracked replies") == true
+            }
+
+            assertEquals("2 tracked replies · 16 input · 7 output · 23 total tokens", state.sessionUsageSummary)
         }
     }
 

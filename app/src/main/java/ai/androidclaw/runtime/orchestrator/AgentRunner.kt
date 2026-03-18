@@ -14,8 +14,11 @@ import ai.androidclaw.runtime.providers.ModelSkillMetadata
 import ai.androidclaw.runtime.providers.ModelStreamEvent
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.offlineFailure
+import ai.androidclaw.runtime.providers.ProviderMessageMeta
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.ProviderToolCall
+import ai.androidclaw.runtime.providers.toPayload
+import ai.androidclaw.runtime.providers.toStorageString
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillManager
@@ -55,6 +58,7 @@ data class AgentTurnResult(
     val selectedSkills: List<SkillSnapshot>,
     val directToolResult: ToolExecutionResult? = null,
     val providerRequestId: String? = null,
+    val providerMeta: String? = null,
     val exitReason: AgentTurnExitReason = AgentTurnExitReason.Completed,
 )
 
@@ -295,7 +299,10 @@ class AgentRunner(
                         sessionId = sessionId,
                         assistantText = response.text,
                         selectedSkills = selectedSkills,
+                        providerId = provider.id,
                         providerRequestId = response.providerRequestId,
+                        providerModelId = response.modelId,
+                        providerUsage = response.usage,
                         taskRunId = taskRunId,
                     )
                 }
@@ -305,7 +312,10 @@ class AgentRunner(
                         sessionId = sessionId,
                         assistantText = "Provider requested tool use without specifying a tool call.",
                         selectedSkills = selectedSkills,
+                        providerId = provider.id,
                         providerRequestId = response.providerRequestId,
+                        providerModelId = response.modelId,
+                        providerUsage = response.usage,
                         taskRunId = taskRunId,
                     )
                 }
@@ -340,6 +350,7 @@ class AgentRunner(
                         sessionId = sessionId,
                         assistantText = "Tool-call limit reached before the turn could complete.",
                         selectedSkills = selectedSkills,
+                        providerId = provider.id,
                         providerRequestId = providerRequestId,
                         taskRunId = taskRunId,
                         exitReason = AgentTurnExitReason.ToolLoopExhausted,
@@ -536,16 +547,27 @@ class AgentRunner(
         assistantText: String,
         selectedSkills: List<SkillSnapshot>,
         directToolResult: ToolExecutionResult? = null,
+        providerId: String? = null,
         providerRequestId: String? = null,
+        providerModelId: String? = null,
+        providerUsage: ai.androidclaw.runtime.providers.ProviderUsage? = null,
         taskRunId: String?,
         exitReason: AgentTurnExitReason = AgentTurnExitReason.Completed,
     ): AgentTurnResult {
         val persistedText = assistantText.withActiveSkills(selectedSkills)
+        val providerMeta = providerId?.let { resolvedProviderId ->
+            ProviderMessageMeta(
+                providerId = resolvedProviderId,
+                requestId = providerRequestId,
+                modelId = providerModelId,
+                usage = providerUsage?.toPayload(),
+            ).toStorageString()
+        }
         val assistantMessage = messageRepository.addMessage(
             sessionId = sessionId,
             role = MessageRole.Assistant,
             content = persistedText,
-            providerMeta = providerRequestId,
+            providerMeta = providerMeta,
             taskRunId = taskRunId,
         )
         sessionSummaryCoordinator?.onTurnCompleted(sessionId)
@@ -555,6 +577,7 @@ class AgentRunner(
             selectedSkills = selectedSkills,
             directToolResult = directToolResult,
             providerRequestId = providerRequestId,
+            providerMeta = providerMeta,
             exitReason = exitReason,
         )
     }

@@ -403,6 +403,8 @@ class AnthropicProvider(
                 else -> parsed.stopReason
             },
             toolCalls = toolCalls,
+            modelId = parsed.model,
+            usage = parsed.usage?.toProviderUsage(),
         )
     }
 
@@ -516,9 +518,11 @@ private data class AnthropicToolDefinition(
 @Serializable
 private data class AnthropicMessagesResponse(
     val id: String? = null,
+    val model: String? = null,
     val content: List<AnthropicOutputContentBlock> = emptyList(),
     @SerialName("stop_reason")
     val stopReason: String? = null,
+    val usage: AnthropicUsage? = null,
 )
 
 @Serializable
@@ -548,11 +552,14 @@ private data class AnthropicStreamEnvelope(
     @SerialName("content_block")
     val contentBlock: AnthropicStreamContentBlock? = null,
     val delta: AnthropicStreamDelta? = null,
+    val usage: AnthropicUsage? = null,
 )
 
 @Serializable
 private data class AnthropicStreamMessageStart(
     val id: String? = null,
+    val model: String? = null,
+    val usage: AnthropicUsage? = null,
 )
 
 @Serializable
@@ -573,13 +580,23 @@ private data class AnthropicStreamDelta(
     val stopReason: String? = null,
 )
 
+@Serializable
+private data class AnthropicUsage(
+    @SerialName("input_tokens")
+    val inputTokens: Int? = null,
+    @SerialName("output_tokens")
+    val outputTokens: Int? = null,
+)
+
 private class AnthropicStreamAccumulator(
     private val json: Json,
 ) {
     private val assistantText = StringBuilder()
     private val toolCalls = linkedMapOf<Int, ToolCallAccumulator>()
     private var providerRequestId: String? = null
+    private var modelId: String? = null
     private var finishReason: String? = null
+    private var usage: ProviderUsage? = null
     private var sawEvent = false
     private var sawMessageStop = false
 
@@ -600,6 +617,8 @@ private class AnthropicStreamAccumulator(
             "ping" -> emptyList()
             "message_start" -> {
                 providerRequestId = envelope.message?.id ?: providerRequestId
+                modelId = envelope.message?.model ?: modelId
+                usage = mergeUsage(usage, envelope.message?.usage)
                 emptyList()
             }
 
@@ -658,6 +677,7 @@ private class AnthropicStreamAccumulator(
 
             "message_delta" -> {
                 envelope.delta?.stopReason?.let { finishReason = it }
+                usage = mergeUsage(usage, envelope.usage)
                 emptyList()
             }
 
@@ -706,6 +726,8 @@ private class AnthropicStreamAccumulator(
                 else -> finishReason.orEmpty()
             },
             toolCalls = resolvedToolCalls,
+            modelId = modelId,
+            usage = usage,
         )
     }
 
@@ -713,6 +735,27 @@ private class AnthropicStreamAccumulator(
 
     fun canCompleteWithoutTerminalSignal(): Boolean {
         return sawEvent && (sawMessageStop || !finishReason.isNullOrBlank())
+    }
+
+    private fun mergeUsage(
+        current: ProviderUsage?,
+        next: AnthropicUsage?,
+    ): ProviderUsage? {
+        if (next == null && current == null) {
+            return null
+        }
+        val inputTokens = next?.inputTokens ?: current?.inputTokens
+        val outputTokens = next?.outputTokens ?: current?.outputTokens
+        val totalTokens = if (inputTokens != null && outputTokens != null) {
+            inputTokens + outputTokens
+        } else {
+            current?.totalTokens
+        }
+        return ProviderUsage(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            totalTokens = totalTokens,
+        )
     }
 
     private fun parseToolArguments(arguments: String): JsonObject {
@@ -736,6 +779,19 @@ private class AnthropicStreamAccumulator(
         val id: StringBuilder = StringBuilder(),
         val name: StringBuilder = StringBuilder(),
         val arguments: StringBuilder = StringBuilder(),
+    )
+}
+
+private fun AnthropicUsage.toProviderUsage(): ProviderUsage {
+    val totalTokens = if (inputTokens != null && outputTokens != null) {
+        inputTokens + outputTokens
+    } else {
+        null
+    }
+    return ProviderUsage(
+        inputTokens = inputTokens,
+        outputTokens = outputTokens,
+        totalTokens = totalTokens,
     )
 }
 

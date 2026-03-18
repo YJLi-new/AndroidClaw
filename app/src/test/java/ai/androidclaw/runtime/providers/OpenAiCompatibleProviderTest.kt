@@ -80,6 +80,12 @@ class OpenAiCompatibleProviderTest {
                     """
                     {
                       "id": "resp-123",
+                      "model": "gpt-test",
+                      "usage": {
+                        "prompt_tokens": 12,
+                        "completion_tokens": 4,
+                        "total_tokens": 16
+                      },
                       "choices": [
                         {
                           "message": {
@@ -101,6 +107,10 @@ class OpenAiCompatibleProviderTest {
 
         assertEquals("Hello from provider", response.text)
         assertEquals("resp-123", response.providerRequestId)
+        assertEquals("gpt-test", response.modelId)
+        assertEquals(12, response.usage?.inputTokens)
+        assertEquals(4, response.usage?.outputTokens)
+        assertEquals(16, response.usage?.totalTokens)
         assertEquals("/v1/chat/completions", recordedRequest.path)
         assertEquals("Bearer sk-test", recordedRequest.getHeader("Authorization"))
         assertEquals("req-123", recordedRequest.getHeader("X-Request-Id"))
@@ -264,7 +274,9 @@ class OpenAiCompatibleProviderTest {
 
                     data: {"id":"resp-stream-1","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}
 
-                    data: {"id":"resp-stream-1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+                    data: {"id":"resp-stream-1","model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+                    data: {"id":"resp-stream-1","usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12},"choices":[]}
 
                     data: [DONE]
 
@@ -283,7 +295,11 @@ class OpenAiCompatibleProviderTest {
         assertEquals(ModelStreamEvent.TextDelta("lo"), events[1])
         assertEquals("Hello", completed.response.text)
         assertEquals("resp-stream-1", completed.response.providerRequestId)
+        assertEquals("gpt-test", completed.response.modelId)
         assertEquals("stop", completed.response.finishReason)
+        assertEquals(10, completed.response.usage?.inputTokens)
+        assertEquals(2, completed.response.usage?.outputTokens)
+        assertEquals(12, completed.response.usage?.totalTokens)
     }
 
     @Test
