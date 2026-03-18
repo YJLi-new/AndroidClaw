@@ -1,5 +1,11 @@
 package ai.androidclaw.feature.health
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -7,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -19,19 +26,47 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.core.content.FileProvider
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ai.androidclaw.ui.components.ScreenHeader
+import java.io.File
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun HealthScreen(viewModel: HealthViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var diagnosticsNotice by remember { mutableStateOf<String?>(null) }
+    var pendingExport by remember { mutableStateOf<HealthDiagnosticsExportPayload?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val payload = pendingExport
+        pendingExport = null
+        if (payload == null) return@rememberLauncherForActivityResult
+        if (result.resultCode != Activity.RESULT_OK) {
+            diagnosticsNotice = "Diagnostics export cancelled."
+            return@rememberLauncherForActivityResult
+        }
+        val uri = result.data?.data
+        if (uri == null) {
+            diagnosticsNotice = "Failed to export diagnostics: no file destination selected."
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            writeDiagnosticsPayload(context, uri, payload)
+        }.onSuccess {
+            diagnosticsNotice = "Saved ${payload.fileName}."
+        }.onFailure { error ->
+            diagnosticsNotice = "Failed to export diagnostics: ${error.message ?: "unknown error"}."
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.refreshDiagnostics()
@@ -48,17 +83,49 @@ fun HealthScreen(viewModel: HealthViewModel) {
             subtitle = "Inspect provider, scheduler, and recent runtime diagnostics in one place.",
             titleTestTag = "healthHeading",
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = viewModel::refreshDiagnostics) {
-                Text("Refresh diagnostics")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Button(onClick = viewModel::refreshDiagnostics) {
+                    Text("Refresh diagnostics")
+                }
             }
-            Button(
-                onClick = {
-                    clipboardManager.setText(AnnotatedString(buildDiagnosticsReport(state)))
-                    diagnosticsNotice = "Diagnostics copied to clipboard."
-                },
-            ) {
-                Text("Copy diagnostics")
+            item {
+                Button(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(buildDiagnosticsReport(state)))
+                        diagnosticsNotice = "Diagnostics copied to clipboard."
+                    },
+                ) {
+                    Text("Copy diagnostics")
+                }
+            }
+            item {
+                Button(
+                    onClick = {
+                        val payload = buildDiagnosticsExportPayload(state)
+                        pendingExport = payload
+                        exportLauncher.launch(createDiagnosticsExportIntent(payload))
+                    },
+                ) {
+                    Text("Export diagnostics")
+                }
+            }
+            item {
+                Button(
+                    onClick = {
+                        val payload = buildDiagnosticsExportPayload(state)
+                        runCatching {
+                            val uri = writeDiagnosticsShareFile(context, payload)
+                            launchDiagnosticsShareFile(context, payload, uri)
+                        }.onSuccess {
+                            diagnosticsNotice = "Opening share sheet."
+                        }.onFailure { error ->
+                            diagnosticsNotice = "Failed to share diagnostics: ${error.message ?: "unknown error"}."
+                        }
+                    },
+                ) {
+                    Text("Share diagnostics")
+                }
             }
         }
         diagnosticsNotice?.let { notice ->
@@ -168,36 +235,6 @@ fun HealthScreen(viewModel: HealthViewModel) {
     }
 }
 
-private fun buildDiagnosticsReport(state: HealthUiState): String {
-    return buildString {
-        appendLine("AndroidClaw diagnostics")
-        appendLine("Provider: ${state.providerId}")
-        appendLine("Network: ${state.networkSummary}")
-        appendLine("Provider status: ${state.providerStatus}")
-        state.lastProviderIssue?.let { appendLine("Last provider issue: $it") }
-        appendLine("Scheduler kinds: ${state.supportedKinds.joinToString()}")
-        appendLine("Exact alarms supported: ${state.schedulerDiagnostics.supportsExactAlarms}")
-        appendLine("Exact alarm granted: ${state.schedulerDiagnostics.exactAlarmGranted}")
-        appendLine("Standby bucket: ${state.schedulerDiagnostics.standbyBucket?.label ?: "Unavailable"}")
-        appendLine("Last scheduler wake: ${state.lastSchedulerWake?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "None"}")
-        appendLine("Last automation result: ${state.lastAutomationResult ?: "None"}")
-        appendLine("Last worker stop reason: ${state.lastWorkerStopReason ?: "None"}")
-        state.lastCrashSummary?.let {
-            appendLine("Last crash: $it")
-        }
-        if (state.recentEvents.isNotEmpty()) {
-            appendLine("Recent events:")
-            state.recentEvents.forEach { event ->
-                append("- ${event.timestamp}: ${event.category}/${event.level} ${event.message}")
-                event.details?.takeIf { details -> details.isNotBlank() }?.let { details ->
-                    append(" | ").append(details)
-                }
-                appendLine()
-            }
-        }
-    }.trim()
-}
-
 @Composable
 private fun HealthCard(title: String, body: String) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -209,4 +246,51 @@ private fun HealthCard(title: String, body: String) {
             Text(body, style = MaterialTheme.typography.bodyMedium)
         }
     }
+}
+
+private fun createDiagnosticsExportIntent(payload: HealthDiagnosticsExportPayload): Intent {
+    return Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = payload.mimeType
+        putExtra(Intent.EXTRA_TITLE, payload.fileName)
+    }
+}
+
+private fun writeDiagnosticsPayload(
+    context: Context,
+    uri: Uri,
+    payload: HealthDiagnosticsExportPayload,
+) {
+    context.contentResolver.openOutputStream(uri)?.bufferedWriter().use { writer ->
+        requireNotNull(writer) { "Unable to open destination for ${payload.fileName}" }
+        writer.write(payload.content)
+    }
+}
+
+private fun writeDiagnosticsShareFile(
+    context: Context,
+    payload: HealthDiagnosticsExportPayload,
+): Uri {
+    val exportDirectory = File(context.cacheDir, "chat-exports").apply { mkdirs() }
+    val exportFile = File(exportDirectory, payload.fileName)
+    exportFile.writeText(payload.content)
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.chat-export-provider",
+        exportFile,
+    )
+}
+
+private fun launchDiagnosticsShareFile(
+    context: Context,
+    payload: HealthDiagnosticsExportPayload,
+    uri: Uri,
+) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = payload.mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, payload.fileName)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Share diagnostics file"))
 }
