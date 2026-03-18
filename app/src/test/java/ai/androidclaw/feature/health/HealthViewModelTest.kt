@@ -108,7 +108,13 @@ class HealthViewModelTest {
             category = EventCategory.Provider,
             level = EventLevel.Error,
             message = "Provider stream was interrupted before completion.",
-            details = "kind=StreamInterrupted",
+            details = "kind=StreamInterrupted retryable=true",
+        )
+        eventLogRepository.log(
+            category = EventCategory.Provider,
+            level = EventLevel.Info,
+            message = "Retrying failed turn.",
+            details = "sessionId=session-1",
         )
         crashMarkerStore.record(
             threadName = "main",
@@ -189,7 +195,8 @@ class HealthViewModelTest {
         assertEquals("openai-compatible", state.providerId)
         assertEquals("Connected", state.networkSummary)
         assertTrue(state.providerStatus.contains("Last provider issue"))
-        assertTrue(state.lastProviderIssue?.contains("StreamInterrupted") == true)
+        assertTrue(state.lastProviderIssue?.contains("Stream Interrupted") == true)
+        assertTrue(state.lastProviderIssue?.contains("retryable") == true)
         assertTrue(state.lastCrashSummary?.contains("IllegalStateException") == true)
         assertEquals(listOf("health.status"), state.tools)
         assertTrue(state.lastAutomationResult?.contains("completed") == true)

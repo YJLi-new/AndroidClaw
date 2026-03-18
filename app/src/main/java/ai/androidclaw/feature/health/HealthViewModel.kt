@@ -5,6 +5,7 @@ import ai.androidclaw.app.HealthDependencies
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.runtime.providers.ProviderRegistry
@@ -65,23 +66,19 @@ class HealthViewModel(
             val providerEvents = events.filter { it.category == EventCategory.Provider }
             val diagnostics = schedulerCoordinator.diagnostics()
             val providerType = settings.providerType
-            val lastProviderIssue = providerEvents.firstOrNull()?.let { event ->
-                buildString {
-                    append(event.message)
-                    event.details?.takeIf { it.isNotBlank() }?.let { details ->
-                        append(" (").append(details).append(")")
-                    }
-                }
-            }
+            val lastProviderIssue = providerEvents
+                .firstOrNull { it.level != EventLevel.Info }
+                ?: providerEvents.firstOrNull()
+            val lastProviderIssueSummary = lastProviderIssue?.let(::formatProviderIssue)
             HealthUiState(
                 providerId = providerRegistry.require(settings.providerType).id,
                 networkSummary = networkStatus.summary,
                 providerStatus = buildProviderStatus(
                     providerType = providerType,
                     networkStatus = networkStatus,
-                    lastProviderIssue = lastProviderIssue,
+                    lastProviderIssue = lastProviderIssueSummary,
                 ),
-                lastProviderIssue = lastProviderIssue,
+                lastProviderIssue = lastProviderIssueSummary,
                 lastCrashSummary = crashMarkerStore.read()?.let(::buildCrashSummary),
                 lastCrashStackTrace = crashMarkerStore.read()?.stackTrace,
                 bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
@@ -167,6 +164,64 @@ private fun buildProviderStatus(
             "Remote provider calls are using a metered network."
         else -> "Remote provider is ready for interactive use."
     }
+}
+
+private data class ProviderIssueMetadata(
+    val kind: String? = null,
+    val retryable: Boolean? = null,
+    val extras: List<String> = emptyList(),
+)
+
+private fun formatProviderIssue(event: EventLogEntry): String {
+    val metadata = parseProviderIssueMetadata(event.details)
+    return buildString {
+        metadata.kind?.let { append(it) }
+        metadata.retryable?.let { retryable ->
+            if (isNotEmpty()) append(" · ")
+            append(if (retryable) "retryable" else "non-retryable")
+        }
+        if (isNotEmpty()) append(": ")
+        append(event.message)
+        if (metadata.extras.isNotEmpty()) {
+            append(" (").append(metadata.extras.joinToString(" ")).append(")")
+        }
+    }
+}
+
+private fun parseProviderIssueMetadata(details: String?): ProviderIssueMetadata {
+    if (details.isNullOrBlank()) {
+        return ProviderIssueMetadata()
+    }
+    var kind: String? = null
+    var retryable: Boolean? = null
+    val extras = mutableListOf<String>()
+    details.split(' ')
+        .filter { it.isNotBlank() }
+        .forEach { token ->
+            val parts = token.split('=', limit = 2)
+            if (parts.size != 2) {
+                extras += token
+                return@forEach
+            }
+            when (parts[0]) {
+                "kind" -> kind = parts[1]
+                    .replace(Regex("([a-z])([A-Z])"), "$1 $2")
+                    .replace('_', ' ')
+                    .lowercase()
+                    .split(' ')
+                    .joinToString(" ") { segment ->
+                        segment.replaceFirstChar { character -> character.uppercase() }
+                    }
+
+                "retryable" -> retryable = parts[1].toBooleanStrictOrNull()
+                else -> extras += token
+            }
+        }
+    return ProviderIssueMetadata(
+        kind = kind,
+        retryable = retryable,
+        extras = extras,
+    )
 }
 
 private fun buildCrashSummary(marker: ai.androidclaw.app.CrashMarker): String {

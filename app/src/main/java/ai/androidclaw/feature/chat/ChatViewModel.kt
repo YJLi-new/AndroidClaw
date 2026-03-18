@@ -591,7 +591,11 @@ class ChatViewModel(
                             lastFailedUserMessageText = normalizedUserMessage
                             lastFailedSessionId = sessionId
                             canRetryLastFailedTurn.value = event.retryable
-                            logTurnFailure(message = event.message, kind = event.kind)
+                            logTurnFailure(
+                                message = event.message,
+                                kind = event.kind,
+                                retryable = event.retryable,
+                            )
                         }
 
                         AgentTurnEvent.Cancelled -> {
@@ -633,13 +637,14 @@ class ChatViewModel(
     private fun logTurnFailure(
         message: String,
         kind: AgentTurnFailureKind,
+        retryable: Boolean,
     ) {
         viewModelScope.launch {
             eventLogRepository.log(
                 category = if (kind == AgentTurnFailureKind.Runtime) EventCategory.System else EventCategory.Provider,
                 level = EventLevel.Error,
                 message = message,
-                details = "kind=${kind.name}",
+                details = "kind=${kind.name} retryable=$retryable",
             )
         }
     }

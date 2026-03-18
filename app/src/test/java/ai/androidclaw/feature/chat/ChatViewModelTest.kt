@@ -174,10 +174,12 @@ class ChatViewModelTest {
             val stored = messageRepository.observeMessages(ready.currentSessionId).first()
             val userMessages = stored.filter { it.role == MessageRole.User && it.content == "hello" }
             val events = eventLogRepository.observeRecent(limit = 20).first { it.isNotEmpty() }
+            val providerFailureEvent = events.first { it.category == EventCategory.Provider && it.message == "Provider unavailable" }
 
             assertEquals(1, userMessages.size)
             assertTrue(retried.messages.any { it.role == "assistant" && it.text.contains("Recovered reply") })
-            assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Provider unavailable" })
+            assertTrue(providerFailureEvent.details.orEmpty().contains("kind=Network"))
+            assertTrue(providerFailureEvent.details.orEmpty().contains("retryable=true"))
             assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Retrying failed turn." })
         }
     }
