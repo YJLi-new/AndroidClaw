@@ -27,6 +27,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
@@ -51,6 +52,14 @@ class HealthViewModelTest {
     private lateinit var application: android.app.Application
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var crashMarkerStore: CrashMarkerStore
+    private val networkStatusFlow = MutableStateFlow(
+        NetworkStatusSnapshot(
+            supported = true,
+            isConnected = true,
+            isValidated = true,
+            isMetered = false,
+        ),
+    )
 
     @Before
     fun setUp() = runTest {
@@ -72,6 +81,12 @@ class HealthViewModelTest {
                     ),
                 )
                 .copy(providerType = ProviderType.OpenAiCompatible),
+        )
+        networkStatusFlow.value = NetworkStatusSnapshot(
+            supported = true,
+            isConnected = true,
+            isValidated = true,
+            isMetered = false,
         )
     }
 
@@ -163,16 +178,7 @@ class HealthViewModelTest {
             ),
             toolRegistry = toolRegistry,
             providerRegistry = buildTestProviderRegistry(),
-            networkStatusProvider = object : NetworkStatusProvider {
-                override fun currentStatus(): NetworkStatusSnapshot {
-                    return NetworkStatusSnapshot(
-                        supported = true,
-                        isConnected = true,
-                        isValidated = true,
-                        isMetered = false,
-                    )
-                }
-            },
+            networkStatusProvider = buildNetworkStatusProvider(),
             settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
             crashMarkerStore = crashMarkerStore,
@@ -191,5 +197,54 @@ class HealthViewModelTest {
         assertNotNull(state.lastSchedulerWake)
         assertTrue(state.recentEvents.any { it.message == "Something happened" })
         assertTrue(state.recentEvents.any { it.category == EventCategory.Tool && it.message.contains("completed") })
+    }
+
+    @Test
+    fun `health state reacts to network status changes`() = runTest {
+        val viewModel = HealthViewModel(
+            schedulerCoordinator = SchedulerCoordinator(
+                application = application,
+                clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                taskRepository = taskRepository,
+                eventLogRepository = eventLogRepository,
+            ),
+            toolRegistry = ToolRegistry(emptyList(), eventLogger = { _, _, _ -> }),
+            providerRegistry = buildTestProviderRegistry(),
+            networkStatusProvider = buildNetworkStatusProvider(),
+            settingsDataStore = settingsDataStore,
+            eventLogRepository = eventLogRepository,
+            crashMarkerStore = crashMarkerStore,
+        )
+
+        val connected = viewModel.state.first { it.providerId == "openai-compatible" && it.networkSummary == "Connected" }
+        assertEquals("Connected", connected.networkSummary)
+
+        networkStatusFlow.value = NetworkStatusSnapshot(
+            supported = true,
+            isConnected = false,
+            isValidated = false,
+            isMetered = false,
+        )
+
+        val offline = viewModel.state.first { it.networkSummary == "Offline" }
+        assertTrue(offline.providerStatus.contains("No active network connection"))
+
+        networkStatusFlow.value = NetworkStatusSnapshot(
+            supported = true,
+            isConnected = true,
+            isValidated = false,
+            isMetered = false,
+        )
+
+        val unvalidated = viewModel.state.first { it.networkSummary == "Connected, internet not validated" }
+        assertTrue(unvalidated.providerStatus.contains("not validated", ignoreCase = true))
+    }
+
+    private fun buildNetworkStatusProvider(): NetworkStatusProvider {
+        return object : NetworkStatusProvider {
+            override fun currentStatus(): NetworkStatusSnapshot = networkStatusFlow.value
+
+            override fun observeStatus() = networkStatusFlow
+        }
     }
 }

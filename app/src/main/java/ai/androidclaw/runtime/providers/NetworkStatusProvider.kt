@@ -3,6 +3,11 @@ package ai.androidclaw.runtime.providers
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 
 data class NetworkStatusSnapshot(
     val supported: Boolean,
@@ -22,6 +27,8 @@ data class NetworkStatusSnapshot(
 
 interface NetworkStatusProvider {
     fun currentStatus(): NetworkStatusSnapshot
+
+    fun observeStatus(): Flow<NetworkStatusSnapshot> = flowOf(currentStatus())
 }
 
 class AndroidNetworkStatusProvider(
@@ -59,4 +66,36 @@ class AndroidNetworkStatusProvider(
             isMetered = manager.isActiveNetworkMetered,
         )
     }
+
+    override fun observeStatus(): Flow<NetworkStatusSnapshot> = callbackFlow {
+        val manager = connectivityManager
+        if (manager == null) {
+            trySend(currentStatus())
+            close()
+            return@callbackFlow
+        }
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                trySend(currentStatus())
+            }
+
+            override fun onLost(network: android.net.Network) {
+                trySend(currentStatus())
+            }
+
+            override fun onCapabilitiesChanged(
+                network: android.net.Network,
+                networkCapabilities: NetworkCapabilities,
+            ) {
+                trySend(currentStatus())
+            }
+        }
+
+        trySend(currentStatus())
+        manager.registerDefaultNetworkCallback(callback)
+        awaitClose {
+            runCatching { manager.unregisterNetworkCallback(callback) }
+        }
+    }.distinctUntilChanged()
 }

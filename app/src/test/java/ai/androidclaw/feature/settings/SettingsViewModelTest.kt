@@ -15,6 +15,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -41,10 +42,13 @@ class SettingsViewModelTest {
         isValidated = true,
         isMetered = false,
     )
+    private val networkStatusFlow = MutableStateFlow(currentNetworkStatus)
     private val networkStatusProvider = object : NetworkStatusProvider {
         override fun currentStatus(): NetworkStatusSnapshot {
-            return currentNetworkStatus
+            return networkStatusFlow.value
         }
+
+        override fun observeStatus() = networkStatusFlow
     }
 
     @Before
@@ -52,6 +56,13 @@ class SettingsViewModelTest {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
         settingsDataStore = SettingsDataStore(application)
         secretStore = InMemoryProviderSecretStore()
+        currentNetworkStatus = NetworkStatusSnapshot(
+            supported = true,
+            isConnected = true,
+            isValidated = true,
+            isMetered = false,
+        )
+        networkStatusFlow.value = currentNetworkStatus
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
     }
 
@@ -236,6 +247,7 @@ class SettingsViewModelTest {
             isConnected = false,
             isValidated = false,
         )
+        networkStatusFlow.value = currentNetworkStatus
         val viewModel = buildViewModel()
 
         viewModel.selectProviderType(ProviderType.OpenAiCompatible)
@@ -260,6 +272,59 @@ class SettingsViewModelTest {
             state.connectionHint,
         )
         assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
+    }
+
+    @Test
+    fun `network status updates refresh settings summary and hint without clearing edits`() = runTest {
+        settingsDataStore.saveProviderSettings(
+            ProviderSettingsSnapshot()
+                .withEndpointSettings(
+                    ProviderType.Anthropic,
+                    ProviderEndpointSettings(
+                        baseUrl = ProviderType.Anthropic.defaultBaseUrl,
+                        modelId = "claude-sonnet-4-5",
+                        timeoutSeconds = 60,
+                    ),
+                )
+                .copy(providerType = ProviderType.Anthropic),
+        )
+        val viewModel = buildViewModel()
+        waitForState(viewModel) { it.providerType == ProviderType.Anthropic && it.networkSummary == "Connected" }
+
+        viewModel.onModelIdChanged("claude-draft")
+        currentNetworkStatus = currentNetworkStatus.copy(
+            isConnected = false,
+            isValidated = false,
+        )
+        networkStatusFlow.value = currentNetworkStatus
+
+        val offline = waitForState(viewModel) {
+            it.providerType == ProviderType.Anthropic &&
+                it.networkSummary == "Offline" &&
+                it.modelId == "claude-draft"
+        }
+
+        assertEquals(
+            "Remote provider calls will fail until network connectivity returns.",
+            offline.connectionHint,
+        )
+
+        currentNetworkStatus = currentNetworkStatus.copy(
+            isConnected = true,
+            isValidated = true,
+        )
+        networkStatusFlow.value = currentNetworkStatus
+
+        val recovered = waitForState(viewModel) {
+            it.providerType == ProviderType.Anthropic &&
+                it.networkSummary == "Connected" &&
+                it.modelId == "claude-draft"
+        }
+
+        assertEquals(
+            "Use Test connection to verify credentials, endpoint, and model.",
+            recovered.connectionHint,
+        )
     }
 
     @Test

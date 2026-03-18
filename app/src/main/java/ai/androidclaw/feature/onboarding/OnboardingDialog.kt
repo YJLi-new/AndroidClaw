@@ -73,6 +73,7 @@ fun OnboardingDialog(
                             .filter { it.requiresRemoteSettings }
                             .forEach { providerType ->
                                 FilterChip(
+                                    modifier = Modifier.testTag("onboardingProviderChip-${providerType.storageValue}"),
                                     selected = settingsState.providerType == providerType,
                                     onClick = { onSelectProvider(providerType) },
                                     label = { Text(providerType.displayName) },
@@ -83,28 +84,36 @@ fun OnboardingDialog(
                     OutlinedTextField(
                         value = settingsState.baseUrl,
                         onValueChange = onBaseUrlChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("onboardingBaseUrlField"),
                         label = { Text("Base URL") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = settingsState.modelId,
                         onValueChange = onModelIdChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("onboardingModelIdField"),
                         label = { Text("Model ID") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = settingsState.timeoutSeconds,
                         onValueChange = onTimeoutChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("onboardingTimeoutField"),
                         label = { Text("Timeout seconds") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = settingsState.apiKeyDraft,
                         onValueChange = onApiKeyChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("onboardingApiKeyField"),
                         label = {
                             Text(
                                 if (settingsState.hasStoredApiKey) {
@@ -117,18 +126,26 @@ fun OnboardingDialog(
                         singleLine = true,
                     )
                     settingsState.statusMessage?.let { message ->
-                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            message,
+                            modifier = Modifier.testTag("onboardingStatusMessage"),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
             }
         },
         confirmButton = {
             if (onboardingState.isWelcomeStep) {
-                Button(onClick = onUseFakeMode) {
+                Button(
+                    onClick = onUseFakeMode,
+                    modifier = Modifier.testTag("onboardingUseFakeButton"),
+                ) {
                     Text("Use Fake (offline)")
                 }
             } else {
                 Button(
+                    modifier = Modifier.testTag("onboardingFinishButton"),
                     onClick = onFinish,
                     enabled = settingsState.lastValidationSucceeded,
                 ) {
@@ -142,10 +159,16 @@ fun OnboardingDialog(
                     modifier = Modifier.padding(end = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Button(onClick = onConfigureRealProvider) {
+                    Button(
+                        onClick = onConfigureRealProvider,
+                        modifier = Modifier.testTag("onboardingConfigureRealProviderButton"),
+                    ) {
                         Text("Configure real provider")
                     }
-                    Button(onClick = onCompleteLater) {
+                    Button(
+                        onClick = onCompleteLater,
+                        modifier = Modifier.testTag("onboardingCompleteLaterButton"),
+                    ) {
                         Text("Complete setup later")
                     }
                 }
@@ -155,12 +178,16 @@ fun OnboardingDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(
+                        modifier = Modifier.testTag("onboardingTestConnectionButton"),
                         onClick = onValidateConnection,
                         enabled = !settingsState.isValidatingConnection,
                     ) {
                         Text(if (settingsState.isValidatingConnection) "Testing…" else "Test connection")
                     }
-                    Button(onClick = onBackToWelcome) {
+                    Button(
+                        onClick = onBackToWelcome,
+                        modifier = Modifier.testTag("onboardingBackButton"),
+                    ) {
                         Text("Back")
                     }
                 }

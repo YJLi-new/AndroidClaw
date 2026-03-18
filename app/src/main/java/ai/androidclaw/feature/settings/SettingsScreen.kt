@@ -78,13 +78,17 @@ fun SettingsScreen(
                 ) {
                     state.availableProviders.forEach { providerType ->
                         FilterChip(
+                            modifier = Modifier.testTag("providerChip-${providerType.storageValue}"),
                             selected = state.providerType == providerType,
                             onClick = { viewModel.selectProviderType(providerType) },
                             label = { Text(providerType.displayName) },
                         )
                     }
                 }
-                Text("Active provider: ${state.activeProviderId}")
+                Text(
+                    text = "Active provider: ${state.activeProviderId}",
+                    modifier = Modifier.testTag("activeProviderText"),
+                )
                 Text("Network: ${state.networkSummary}")
                 state.connectionHint?.let { hint ->
                     Text(hint)
@@ -94,28 +98,36 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = state.baseUrl,
                         onValueChange = viewModel::onBaseUrlChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("providerBaseUrlField"),
                         label = { Text("Base URL") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = state.modelId,
                         onValueChange = viewModel::onModelIdChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("providerModelIdField"),
                         label = { Text("Model ID") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = state.timeoutSeconds,
                         onValueChange = viewModel::onTimeoutChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("providerTimeoutField"),
                         label = { Text("Timeout seconds") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = state.apiKeyDraft,
                         onValueChange = viewModel::onApiKeyChanged,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("providerApiKeyField"),
                         label = {
                             Text(
                                 if (state.hasStoredApiKey) {
@@ -128,19 +140,24 @@ fun SettingsScreen(
                         singleLine = true,
                     )
                     if (state.hasStoredApiKey) {
-                        Button(onClick = viewModel::clearStoredApiKey) {
+                        Button(
+                            onClick = viewModel::clearStoredApiKey,
+                            modifier = Modifier.testTag("clearStoredApiKeyButton"),
+                        ) {
                             Text("Clear stored API key")
                         }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
+                        modifier = Modifier.testTag("saveProviderSettingsButton"),
                         onClick = viewModel::save,
                         enabled = !state.isValidatingConnection,
                     ) {
                         Text("Save provider settings")
                     }
                     Button(
+                        modifier = Modifier.testTag("testProviderConnectionButton"),
                         onClick = viewModel::validateConnection,
                         enabled = !state.isValidatingConnection,
                     ) {
@@ -148,7 +165,11 @@ fun SettingsScreen(
                     }
                 }
                 state.statusMessage?.let { message ->
-                    Text(message, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        message,
+                        modifier = Modifier.testTag("settingsStatusMessage"),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
             }
         }

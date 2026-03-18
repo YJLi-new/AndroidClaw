@@ -63,6 +63,7 @@ class SettingsViewModel(
 
     init {
         refresh()
+        observeNetworkStatus()
     }
 
     fun selectProviderType(providerType: ProviderType) {
@@ -377,6 +378,22 @@ class SettingsViewModel(
                 buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
                 themePreference = themePreference,
             )
+        }
+    }
+
+    private fun observeNetworkStatus() {
+        viewModelScope.launch {
+            networkStatusProvider.observeStatus().collect { networkStatus ->
+                mutableState.update { state ->
+                    state.copy(
+                        networkSummary = networkStatus.summary,
+                        connectionHint = buildConnectionHint(
+                            providerType = state.providerType,
+                            networkStatus = networkStatus,
+                        ),
+                    )
+                }
+            }
         }
     }
 

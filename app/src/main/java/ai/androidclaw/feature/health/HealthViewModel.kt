@@ -59,11 +59,11 @@ class HealthViewModel(
         settingsDataStore.settings,
         eventLogRepository.observeRecent(limit = 10),
         diagnosticsRefreshes,
-    ) { settings, events, _ ->
+        networkStatusProvider.observeStatus(),
+    ) { settings, events, _, networkStatus ->
             val schedulerEvents = events.filter { it.category == EventCategory.Scheduler }
             val providerEvents = events.filter { it.category == EventCategory.Provider }
             val diagnostics = schedulerCoordinator.diagnostics()
-            val networkStatus = networkStatusProvider.currentStatus()
             val providerType = settings.providerType
             val lastProviderIssue = providerEvents.firstOrNull()?.let { event ->
                 buildString {
