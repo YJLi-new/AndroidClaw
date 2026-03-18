@@ -42,6 +42,14 @@ interface MessageDao {
     )
     suspend fun getRecentBySessionId(sessionId: String, limit: Int): List<MessageEntity>
 
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE id IN (:messageIds)
+        """,
+    )
+    suspend fun getByIds(messageIds: List<String>): List<MessageEntity>
+
     @Query("SELECT COUNT(*) FROM messages WHERE sessionId = :sessionId")
     suspend fun countBySessionId(sessionId: String): Int
 

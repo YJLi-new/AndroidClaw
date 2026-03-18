@@ -154,6 +154,10 @@ private class ThrowingMessageDao(
         return delegate.getRecentBySessionId(sessionId, limit)
     }
 
+    override suspend fun getByIds(messageIds: List<String>): List<MessageEntity> {
+        return delegate.getByIds(messageIds)
+    }
+
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)
 
     override suspend fun searchByContent(query: String, limit: Int): List<MessageSearchRow> {

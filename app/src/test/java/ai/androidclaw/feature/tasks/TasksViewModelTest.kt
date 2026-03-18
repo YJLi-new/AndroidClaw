@@ -4,6 +4,7 @@ import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -38,6 +39,7 @@ class TasksViewModelTest {
     private lateinit var database: AndroidClawDatabase
     private lateinit var repository: TaskRepository
     private lateinit var eventLogRepository: EventLogRepository
+    private lateinit var messageRepository: MessageRepository
     private lateinit var viewModel: TasksViewModel
 
     @Before
@@ -61,6 +63,7 @@ class TasksViewModelTest {
         )
         repository = TaskRepository(database.taskDao(), database.taskRunDao())
         eventLogRepository = EventLogRepository(database.eventLogDao())
+        messageRepository = MessageRepository(database.messageDao())
         viewModel = TasksViewModel(
             taskRepository = repository,
             schedulerCoordinator = SchedulerCoordinator(
@@ -70,6 +73,7 @@ class TasksViewModelTest {
                 eventLogRepository = eventLogRepository,
             ),
             sessionRepository = SessionRepository(database.sessionDao()),
+            messageRepository = messageRepository,
         )
     }
 
@@ -119,6 +123,51 @@ class TasksViewModelTest {
             assertEquals(
                 "Queued run now for Manual check.",
                 updated.actionMessage,
+            )
+        }
+    }
+
+    @Test
+    fun `recent task runs surface provider usage from output messages`() = runTest {
+        viewModel.state.test {
+            viewModel.createTask(
+                name = "Usage check",
+                prompt = "Count tokens",
+                schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = "main",
+            )
+
+            val created = awaitState { it.tasks.size == 1 }
+            val task = created.tasks.single()
+            val assistantMessage = messageRepository.addMessage(
+                sessionId = "main",
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Done.",
+                providerMeta = """
+                    {"providerId":"anthropic","modelId":"claude-3-7-sonnet","usage":{"inputTokens":150,"outputTokens":75,"totalTokens":225}}
+                """.trimIndent(),
+            )
+            val run = repository.recordRun(
+                taskId = task.id,
+                scheduledAt = Instant.parse("2026-03-09T00:00:00Z"),
+            )
+            repository.updateRun(
+                run.copy(
+                    status = ai.androidclaw.data.model.TaskRunStatus.Success,
+                    startedAt = Instant.parse("2026-03-09T00:00:00Z"),
+                    finishedAt = Instant.parse("2026-03-09T00:00:05Z"),
+                    resultSummary = "Completed.",
+                    outputMessageId = assistantMessage.id,
+                ),
+            )
+
+            val withUsage = awaitState {
+                it.runUsageSummaryByRunId[run.id] == "anthropic · claude-3-7-sonnet · total 225 tokens"
+            }
+            assertEquals(
+                "anthropic · claude-3-7-sonnet · total 225 tokens",
+                withUsage.runUsageSummaryByRunId[run.id],
             )
         }
     }

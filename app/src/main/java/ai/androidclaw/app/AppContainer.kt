@@ -202,6 +202,7 @@ class AppContainer(application: Application) {
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
             sessionRepository = sessionRepository,
+            messageRepository = messageRepository,
         )
 
     val skillsDependencies: SkillsDependencies

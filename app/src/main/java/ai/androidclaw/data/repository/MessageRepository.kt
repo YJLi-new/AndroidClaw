@@ -56,6 +56,15 @@ class MessageRepository(
         return dao.getRecentBySessionId(sessionId, limit).map(MessageEntity::toDomain)
     }
 
+    suspend fun getMessagesByIds(messageIds: Collection<String>): Map<String, ChatMessage> {
+        if (messageIds.isEmpty()) {
+            return emptyMap()
+        }
+        return dao.getByIds(messageIds.distinct()).associate { entity ->
+            entity.id to entity.toDomain()
+        }
+    }
+
     suspend fun getMessageCount(sessionId: String): Int {
         return dao.countBySessionId(sessionId)
     }

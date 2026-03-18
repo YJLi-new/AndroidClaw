@@ -3,8 +3,11 @@ package ai.androidclaw.feature.tasks
 import ai.androidclaw.app.TasksDependencies
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
+import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.providers.ProviderMessageMeta
+import ai.androidclaw.runtime.providers.parseProviderMessageMeta
 import ai.androidclaw.runtime.scheduler.SchedulerCapabilities
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -40,6 +44,7 @@ data class TasksUiState(
     val tasks: List<Task> = emptyList(),
     val sessions: List<TaskSessionUi> = emptyList(),
     val recentRunsByTaskId: Map<String, List<TaskRun>> = emptyMap(),
+    val runUsageSummaryByRunId: Map<String, String> = emptyMap(),
     val capabilities: SchedulerCapabilities = SchedulerCapabilities(
         minimumBackgroundInterval = Duration.ofMinutes(15),
         supportsExactAlarms = false,
@@ -56,6 +61,7 @@ class TasksViewModel(
     private val taskRepository: TaskRepository,
     private val schedulerCoordinator: SchedulerCoordinator,
     private val sessionRepository: SessionRepository,
+    private val messageRepository: MessageRepository,
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val capabilities = schedulerCoordinator.capabilities()
@@ -87,19 +93,45 @@ class TasksViewModel(
             }
         }
     }
+    private val runUsageSummaryFlow = recentRunsFlow.flatMapLatest { recentRuns ->
+        flow {
+            val outputMessageIds = recentRuns.values
+                .flatten()
+                .mapNotNull(TaskRun::outputMessageId)
+                .distinct()
+            if (outputMessageIds.isEmpty()) {
+                emit(emptyMap())
+                return@flow
+            }
+            val messagesById = messageRepository.getMessagesByIds(outputMessageIds)
+            emit(
+                recentRuns.values
+                    .flatten()
+                    .mapNotNull { run ->
+                        val outputMessageId = run.outputMessageId ?: return@mapNotNull null
+                        val providerMeta = parseProviderMessageMeta(messagesById[outputMessageId]?.providerMeta)
+                            ?: return@mapNotNull null
+                        buildRunUsageSummary(providerMeta)?.let { usageSummary ->
+                            run.id to usageSummary
+                        }
+                    }
+                    .toMap(),
+            )
+        }
+    }
 
-    val state: StateFlow<TasksUiState> = combine(
+    private val tasksChromeFlow = combine(
         tasksFlow,
         sessionsFlow,
         recentRunsFlow,
-        actionMessage,
-        diagnosticsRefreshes,
-    ) { tasks, sessions, recentRuns, actionMessageValue, _ ->
+        runUsageSummaryFlow,
+    ) { tasks, sessions, recentRuns, runUsageSummaries ->
         val diagnostics = schedulerCoordinator.diagnostics()
         TasksUiState(
             tasks = tasks,
             sessions = sessions,
             recentRunsByTaskId = recentRuns,
+            runUsageSummaryByRunId = runUsageSummaries,
             capabilities = capabilities,
             diagnostics = diagnostics,
             nextDailyPreview = schedulerCoordinator.nextRunPreview("@daily"),
@@ -107,8 +139,15 @@ class TasksViewModel(
                 expression = "0 9 * * 1-5",
                 zoneId = ZoneId.systemDefault(),
             ),
-            actionMessage = actionMessageValue,
         )
+    }
+
+    val state: StateFlow<TasksUiState> = combine(
+        tasksChromeFlow,
+        actionMessage,
+        diagnosticsRefreshes,
+    ) { tasksChrome, actionMessageValue, _ ->
+        tasksChrome.copy(actionMessage = actionMessageValue)
     }.stateIn(
         scope = viewModelScope,
         started = uiSharingStarted,
@@ -204,9 +243,32 @@ class TasksViewModel(
                         taskRepository = dependencies.taskRepository,
                         schedulerCoordinator = dependencies.schedulerCoordinator,
                         sessionRepository = dependencies.sessionRepository,
+                        messageRepository = dependencies.messageRepository,
                     ) as T
                 }
             }
         }
+    }
+}
+
+internal fun buildRunUsageSummary(providerMeta: ProviderMessageMeta): String? {
+    val usage = providerMeta.usage ?: return null
+    val tokenSummary = usage.totalTokens?.let { total ->
+        "total $total"
+    } ?: buildList {
+        usage.inputTokens?.let { add("in $it") }
+        usage.outputTokens?.let { add("out $it") }
+    }.takeIf { it.isNotEmpty() }?.joinToString(" / ")
+        ?: return null
+
+    val providerLabel = buildList {
+        providerMeta.providerId.takeIf { it.isNotBlank() }?.let(::add)
+        providerMeta.modelId?.takeIf { it.isNotBlank() }?.let(::add)
+    }.joinToString(" · ")
+
+    return if (providerLabel.isNotBlank()) {
+        "$providerLabel · $tokenSummary tokens"
+    } else {
+        "$tokenSummary tokens"
     }
 }

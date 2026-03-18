@@ -385,6 +385,7 @@ fun TasksScreen(viewModel: TasksViewModel) {
                     restrictedBucket = state.diagnostics.isRestrictedBucket,
                     diagnostics = state.diagnostics,
                     recentRuns = state.recentRunsByTaskId[task.id].orEmpty(),
+                    runUsageSummaryByRunId = state.runUsageSummaryByRunId,
                     onToggleEnabled = { viewModel.toggleEnabled(task.id) },
                     onRunNow = { viewModel.runNow(task.id) },
                     onDelete = { viewModel.deleteTask(task.id) },
@@ -403,12 +404,14 @@ private fun TaskCard(
     restrictedBucket: Boolean,
     diagnostics: ai.androidclaw.runtime.scheduler.SchedulerDiagnostics,
     recentRuns: List<TaskRun>,
+    runUsageSummaryByRunId: Map<String, String>,
     onToggleEnabled: () -> Unit,
     onRunNow: () -> Unit,
     onDelete: () -> Unit,
     context: Context,
 ) {
     val latestRun = recentRuns.firstOrNull()
+    val latestRunUsageSummary = latestRun?.let { runUsageSummaryByRunId[it.id] }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -490,6 +493,9 @@ private fun TaskCard(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
+                        latestRunUsageSummary?.let { usageSummary ->
+                            TaskFactRow(label = "Provider usage", value = usageSummary)
+                        }
                     }
                 }
             }
@@ -562,6 +568,9 @@ private fun TaskCard(
                                 }
                                 run.resultSummary?.takeIf { it.isNotBlank() }?.let { summary ->
                                     append("\n").append(summary)
+                                }
+                                runUsageSummaryByRunId[run.id]?.let { usageSummary ->
+                                    append("\nUsage: ").append(usageSummary)
                                 }
                             },
                             style = MaterialTheme.typography.bodySmall,

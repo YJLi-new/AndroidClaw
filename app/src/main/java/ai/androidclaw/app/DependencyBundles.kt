@@ -28,6 +28,7 @@ data class TasksDependencies(
     val taskRepository: TaskRepository,
     val schedulerCoordinator: SchedulerCoordinator,
     val sessionRepository: SessionRepository,
+    val messageRepository: MessageRepository,
 )
 
 data class SkillsDependencies(
