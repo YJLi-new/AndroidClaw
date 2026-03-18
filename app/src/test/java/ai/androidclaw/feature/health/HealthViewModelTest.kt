@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.health
 
+import ai.androidclaw.app.CrashMarkerStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -49,6 +50,7 @@ class HealthViewModelTest {
     private lateinit var taskRepository: TaskRepository
     private lateinit var application: android.app.Application
     private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var crashMarkerStore: CrashMarkerStore
 
     @Before
     fun setUp() = runTest {
@@ -57,6 +59,8 @@ class HealthViewModelTest {
         eventLogRepository = EventLogRepository(database.eventLogDao())
         taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
         settingsDataStore = SettingsDataStore(application)
+        crashMarkerStore = CrashMarkerStore(application)
+        crashMarkerStore.clear()
         settingsDataStore.saveProviderSettings(
             ProviderSettingsSnapshot()
                 .withEndpointSettings(
@@ -75,6 +79,7 @@ class HealthViewModelTest {
     fun tearDown() = runTest {
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
         database.close()
+        crashMarkerStore.clear()
     }
 
     @Test
@@ -89,6 +94,11 @@ class HealthViewModelTest {
             level = EventLevel.Error,
             message = "Provider stream was interrupted before completion.",
             details = "kind=StreamInterrupted",
+        )
+        crashMarkerStore.record(
+            threadName = "main",
+            throwable = IllegalStateException("Boom"),
+            timestamp = Instant.parse("2026-03-08T01:00:00Z"),
         )
         eventLogRepository.log(
             category = EventCategory.Scheduler,
@@ -165,6 +175,7 @@ class HealthViewModelTest {
             },
             settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
+            crashMarkerStore = crashMarkerStore,
         )
 
         val state = viewModel.state.first { it.recentEvents.isNotEmpty() }
@@ -173,6 +184,7 @@ class HealthViewModelTest {
         assertEquals("Connected", state.networkSummary)
         assertTrue(state.providerStatus.contains("Last provider issue"))
         assertTrue(state.lastProviderIssue?.contains("StreamInterrupted") == true)
+        assertTrue(state.lastCrashSummary?.contains("IllegalStateException") == true)
         assertEquals(listOf("health.status"), state.tools)
         assertTrue(state.lastAutomationResult?.contains("completed") == true)
         assertEquals("taskId=task-1 stopReason=quota", state.lastWorkerStopReason)

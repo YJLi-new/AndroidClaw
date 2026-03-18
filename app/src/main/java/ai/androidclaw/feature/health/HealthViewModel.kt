@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.health
 
+import ai.androidclaw.app.CrashMarkerStore
 import ai.androidclaw.app.HealthDependencies
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -27,6 +28,9 @@ data class HealthUiState(
     val networkSummary: String = "",
     val providerStatus: String = "",
     val lastProviderIssue: String? = null,
+    val lastCrashSummary: String? = null,
+    val lastCrashStackTrace: String? = null,
+    val bugReportInstructions: String = "",
     val schedulerDiagnostics: SchedulerDiagnostics = SchedulerDiagnostics(),
     val supportedKinds: List<String> = emptyList(),
     val tools: List<String> = emptyList(),
@@ -43,6 +47,7 @@ class HealthViewModel(
     networkStatusProvider: NetworkStatusProvider,
     settingsDataStore: SettingsDataStore,
     eventLogRepository: EventLogRepository,
+    private val crashMarkerStore: CrashMarkerStore,
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val capabilities = schedulerCoordinator.capabilities()
@@ -77,6 +82,9 @@ class HealthViewModel(
                     lastProviderIssue = lastProviderIssue,
                 ),
                 lastProviderIssue = lastProviderIssue,
+                lastCrashSummary = crashMarkerStore.read()?.let(::buildCrashSummary),
+                lastCrashStackTrace = crashMarkerStore.read()?.stackTrace,
+                bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
                 schedulerDiagnostics = diagnostics,
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
@@ -106,6 +114,7 @@ class HealthViewModel(
                 providerId = providerRegistry.defaultProvider.id,
                 networkSummary = networkStatusProvider.currentStatus().summary,
                 providerStatus = "FakeProvider is active. It works fully offline.",
+                bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
                 schedulerDiagnostics = initialDiagnostics,
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
@@ -114,6 +123,11 @@ class HealthViewModel(
 
     fun refreshDiagnostics() {
         diagnosticsRefreshes.update { it + 1 }
+    }
+
+    fun clearCrashNotice() {
+        crashMarkerStore.clear()
+        refreshDiagnostics()
     }
 
     companion object {
@@ -128,6 +142,7 @@ class HealthViewModel(
                         networkStatusProvider = dependencies.networkStatusProvider,
                         settingsDataStore = dependencies.settingsDataStore,
                         eventLogRepository = dependencies.eventLogRepository,
+                        crashMarkerStore = dependencies.crashMarkerStore,
                     ) as T
                 }
             }
@@ -153,3 +168,18 @@ private fun buildProviderStatus(
         else -> "Remote provider is ready for interactive use."
     }
 }
+
+private fun buildCrashSummary(marker: ai.androidclaw.app.CrashMarker): String {
+    return buildString {
+        append(marker.timestamp)
+        append(" · ")
+        append(marker.exceptionType.substringAfterLast('.'))
+        marker.message?.takeIf { it.isNotBlank() }?.let { message ->
+            append(" · ").append(message)
+        }
+        append(" · thread=").append(marker.threadName)
+    }
+}
+
+private const val BUG_REPORT_INSTRUCTIONS =
+    "If AndroidClaw misbehaves, copy diagnostics from this screen and include the exact provider, task, or chat action that failed."

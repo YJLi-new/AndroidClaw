@@ -53,4 +53,5 @@ data class HealthDependencies(
     val settingsDataStore: SettingsDataStore,
     val eventLogRepository: EventLogRepository,
     val networkStatusProvider: NetworkStatusProvider,
+    val crashMarkerStore: CrashMarkerStore,
 )

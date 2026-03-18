@@ -52,6 +52,7 @@ class AppContainer(application: Application) {
     }
     private val providerHttpClient = createProviderBaseHttpClient()
     val database = AndroidClawDatabase.build(application)
+    val crashMarkerStore = CrashMarkerStore(application)
     val settingsDataStore = SettingsDataStore(application)
     val onboardingDataStore = OnboardingDataStore(application)
     val providerSecretStore = AndroidProviderSecretStore(application)
@@ -230,6 +231,7 @@ class AppContainer(application: Application) {
             settingsDataStore = settingsDataStore,
             eventLogRepository = eventLogRepository,
             networkStatusProvider = networkStatusProvider,
+            crashMarkerStore = crashMarkerStore,
         )
 
     suspend fun ensureMainSession() {
