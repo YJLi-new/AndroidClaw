@@ -35,43 +35,47 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `get or create main session emits through observeSessions and reuses existing row`() = runTest {
-        val emitted = async {
-            repository.observeSessions().first { sessions -> sessions.any { it.isMain } }
+    fun `get or create main session emits through observeSessions and reuses existing row`() =
+        runTest {
+            val emitted =
+                async {
+                    repository.observeSessions().first { sessions -> sessions.any { it.isMain } }
+                }
+
+            val first = repository.getOrCreateMainSession()
+            val second = repository.getOrCreateMainSession()
+
+            assertEquals(first.id, second.id)
+            assertTrue(first.isMain)
+            assertFalse(first.archived)
+            assertEquals(listOf(first.id), emitted.await().map { it.id })
         }
 
-        val first = repository.getOrCreateMainSession()
-        val second = repository.getOrCreateMainSession()
+    @Test
+    fun `update title and archive session persist state`() =
+        runTest {
+            val created = repository.createSession(title = "Draft")
 
-        assertEquals(first.id, second.id)
-        assertTrue(first.isMain)
-        assertFalse(first.archived)
-        assertEquals(listOf(first.id), emitted.await().map { it.id })
-    }
+            repository.updateTitle(created.id, "Renamed")
+            repository.archiveSession(created.id)
+
+            val stored = repository.getSession(created.id)
+            assertNotNull(stored)
+            assertEquals("Renamed", stored?.title)
+            assertTrue(stored?.archived == true)
+            assertTrue(repository.observeSessions().first().isEmpty())
+        }
 
     @Test
-    fun `update title and archive session persist state`() = runTest {
-        val created = repository.createSession(title = "Draft")
+    fun `search sessions matches active titles only`() =
+        runTest {
+            val alpha = repository.createSession("Alpha plan")
+            val beta = repository.createSession("Beta notes")
+            repository.archiveSession(beta.id)
 
-        repository.updateTitle(created.id, "Renamed")
-        repository.archiveSession(created.id)
+            val results = repository.searchSessions("plan", limit = 10)
 
-        val stored = repository.getSession(created.id)
-        assertNotNull(stored)
-        assertEquals("Renamed", stored?.title)
-        assertTrue(stored?.archived == true)
-        assertTrue(repository.observeSessions().first().isEmpty())
-    }
-
-    @Test
-    fun `search sessions matches active titles only`() = runTest {
-        val alpha = repository.createSession("Alpha plan")
-        val beta = repository.createSession("Beta notes")
-        repository.archiveSession(beta.id)
-
-        val results = repository.searchSessions("plan", limit = 10)
-
-        assertEquals(listOf(alpha.id), results.map { it.sessionId })
-        assertEquals("Alpha plan", results.single().sessionTitle)
-    }
+            assertEquals(listOf(alpha.id), results.map { it.sessionId })
+            assertEquals("Alpha plan", results.single().sessionTitle)
+        }
 }

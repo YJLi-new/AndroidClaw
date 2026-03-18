@@ -12,9 +12,10 @@ import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 internal suspend fun SkillManager.readConfigurationCompat(
     skill: SkillSnapshot,
 ): SkillConfigurationSnapshot {
-    val method = findSuspendMethod(name = "readConfiguration", valueParameterCount = 1)
-        ?: findSuspendMethod(name = "readSkillConfiguration", valueParameterCount = 1)
-        ?: error("SkillManager does not expose a configuration read API.")
+    val method =
+        findSuspendMethod(name = "readConfiguration", valueParameterCount = 1)
+            ?: findSuspendMethod(name = "readSkillConfiguration", valueParameterCount = 1)
+            ?: error("SkillManager does not expose a configuration read API.")
     return invokeSuspendMethod(method, skill)
 }
 
@@ -36,8 +37,9 @@ internal suspend fun SkillManager.saveConfigurationCompat(
         return
     }
 
-    val legacyMethod = findSuspendMethod(name = "saveSkillConfiguration", valueParameterCount = 3)
-        ?: error("SkillManager does not expose a configuration save API.")
+    val legacyMethod =
+        findSuspendMethod(name = "saveSkillConfiguration", valueParameterCount = 3)
+            ?: error("SkillManager does not expose a configuration save API.")
     invokeSuspendMethod<Unit>(
         legacyMethod,
         skillKey,
@@ -49,20 +51,19 @@ internal suspend fun SkillManager.saveConfigurationCompat(
 private fun SkillManager.findSuspendMethod(
     name: String,
     valueParameterCount: Int,
-): Method? {
-    return javaClass.methods.firstOrNull { method ->
+): Method? =
+    javaClass.methods.firstOrNull { method ->
         method.name == name &&
             method.parameterTypes.size == valueParameterCount + 1 &&
             Continuation::class.java.isAssignableFrom(method.parameterTypes.last())
     }
-}
 
 @Suppress("UNCHECKED_CAST")
 private suspend fun <T> SkillManager.invokeSuspendMethod(
     method: Method,
     vararg args: Any?,
-): T {
-    return suspendCoroutineUninterceptedOrReturn { continuation ->
+): T =
+    suspendCoroutineUninterceptedOrReturn { continuation ->
         try {
             val result = method.invoke(this, *args, continuation)
             if (result === COROUTINE_SUSPENDED) {
@@ -74,4 +75,3 @@ private suspend fun <T> SkillManager.invokeSuspendMethod(
             throw (error.targetException ?: error)
         }
     }
-}

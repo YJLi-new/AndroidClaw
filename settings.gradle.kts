@@ -9,6 +9,13 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        mavenLocal {
+            content {
+                includeGroup("com.google.devtools.ksp")
+                includeGroup("org.jetbrains.kotlin")
+                includeGroup("org.jetbrains.kotlinx")
+            }
+        }
         google()
         mavenCentral()
     }

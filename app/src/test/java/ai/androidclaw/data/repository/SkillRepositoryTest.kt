@@ -9,7 +9,6 @@ import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.skills.SkillSourceType
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import java.time.Instant
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -25,6 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -44,53 +44,55 @@ class SkillRepositoryTest {
     }
 
     @Test
-    fun `upsert and observe skills preserve typed frontmatter and enabled filter`() = runTest {
-        val emissions = mutableListOf<List<SkillRecord>>()
-        val job = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-            repository.observeSkills().take(2).toList(emissions)
+    fun `upsert and observe skills preserve typed frontmatter and enabled filter`() =
+        runTest {
+            val emissions = mutableListOf<List<SkillRecord>>()
+            val job =
+                backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                    repository.observeSkills().take(2).toList(emissions)
+                }
+            runCurrent()
+
+            repository.upsertAll(
+                listOf(
+                    skillRecord(
+                        id = "summary",
+                        sourceType = SkillSourceType.Bundled,
+                        enabled = true,
+                        displayName = "Summary",
+                        description = "Bundled summary skill",
+                        frontmatter = sampleFrontmatter(),
+                        eligibilityStatus = SkillEligibilityStatus.Eligible,
+                        eligibilityReasons = emptyList(),
+                    ),
+                    skillRecord(
+                        id = "task-helper",
+                        sourceType = SkillSourceType.Local,
+                        enabled = false,
+                        displayName = "Task helper",
+                        description = "Needs task tool",
+                        frontmatter = null,
+                        eligibilityStatus = SkillEligibilityStatus.MissingTool,
+                        eligibilityReasons = listOf("Missing tool: tasks.list"),
+                    ),
+                ),
+            )
+
+            job.join()
+
+            assertEquals(emptyList<SkillRecord>(), emissions.first())
+            assertEquals(listOf("Summary", "Task helper"), emissions.last().map { it.displayName })
+            assertEquals(listOf("summary"), repository.getEnabledSkills().map { it.id })
+
+            repository.setEnabled("task-helper", true)
+            val stored = repository.getSkill("summary")
+            assertTrue(repository.getSkill("task-helper")?.enabled == true)
+            assertEquals(SkillCommandDispatch.Model, stored?.frontmatter?.commandDispatch)
+            assertEquals(SkillSourceType.Bundled, stored?.sourceType)
         }
-        runCurrent()
 
-        repository.upsertAll(
-            listOf(
-                skillRecord(
-                    id = "summary",
-                    sourceType = SkillSourceType.Bundled,
-                    enabled = true,
-                    displayName = "Summary",
-                    description = "Bundled summary skill",
-                    frontmatter = sampleFrontmatter(),
-                    eligibilityStatus = SkillEligibilityStatus.Eligible,
-                    eligibilityReasons = emptyList(),
-                ),
-                skillRecord(
-                    id = "task-helper",
-                    sourceType = SkillSourceType.Local,
-                    enabled = false,
-                    displayName = "Task helper",
-                    description = "Needs task tool",
-                    frontmatter = null,
-                    eligibilityStatus = SkillEligibilityStatus.MissingTool,
-                    eligibilityReasons = listOf("Missing tool: tasks.list"),
-                ),
-            ),
-        )
-
-        job.join()
-
-        assertEquals(emptyList<SkillRecord>(), emissions.first())
-        assertEquals(listOf("Summary", "Task helper"), emissions.last().map { it.displayName })
-        assertEquals(listOf("summary"), repository.getEnabledSkills().map { it.id })
-
-        repository.setEnabled("task-helper", true)
-        val stored = repository.getSkill("summary")
-        assertTrue(repository.getSkill("task-helper")?.enabled == true)
-        assertEquals(SkillCommandDispatch.Model, stored?.frontmatter?.commandDispatch)
-        assertEquals(SkillSourceType.Bundled, stored?.sourceType)
-    }
-
-    private fun sampleFrontmatter(): SkillFrontmatter {
-        return SkillFrontmatter(
+    private fun sampleFrontmatter(): SkillFrontmatter =
+        SkillFrontmatter(
             name = "summary",
             description = "Summarize conversation state",
             homepage = "https://example.com/summary",
@@ -99,12 +101,12 @@ class SkillRepositoryTest {
             commandDispatch = SkillCommandDispatch.Model,
             commandTool = null,
             commandArgMode = "raw",
-            metadata = buildJsonObject {
-                put("android", "supported")
-            },
+            metadata =
+                buildJsonObject {
+                    put("android", "supported")
+                },
             unknownFields = emptyMap(),
         )
-    }
 
     private fun skillRecord(
         id: String,
@@ -115,17 +117,18 @@ class SkillRepositoryTest {
         frontmatter: SkillFrontmatter?,
         eligibilityStatus: SkillEligibilityStatus,
         eligibilityReasons: List<String>,
-    ): SkillRecord {
-        return SkillRecord(
+    ): SkillRecord =
+        SkillRecord(
             id = id,
             skillKey = displayName,
             sourceType = sourceType,
             workspaceSessionId = null,
-            baseDir = when (sourceType) {
-                SkillSourceType.Bundled -> "asset://skills/$id"
-                SkillSourceType.Local -> "/files/skills/local/$id"
-                SkillSourceType.Workspace -> "/files/workspaces/session/skills/$id"
-            },
+            baseDir =
+                when (sourceType) {
+                    SkillSourceType.Bundled -> "asset://skills/$id"
+                    SkillSourceType.Local -> "/files/skills/local/$id"
+                    SkillSourceType.Workspace -> "/files/workspaces/session/skills/$id"
+                },
             enabled = enabled,
             displayName = displayName,
             description = description,
@@ -137,5 +140,4 @@ class SkillRepositoryTest {
             importedAt = Instant.ofEpochMilli(100L),
             updatedAt = Instant.ofEpochMilli(200L),
         )
-    }
 }

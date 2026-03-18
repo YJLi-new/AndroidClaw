@@ -6,22 +6,22 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import org.yaml.snakeyaml.Yaml
 
 class SkillParser {
     private val yaml = Yaml()
-    private val supportedFields = setOf(
-        "name",
-        "description",
-        "homepage",
-        "user-invocable",
-        "disable-model-invocation",
-        "command-dispatch",
-        "command-tool",
-        "command-arg-mode",
-        "metadata",
-    )
+    private val supportedFields =
+        setOf(
+            "name",
+            "description",
+            "homepage",
+            "user-invocable",
+            "disable-model-invocation",
+            "command-dispatch",
+            "command-tool",
+            "command-arg-mode",
+            "metadata",
+        )
 
     fun parse(rawMarkdown: String): SkillParseResult {
         val normalized = rawMarkdown.replace("\r\n", "\n")
@@ -31,11 +31,12 @@ class SkillParser {
 
         val inlineClosingMarker = normalized.indexOf("\n---\n", startIndex = 4)
         val eofClosingMarker = if (normalized.endsWith("\n---")) normalized.length - 4 else -1
-        val closingMarker = when {
-            inlineClosingMarker != -1 -> inlineClosingMarker
-            eofClosingMarker != -1 -> eofClosingMarker
-            else -> -1
-        }
+        val closingMarker =
+            when {
+                inlineClosingMarker != -1 -> inlineClosingMarker
+                eofClosingMarker != -1 -> eofClosingMarker
+                else -> -1
+            }
         if (closingMarker == -1) {
             return SkillParseResult.Failure("SKILL.md frontmatter is not closed with ---")
         }
@@ -43,11 +44,12 @@ class SkillParser {
         val rawFrontmatter = normalized.substring(4, closingMarker)
         val bodyStart = if (inlineClosingMarker != -1) closingMarker + 5 else normalized.length
         val body = normalized.substring(bodyStart).trim()
-        val frontmatterMap = runCatching {
-            @Suppress("UNCHECKED_CAST")
-            yaml.load<Any?>(rawFrontmatter) as? Map<String, Any?>
-        }.getOrNull()
-            ?: return SkillParseResult.Failure("Frontmatter is not a YAML object.")
+        val frontmatterMap =
+            runCatching {
+                @Suppress("UNCHECKED_CAST")
+                yaml.load<Any?>(rawFrontmatter) as? Map<String, Any?>
+            }.getOrNull()
+                ?: return SkillParseResult.Failure("Frontmatter is not a YAML object.")
 
         val name = frontmatterMap["name"]?.toString()?.trim().orEmpty()
         val description = frontmatterMap["description"]?.toString()?.trim().orEmpty()
@@ -56,34 +58,38 @@ class SkillParser {
         }
 
         val metadata = parseMetadata(frontmatterMap["metadata"])
-        val unknownFields = buildMap {
-            frontmatterMap.forEach { (key, value) ->
-                if (key !in supportedFields) {
-                    put(key, value.toJsonElement())
+        val unknownFields =
+            buildMap {
+                frontmatterMap.forEach { (key, value) ->
+                    if (key !in supportedFields) {
+                        put(key, value.toJsonElement())
+                    }
                 }
             }
-        }
 
         return SkillParseResult.Success(
-            document = ParsedSkillDocument(
-                frontmatter = SkillFrontmatter(
-                    name = name,
-                    description = description,
-                    homepage = frontmatterMap["homepage"]?.toString(),
-                    userInvocable = frontmatterMap["user-invocable"]?.asBoolean() ?: true,
-                    disableModelInvocation = frontmatterMap["disable-model-invocation"]?.asBoolean() ?: false,
-                    commandDispatch = when (frontmatterMap["command-dispatch"]?.toString()) {
-                        "tool" -> SkillCommandDispatch.Tool
-                        else -> SkillCommandDispatch.Model
-                    },
-                    commandTool = frontmatterMap["command-tool"]?.toString(),
-                    commandArgMode = frontmatterMap["command-arg-mode"]?.toString() ?: "raw",
-                    metadata = metadata,
-                    unknownFields = unknownFields,
+            document =
+                ParsedSkillDocument(
+                    frontmatter =
+                        SkillFrontmatter(
+                            name = name,
+                            description = description,
+                            homepage = frontmatterMap["homepage"]?.toString(),
+                            userInvocable = frontmatterMap["user-invocable"]?.asBoolean() ?: true,
+                            disableModelInvocation = frontmatterMap["disable-model-invocation"]?.asBoolean() ?: false,
+                            commandDispatch =
+                                when (frontmatterMap["command-dispatch"]?.toString()) {
+                                    "tool" -> SkillCommandDispatch.Tool
+                                    else -> SkillCommandDispatch.Model
+                                },
+                            commandTool = frontmatterMap["command-tool"]?.toString(),
+                            commandArgMode = frontmatterMap["command-arg-mode"]?.toString() ?: "raw",
+                            metadata = metadata,
+                            unknownFields = unknownFields,
+                        ),
+                    bodyMarkdown = body,
+                    rawFrontmatter = rawFrontmatter,
                 ),
-                bodyMarkdown = body,
-                rawFrontmatter = rawFrontmatter,
-            ),
         )
     }
 
@@ -102,33 +108,37 @@ class SkillParser {
         return value.toJsonElement()
     }
 
-    private fun Map<String, Any?>.toJsonElement(): JsonObject = buildJsonObject {
-        forEach { (key, value) ->
-            put(key, value.toJsonElement())
-        }
-    }
-
-    private fun Any?.toJsonElement(): JsonElement = when (this) {
-        null -> JsonNull
-        is JsonElement -> this
-        is Map<*, *> -> {
-            val normalized = buildMap {
-                this@toJsonElement.forEach { (key, value) ->
-                    if (key != null) {
-                        put(key.toString(), value)
-                    }
-                }
+    private fun Map<String, Any?>.toJsonElement(): JsonObject =
+        buildJsonObject {
+            forEach { (key, value) ->
+                put(key, value.toJsonElement())
             }
-            normalized.toJsonElement()
         }
-        is Iterable<*> -> JsonArray(map { it.toJsonElement() })
-        is Number -> JsonPrimitive(this)
-        is Boolean -> JsonPrimitive(this)
-        else -> JsonPrimitive(toString())
-    }
 
-    private fun Any.asBoolean(): Boolean? = when (this) {
-        is Boolean -> this
-        else -> toString().toBooleanStrictOrNull()
-    }
+    private fun Any?.toJsonElement(): JsonElement =
+        when (this) {
+            null -> JsonNull
+            is JsonElement -> this
+            is Map<*, *> -> {
+                val normalized =
+                    buildMap {
+                        this@toJsonElement.forEach { (key, value) ->
+                            if (key != null) {
+                                put(key.toString(), value)
+                            }
+                        }
+                    }
+                normalized.toJsonElement()
+            }
+            is Iterable<*> -> JsonArray(map { it.toJsonElement() })
+            is Number -> JsonPrimitive(this)
+            is Boolean -> JsonPrimitive(this)
+            else -> JsonPrimitive(toString())
+        }
+
+    private fun Any.asBoolean(): Boolean? =
+        when (this) {
+            is Boolean -> this
+            else -> toString().toBooleanStrictOrNull()
+        }
 }

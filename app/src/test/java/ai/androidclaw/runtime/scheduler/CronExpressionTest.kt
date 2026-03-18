@@ -27,4 +27,3 @@ class CronExpressionTest {
         assertFalse(expression.matches(sunday))
     }
 }
-

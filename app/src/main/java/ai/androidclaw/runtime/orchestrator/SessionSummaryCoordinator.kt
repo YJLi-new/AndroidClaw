@@ -11,12 +11,12 @@ import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.providers.ProviderRegistry
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 data class SessionSummaryRefreshResult(
     val refreshed: Boolean,
@@ -56,11 +56,12 @@ class SessionSummaryCoordinator(
     }
 
     suspend fun maybeRefreshSummary(sessionId: String): SessionSummaryRefreshResult {
-        val session = sessionRepository.getSession(sessionId)
-            ?: return SessionSummaryRefreshResult(
-                refreshed = false,
-                skippedReason = "missing_session",
-            )
+        val session =
+            sessionRepository.getSession(sessionId)
+                ?: return SessionSummaryRefreshResult(
+                    refreshed = false,
+                    skippedReason = "missing_session",
+                )
         val providerSettings = settingsDataStore.settings.first()
         if (providerSettings.providerType == ProviderType.Fake && !allowFakeProviderForTesting) {
             return SessionSummaryRefreshResult(
@@ -78,8 +79,9 @@ class SessionSummaryCoordinator(
             )
         }
 
-        val lastSummarizedCount = lastSummarizedMessageCounts[sessionId]
-            ?: if (session.summaryText.isNullOrBlank()) 0 else messageCount
+        val lastSummarizedCount =
+            lastSummarizedMessageCounts[sessionId]
+                ?: if (session.summaryText.isNullOrBlank()) 0 else messageCount
         if (!session.summaryText.isNullOrBlank() && messageCount - lastSummarizedCount < refreshIntervalMessages) {
             return SessionSummaryRefreshResult(
                 refreshed = false,
@@ -89,10 +91,12 @@ class SessionSummaryCoordinator(
             )
         }
 
-        val sourceMessages = messageRepository.getRecentMessages(
-            sessionId = sessionId,
-            limit = summarySourceMessageLimit,
-        ).asReversed()
+        val sourceMessages =
+            messageRepository
+                .getRecentMessages(
+                    sessionId = sessionId,
+                    limit = summarySourceMessageLimit,
+                ).asReversed()
         if (sourceMessages.isEmpty()) {
             return SessionSummaryRefreshResult(
                 refreshed = false,
@@ -102,34 +106,38 @@ class SessionSummaryCoordinator(
             )
         }
 
-        val response = withContext(Dispatchers.IO) {
-            providerRegistry.require(providerSettings.providerType).generate(
-                ModelRequest(
-                    sessionId = sessionId,
-                    requestId = "session-summary-$sessionId-$messageCount",
-                    messageHistory = listOf(
-                        ModelMessage(
-                            role = ModelMessageRole.User,
-                            content = buildSummaryPrompt(
-                                existingSummary = session.summaryText,
-                                sourceMessages = sourceMessages,
+        val response =
+            withContext(Dispatchers.IO) {
+                providerRegistry.require(providerSettings.providerType).generate(
+                    ModelRequest(
+                        sessionId = sessionId,
+                        requestId = "session-summary-$sessionId-$messageCount",
+                        messageHistory =
+                            listOf(
+                                ModelMessage(
+                                    role = ModelMessageRole.User,
+                                    content =
+                                        buildSummaryPrompt(
+                                            existingSummary = session.summaryText,
+                                            sourceMessages = sourceMessages,
+                                        ),
+                                ),
                             ),
-                        ),
+                        systemPrompt = SUMMARY_SYSTEM_PROMPT,
+                        enabledSkills = emptyList(),
+                        toolDescriptors = emptyList(),
+                        runMode = ModelRunMode.Scheduled,
                     ),
-                    systemPrompt = SUMMARY_SYSTEM_PROMPT,
-                    enabledSkills = emptyList(),
-                    toolDescriptors = emptyList(),
-                    runMode = ModelRunMode.Scheduled,
-                ),
-            )
-        }
-        val newSummary = response.text.trim().takeIf { it.isNotBlank() }
-            ?: return SessionSummaryRefreshResult(
-                refreshed = false,
-                skippedReason = "empty_summary",
-                messageCount = messageCount,
-                summaryText = session.summaryText,
-            )
+                )
+            }
+        val newSummary =
+            response.text.trim().takeIf { it.isNotBlank() }
+                ?: return SessionSummaryRefreshResult(
+                    refreshed = false,
+                    skippedReason = "empty_summary",
+                    messageCount = messageCount,
+                    summaryText = session.summaryText,
+                )
 
         sessionRepository.updateSummary(sessionId, newSummary)
         lastSummarizedMessageCounts[sessionId] = messageCount
@@ -145,21 +153,22 @@ class SessionSummaryCoordinator(
         private const val DEFAULT_REFRESH_INTERVAL_MESSAGES = 12
         private const val DEFAULT_SUMMARY_SOURCE_MESSAGE_LIMIT = 32
 
-        private val SUMMARY_SYSTEM_PROMPT = """
+        private val SUMMARY_SYSTEM_PROMPT =
+            """
             You maintain concise cumulative summaries for AndroidClaw chat sessions.
             Return only the updated session summary in plain text.
             Keep it short, factual, and cumulative.
             Preserve durable facts, user preferences, decisions, and unresolved tasks.
             Do not include hidden reasoning or chain-of-thought.
-        """.trimIndent()
+            """.trimIndent()
     }
 }
 
 private fun buildSummaryPrompt(
     existingSummary: String?,
     sourceMessages: List<ChatMessage>,
-): String {
-    return buildString {
+): String =
+    buildString {
         if (!existingSummary.isNullOrBlank()) {
             appendLine("Existing summary:")
             appendLine(existingSummary.trim())
@@ -174,14 +183,12 @@ private fun buildSummaryPrompt(
             appendLine("${message.summaryRoleLabel()}: ${message.content.trim()}")
         }
     }.trim()
-}
 
-private fun ChatMessage.summaryRoleLabel(): String {
-    return when (role) {
+private fun ChatMessage.summaryRoleLabel(): String =
+    when (role) {
         MessageRole.User -> "User"
         MessageRole.Assistant -> "Assistant"
         MessageRole.System -> "System"
         MessageRole.ToolCall -> "Tool request"
         MessageRole.ToolResult -> "Tool result"
     }
-}

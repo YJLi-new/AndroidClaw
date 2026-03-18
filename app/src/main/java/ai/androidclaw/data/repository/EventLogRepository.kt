@@ -5,15 +5,20 @@ import ai.androidclaw.data.db.entity.EventLogEntity
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
-import java.time.Instant
-import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.time.Instant
+import java.util.UUID
 
 class EventLogRepository(
     private val dao: EventLogDao,
 ) {
-    suspend fun log(category: EventCategory, level: EventLevel, message: String, details: String? = null) {
+    suspend fun log(
+        category: EventCategory,
+        level: EventLevel,
+        message: String,
+        details: String? = null,
+    ) {
         dao.insert(
             EventLogEntity(
                 id = UUID.randomUUID().toString(),
@@ -26,19 +31,18 @@ class EventLogRepository(
         )
     }
 
-    fun observeRecent(limit: Int = 100): Flow<List<EventLogEntry>> = dao.getRecent(limit).map { events ->
-        events.map(EventLogEntity::toDomain)
-    }
+    fun observeRecent(limit: Int = 100): Flow<List<EventLogEntry>> =
+        dao.getRecent(limit).map { events ->
+            events.map(EventLogEntity::toDomain)
+        }
 
-    suspend fun trimOlderThan(instant: Instant): Int {
-        return dao.deleteOlderThan(instant.toEpochMilli())
-    }
+    suspend fun trimOlderThan(instant: Instant): Int = dao.deleteOlderThan(instant.toEpochMilli())
 
     suspend fun count(): Int = dao.count()
 }
 
-private fun EventLogEntity.toDomain(): EventLogEntry {
-    return EventLogEntry(
+private fun EventLogEntity.toDomain(): EventLogEntry =
+    EventLogEntry(
         id = id,
         timestamp = Instant.ofEpochMilli(timestamp),
         category = category.toEventCategory(),
@@ -46,10 +50,9 @@ private fun EventLogEntity.toDomain(): EventLogEntry {
         message = message,
         details = detailsJson,
     )
-}
 
-private fun EventCategory.toStorage(): String {
-    return when (this) {
+private fun EventCategory.toStorage(): String =
+    when (this) {
         EventCategory.Provider -> "provider"
         EventCategory.Tool -> "tool"
         EventCategory.Scheduler -> "scheduler"
@@ -57,18 +60,16 @@ private fun EventCategory.toStorage(): String {
         EventCategory.System -> "system"
         EventCategory.Debug -> "debug"
     }
-}
 
-private fun EventLevel.toStorage(): String {
-    return when (this) {
+private fun EventLevel.toStorage(): String =
+    when (this) {
         EventLevel.Info -> "info"
         EventLevel.Warn -> "warn"
         EventLevel.Error -> "error"
     }
-}
 
-private fun String.toEventCategory(): EventCategory {
-    return when (this) {
+private fun String.toEventCategory(): EventCategory =
+    when (this) {
         "provider" -> EventCategory.Provider
         "tool" -> EventCategory.Tool
         "scheduler" -> EventCategory.Scheduler
@@ -77,13 +78,11 @@ private fun String.toEventCategory(): EventCategory {
         "debug" -> EventCategory.Debug
         else -> error("Unsupported event category: $this")
     }
-}
 
-private fun String.toEventLevel(): EventLevel {
-    return when (this) {
+private fun String.toEventLevel(): EventLevel =
+    when (this) {
         "info" -> EventLevel.Info
         "warn" -> EventLevel.Warn
         "error" -> EventLevel.Error
         else -> error("Unsupported event level: $this")
     }
-}

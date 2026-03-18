@@ -9,11 +9,7 @@ class SkillStorage(
     val localSkillsDir: File
         get() = File(filesDir, "skills/local")
 
-    fun workspaceSkillsDir(sessionId: String): File {
-        return File(filesDir, "workspaces/$sessionId/skills")
-    }
+    fun workspaceSkillsDir(sessionId: String): File = File(filesDir, "workspaces/$sessionId/skills")
 
-    fun importScratchDir(label: String): File {
-        return File(cacheDir, "skill-import-$label")
-    }
+    fun importScratchDir(label: String): File = File(cacheDir, "skill-import-$label")
 }

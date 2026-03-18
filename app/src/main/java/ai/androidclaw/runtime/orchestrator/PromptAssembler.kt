@@ -31,11 +31,12 @@ class PromptAssembler(
         sessionSummary: String? = null,
     ): PromptAssembly {
         val systemPrompt = buildSystemPrompt(selectedSkills, toolDescriptors, runMode)
-        val contextSelection = contextWindowManager.select(
-            systemPrompt = systemPrompt,
-            persistedHistory = persistedMessages.mapNotNull(ChatMessage::toModelMessage),
-            summaryText = sessionSummary,
-        )
+        val contextSelection =
+            contextWindowManager.select(
+                systemPrompt = systemPrompt,
+                persistedHistory = persistedMessages.mapNotNull(ChatMessage::toModelMessage),
+                summaryText = sessionSummary,
+            )
         return PromptAssembly(
             systemPrompt = systemPrompt,
             messageHistory = contextSelection.messageHistory,
@@ -52,8 +53,8 @@ private fun buildSystemPrompt(
     selectedSkills: List<SkillSnapshot>,
     toolDescriptors: List<ToolDescriptor>,
     runMode: ModelRunMode,
-): String {
-    return buildString {
+): String =
+    buildString {
         appendLine("You are AndroidClaw, a lightweight Android-native assistant host.")
         appendLine("Use concise, direct responses unless the user asks for depth.")
         appendLine("Run mode: ${runMode.name.lowercase()}.")
@@ -90,38 +91,41 @@ private fun buildSystemPrompt(
             }
         }
     }.trim()
-}
 
-private fun ChatMessage.toModelMessage(): ModelMessage? {
-    return when (role) {
-        MessageRole.User -> ModelMessage(
-            role = ModelMessageRole.User,
-            content = content,
-        )
-        MessageRole.Assistant -> ModelMessage(
-            role = ModelMessageRole.Assistant,
-            content = content,
-        )
-        MessageRole.System -> ModelMessage(
-            role = ModelMessageRole.System,
-            content = content,
-        )
-        MessageRole.ToolCall -> toPersistedToolCallMessage()
-        MessageRole.ToolResult -> toolCallId?.let { persistedToolCallId ->
+private fun ChatMessage.toModelMessage(): ModelMessage? =
+    when (role) {
+        MessageRole.User ->
             ModelMessage(
-                role = ModelMessageRole.Tool,
-                content = content.removePrefix("Tool result: ").trim(),
-                toolCallId = persistedToolCallId,
+                role = ModelMessageRole.User,
+                content = content,
             )
-        }
+        MessageRole.Assistant ->
+            ModelMessage(
+                role = ModelMessageRole.Assistant,
+                content = content,
+            )
+        MessageRole.System ->
+            ModelMessage(
+                role = ModelMessageRole.System,
+                content = content,
+            )
+        MessageRole.ToolCall -> toPersistedToolCallMessage()
+        MessageRole.ToolResult ->
+            toolCallId?.let { persistedToolCallId ->
+                ModelMessage(
+                    role = ModelMessageRole.Tool,
+                    content = content.removePrefix("Tool result: ").trim(),
+                    toolCallId = persistedToolCallId,
+                )
+            }
     }
-}
 
 private fun ChatMessage.toPersistedToolCallMessage(): ModelMessage {
-    val parsedToolCall = parsePersistedToolCallContent(
-        content = content,
-        toolCallId = toolCallId,
-    )
+    val parsedToolCall =
+        parsePersistedToolCallContent(
+            content = content,
+            toolCallId = toolCallId,
+        )
     return if (parsedToolCall != null) {
         ModelMessage(
             role = ModelMessageRole.Assistant,
@@ -151,11 +155,12 @@ private fun parsePersistedToolCallContent(
     }
     val toolName = body.substring(0, delimiterIndex)
     val rawArguments = body.substring(delimiterIndex + 1).trim()
-    val arguments = try {
-        toolCallJson.parseToJsonElement(rawArguments).jsonObject
-    } catch (_: Exception) {
-        return null
-    }
+    val arguments =
+        try {
+            toolCallJson.parseToJsonElement(rawArguments).jsonObject
+        } catch (_: Exception) {
+            return null
+        }
     return ProviderToolCall(
         id = persistedToolCallId,
         name = toolName,

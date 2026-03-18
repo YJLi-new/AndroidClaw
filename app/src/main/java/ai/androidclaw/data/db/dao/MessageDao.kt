@@ -40,7 +40,10 @@ interface MessageDao {
         LIMIT :limit
         """,
     )
-    suspend fun getRecentBySessionId(sessionId: String, limit: Int): List<MessageEntity>
+    suspend fun getRecentBySessionId(
+        sessionId: String,
+        limit: Int,
+    ): List<MessageEntity>
 
     @Query(
         """
@@ -70,7 +73,10 @@ interface MessageDao {
         LIMIT :limit
         """,
     )
-    suspend fun searchByContent(query: String, limit: Int): List<MessageSearchRow>
+    suspend fun searchByContent(
+        query: String,
+        limit: Int,
+    ): List<MessageSearchRow>
 
     @Query("DELETE FROM messages WHERE sessionId = :sessionId")
     suspend fun deleteBySessionId(sessionId: String)

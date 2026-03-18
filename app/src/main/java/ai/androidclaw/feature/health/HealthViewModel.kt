@@ -8,21 +8,21 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
 import ai.androidclaw.data.repository.EventLogRepository
-import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.tools.ToolRegistry
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import java.time.Instant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import java.time.Instant
 
 data class HealthUiState(
     val providerId: String = "",
@@ -56,28 +56,31 @@ class HealthViewModel(
     private val initialDiagnostics = schedulerCoordinator.diagnostics()
     private val diagnosticsRefreshes = MutableStateFlow(0)
 
-    val state: StateFlow<HealthUiState> = combine(
-        settingsDataStore.settings,
-        eventLogRepository.observeRecent(limit = 10),
-        diagnosticsRefreshes,
-        networkStatusProvider.observeStatus(),
-    ) { settings, events, _, networkStatus ->
+    val state: StateFlow<HealthUiState> =
+        combine(
+            settingsDataStore.settings,
+            eventLogRepository.observeRecent(limit = 10),
+            diagnosticsRefreshes,
+            networkStatusProvider.observeStatus(),
+        ) { settings, events, _, networkStatus ->
             val schedulerEvents = events.filter { it.category == EventCategory.Scheduler }
             val providerEvents = events.filter { it.category == EventCategory.Provider }
             val diagnostics = schedulerCoordinator.diagnostics()
             val providerType = settings.providerType
-            val lastProviderIssue = providerEvents
-                .firstOrNull { it.level != EventLevel.Info }
-                ?: providerEvents.firstOrNull()
+            val lastProviderIssue =
+                providerEvents
+                    .firstOrNull { it.level != EventLevel.Info }
+                    ?: providerEvents.firstOrNull()
             val lastProviderIssueSummary = lastProviderIssue?.let(::formatProviderIssue)
             HealthUiState(
                 providerId = providerRegistry.require(settings.providerType).id,
                 networkSummary = networkStatus.summary,
-                providerStatus = buildProviderStatus(
-                    providerType = providerType,
-                    networkStatus = networkStatus,
-                    lastProviderIssue = lastProviderIssueSummary,
-                ),
+                providerStatus =
+                    buildProviderStatus(
+                        providerType = providerType,
+                        networkStatus = networkStatus,
+                        lastProviderIssue = lastProviderIssueSummary,
+                    ),
                 lastProviderIssue = lastProviderIssueSummary,
                 lastCrashSummary = crashMarkerStore.read()?.let(::buildCrashSummary),
                 lastCrashStackTrace = crashMarkerStore.read()?.stackTrace,
@@ -86,36 +89,40 @@ class HealthViewModel(
                 supportedKinds = capabilities.supportedKinds,
                 tools = staticTools,
                 lastSchedulerWake = schedulerEvents.firstOrNull { it.message.contains("started", ignoreCase = true) }?.timestamp,
-                lastAutomationResult = schedulerEvents.firstOrNull { event ->
-                    event.message.contains("completed", ignoreCase = true) ||
-                        event.message.contains("failed", ignoreCase = true) ||
-                        event.message.contains("skipped", ignoreCase = true)
-                }?.let { event ->
-                    buildString {
-                        append(event.message)
-                        event.details?.takeIf { it.isNotBlank() }?.let { details ->
-                            append(" (").append(details).append(")")
-                        }
-                    }
-                },
-                lastWorkerStopReason = schedulerEvents.firstOrNull {
-                    it.message.contains("stopped", ignoreCase = true)
-                }?.details,
+                lastAutomationResult =
+                    schedulerEvents
+                        .firstOrNull { event ->
+                            event.message.contains("completed", ignoreCase = true) ||
+                                event.message.contains("failed", ignoreCase = true) ||
+                                event.message.contains("skipped", ignoreCase = true)
+                        }?.let { event ->
+                            buildString {
+                                append(event.message)
+                                event.details?.takeIf { it.isNotBlank() }?.let { details ->
+                                    append(" (").append(details).append(")")
+                                }
+                            }
+                        },
+                lastWorkerStopReason =
+                    schedulerEvents
+                        .firstOrNull {
+                            it.message.contains("stopped", ignoreCase = true)
+                        }?.details,
                 recentEvents = events,
             )
-        }
-        .stateIn(
+        }.stateIn(
             scope = viewModelScope,
             started = uiSharingStarted,
-            initialValue = HealthUiState(
-                providerId = providerRegistry.defaultProvider.id,
-                networkSummary = networkStatusProvider.currentStatus().summary,
-                providerStatus = "FakeProvider is active. It works fully offline.",
-                bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
-                schedulerDiagnostics = initialDiagnostics,
-                supportedKinds = capabilities.supportedKinds,
-                tools = staticTools,
-            ),
+            initialValue =
+                HealthUiState(
+                    providerId = providerRegistry.defaultProvider.id,
+                    networkSummary = networkStatusProvider.currentStatus().summary,
+                    providerStatus = "FakeProvider is active. It works fully offline.",
+                    bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
+                    schedulerDiagnostics = initialDiagnostics,
+                    supportedKinds = capabilities.supportedKinds,
+                    tools = staticTools,
+                ),
         )
 
     fun refreshDiagnostics() {
@@ -128,11 +135,11 @@ class HealthViewModel(
     }
 
     companion object {
-        fun factory(dependencies: HealthDependencies): ViewModelProvider.Factory {
-            return object : ViewModelProvider.Factory {
+        fun factory(dependencies: HealthDependencies): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return HealthViewModel(
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    HealthViewModel(
                         schedulerCoordinator = dependencies.schedulerCoordinator,
                         toolRegistry = dependencies.toolRegistry,
                         providerRegistry = dependencies.providerRegistry,
@@ -141,9 +148,7 @@ class HealthViewModel(
                         eventLogRepository = dependencies.eventLogRepository,
                         crashMarkerStore = dependencies.crashMarkerStore,
                     ) as T
-                }
             }
-        }
     }
 }
 
@@ -151,8 +156,8 @@ private fun buildProviderStatus(
     providerType: ProviderType,
     networkStatus: ai.androidclaw.runtime.providers.NetworkStatusSnapshot,
     lastProviderIssue: String?,
-): String {
-    return when {
+): String =
+    when {
         !providerType.requiresRemoteSettings -> "FakeProvider is active. It works fully offline."
         !networkStatus.isConnected ->
             "No active network connection. Remote provider calls will fail until connectivity returns."
@@ -164,7 +169,6 @@ private fun buildProviderStatus(
             "Remote provider calls are using a metered network."
         else -> "Remote provider is ready for interactive use."
     }
-}
 
 private data class ProviderIssueMetadata(
     val kind: String? = null,
@@ -195,7 +199,8 @@ private fun parseProviderIssueMetadata(details: String?): ProviderIssueMetadata 
     var kind: String? = null
     var retryable: Boolean? = null
     val extras = mutableListOf<String>()
-    details.split(' ')
+    details
+        .split(' ')
         .filter { it.isNotBlank() }
         .forEach { token ->
             val parts = token.split('=', limit = 2)
@@ -204,14 +209,16 @@ private fun parseProviderIssueMetadata(details: String?): ProviderIssueMetadata 
                 return@forEach
             }
             when (parts[0]) {
-                "kind" -> kind = parts[1]
-                    .replace(Regex("([a-z])([A-Z])"), "$1 $2")
-                    .replace('_', ' ')
-                    .lowercase()
-                    .split(' ')
-                    .joinToString(" ") { segment ->
-                        segment.replaceFirstChar { character -> character.uppercase() }
-                    }
+                "kind" ->
+                    kind =
+                        parts[1]
+                            .replace(Regex("([a-z])([A-Z])"), "$1 $2")
+                            .replace('_', ' ')
+                            .lowercase()
+                            .split(' ')
+                            .joinToString(" ") { segment ->
+                                segment.replaceFirstChar { character -> character.uppercase() }
+                            }
 
                 "retryable" -> retryable = parts[1].toBooleanStrictOrNull()
                 else -> extras += token
@@ -224,8 +231,8 @@ private fun parseProviderIssueMetadata(details: String?): ProviderIssueMetadata 
     )
 }
 
-private fun buildCrashSummary(marker: ai.androidclaw.app.CrashMarker): String {
-    return buildString {
+private fun buildCrashSummary(marker: ai.androidclaw.app.CrashMarker): String =
+    buildString {
         append(marker.timestamp)
         append(" · ")
         append(marker.exceptionType.substringAfterLast('.'))
@@ -234,7 +241,6 @@ private fun buildCrashSummary(marker: ai.androidclaw.app.CrashMarker): String {
         }
         append(" · thread=").append(marker.threadName)
     }
-}
 
 private const val BUG_REPORT_INSTRUCTIONS =
     "If AndroidClaw misbehaves, copy diagnostics from this screen and include the exact provider, task, or chat action that failed."

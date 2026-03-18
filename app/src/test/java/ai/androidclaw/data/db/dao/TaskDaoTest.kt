@@ -33,56 +33,61 @@ class TaskDaoTest {
     }
 
     @Test
-    fun `return due enabled tasks and order null next runs last`() = runTest {
-        sessionDao.insert(
-            SessionEntity(
-                id = "main",
-                title = "Main session",
-                isMain = true,
-                createdAt = 1L,
-                updatedAt = 1L,
-                archivedAt = null,
-                summaryText = null,
-            ),
-        )
-        dao.insert(
-            task(
-                id = "due",
-                nextRunAt = 100L,
-                enabled = true,
-            ),
-        )
-        dao.insert(
-            task(
-                id = "future",
-                nextRunAt = 500L,
-                enabled = true,
-            ),
-        )
-        dao.insert(
-            task(
-                id = "disabled",
-                nextRunAt = 50L,
-                enabled = false,
-            ),
-        )
-        dao.insert(
-            task(
-                id = "unscheduled",
-                nextRunAt = null,
-                enabled = true,
-            ),
-        )
+    fun `return due enabled tasks and order null next runs last`() =
+        runTest {
+            sessionDao.insert(
+                SessionEntity(
+                    id = "main",
+                    title = "Main session",
+                    isMain = true,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            dao.insert(
+                task(
+                    id = "due",
+                    nextRunAt = 100L,
+                    enabled = true,
+                ),
+            )
+            dao.insert(
+                task(
+                    id = "future",
+                    nextRunAt = 500L,
+                    enabled = true,
+                ),
+            )
+            dao.insert(
+                task(
+                    id = "disabled",
+                    nextRunAt = 50L,
+                    enabled = false,
+                ),
+            )
+            dao.insert(
+                task(
+                    id = "unscheduled",
+                    nextRunAt = null,
+                    enabled = true,
+                ),
+            )
 
-        val due = dao.getEnabledTasksDueBefore(instant = 150L)
-        assertEquals(listOf("due"), due.map { it.id })
+            val due = dao.getEnabledTasksDueBefore(instant = 150L)
+            assertEquals(listOf("due"), due.map { it.id })
 
-        val ordered = dao.getAllTasks().first()
-        assertEquals(listOf("disabled", "due", "future", "unscheduled"), ordered.map { it.id })
-    }
+            val ordered = dao.getAllTasks().first()
+            assertEquals(listOf("disabled", "due", "future", "unscheduled"), ordered.map { it.id })
+        }
 
-    private fun task(id: String, nextRunAt: Long?, enabled: Boolean): TaskEntity {
-        return TaskEntity(
+    private fun task(
+        id: String,
+        nextRunAt: Long?,
+        enabled: Boolean,
+    ): TaskEntity =
+        TaskEntity(
             id = id,
             name = "Task $id",
             prompt = "Prompt $id",
@@ -99,5 +104,4 @@ class TaskDaoTest {
             createdAt = 1L,
             updatedAt = 1L,
         )
-    }
 }

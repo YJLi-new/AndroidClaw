@@ -24,20 +24,26 @@ class TaskRuntimeExecutor(
     private val agentRunner: AgentRunner,
     private val sessionLaneCoordinator: SessionLaneCoordinator,
 ) {
-    suspend fun execute(task: Task, taskRunId: String): TaskRuntimeExecution {
-        return when (task.executionMode) {
+    suspend fun execute(
+        task: Task,
+        taskRunId: String,
+    ): TaskRuntimeExecution =
+        when (task.executionMode) {
             TaskExecutionMode.MainSession -> executeInMainSession(task, taskRunId)
             TaskExecutionMode.IsolatedSession -> executeInIsolatedSession(task, taskRunId)
         }
-    }
 
-    private suspend fun executeInMainSession(task: Task, taskRunId: String): TaskRuntimeExecution {
+    private suspend fun executeInMainSession(
+        task: Task,
+        taskRunId: String,
+    ): TaskRuntimeExecution {
         val sessionId = resolveTargetSessionId(task)
-        val result = agentRunner.runScheduledTurn(
-            sessionId = sessionId,
-            userMessage = task.prompt,
-            taskRunId = taskRunId,
-        )
+        val result =
+            agentRunner.runScheduledTurn(
+                sessionId = sessionId,
+                userMessage = task.prompt,
+                taskRunId = taskRunId,
+            )
         return if (result.directToolResult?.success == false) {
             TaskRuntimeExecution(
                 success = false,
@@ -55,45 +61,52 @@ class TaskRuntimeExecutor(
         }
     }
 
-    private suspend fun executeInIsolatedSession(task: Task, taskRunId: String): TaskRuntimeExecution {
+    private suspend fun executeInIsolatedSession(
+        task: Task,
+        taskRunId: String,
+    ): TaskRuntimeExecution {
         val deliverySessionId = resolveTargetSessionId(task)
-        val isolatedSession = sessionRepository.createSession(
-            title = buildIsolatedSessionTitle(task),
-        )
-        val result = agentRunner.runScheduledTurn(
-            sessionId = isolatedSession.id,
-            userMessage = task.prompt,
-            taskRunId = taskRunId,
-        )
-        val deliveryText = buildString {
-            append("Task ")
-            append(task.name)
-            append(" completed in isolated session \"")
-            append(isolatedSession.title)
-            append("\".")
-            append("\n\n")
-            append(result.assistantMessage)
-        }
-        val deliveredMessage = try {
-            sessionLaneCoordinator.withLane(deliverySessionId) {
-                messageRepository.addMessage(
-                    sessionId = deliverySessionId,
-                    role = MessageRole.Assistant,
-                    content = deliveryText,
-                    providerMeta = result.providerMeta,
-                    taskRunId = taskRunId,
+        val isolatedSession =
+            sessionRepository.createSession(
+                title = buildIsolatedSessionTitle(task),
+            )
+        val result =
+            agentRunner.runScheduledTurn(
+                sessionId = isolatedSession.id,
+                userMessage = task.prompt,
+                taskRunId = taskRunId,
+            )
+        val deliveryText =
+            buildString {
+                append("Task ")
+                append(task.name)
+                append(" completed in isolated session \"")
+                append(isolatedSession.title)
+                append("\".")
+                append("\n\n")
+                append(result.assistantMessage)
+            }
+        val deliveredMessage =
+            try {
+                sessionLaneCoordinator.withLane(deliverySessionId) {
+                    messageRepository.addMessage(
+                        sessionId = deliverySessionId,
+                        role = MessageRole.Assistant,
+                        content = deliveryText,
+                        providerMeta = result.providerMeta,
+                        taskRunId = taskRunId,
+                    )
+                }
+            } catch (error: Exception) {
+                return TaskRuntimeExecution(
+                    success = false,
+                    summary = deliveryText,
+                    outputMessageId = null,
+                    errorCode = "TASK_DELIVERY_FAILED",
+                    errorMessage = error.message ?: "Task delivery failed.",
+                    retryable = false,
                 )
             }
-        } catch (error: Exception) {
-            return TaskRuntimeExecution(
-                success = false,
-                summary = deliveryText,
-                outputMessageId = null,
-                errorCode = "TASK_DELIVERY_FAILED",
-                errorMessage = error.message ?: "Task delivery failed.",
-                retryable = false,
-            )
-        }
         return if (result.directToolResult?.success == false) {
             TaskRuntimeExecution(
                 success = false,
@@ -111,9 +124,7 @@ class TaskRuntimeExecutor(
         }
     }
 
-    private suspend fun resolveTargetSessionId(task: Task): String {
-        return task.targetSessionId ?: sessionRepository.getOrCreateMainSession().id
-    }
+    private suspend fun resolveTargetSessionId(task: Task): String = task.targetSessionId ?: sessionRepository.getOrCreateMainSession().id
 
     private fun buildIsolatedSessionTitle(task: Task): String {
         val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())

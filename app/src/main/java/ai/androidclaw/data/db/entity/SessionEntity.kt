@@ -20,4 +20,3 @@ data class SessionEntity(
     val archivedAt: Long?,
     val summaryText: String?,
 )
-

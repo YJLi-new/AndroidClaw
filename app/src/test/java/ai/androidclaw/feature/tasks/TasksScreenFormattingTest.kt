@@ -7,9 +7,9 @@ import ai.androidclaw.runtime.providers.ProviderMessageMeta
 import ai.androidclaw.runtime.providers.ProviderUsagePayload
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.Instant
 
 class TasksScreenFormattingTest {
     @Test
@@ -50,11 +50,12 @@ class TasksScreenFormattingTest {
                 ProviderMessageMeta(
                     providerId = "anthropic",
                     modelId = "claude-3-7-sonnet",
-                    usage = ProviderUsagePayload(
-                        inputTokens = 200,
-                        outputTokens = 121,
-                        totalTokens = 321,
-                    ),
+                    usage =
+                        ProviderUsagePayload(
+                            inputTokens = 200,
+                            outputTokens = 121,
+                            totalTokens = 321,
+                        ),
                 ),
             ),
         )
@@ -67,11 +68,12 @@ class TasksScreenFormattingTest {
             buildRunUsageSummary(
                 ProviderMessageMeta(
                     providerId = "openai-compatible",
-                    usage = ProviderUsagePayload(
-                        inputTokens = 90,
-                        outputTokens = 45,
-                        totalTokens = null,
-                    ),
+                    usage =
+                        ProviderUsagePayload(
+                            inputTokens = 90,
+                            outputTokens = 45,
+                            totalTokens = null,
+                        ),
                 ),
             ),
         )

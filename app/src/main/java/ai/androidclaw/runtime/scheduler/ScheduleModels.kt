@@ -35,4 +35,3 @@ data class SchedulerCapabilities(
     val supportsExactAlarms: Boolean,
     val supportedKinds: List<String>,
 )
-

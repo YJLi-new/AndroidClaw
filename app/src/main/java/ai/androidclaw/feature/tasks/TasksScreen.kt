@@ -1,6 +1,5 @@
 package ai.androidclaw.feature.tasks
 
-import android.content.Context
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.runtime.scheduler.CronExpression
@@ -11,6 +10,8 @@ import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
 import ai.androidclaw.runtime.scheduler.preciseSchedulingWarnings
 import ai.androidclaw.runtime.scheduler.schedulingDecision
 import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
+import ai.androidclaw.ui.components.ScreenHeader
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,7 +42,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ai.androidclaw.ui.components.ScreenHeader
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -73,10 +73,11 @@ fun TasksScreen(viewModel: TasksViewModel) {
     }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .testTag("tasksScreen"),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .testTag("tasksScreen"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -111,31 +112,32 @@ fun TasksScreen(viewModel: TasksViewModel) {
         item {
             SchedulerCard(
                 title = "Exact alarm status",
-                body = buildString {
-                    append("Supported: ").append(state.diagnostics.supportsExactAlarms)
-                    append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
-                    append("\nNotification permission: ").append(
-                        if (state.diagnostics.notificationVisibility.runtimePermissionRequired) {
-                            if (state.diagnostics.notificationVisibility.runtimePermissionGranted) {
-                                "granted"
+                body =
+                    buildString {
+                        append("Supported: ").append(state.diagnostics.supportsExactAlarms)
+                        append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
+                        append("\nNotification permission: ").append(
+                            if (state.diagnostics.notificationVisibility.runtimePermissionRequired) {
+                                if (state.diagnostics.notificationVisibility.runtimePermissionGranted) {
+                                    "granted"
+                                } else {
+                                    "denied"
+                                }
                             } else {
-                                "denied"
-                            }
-                        } else {
-                            "not required"
-                        },
-                    )
-                    append(
-                        "\nApp notifications enabled: ",
-                    ).append(state.diagnostics.notificationVisibility.appNotificationsEnabled)
-                    append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
-                    if (state.diagnostics.isRestrictedBucket) {
-                        append("\nApp is in restricted bucket; background work may be delayed.")
-                    }
-                    state.diagnostics.preciseReminderVisibilityWarning?.let { warning ->
-                        append("\n").append(warning)
-                    }
-                },
+                                "not required"
+                            },
+                        )
+                        append(
+                            "\nApp notifications enabled: ",
+                        ).append(state.diagnostics.notificationVisibility.appNotificationsEnabled)
+                        append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
+                        if (state.diagnostics.isRestrictedBucket) {
+                            append("\nApp is in restricted bucket; background work may be delayed.")
+                        }
+                        state.diagnostics.preciseReminderVisibilityWarning?.let { warning ->
+                            append("\n").append(warning)
+                        }
+                    },
             )
         }
         item {
@@ -195,13 +197,19 @@ fun TasksScreen(viewModel: TasksViewModel) {
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("taskNameField"),
                         label = { Text("Task name") },
                     )
                     OutlinedTextField(
                         value = prompt,
                         onValueChange = { prompt = it },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("taskPromptField"),
                         minLines = 3,
                         label = { Text("Prompt") },
                     )
@@ -223,7 +231,10 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             OutlinedTextField(
                                 value = onceAt,
                                 onValueChange = { onceAt = it },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag("taskOnceAtField"),
                                 label = { Text("Run at (ISO-8601 UTC)") },
                             )
                         }
@@ -231,7 +242,10 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             OutlinedTextField(
                                 value = intervalMinutes,
                                 onValueChange = { intervalMinutes = it },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag("taskIntervalMinutesField"),
                                 label = { Text("Repeat every minutes") },
                             )
                         }
@@ -239,7 +253,10 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             OutlinedTextField(
                                 value = cronExpression,
                                 onValueChange = { cronExpression = it },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag("taskCronExpressionField"),
                                 label = { Text("Cron expression") },
                             )
                         }
@@ -283,13 +300,15 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Switch(
-                            modifier = Modifier.semantics {
-                                stateDescription = if (precise) {
-                                    "Precise scheduling enabled"
-                                } else {
-                                    "Approximate scheduling enabled"
-                                }
-                            },
+                            modifier =
+                                Modifier.semantics {
+                                    stateDescription =
+                                        if (precise) {
+                                            "Precise scheduling enabled"
+                                        } else {
+                                            "Approximate scheduling enabled"
+                                        }
+                                },
                             checked = precise,
                             onCheckedChange = { precise = it },
                         )
@@ -302,7 +321,8 @@ fun TasksScreen(viewModel: TasksViewModel) {
                                     title = "Precise reminder warning",
                                     body = creationWarnings.joinToString("\n"),
                                 )
-                                if (state.diagnostics.supportsExactAlarms && !state.diagnostics.exactAlarmGranted ||
+                                if (state.diagnostics.supportsExactAlarms &&
+                                    !state.diagnostics.exactAlarmGranted ||
                                     state.diagnostics.preciseReminderVisibilityWarning != null
                                 ) {
                                     ExactAlarmActionRow(
@@ -314,36 +334,39 @@ fun TasksScreen(viewModel: TasksViewModel) {
                         }
                     }
                     Button(
+                        modifier = Modifier.testTag("createTaskButton"),
                         onClick = {
                             val minimumMinutes = state.capabilities.minimumBackgroundInterval.toMinutes()
-                            val schedule = runCatching {
-                                when (scheduleKind) {
-                                    TaskScheduleKindUi.Once -> {
-                                        val scheduledAt = Instant.parse(onceAt.trim())
-                                        require(scheduledAt.isAfter(Instant.now())) {
-                                            "Once tasks must be scheduled in the future."
+                            val schedule =
+                                runCatching {
+                                    when (scheduleKind) {
+                                        TaskScheduleKindUi.Once -> {
+                                            val scheduledAt = Instant.parse(onceAt.trim())
+                                            require(scheduledAt.isAfter(Instant.now())) {
+                                                "Once tasks must be scheduled in the future."
+                                            }
+                                            TaskSchedule.Once(scheduledAt)
                                         }
-                                        TaskSchedule.Once(scheduledAt)
-                                    }
-                                    TaskScheduleKindUi.Interval -> {
-                                        val minutes = intervalMinutes.trim().toLong()
-                                        require(minutes >= minimumMinutes) {
-                                            "Intervals must be at least $minimumMinutes minutes."
+                                        TaskScheduleKindUi.Interval -> {
+                                            val minutes = intervalMinutes.trim().toLong()
+                                            require(minutes >= minimumMinutes) {
+                                                "Intervals must be at least $minimumMinutes minutes."
+                                            }
+                                            TaskSchedule.Interval(
+                                                anchorAt = Instant.now(),
+                                                repeatEvery = Duration.ofMinutes(minutes),
+                                            )
                                         }
-                                        TaskSchedule.Interval(
-                                            anchorAt = Instant.now(),
-                                            repeatEvery = Duration.ofMinutes(minutes),
-                                        )
+                                        TaskScheduleKindUi.Cron ->
+                                            TaskSchedule.Cron(
+                                                expression = CronExpression.parse(cronExpression.trim()),
+                                                zoneId = ZoneId.systemDefault(),
+                                            )
                                     }
-                                    TaskScheduleKindUi.Cron -> TaskSchedule.Cron(
-                                        expression = CronExpression.parse(cronExpression.trim()),
-                                        zoneId = ZoneId.systemDefault(),
-                                    )
+                                }.getOrElse { error ->
+                                    formMessage = error.message ?: "Invalid task schedule."
+                                    return@Button
                                 }
-                            }.getOrElse { error ->
-                                formMessage = error.message ?: "Invalid task schedule."
-                                return@Button
-                            }
 
                             if (name.trim().isBlank() || prompt.trim().isBlank()) {
                                 formMessage = "Task name and prompt are required."
@@ -412,7 +435,12 @@ private fun TaskCard(
 ) {
     val latestRun = recentRuns.firstOrNull()
     val latestRunUsageSummary = latestRun?.let { runUsageSummaryByRunId[it.id] }
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .testTag("taskCard-${task.id}"),
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -421,10 +449,11 @@ private fun TaskCard(
             Text(task.prompt, style = MaterialTheme.typography.bodyMedium)
             TaskFactRow(
                 label = "Execution",
-                value = when (task.executionMode) {
-                    TaskExecutionMode.MainSession -> "Main session"
-                    TaskExecutionMode.IsolatedSession -> "Isolated session"
-                },
+                value =
+                    when (task.executionMode) {
+                        TaskExecutionMode.MainSession -> "Main session"
+                        TaskExecutionMode.IsolatedSession -> "Isolated session"
+                    },
             )
             TaskFactRow(
                 label = "Target",
@@ -432,16 +461,17 @@ private fun TaskCard(
             )
             TaskFactRow(
                 label = "Delivery path",
-                value = when (decision.path) {
-                    TaskSchedulingPath.ExactAlarm -> "Precise exact alarm"
-                    TaskSchedulingPath.WorkManagerApproximate -> {
-                        if (task.precise) {
-                            "Approximate WorkManager fallback"
-                        } else {
-                            "Approximate WorkManager"
+                value =
+                    when (decision.path) {
+                        TaskSchedulingPath.ExactAlarm -> "Precise exact alarm"
+                        TaskSchedulingPath.WorkManagerApproximate -> {
+                            if (task.precise) {
+                                "Approximate WorkManager fallback"
+                            } else {
+                                "Approximate WorkManager"
+                            }
                         }
-                    }
-                },
+                    },
             )
             TaskFactRow(
                 label = "Next wake",
@@ -453,16 +483,18 @@ private fun TaskCard(
             )
             latestRun?.let { run ->
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = when (run.status) {
-                            ai.androidclaw.data.model.TaskRunStatus.Success -> MaterialTheme.colorScheme.secondaryContainer
-                            ai.androidclaw.data.model.TaskRunStatus.Failure -> MaterialTheme.colorScheme.errorContainer
-                            ai.androidclaw.data.model.TaskRunStatus.Skipped -> MaterialTheme.colorScheme.tertiaryContainer
-                            ai.androidclaw.data.model.TaskRunStatus.Pending,
-                            ai.androidclaw.data.model.TaskRunStatus.Running,
-                                -> MaterialTheme.colorScheme.surfaceVariant
-                        },
-                    ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor =
+                                when (run.status) {
+                                    ai.androidclaw.data.model.TaskRunStatus.Success -> MaterialTheme.colorScheme.secondaryContainer
+                                    ai.androidclaw.data.model.TaskRunStatus.Failure -> MaterialTheme.colorScheme.errorContainer
+                                    ai.androidclaw.data.model.TaskRunStatus.Skipped -> MaterialTheme.colorScheme.tertiaryContainer
+                                    ai.androidclaw.data.model.TaskRunStatus.Pending,
+                                    ai.androidclaw.data.model.TaskRunStatus.Running,
+                                    -> MaterialTheme.colorScheme.surfaceVariant
+                                },
+                        ),
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
@@ -501,9 +533,10 @@ private fun TaskCard(
             }
             if (decision.degradedReason != null || preciseWarnings.isNotEmpty() || restrictedBucket) {
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
@@ -543,13 +576,19 @@ private fun TaskCard(
                 }
                 Button(
                     onClick = onRunNow,
-                    modifier = Modifier.weight(1f),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .testTag("runTaskNow-${task.id}"),
                 ) {
                     Text("Run now")
                 }
                 Button(
                     onClick = onDelete,
-                    modifier = Modifier.weight(1f),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .testTag("deleteTask-${task.id}"),
                 ) {
                     Text("Delete")
                 }
@@ -559,20 +598,21 @@ private fun TaskCard(
                     Text("Recent runs", style = MaterialTheme.typography.labelMedium)
                     recentRuns.drop(1).forEach { run ->
                         Text(
-                            text = buildString {
-                                append(run.status.name)
-                                append(" at ")
-                                append(DateTimeFormatter.ISO_INSTANT.format(run.scheduledAt))
-                                run.errorCode?.let { code ->
-                                    append(" (").append(code).append(')')
-                                }
-                                run.resultSummary?.takeIf { it.isNotBlank() }?.let { summary ->
-                                    append("\n").append(summary)
-                                }
-                                runUsageSummaryByRunId[run.id]?.let { usageSummary ->
-                                    append("\nUsage: ").append(usageSummary)
-                                }
-                            },
+                            text =
+                                buildString {
+                                    append(run.status.name)
+                                    append(" at ")
+                                    append(DateTimeFormatter.ISO_INSTANT.format(run.scheduledAt))
+                                    run.errorCode?.let { code ->
+                                        append(" (").append(code).append(')')
+                                    }
+                                    run.resultSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                                        append("\n").append(summary)
+                                    }
+                                    runUsageSummaryByRunId[run.id]?.let { usageSummary ->
+                                        append("\nUsage: ").append(usageSummary)
+                                    }
+                                },
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -582,9 +622,10 @@ private fun TaskCard(
                 task.precise &&
                 preciseWarnings.isNotEmpty() &&
                 (
-                    diagnostics.supportsExactAlarms && !diagnostics.exactAlarmGranted ||
+                    diagnostics.supportsExactAlarms &&
+                        !diagnostics.exactAlarmGranted ||
                         diagnostics.preciseReminderVisibilityWarning != null
-                    )
+                )
             ) {
                 ExactAlarmActionRow(
                     diagnostics = diagnostics,
@@ -598,8 +639,8 @@ private fun TaskCard(
 internal fun retryStateText(
     task: Task,
     latestRun: TaskRun?,
-): String {
-    return when {
+): String =
+    when {
         latestRun == null -> "No runs yet"
         task.failureCount <= 0 -> "Healthy"
         task.failureCount >= task.maxRetries -> "Retries exhausted (${task.failureCount}/${task.maxRetries})"
@@ -608,7 +649,6 @@ internal fun retryStateText(
             "Retry budget used ${task.failureCount}/${task.maxRetries}; next wake $nextWake"
         }
     }
-}
 
 @Composable
 private fun TaskFactRow(
@@ -624,7 +664,10 @@ private fun TaskFactRow(
 }
 
 @Composable
-private fun SchedulerCard(title: String, body: String) {
+private fun SchedulerCard(
+    title: String,
+    body: String,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(14.dp),

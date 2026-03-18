@@ -1,25 +1,27 @@
 package ai.androidclaw.runtime.scheduler
 
 import ai.androidclaw.data.model.Task
-import java.time.Instant
-import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Test
+import java.time.Instant
 
 class TaskPlannerTest {
     private val planner = TaskPlanner()
 
     @Test
     fun `initialScheduleAt prefers persisted nextRunAt`() {
-        val task = task(
-            schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
-            nextRunAt = Instant.parse("2026-03-09T06:00:00Z"),
-        )
+        val task =
+            task(
+                schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                nextRunAt = Instant.parse("2026-03-09T06:00:00Z"),
+            )
 
-        val scheduledAt = planner.initialScheduleAt(
-            task = task,
-            now = Instant.parse("2026-03-09T00:00:00Z"),
-        )
+        val scheduledAt =
+            planner.initialScheduleAt(
+                task = task,
+                now = Instant.parse("2026-03-09T00:00:00Z"),
+            )
 
         assertEquals(Instant.parse("2026-03-09T06:00:00Z"), scheduledAt)
     }
@@ -61,14 +63,15 @@ class TaskPlannerTest {
 }
 
 private fun task(
-    schedule: TaskSchedule = TaskSchedule.Interval(
-        anchorAt = Instant.parse("2026-03-09T00:00:00Z"),
-        repeatEvery = java.time.Duration.ofHours(1),
-    ),
+    schedule: TaskSchedule =
+        TaskSchedule.Interval(
+            anchorAt = Instant.parse("2026-03-09T00:00:00Z"),
+            repeatEvery = java.time.Duration.ofHours(1),
+        ),
     nextRunAt: Instant? = null,
     maxRetries: Int = 3,
-): Task {
-    return Task(
+): Task =
+    Task(
         id = "task-1",
         name = "Task 1",
         prompt = "Run task",
@@ -84,4 +87,3 @@ private fun task(
         createdAt = Instant.parse("2026-03-09T00:00:00Z"),
         updatedAt = Instant.parse("2026-03-09T00:00:00Z"),
     )
-}

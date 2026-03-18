@@ -1,7 +1,7 @@
 package ai.androidclaw.ui.navigation
 
-import androidx.annotation.DrawableRes
 import ai.androidclaw.R
+import androidx.annotation.DrawableRes
 
 enum class TopLevelDestination(
     val route: String,

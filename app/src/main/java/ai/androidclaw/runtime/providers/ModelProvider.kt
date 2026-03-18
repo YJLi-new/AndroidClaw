@@ -65,7 +65,9 @@ data class ModelResponse(
 )
 
 sealed interface ModelStreamEvent {
-    data class TextDelta(val text: String) : ModelStreamEvent
+    data class TextDelta(
+        val text: String,
+    ) : ModelStreamEvent
 
     data class ToolCallDelta(
         val index: Int,
@@ -74,7 +76,9 @@ sealed interface ModelStreamEvent {
         val argumentsPart: String? = null,
     ) : ModelStreamEvent
 
-    data class Completed(val response: ModelResponse) : ModelStreamEvent
+    data class Completed(
+        val response: ModelResponse,
+    ) : ModelStreamEvent
 }
 
 data class ProviderCapabilities(
@@ -91,9 +95,10 @@ interface ModelProvider {
 
     suspend fun generate(request: ModelRequest): ModelResponse
 
-    fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> = flow {
-        emit(ModelStreamEvent.Completed(generate(request)))
-    }
+    fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> =
+        flow {
+            emit(ModelStreamEvent.Completed(generate(request)))
+        }
 }
 
 data class RegisteredProvider(
@@ -116,19 +121,17 @@ class ProviderRegistry(
     val defaultProvider: ModelProvider
         get() = require(ProviderType.Fake)
 
-    fun descriptors(): List<RegisteredProvider> {
-        return entries.values.map { entry ->
-            RegisteredProvider(
-                type = entry.type,
-                id = entry.provider.id,
-                displayName = entry.displayName,
-            )
-        }.sortedBy { it.displayName }
-    }
+    fun descriptors(): List<RegisteredProvider> =
+        entries.values
+            .map { entry ->
+                RegisteredProvider(
+                    type = entry.type,
+                    id = entry.provider.id,
+                    displayName = entry.displayName,
+                )
+            }.sortedBy { it.displayName }
 
-    fun require(type: ProviderType): ModelProvider {
-        return entries[type]?.provider ?: error("No provider registered for ${type.storageValue}")
-    }
+    fun require(type: ProviderType): ModelProvider = entries[type]?.provider ?: error("No provider registered for ${type.storageValue}")
 }
 
 enum class ModelProviderFailureKind {

@@ -20,22 +20,29 @@ data class CrashMarker(
 
 class CrashMarkerStore(
     context: Context,
-    private val json: Json = Json {
-        ignoreUnknownKeys = true
-        explicitNulls = false
-    },
+    private val json: Json =
+        Json {
+            ignoreUnknownKeys = true
+            explicitNulls = false
+        },
 ) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
-    fun record(threadName: String, throwable: Throwable, timestamp: Instant = Instant.now()) {
-        val marker = CrashMarker(
-            timestampEpochMillis = timestamp.toEpochMilli(),
-            threadName = threadName,
-            exceptionType = throwable::class.java.name,
-            message = throwable.message,
-            stackTrace = throwable.stackTraceToString().take(MAX_STACKTRACE_CHARS),
-        )
-        preferences.edit()
+    fun record(
+        threadName: String,
+        throwable: Throwable,
+        timestamp: Instant = Instant.now(),
+    ) {
+        val marker =
+            CrashMarker(
+                timestampEpochMillis = timestamp.toEpochMilli(),
+                threadName = threadName,
+                exceptionType = throwable::class.java.name,
+                message = throwable.message,
+                stackTrace = throwable.stackTraceToString().take(MAX_STACKTRACE_CHARS),
+            )
+        preferences
+            .edit()
             .putString(KEY_LAST_CRASH, json.encodeToString(CrashMarker.serializer(), marker))
             .commit()
     }

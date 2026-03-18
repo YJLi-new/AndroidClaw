@@ -84,36 +84,40 @@ fun OnboardingDialog(
                     OutlinedTextField(
                         value = settingsState.baseUrl,
                         onValueChange = onBaseUrlChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("onboardingBaseUrlField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("onboardingBaseUrlField"),
                         label = { Text("Base URL") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = settingsState.modelId,
                         onValueChange = onModelIdChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("onboardingModelIdField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("onboardingModelIdField"),
                         label = { Text("Model ID") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = settingsState.timeoutSeconds,
                         onValueChange = onTimeoutChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("onboardingTimeoutField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("onboardingTimeoutField"),
                         label = { Text("Timeout seconds") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = settingsState.apiKeyDraft,
                         onValueChange = onApiKeyChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("onboardingApiKeyField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("onboardingApiKeyField"),
                         label = {
                             Text(
                                 if (settingsState.hasStoredApiKey) {

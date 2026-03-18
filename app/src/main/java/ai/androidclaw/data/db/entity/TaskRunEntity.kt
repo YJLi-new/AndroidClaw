@@ -39,4 +39,3 @@ data class TaskRunEntity(
     val resultSummary: String?,
     val outputMessageId: String?,
 )
-

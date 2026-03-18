@@ -1,6 +1,7 @@
 package ai.androidclaw.feature.settings
 
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.ui.components.ScreenHeader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -20,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ai.androidclaw.ui.components.ScreenHeader
 
 @Composable
 fun SettingsScreen(
@@ -30,9 +30,10 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(
@@ -98,36 +99,40 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = state.baseUrl,
                         onValueChange = viewModel::onBaseUrlChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("providerBaseUrlField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("providerBaseUrlField"),
                         label = { Text("Base URL") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = state.modelId,
                         onValueChange = viewModel::onModelIdChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("providerModelIdField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("providerModelIdField"),
                         label = { Text("Model ID") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = state.timeoutSeconds,
                         onValueChange = viewModel::onTimeoutChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("providerTimeoutField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("providerTimeoutField"),
                         label = { Text("Timeout seconds") },
                         singleLine = true,
                     )
                     OutlinedTextField(
                         value = state.apiKeyDraft,
                         onValueChange = viewModel::onApiKeyChanged,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("providerApiKeyField"),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("providerApiKeyField"),
                         label = {
                             Text(
                                 if (state.hasStoredApiKey) {

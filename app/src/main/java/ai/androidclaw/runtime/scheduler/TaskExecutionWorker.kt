@@ -1,7 +1,5 @@
 package ai.androidclaw.runtime.scheduler
 
-import android.content.Context
-import android.os.Build
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.TaskRunStatus
@@ -9,11 +7,13 @@ import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
+import android.content.Context
+import android.os.Build
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import java.time.Instant
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.time.Instant
 
 class TaskExecutionWorker(
     appContext: Context,
@@ -27,8 +27,10 @@ class TaskExecutionWorker(
     override suspend fun doWork(): Result {
         val taskId = inputData.getString(KEY_TASK_ID) ?: return Result.failure()
         val trigger = TaskTrigger.fromStorage(inputData.getString(KEY_TRIGGER))
-        val scheduledAt = inputData.getLong(KEY_SCHEDULED_AT_EPOCH_MS, System.currentTimeMillis())
-            .let(Instant::ofEpochMilli)
+        val scheduledAt =
+            inputData
+                .getLong(KEY_SCHEDULED_AT_EPOCH_MS, System.currentTimeMillis())
+                .let(Instant::ofEpochMilli)
         val task = taskRepository.getTask(taskId)
 
         if (task == null) {
@@ -40,10 +42,11 @@ class TaskExecutionWorker(
             return Result.success()
         }
 
-        val run = taskRepository.recordRun(
-            taskId = task.id,
-            scheduledAt = scheduledAt,
-        )
+        val run =
+            taskRepository.recordRun(
+                taskId = task.id,
+                scheduledAt = scheduledAt,
+            )
         val startedAt = Instant.now()
 
         if (trigger == TaskTrigger.Scheduled && !task.enabled) {
@@ -90,20 +93,22 @@ class TaskExecutionWorker(
             category = EventCategory.Scheduler,
             level = EventLevel.Info,
             message = "Task ${task.name} started.",
-            details = buildString {
-                append("taskRunId=").append(run.id)
-                append(" trigger=").append(trigger.storageValue)
-                diagnostics.standbyBucket?.let { bucket ->
-                    append(" standbyBucket=").append(bucket.label)
-                }
-            },
+            details =
+                buildString {
+                    append("taskRunId=").append(run.id)
+                    append(" trigger=").append(trigger.storageValue)
+                    diagnostics.standbyBucket?.let { bucket ->
+                        append(" standbyBucket=").append(bucket.label)
+                    }
+                },
         )
 
         try {
-            val execution = taskRuntimeExecutor.execute(
-                task = task,
-                taskRunId = run.id,
-            )
+            val execution =
+                taskRuntimeExecutor.execute(
+                    task = task,
+                    taskRunId = run.id,
+                )
             val finishedAt = Instant.now()
             if (execution.success) {
                 taskRepository.updateRun(
@@ -115,11 +120,12 @@ class TaskExecutionWorker(
                         outputMessageId = execution.outputMessageId,
                     ),
                 )
-                val nextRunAt = updateTaskStateAfterSuccess(
-                    task = task,
-                    finishedAt = finishedAt,
-                    trigger = trigger,
-                )
+                val nextRunAt =
+                    updateTaskStateAfterSuccess(
+                        task = task,
+                        finishedAt = finishedAt,
+                        trigger = trigger,
+                    )
                 taskNotifier.notifyTaskSucceeded(
                     task = task,
                     taskRunId = run.id,
@@ -145,14 +151,15 @@ class TaskExecutionWorker(
                         outputMessageId = execution.outputMessageId,
                     ),
                 )
-                val nextRunAt = updateTaskStateAfterFailure(
-                    task = task,
-                    finishedAt = finishedAt,
-                    trigger = trigger,
-                    errorCode = execution.errorCode ?: "TASK_EXECUTION_FAILED",
-                    errorMessage = execution.errorMessage ?: execution.summary,
-                    retryable = execution.retryable,
-                )
+                val nextRunAt =
+                    updateTaskStateAfterFailure(
+                        task = task,
+                        finishedAt = finishedAt,
+                        trigger = trigger,
+                        errorCode = execution.errorCode ?: "TASK_EXECUTION_FAILED",
+                        errorMessage = execution.errorMessage ?: execution.summary,
+                        retryable = execution.retryable,
+                    )
                 taskNotifier.notifyTaskFailed(
                     task = task,
                     taskRunId = run.id,
@@ -174,14 +181,15 @@ class TaskExecutionWorker(
                     resultSummary = error.userMessage,
                 ),
             )
-            val nextRunAt = updateTaskStateAfterFailure(
-                task = task,
-                finishedAt = finishedAt,
-                trigger = trigger,
-                errorCode = error.kind.toTaskErrorCode(),
-                errorMessage = error.userMessage,
-                retryable = error.kind.isRetryable(),
-            )
+            val nextRunAt =
+                updateTaskStateAfterFailure(
+                    task = task,
+                    finishedAt = finishedAt,
+                    trigger = trigger,
+                    errorCode = error.kind.toTaskErrorCode(),
+                    errorMessage = error.userMessage,
+                    retryable = error.kind.isRetryable(),
+                )
             taskNotifier.notifyTaskFailed(
                 task = task,
                 taskRunId = run.id,
@@ -203,14 +211,15 @@ class TaskExecutionWorker(
                     resultSummary = message,
                 ),
             )
-            val nextRunAt = updateTaskStateAfterFailure(
-                task = task,
-                finishedAt = finishedAt,
-                trigger = trigger,
-                errorCode = "WORK_INTERRUPTED",
-                errorMessage = message,
-                retryable = true,
-            )
+            val nextRunAt =
+                updateTaskStateAfterFailure(
+                    task = task,
+                    finishedAt = finishedAt,
+                    trigger = trigger,
+                    errorCode = "WORK_INTERRUPTED",
+                    errorMessage = message,
+                    retryable = true,
+                )
             taskNotifier.notifyTaskFailed(
                 task = task,
                 taskRunId = run.id,
@@ -221,25 +230,27 @@ class TaskExecutionWorker(
             )
         } finally {
             if (isStopped) {
-                val stopReasonLabel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    workStopReasonLabel(stopReason)
-                } else {
-                    "unavailable_pre_s"
-                }
+                val stopReasonLabel =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        workStopReasonLabel(stopReason)
+                    } else {
+                        "unavailable_pre_s"
+                    }
                 withContext(NonCancellable) {
                     val stopDiagnostics = schedulerCoordinator.diagnostics()
                     eventLogRepository.log(
                         category = EventCategory.Scheduler,
                         level = EventLevel.Warn,
                         message = "Task worker stopped.",
-                        details = buildString {
-                            append("taskId=").append(task.id)
-                            append(" trigger=").append(trigger.storageValue)
-                            append(" stopReason=").append(stopReasonLabel)
-                            stopDiagnostics.standbyBucket?.let { bucket ->
-                                append(" standbyBucket=").append(bucket.label)
-                            }
-                        },
+                        details =
+                            buildString {
+                                append("taskId=").append(task.id)
+                                append(" trigger=").append(trigger.storageValue)
+                                append(" stopReason=").append(stopReasonLabel)
+                                stopDiagnostics.standbyBucket?.let { bucket ->
+                                    append(" standbyBucket=").append(bucket.label)
+                                }
+                            },
                     )
                 }
             }
@@ -303,11 +314,12 @@ class TaskExecutionWorker(
 
         val newFailureCount = task.failureCount + 1
         val nextScheduledAt = schedulerCoordinator.taskPlanner.nextScheduledRun(task, finishedAt)
-        val retryAt = if (retryable) {
-            schedulerCoordinator.taskPlanner.nextRetryAt(task, newFailureCount, finishedAt)
-        } else {
-            null
-        }
+        val retryAt =
+            if (retryable) {
+                schedulerCoordinator.taskPlanner.nextRetryAt(task, newFailureCount, finishedAt)
+            } else {
+                null
+            }
         val nextRunAt = schedulerCoordinator.taskPlanner.selectNextRun(nextScheduledAt, retryAt)
         taskRepository.updateTask(
             task.copy(
@@ -336,24 +348,23 @@ class TaskExecutionWorker(
     }
 }
 
-private fun ModelProviderFailureKind.isRetryable(): Boolean {
-    return when (this) {
+private fun ModelProviderFailureKind.isRetryable(): Boolean =
+    when (this) {
         ModelProviderFailureKind.Offline,
         ModelProviderFailureKind.Network,
         ModelProviderFailureKind.Timeout,
         ModelProviderFailureKind.StreamInterrupted,
-            -> true
+        -> true
         ModelProviderFailureKind.Configuration,
         ModelProviderFailureKind.InvalidEndpoint,
         ModelProviderFailureKind.Authentication,
         ModelProviderFailureKind.Server,
         ModelProviderFailureKind.Response,
-            -> false
+        -> false
     }
-}
 
-private fun ModelProviderFailureKind.toTaskErrorCode(): String {
-    return when (this) {
+private fun ModelProviderFailureKind.toTaskErrorCode(): String =
+    when (this) {
         ModelProviderFailureKind.Configuration -> "MISSING_API_KEY"
         ModelProviderFailureKind.InvalidEndpoint -> "INVALID_ENDPOINT"
         ModelProviderFailureKind.Offline -> "NETWORK_OFFLINE"
@@ -364,4 +375,3 @@ private fun ModelProviderFailureKind.toTaskErrorCode(): String {
         ModelProviderFailureKind.StreamInterrupted -> "PROVIDER_STREAM_INTERRUPTED"
         ModelProviderFailureKind.Response -> "PROVIDER_RESPONSE_INVALID"
     }
-}

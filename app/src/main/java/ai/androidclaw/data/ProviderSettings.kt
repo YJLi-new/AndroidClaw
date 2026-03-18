@@ -75,24 +75,22 @@ enum class ProviderType(
     val requiresRemoteSettings: Boolean
         get() = protocolFamily != ProviderProtocolFamily.Fake
 
-    fun defaultEndpointSettings(): ProviderEndpointSettings {
-        return ProviderEndpointSettings(
+    fun defaultEndpointSettings(): ProviderEndpointSettings =
+        ProviderEndpointSettings(
             baseUrl = defaultBaseUrl,
             modelId = "",
             timeoutSeconds = defaultTimeoutSeconds,
         )
-    }
 
     companion object {
         val configurableProviders: List<ProviderType> = entries.filter { it.requiresRemoteSettings }
 
-        fun fromStorage(value: String?): ProviderType {
-            return when (value) {
+        fun fromStorage(value: String?): ProviderType =
+            when (value) {
                 "openai" -> OpenAiCompatible
                 "claude" -> Anthropic
                 else -> entries.firstOrNull { it.storageValue == value } ?: Fake
             }
-        }
     }
 }
 
@@ -106,16 +104,12 @@ data class ProviderSettingsSnapshot(
     val providerType: ProviderType = ProviderType.Fake,
     val providerConfigs: Map<ProviderType, ProviderEndpointSettings> = defaultProviderConfigs(),
 ) {
-    fun endpointSettings(providerType: ProviderType): ProviderEndpointSettings {
-        return providerConfigs[providerType] ?: providerType.defaultEndpointSettings()
-    }
+    fun endpointSettings(providerType: ProviderType): ProviderEndpointSettings = providerConfigs[providerType] ?: providerType.defaultEndpointSettings()
 
     fun withEndpointSettings(
         providerType: ProviderType,
         settings: ProviderEndpointSettings,
-    ): ProviderSettingsSnapshot {
-        return copy(providerConfigs = providerConfigs + (providerType to settings))
-    }
+    ): ProviderSettingsSnapshot = copy(providerConfigs = providerConfigs + (providerType to settings))
 
     val openAiBaseUrl: String
         get() = endpointSettings(ProviderType.OpenAiCompatible).baseUrl
@@ -127,11 +121,10 @@ data class ProviderSettingsSnapshot(
         get() = endpointSettings(ProviderType.OpenAiCompatible).timeoutSeconds
 }
 
-private fun defaultProviderConfigs(): Map<ProviderType, ProviderEndpointSettings> {
-    return ProviderType.configurableProviders.associateWith { providerType ->
+private fun defaultProviderConfigs(): Map<ProviderType, ProviderEndpointSettings> =
+    ProviderType.configurableProviders.associateWith { providerType ->
         providerType.defaultEndpointSettings()
     }
-}
 
 const val DEFAULT_PROVIDER_TIMEOUT_SECONDS: Int = 60
 const val OPENAI_DEFAULT_BASE_URL: String = "https://api.openai.com/v1"

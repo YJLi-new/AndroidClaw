@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.scheduler
 
+import ai.androidclaw.data.model.Task
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
@@ -9,7 +10,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import ai.androidclaw.data.model.Task
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -53,11 +53,12 @@ class AndroidTaskNotifier(
             channelId = TASK_RESULTS_NOTIFICATION_CHANNEL_ID,
             notificationId = stableNotificationId(task.id, taskRunId),
             title = "Task completed: ${task.name}",
-            body = buildSuccessBody(
-                trigger = trigger,
-                summary = summary,
-                nextRunAt = nextRunAt,
-            ),
+            body =
+                buildSuccessBody(
+                    trigger = trigger,
+                    summary = summary,
+                    nextRunAt = nextRunAt,
+                ),
             smallIcon = android.R.drawable.ic_dialog_info,
             priority = NotificationCompat.PRIORITY_LOW,
         )
@@ -75,12 +76,13 @@ class AndroidTaskNotifier(
             channelId = TASK_FAILURES_NOTIFICATION_CHANNEL_ID,
             notificationId = stableNotificationId(task.id, taskRunId),
             title = "Task failed: ${task.name}",
-            body = buildFailureBody(
-                trigger = trigger,
-                errorCode = errorCode,
-                errorMessage = errorMessage,
-                nextRunAt = nextRunAt,
-            ),
+            body =
+                buildFailureBody(
+                    trigger = trigger,
+                    errorCode = errorCode,
+                    errorMessage = errorMessage,
+                    nextRunAt = nextRunAt,
+                ),
             smallIcon = android.R.drawable.ic_dialog_alert,
             priority = NotificationCompat.PRIORITY_DEFAULT,
         )
@@ -99,17 +101,18 @@ class AndroidTaskNotifier(
             return
         }
         ensureTaskNotificationChannels(context)
-        val notification = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(smallIcon)
-            .setContentTitle(title)
-            .setContentText(body.lineSequence().firstOrNull().orEmpty())
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(priority)
-            .setAutoCancel(true)
-            .apply {
-                buildLaunchPendingIntent(context)?.let(::setContentIntent)
-            }
-            .build()
+        val notification =
+            NotificationCompat
+                .Builder(context, channelId)
+                .setSmallIcon(smallIcon)
+                .setContentTitle(title)
+                .setContentText(body.lineSequence().firstOrNull().orEmpty())
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setPriority(priority)
+                .setAutoCancel(true)
+                .apply {
+                    buildLaunchPendingIntent(context)?.let(::setContentIntent)
+                }.build()
         NotificationManagerCompat.from(context).notify(notificationId, notification)
     }
 }
@@ -119,21 +122,23 @@ internal fun ensureTaskNotificationChannels(context: Context) {
         return
     }
     val notificationManager = context.getSystemService(NotificationManager::class.java)
-    val resultsChannel = NotificationChannel(
-        TASK_RESULTS_NOTIFICATION_CHANNEL_ID,
-        "Task results",
-        NotificationManager.IMPORTANCE_LOW,
-    ).apply {
-        description = "Completion notifications for scheduled and run-now task executions."
-        setShowBadge(false)
-    }
-    val failuresChannel = NotificationChannel(
-        TASK_FAILURES_NOTIFICATION_CHANNEL_ID,
-        "Task failures",
-        NotificationManager.IMPORTANCE_DEFAULT,
-    ).apply {
-        description = "Failure notifications for scheduled and run-now task executions."
-    }
+    val resultsChannel =
+        NotificationChannel(
+            TASK_RESULTS_NOTIFICATION_CHANNEL_ID,
+            "Task results",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Completion notifications for scheduled and run-now task executions."
+            setShowBadge(false)
+        }
+    val failuresChannel =
+        NotificationChannel(
+            TASK_FAILURES_NOTIFICATION_CHANNEL_ID,
+            "Task failures",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Failure notifications for scheduled and run-now task executions."
+        }
     notificationManager.createNotificationChannels(listOf(resultsChannel, failuresChannel))
 }
 
@@ -141,8 +146,8 @@ private fun buildSuccessBody(
     trigger: TaskTrigger,
     summary: String?,
     nextRunAt: Instant?,
-): String {
-    return buildString {
+): String =
+    buildString {
         append(if (trigger == TaskTrigger.Manual) "Run now completed." else "Scheduled run completed.")
         summary?.takeIf { it.isNotBlank() }?.let {
             append("\n").append(it)
@@ -151,15 +156,14 @@ private fun buildSuccessBody(
             append("\nNext run: ").append(DateTimeFormatter.ISO_INSTANT.format(it))
         }
     }
-}
 
 private fun buildFailureBody(
     trigger: TaskTrigger,
     errorCode: String?,
     errorMessage: String,
     nextRunAt: Instant?,
-): String {
-    return buildString {
+): String =
+    buildString {
         append(if (trigger == TaskTrigger.Manual) "Run now failed." else "Scheduled run failed.")
         errorCode?.let {
             append("\nCode: ").append(it)
@@ -169,17 +173,17 @@ private fun buildFailureBody(
             append("\nNext attempt: ").append(DateTimeFormatter.ISO_INSTANT.format(it))
         }
     }
-}
 
 private fun canPostNotifications(context: Context): Boolean {
     if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
         return false
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val permissionStatus = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS,
-        )
+        val permissionStatus =
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            )
         if (permissionStatus != PackageManager.PERMISSION_GRANTED) {
             return false
         }
@@ -188,13 +192,15 @@ private fun canPostNotifications(context: Context): Boolean {
 }
 
 private fun buildLaunchPendingIntent(context: Context): PendingIntent? {
-    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        ?: return null
+    val launchIntent =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: return null
     launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     return PendingIntent.getActivity(context, 0, launchIntent, flags)
 }
 
-private fun stableNotificationId(taskId: String, taskRunId: String): Int {
-    return "${taskId}_$taskRunId".hashCode().absoluteValue
-}
+private fun stableNotificationId(
+    taskId: String,
+    taskRunId: String,
+): Int = "${taskId}_$taskRunId".hashCode().absoluteValue

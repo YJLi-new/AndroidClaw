@@ -13,9 +13,6 @@ import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.scheduler.precisionMode
 import ai.androidclaw.runtime.scheduler.schedulingDecision
 import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
-import java.time.Duration
-import java.time.Instant
-import java.time.ZoneId
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -24,9 +21,11 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
 
 internal data class TaskToolSpec(
     val name: String,
@@ -39,9 +38,13 @@ internal data class TaskToolSpec(
 )
 
 internal sealed interface TaskToolParseResult<out T> {
-    data class Success<T>(val value: T) : TaskToolParseResult<T>
+    data class Success<T>(
+        val value: T,
+    ) : TaskToolParseResult<T>
 
-    data class Failure(val result: ToolExecutionResult) : TaskToolParseResult<Nothing>
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : TaskToolParseResult<Nothing>
 }
 
 internal suspend fun buildTaskPayload(
@@ -50,11 +53,12 @@ internal suspend fun buildTaskPayload(
     sessionRepository: SessionRepository,
     diagnostics: SchedulerDiagnostics,
 ): JsonObject {
-    val resolvedSession = if (task.targetSessionId != null) {
-        sessionRepository.getSession(task.targetSessionId) ?: sessionRepository.getOrCreateMainSession()
-    } else {
-        sessionRepository.getOrCreateMainSession()
-    }
+    val resolvedSession =
+        if (task.targetSessionId != null) {
+            sessionRepository.getSession(task.targetSessionId) ?: sessionRepository.getOrCreateMainSession()
+        } else {
+            sessionRepository.getOrCreateMainSession()
+        }
     val decision = task.schedulingDecision(diagnostics)
     val preciseWarnings = task.userVisiblePreciseWarnings(diagnostics)
     return buildJsonObject {
@@ -92,33 +96,33 @@ internal suspend fun buildTaskPayload(
 internal fun taskNotFoundResult(
     toolName: String,
     taskId: String,
-): ToolExecutionResult {
-    return ToolExecutionResult.failure(
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
         summary = "Task $taskId was not found.",
         errorCode = "TASK_NOT_FOUND",
-        payload = buildJsonObject {
-            put("errorCode", "TASK_NOT_FOUND")
-            put("toolName", toolName)
-            put("taskId", taskId)
-        },
+        payload =
+            buildJsonObject {
+                put("errorCode", "TASK_NOT_FOUND")
+                put("toolName", toolName)
+                put("taskId", taskId)
+            },
     )
-}
 
 internal fun invalidTaskArguments(
     toolName: String,
     summary: String,
     field: String? = null,
-): ToolExecutionResult {
-    return ToolExecutionResult.failure(
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
         summary = summary,
         errorCode = "INVALID_ARGUMENTS",
-        payload = buildJsonObject {
-            put("errorCode", "INVALID_ARGUMENTS")
-            put("toolName", toolName)
-            put("field", field?.let(::JsonPrimitive) ?: JsonNull)
-        },
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_ARGUMENTS")
+                put("toolName", toolName)
+                put("field", field?.let(::JsonPrimitive) ?: JsonNull)
+            },
     )
-}
 
 internal suspend fun parseTaskCreateSpec(
     arguments: JsonObject,
@@ -127,57 +131,65 @@ internal suspend fun parseTaskCreateSpec(
     capabilities: SchedulerCapabilities,
     now: Instant,
 ): TaskToolParseResult<TaskToolSpec> {
-    val name = arguments.requiredString(
-        field = "name",
-        toolName = "tasks.create",
-    ) ?: return TaskToolParseResult.Failure(
-        invalidTaskArguments(
-            toolName = "tasks.create",
-            summary = "tasks.create requires a non-empty name.",
+    val name =
+        arguments.requiredString(
             field = "name",
-        ),
-    )
-    val prompt = arguments.requiredString(
-        field = "prompt",
-        toolName = "tasks.create",
-    ) ?: return TaskToolParseResult.Failure(
-        invalidTaskArguments(
             toolName = "tasks.create",
-            summary = "tasks.create requires a non-empty prompt.",
+        ) ?: return TaskToolParseResult.Failure(
+            invalidTaskArguments(
+                toolName = "tasks.create",
+                summary = "tasks.create requires a non-empty name.",
+                field = "name",
+            ),
+        )
+    val prompt =
+        arguments.requiredString(
             field = "prompt",
-        ),
-    )
-    val schedule = parseSchedule(
-        arguments = arguments,
-        existingSchedule = null,
-        capabilities = capabilities,
-        now = now,
-        toolName = "tasks.create",
-    ) ?: return TaskToolParseResult.Failure(
-        invalidTaskArguments(
             toolName = "tasks.create",
-            summary = "tasks.create requires a valid schedule payload.",
-            field = "scheduleKind",
-        ),
-    )
-    val executionMode = parseExecutionMode(arguments["executionMode"], toolName = "tasks.create")
-        ?: TaskExecutionMode.MainSession
-    val targetSessionIdResult = resolveTargetSessionId(
-        toolName = "tasks.create",
-        arguments = arguments,
-        context = context,
-        sessionRepository = sessionRepository,
-        existingTargetSessionId = null,
-        defaultToMainSession = true,
-    )
-    val targetSessionId = when (targetSessionIdResult) {
-        is TaskToolParseResult.Success -> targetSessionIdResult.value
-        is TaskToolParseResult.Failure -> return targetSessionIdResult
-    }
-    val precise = parseBooleanArgument(arguments["precise"], toolName = "tasks.create", field = "precise")
-        ?: false
-    val maxRetries = parseRetryCount(arguments["maxRetries"], toolName = "tasks.create")
-        ?: 3
+        ) ?: return TaskToolParseResult.Failure(
+            invalidTaskArguments(
+                toolName = "tasks.create",
+                summary = "tasks.create requires a non-empty prompt.",
+                field = "prompt",
+            ),
+        )
+    val schedule =
+        parseSchedule(
+            arguments = arguments,
+            existingSchedule = null,
+            capabilities = capabilities,
+            now = now,
+            toolName = "tasks.create",
+        ) ?: return TaskToolParseResult.Failure(
+            invalidTaskArguments(
+                toolName = "tasks.create",
+                summary = "tasks.create requires a valid schedule payload.",
+                field = "scheduleKind",
+            ),
+        )
+    val executionMode =
+        parseExecutionMode(arguments["executionMode"], toolName = "tasks.create")
+            ?: TaskExecutionMode.MainSession
+    val targetSessionIdResult =
+        resolveTargetSessionId(
+            toolName = "tasks.create",
+            arguments = arguments,
+            context = context,
+            sessionRepository = sessionRepository,
+            existingTargetSessionId = null,
+            defaultToMainSession = true,
+        )
+    val targetSessionId =
+        when (targetSessionIdResult) {
+            is TaskToolParseResult.Success -> targetSessionIdResult.value
+            is TaskToolParseResult.Failure -> return targetSessionIdResult
+        }
+    val precise =
+        parseBooleanArgument(arguments["precise"], toolName = "tasks.create", field = "precise")
+            ?: false
+    val maxRetries =
+        parseRetryCount(arguments["maxRetries"], toolName = "tasks.create")
+            ?: 3
     return TaskToolParseResult.Success(
         TaskToolSpec(
             name = name,
@@ -201,37 +213,43 @@ internal suspend fun parseTaskUpdate(
 ): TaskToolParseResult<Task> {
     val name = arguments.optionalString(field = "name", toolName = "tasks.update") ?: existingTask.name
     val prompt = arguments.optionalString(field = "prompt", toolName = "tasks.update") ?: existingTask.prompt
-    val schedule = parseSchedule(
-        arguments = arguments,
-        existingSchedule = existingTask.schedule,
-        capabilities = capabilities,
-        now = now,
-        toolName = "tasks.update",
-    ) ?: return TaskToolParseResult.Failure(
-        invalidTaskArguments(
+    val schedule =
+        parseSchedule(
+            arguments = arguments,
+            existingSchedule = existingTask.schedule,
+            capabilities = capabilities,
+            now = now,
             toolName = "tasks.update",
-            summary = "tasks.update requires a valid schedule patch.",
-            field = "scheduleKind",
-        ),
-    )
-    val executionMode = parseExecutionMode(arguments["executionMode"], toolName = "tasks.update")
-        ?: existingTask.executionMode
-    val targetSessionIdResult = resolveTargetSessionId(
-        toolName = "tasks.update",
-        arguments = arguments,
-        context = context,
-        sessionRepository = sessionRepository,
-        existingTargetSessionId = existingTask.targetSessionId,
-        defaultToMainSession = false,
-    )
-    val targetSessionId = when (targetSessionIdResult) {
-        is TaskToolParseResult.Success -> targetSessionIdResult.value
-        is TaskToolParseResult.Failure -> return targetSessionIdResult
-    }
-    val precise = parseBooleanArgument(arguments["precise"], toolName = "tasks.update", field = "precise")
-        ?: existingTask.precise
-    val maxRetries = parseRetryCount(arguments["maxRetries"], toolName = "tasks.update")
-        ?: existingTask.maxRetries
+        ) ?: return TaskToolParseResult.Failure(
+            invalidTaskArguments(
+                toolName = "tasks.update",
+                summary = "tasks.update requires a valid schedule patch.",
+                field = "scheduleKind",
+            ),
+        )
+    val executionMode =
+        parseExecutionMode(arguments["executionMode"], toolName = "tasks.update")
+            ?: existingTask.executionMode
+    val targetSessionIdResult =
+        resolveTargetSessionId(
+            toolName = "tasks.update",
+            arguments = arguments,
+            context = context,
+            sessionRepository = sessionRepository,
+            existingTargetSessionId = existingTask.targetSessionId,
+            defaultToMainSession = false,
+        )
+    val targetSessionId =
+        when (targetSessionIdResult) {
+            is TaskToolParseResult.Success -> targetSessionIdResult.value
+            is TaskToolParseResult.Failure -> return targetSessionIdResult
+        }
+    val precise =
+        parseBooleanArgument(arguments["precise"], toolName = "tasks.update", field = "precise")
+            ?: existingTask.precise
+    val maxRetries =
+        parseRetryCount(arguments["maxRetries"], toolName = "tasks.update")
+            ?: existingTask.maxRetries
 
     return TaskToolParseResult.Success(
         existingTask.copy(
@@ -296,13 +314,14 @@ private suspend fun resolveTargetSessionId(
                 )
             }
 
-            else -> TaskToolParseResult.Failure(
-                invalidTaskArguments(
-                    toolName = toolName,
-                    summary = "Unsupported targetSessionAlias: $explicitAlias.",
-                    field = "targetSessionAlias",
-                ),
-            )
+            else ->
+                TaskToolParseResult.Failure(
+                    invalidTaskArguments(
+                        toolName = toolName,
+                        summary = "Unsupported targetSessionAlias: $explicitAlias.",
+                        field = "targetSessionAlias",
+                    ),
+                )
         }
     }
 
@@ -321,9 +340,13 @@ private fun parseExecutionMode(
     element: kotlinx.serialization.json.JsonElement?,
     toolName: String,
 ): TaskExecutionMode? {
-    val rawValue = element?.let {
-        it as? JsonPrimitive
-    }?.contentOrNull?.trim()?.takeIf(String::isNotEmpty) ?: return null
+    val rawValue =
+        element
+            ?.let {
+                it as? JsonPrimitive
+            }?.contentOrNull
+            ?.trim()
+            ?.takeIf(String::isNotEmpty) ?: return null
     return when (rawValue.uppercase()) {
         "MAIN_SESSION" -> TaskExecutionMode.MainSession
         "ISOLATED_SESSION" -> TaskExecutionMode.IsolatedSession
@@ -338,20 +361,24 @@ private fun parseSchedule(
     now: Instant,
     toolName: String,
 ): TaskSchedule? {
-    val scheduleKind = arguments.optionalString(field = "scheduleKind", toolName = toolName)
-        ?.lowercase()
-        ?: existingSchedule?.kindName()
-        ?: return null
+    val scheduleKind =
+        arguments
+            .optionalString(field = "scheduleKind", toolName = toolName)
+            ?.lowercase()
+            ?: existingSchedule?.kindName()
+            ?: return null
     return when (scheduleKind) {
         "once" -> {
-            val atIso = arguments.optionalString(field = "atIso", toolName = toolName)
-                ?: (existingSchedule as? TaskSchedule.Once)?.at?.toString()
-                ?: return null
-            val at = parseInstantArgument(
-                value = atIso,
-                toolName = toolName,
-                field = "atIso",
-            ) ?: return null
+            val atIso =
+                arguments.optionalString(field = "atIso", toolName = toolName)
+                    ?: (existingSchedule as? TaskSchedule.Once)?.at?.toString()
+                    ?: return null
+            val at =
+                parseInstantArgument(
+                    value = atIso,
+                    toolName = toolName,
+                    field = "atIso",
+                ) ?: return null
             require(at.isAfter(now)) {
                 "$toolName requires once schedules to be in the future."
             }
@@ -359,50 +386,58 @@ private fun parseSchedule(
         }
 
         "interval" -> {
-            val anchorAtIso = arguments.optionalString(field = "anchorAtIso", toolName = toolName)
-                ?: (existingSchedule as? TaskSchedule.Interval)?.anchorAt?.toString()
-                ?: return null
-            val repeatEveryMinutes = parsePositiveMinutes(
-                element = arguments["repeatEveryMinutes"],
-                toolName = toolName,
-                field = "repeatEveryMinutes",
-            )
-                ?: (existingSchedule as? TaskSchedule.Interval)?.repeatEvery?.toMinutes()
-                ?: return null
+            val anchorAtIso =
+                arguments.optionalString(field = "anchorAtIso", toolName = toolName)
+                    ?: (existingSchedule as? TaskSchedule.Interval)?.anchorAt?.toString()
+                    ?: return null
+            val repeatEveryMinutes =
+                parsePositiveMinutes(
+                    element = arguments["repeatEveryMinutes"],
+                    toolName = toolName,
+                    field = "repeatEveryMinutes",
+                )
+                    ?: (existingSchedule as? TaskSchedule.Interval)?.repeatEvery?.toMinutes()
+                    ?: return null
             require(repeatEveryMinutes >= capabilities.minimumBackgroundInterval.toMinutes()) {
                 "$toolName requires repeatEveryMinutes >= ${capabilities.minimumBackgroundInterval.toMinutes()}."
             }
             TaskSchedule.Interval(
-                anchorAt = parseInstantArgument(
-                    value = anchorAtIso,
-                    toolName = toolName,
-                    field = "anchorAtIso",
-                ) ?: return null,
+                anchorAt =
+                    parseInstantArgument(
+                        value = anchorAtIso,
+                        toolName = toolName,
+                        field = "anchorAtIso",
+                    ) ?: return null,
                 repeatEvery = Duration.ofMinutes(repeatEveryMinutes),
             )
         }
 
         "cron" -> {
-            val cronExpression = arguments.optionalString(field = "cronExpression", toolName = toolName)
-                ?: (existingSchedule as? TaskSchedule.Cron)?.expression?.toSpec()
-                ?: return null
-            val timezone = arguments.optionalString(field = "timezone", toolName = toolName)
-                ?: (existingSchedule as? TaskSchedule.Cron)?.zoneId?.id
-                ?: return null
-            val parsedZoneId = try {
-                ZoneId.of(timezone)
-            } catch (_: Exception) {
-                throw IllegalArgumentException("$toolName received unsupported timezone: $timezone.")
-            }
-            val expression = try {
-                CronExpression.parse(cronExpression)
-            } catch (error: IllegalArgumentException) {
-                throw IllegalArgumentException("$toolName received invalid cronExpression: ${error.message}")
-            }
-            val schedule = TaskSchedule.Cron(
-                expression = expression,
-                zoneId = parsedZoneId,
-            )
+            val cronExpression =
+                arguments.optionalString(field = "cronExpression", toolName = toolName)
+                    ?: (existingSchedule as? TaskSchedule.Cron)?.expression?.toSpec()
+                    ?: return null
+            val timezone =
+                arguments.optionalString(field = "timezone", toolName = toolName)
+                    ?: (existingSchedule as? TaskSchedule.Cron)?.zoneId?.id
+                    ?: return null
+            val parsedZoneId =
+                try {
+                    ZoneId.of(timezone)
+                } catch (_: Exception) {
+                    throw IllegalArgumentException("$toolName received unsupported timezone: $timezone.")
+                }
+            val expression =
+                try {
+                    CronExpression.parse(cronExpression)
+                } catch (error: IllegalArgumentException) {
+                    throw IllegalArgumentException("$toolName received invalid cronExpression: ${error.message}")
+                }
+            val schedule =
+                TaskSchedule.Cron(
+                    expression = expression,
+                    zoneId = parsedZoneId,
+                )
             require(NextRunCalculator.computeNextRun(schedule, now) != null) {
                 "$toolName produced no next run for cronExpression=$cronExpression."
             }
@@ -417,13 +452,12 @@ private fun parseInstantArgument(
     value: String,
     toolName: String,
     field: String,
-): Instant? {
-    return try {
+): Instant? =
+    try {
         Instant.parse(value)
     } catch (_: Exception) {
         throw IllegalArgumentException("$toolName received invalid $field: $value.")
     }
-}
 
 private fun parsePositiveMinutes(
     element: kotlinx.serialization.json.JsonElement?,
@@ -431,8 +465,9 @@ private fun parsePositiveMinutes(
     field: String,
 ): Long? {
     val primitive = element as? JsonPrimitive ?: return null
-    val value = primitive.longOrNull ?: primitive.contentOrNull?.toLongOrNull()
-        ?: throw IllegalArgumentException("$toolName received a non-numeric $field.")
+    val value =
+        primitive.longOrNull ?: primitive.contentOrNull?.toLongOrNull()
+            ?: throw IllegalArgumentException("$toolName received a non-numeric $field.")
     require(value > 0) { "$toolName requires $field > 0." }
     return value
 }
@@ -442,8 +477,9 @@ private fun parseRetryCount(
     toolName: String,
 ): Int? {
     val primitive = element as? JsonPrimitive ?: return null
-    val value = primitive.longOrNull?.toInt() ?: primitive.contentOrNull?.toIntOrNull()
-        ?: throw IllegalArgumentException("$toolName received a non-numeric maxRetries.")
+    val value =
+        primitive.longOrNull?.toInt() ?: primitive.contentOrNull?.toIntOrNull()
+            ?: throw IllegalArgumentException("$toolName received a non-numeric maxRetries.")
     require(value >= 0) { "$toolName requires maxRetries >= 0." }
     return value
 }
@@ -465,9 +501,7 @@ private fun parseBooleanArgument(
 private fun JsonObject.requiredString(
     field: String,
     toolName: String,
-): String? {
-    return optionalString(field = field, toolName = toolName)
-}
+): String? = optionalString(field = field, toolName = toolName)
 
 private fun JsonObject.optionalString(
     field: String,
@@ -484,45 +518,45 @@ private fun JsonObject.optionalString(
 private fun taskNextRun(
     schedule: TaskSchedule,
     now: Instant,
-): Instant? {
-    return when (schedule) {
+): Instant? =
+    when (schedule) {
         is TaskSchedule.Once -> schedule.at
         is TaskSchedule.Interval -> if (schedule.anchorAt.isAfter(now)) schedule.anchorAt else NextRunCalculator.computeNextRun(schedule, now)
         is TaskSchedule.Cron -> NextRunCalculator.computeNextRun(schedule, now)
     }
-}
 
-private fun TaskSchedule.kindName(): String {
-    return when (this) {
+private fun TaskSchedule.kindName(): String =
+    when (this) {
         is TaskSchedule.Once -> "once"
         is TaskSchedule.Interval -> "interval"
         is TaskSchedule.Cron -> "cron"
     }
-}
 
-private fun TaskSchedule.toPayload(): JsonObject {
-    return when (this) {
-        is TaskSchedule.Once -> buildJsonObject {
-            put("kind", "once")
-            put("atIso", at.toString())
-        }
+private fun TaskSchedule.toPayload(): JsonObject =
+    when (this) {
+        is TaskSchedule.Once ->
+            buildJsonObject {
+                put("kind", "once")
+                put("atIso", at.toString())
+            }
 
-        is TaskSchedule.Interval -> buildJsonObject {
-            put("kind", "interval")
-            put("anchorAtIso", anchorAt.toString())
-            put("repeatEveryMinutes", repeatEvery.toMinutes())
-        }
+        is TaskSchedule.Interval ->
+            buildJsonObject {
+                put("kind", "interval")
+                put("anchorAtIso", anchorAt.toString())
+                put("repeatEveryMinutes", repeatEvery.toMinutes())
+            }
 
-        is TaskSchedule.Cron -> buildJsonObject {
-            put("kind", "cron")
-            put("cronExpression", expression.toSpec())
-            put("timezone", zoneId.id)
-        }
+        is TaskSchedule.Cron ->
+            buildJsonObject {
+                put("kind", "cron")
+                put("cronExpression", expression.toSpec())
+                put("timezone", zoneId.id)
+            }
     }
-}
 
-private fun TaskRun.toPayload(): JsonObject {
-    return buildJsonObject {
+private fun TaskRun.toPayload(): JsonObject =
+    buildJsonObject {
         put("id", id)
         put("status", status.name)
         put("scheduledAtIso", scheduledAt.toString())
@@ -533,31 +567,25 @@ private fun TaskRun.toPayload(): JsonObject {
         put("errorMessage", errorMessage?.let(::JsonPrimitive) ?: JsonNull)
         put("outputMessageId", outputMessageId?.let(::JsonPrimitive) ?: JsonNull)
     }
-}
 
-private fun TaskExecutionMode.storageName(): String {
-    return when (this) {
+private fun TaskExecutionMode.storageName(): String =
+    when (this) {
         TaskExecutionMode.MainSession -> "MAIN_SESSION"
         TaskExecutionMode.IsolatedSession -> "ISOLATED_SESSION"
     }
-}
 
-private fun List<String>.toJsonArray(): JsonArray {
-    return buildJsonArray {
+private fun List<String>.toJsonArray(): JsonArray =
+    buildJsonArray {
         forEach { add(JsonPrimitive(it)) }
     }
-}
 
-private fun CronExpression.toSpec(): String {
-    return listOf(
+private fun CronExpression.toSpec(): String =
+    listOf(
         minute.toSpec(),
         hour.toSpec(),
         dayOfMonth.toSpec(),
         month.toSpec(),
         dayOfWeek.toSpec(),
     ).joinToString(" ")
-}
 
-private fun CronField.toSpec(): String {
-    return if (isWildcard) "*" else allowed.toList().sorted().joinToString(",")
-}
+private fun CronField.toSpec(): String = if (isWildcard) "*" else allowed.toList().sorted().joinToString(",")

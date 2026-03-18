@@ -13,31 +13,31 @@ import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.providers.ModelSkillMetadata
 import ai.androidclaw.runtime.providers.ModelStreamEvent
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
-import ai.androidclaw.runtime.providers.offlineFailure
 import ai.androidclaw.runtime.providers.ProviderMessageMeta
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.ProviderToolCall
+import ai.androidclaw.runtime.providers.offlineFailure
 import ai.androidclaw.runtime.providers.toPayload
 import ai.androidclaw.runtime.providers.toStorageString
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSnapshot
-import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolExecutionContext
+import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.UUID
 
 data class AgentTurnRequest(
     val sessionId: String,
@@ -74,51 +74,51 @@ class AgentRunner(
     private val loadSessionSummary: suspend (String) -> String? = { null },
     private val networkStatusProvider: NetworkStatusProvider? = null,
 ) {
-    suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult {
-        return runTurn(
+    suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
+        runTurn(
             sessionId = request.sessionId,
             userMessage = request.userMessage,
             runMode = ModelRunMode.Interactive,
             taskRunId = request.taskRunId,
             persistUserMessage = request.persistUserMessage,
         )
-    }
 
-    fun runInteractiveTurnStream(request: AgentTurnRequest): Flow<AgentTurnEvent> = channelFlow {
-        try {
-            val result = runTurnStream(
-                sessionId = request.sessionId,
-                userMessage = request.userMessage,
-                taskRunId = request.taskRunId,
-                persistUserMessage = request.persistUserMessage,
-                emitEvent = { event -> send(event) },
-            )
-            send(AgentTurnEvent.TurnCompleted(result))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            send(
-                AgentTurnEvent.TurnFailed(
-                    message = error.message ?: "Turn failed.",
-                    retryable = error.isRetryable(),
-                    kind = error.toFailureKind(),
-                ),
-            )
+    fun runInteractiveTurnStream(request: AgentTurnRequest): Flow<AgentTurnEvent> =
+        channelFlow {
+            try {
+                val result =
+                    runTurnStream(
+                        sessionId = request.sessionId,
+                        userMessage = request.userMessage,
+                        taskRunId = request.taskRunId,
+                        persistUserMessage = request.persistUserMessage,
+                        emitEvent = { event -> send(event) },
+                    )
+                send(AgentTurnEvent.TurnCompleted(result))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                send(
+                    AgentTurnEvent.TurnFailed(
+                        message = error.message ?: "Turn failed.",
+                        retryable = error.isRetryable(),
+                        kind = error.toFailureKind(),
+                    ),
+                )
+            }
         }
-    }
 
     suspend fun runScheduledTurn(
         sessionId: String,
         userMessage: String,
         taskRunId: String? = null,
-    ): AgentTurnResult {
-        return runTurn(
+    ): AgentTurnResult =
+        runTurn(
             sessionId = sessionId,
             userMessage = userMessage,
             runMode = ModelRunMode.Scheduled,
             taskRunId = taskRunId,
         )
-    }
 
     private suspend fun runTurn(
         sessionId: String,
@@ -126,8 +126,8 @@ class AgentRunner(
         runMode: ModelRunMode,
         taskRunId: String?,
         persistUserMessage: Boolean = true,
-    ): AgentTurnResult {
-        return sessionLaneCoordinator.withLane(sessionId) {
+    ): AgentTurnResult =
+        sessionLaneCoordinator.withLane(sessionId) {
             executeTurn(
                 sessionId = sessionId,
                 userMessage = userMessage,
@@ -136,7 +136,6 @@ class AgentRunner(
                 persistUserMessage = persistUserMessage,
             )
         }
-    }
 
     private suspend fun runTurnStream(
         sessionId: String,
@@ -144,8 +143,8 @@ class AgentRunner(
         taskRunId: String?,
         persistUserMessage: Boolean,
         emitEvent: suspend (AgentTurnEvent) -> Unit,
-    ): AgentTurnResult {
-        return sessionLaneCoordinator.withLane(sessionId) {
+    ): AgentTurnResult =
+        sessionLaneCoordinator.withLane(sessionId) {
             executeTurn(
                 sessionId = sessionId,
                 userMessage = userMessage,
@@ -156,7 +155,6 @@ class AgentRunner(
                 useStreamingProvider = true,
             )
         }
-    }
 
     private suspend fun executeTurn(
         sessionId: String,
@@ -190,10 +188,11 @@ class AgentRunner(
                     )
                 }
                 if (slashSkill.eligibility.status != SkillEligibilityStatus.Eligible) {
-                    val reasons = slashSkill.eligibility.reasons
-                        .takeIf { it.isNotEmpty() }
-                        ?.joinToString(separator = " ")
-                        ?: "This skill is not currently available."
+                    val reasons =
+                        slashSkill.eligibility.reasons
+                            .takeIf { it.isNotEmpty() }
+                            ?.joinToString(separator = " ")
+                            ?: "This skill is not currently available."
                     return persistAssistantResponse(
                         sessionId = sessionId,
                         assistantText = "Skill /${slashCommand.name} is unavailable. $reasons",
@@ -208,24 +207,25 @@ class AgentRunner(
                     frontmatter.commandDispatch == SkillCommandDispatch.Tool &&
                     frontmatter.commandTool != null
                 ) {
-                    val toolResult = executeDirectToolDispatch(
-                        sessionId = sessionId,
-                        slashCommand = slashCommand,
-                        slashSkill = slashSkill,
-                        toolName = frontmatter.commandTool,
-                        runMode = runMode,
-                        taskRunId = taskRunId,
-                        onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
-                        onToolFinished = { name, result ->
-                            emitEvent(
-                                AgentTurnEvent.ToolFinished(
-                                    name = name,
-                                    success = result.success,
-                                    summary = result.summary,
-                                ),
-                            )
-                        },
-                    )
+                    val toolResult =
+                        executeDirectToolDispatch(
+                            sessionId = sessionId,
+                            slashCommand = slashCommand,
+                            slashSkill = slashSkill,
+                            toolName = frontmatter.commandTool,
+                            runMode = runMode,
+                            taskRunId = taskRunId,
+                            onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
+                            onToolFinished = { name, result ->
+                                emitEvent(
+                                    AgentTurnEvent.ToolFinished(
+                                        name = name,
+                                        success = result.success,
+                                        summary = result.summary,
+                                    ),
+                                )
+                            },
+                        )
                     return persistAssistantResponse(
                         sessionId = sessionId,
                         assistantText = toolResult.summary,
@@ -237,14 +237,16 @@ class AgentRunner(
                 }
             }
 
-            val selectedSkills = if (slashCommand != null) {
-                skillManager.findSlashSkill(slashCommand.name, availableSkills)
-                    ?.takeIf { it.eligibility.status == SkillEligibilityStatus.Eligible }
-                    ?.let(::listOf)
-                    ?: emptyList()
-            } else {
-                skillManager.selectModelSkills(availableSkills)
-            }
+            val selectedSkills =
+                if (slashCommand != null) {
+                    skillManager
+                        .findSlashSkill(slashCommand.name, availableSkills)
+                        ?.takeIf { it.eligibility.status == SkillEligibilityStatus.Eligible }
+                        ?.let(::listOf)
+                        ?: emptyList()
+                } else {
+                    skillManager.selectModelSkills(availableSkills)
+                }
             val toolDescriptors = toolRegistry.descriptors()
             val providerSettings = settingsDataStore.settings.first()
             if (
@@ -254,45 +256,50 @@ class AgentRunner(
                 throw offlineFailure()
             }
             val provider = providerRegistry.require(providerSettings.providerType)
-            val persistedMessages = messageRepository.getRecentMessages(
-                sessionId = sessionId,
-                limit = MESSAGE_CONTEXT_FETCH_LIMIT,
-            ).asReversed()
+            val persistedMessages =
+                messageRepository
+                    .getRecentMessages(
+                        sessionId = sessionId,
+                        limit = MESSAGE_CONTEXT_FETCH_LIMIT,
+                    ).asReversed()
             val sessionSummary = loadSessionSummary(sessionId)
-            val promptAssembly = promptAssembler.assemble(
-                persistedMessages = persistedMessages,
-                selectedSkills = selectedSkills,
-                toolDescriptors = toolDescriptors,
-                runMode = runMode,
-                sessionSummary = sessionSummary,
-            )
+            val promptAssembly =
+                promptAssembler.assemble(
+                    persistedMessages = persistedMessages,
+                    selectedSkills = selectedSkills,
+                    toolDescriptors = toolDescriptors,
+                    runMode = runMode,
+                    sessionSummary = sessionSummary,
+                )
             var messageHistory = promptAssembly.messageHistory
             var providerRequestId: String? = null
 
             repeat(MAX_TOOL_ROUNDS) { round ->
-                val request = buildModelRequest(
-                    sessionId = sessionId,
-                    messageHistory = messageHistory,
-                    systemPrompt = promptAssembly.systemPrompt,
-                    selectedSkills = selectedSkills,
-                    toolDescriptors = toolDescriptors,
-                    runMode = runMode,
-                )
-                val response = if (useStreamingProvider) {
-                    withContext(Dispatchers.IO) {
-                        collectStreamedResponse(
-                            provider = provider,
-                            request = request,
-                            onTextDelta = { text ->
-                                if (text.isNotEmpty()) {
-                                    emitEvent(AgentTurnEvent.AssistantTextDelta(text))
-                                }
-                            },
-                        )
+                val request =
+                    buildModelRequest(
+                        sessionId = sessionId,
+                        messageHistory = messageHistory,
+                        systemPrompt = promptAssembly.systemPrompt,
+                        selectedSkills = selectedSkills,
+                        toolDescriptors = toolDescriptors,
+                        runMode = runMode,
+                    )
+                val response =
+                    if (useStreamingProvider) {
+                        withContext(Dispatchers.IO) {
+                            collectStreamedResponse(
+                                provider = provider,
+                                request = request,
+                                onTextDelta = { text ->
+                                    if (text.isNotEmpty()) {
+                                        emitEvent(AgentTurnEvent.AssistantTextDelta(text))
+                                    }
+                                },
+                            )
+                        }
+                    } else {
+                        withContext(Dispatchers.IO) { provider.generate(request) }
                     }
-                } else {
-                    withContext(Dispatchers.IO) { provider.generate(request) }
-                }
                 providerRequestId = response.providerRequestId
                 if (response.finishReason != TOOL_USE_FINISH_REASON) {
                     return persistAssistantResponse(
@@ -320,23 +327,24 @@ class AgentRunner(
                     )
                 }
 
-                val toolResultMessages = executeProviderToolCalls(
-                    sessionId = sessionId,
-                    toolCalls = response.toolCalls,
-                    runMode = runMode,
-                    requestId = response.providerRequestId,
-                    taskRunId = taskRunId,
-                    onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
-                    onToolFinished = { name, result ->
-                        emitEvent(
-                            AgentTurnEvent.ToolFinished(
-                                name = name,
-                                success = result.success,
-                                summary = result.summary,
-                            ),
-                        )
-                    },
-                )
+                val toolResultMessages =
+                    executeProviderToolCalls(
+                        sessionId = sessionId,
+                        toolCalls = response.toolCalls,
+                        runMode = runMode,
+                        requestId = response.providerRequestId,
+                        taskRunId = taskRunId,
+                        onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
+                        onToolFinished = { name, result ->
+                            emitEvent(
+                                AgentTurnEvent.ToolFinished(
+                                    name = name,
+                                    success = result.success,
+                                    summary = result.summary,
+                                ),
+                            )
+                        },
+                    )
                 messageHistory = messageHistory +
                     ModelMessage(
                         role = ModelMessageRole.Assistant,
@@ -386,24 +394,24 @@ class AgentRunner(
         selectedSkills: List<SkillSnapshot>,
         toolDescriptors: List<ai.androidclaw.runtime.tools.ToolDescriptor>,
         runMode: ModelRunMode,
-    ): ModelRequest {
-        return ModelRequest(
+    ): ModelRequest =
+        ModelRequest(
             sessionId = sessionId,
             requestId = UUID.randomUUID().toString(),
             messageHistory = messageHistory,
             systemPrompt = systemPrompt,
-            enabledSkills = selectedSkills.map { skill ->
-                ModelSkillMetadata(
-                    id = skill.id,
-                    name = skill.displayName,
-                    description = skill.frontmatter?.description.orEmpty(),
-                    instructions = skill.instructionsMd,
-                )
-            },
+            enabledSkills =
+                selectedSkills.map { skill ->
+                    ModelSkillMetadata(
+                        id = skill.id,
+                        name = skill.displayName,
+                        description = skill.frontmatter?.description.orEmpty(),
+                        instructions = skill.instructionsMd,
+                    )
+                },
             toolDescriptors = toolDescriptors,
             runMode = runMode,
         )
-    }
 
     private suspend fun collectStreamedResponse(
         provider: ModelProvider,
@@ -426,10 +434,11 @@ class AgentRunner(
             }
         }
 
-        val response = completedResponse ?: throw ModelProviderException(
-            kind = ModelProviderFailureKind.Response,
-            userMessage = "Provider stream ended without a final response.",
-        )
+        val response =
+            completedResponse ?: throw ModelProviderException(
+                kind = ModelProviderFailureKind.Response,
+                userMessage = "Provider stream ended without a final response.",
+            )
         if (streamedText.isEmpty() && response.text.isNotBlank() && response.finishReason != TOOL_USE_FINISH_REASON) {
             onTextDelta(response.text)
         }
@@ -450,11 +459,12 @@ class AgentRunner(
         onToolFinished: suspend (String, ToolExecutionResult) -> Unit = { _, _ -> },
     ): ToolExecutionResult {
         val toolCallId = UUID.randomUUID().toString()
-        val toolArguments = buildJsonObject {
-            put("command", slashCommand.arguments)
-            put("commandName", slashCommand.name)
-            put("skillName", slashSkill.displayName)
-        }
+        val toolArguments =
+            buildJsonObject {
+                put("command", slashCommand.arguments)
+                put("commandName", slashCommand.name)
+                put("skillName", slashSkill.displayName)
+            }
         messageRepository.addMessage(
             sessionId = sessionId,
             role = MessageRole.ToolCall,
@@ -463,19 +473,21 @@ class AgentRunner(
             taskRunId = taskRunId,
         )
         onToolStarted(toolName)
-        val toolResult = toolRegistry.execute(
-            context = ToolExecutionContext(
-                sessionId = sessionId,
-                taskRunId = taskRunId,
-                origin = ToolInvocationOrigin.SlashCommand,
-                runMode = runMode,
-                requestedName = toolName,
-                canonicalName = toolName,
-                requestId = toolCallId,
-                activeSkillId = slashSkill.id,
-            ),
-            arguments = toolArguments,
-        )
+        val toolResult =
+            toolRegistry.execute(
+                context =
+                    ToolExecutionContext(
+                        sessionId = sessionId,
+                        taskRunId = taskRunId,
+                        origin = ToolInvocationOrigin.SlashCommand,
+                        runMode = runMode,
+                        requestedName = toolName,
+                        canonicalName = toolName,
+                        requestId = toolCallId,
+                        activeSkillId = slashSkill.id,
+                    ),
+                arguments = toolArguments,
+            )
         messageRepository.addMessage(
             sessionId = sessionId,
             role = MessageRole.ToolResult,
@@ -495,8 +507,8 @@ class AgentRunner(
         taskRunId: String?,
         onToolStarted: suspend (String) -> Unit = {},
         onToolFinished: suspend (String, ToolExecutionResult) -> Unit = { _, _ -> },
-    ): List<ModelMessage> {
-        return buildList {
+    ): List<ModelMessage> =
+        buildList {
             toolCalls.forEach { toolCall ->
                 messageRepository.addMessage(
                     sessionId = sessionId,
@@ -506,22 +518,25 @@ class AgentRunner(
                     taskRunId = taskRunId,
                 )
                 onToolStarted(toolCall.name)
-                val toolResult = toolRegistry.execute(
-                    context = ToolExecutionContext(
-                        sessionId = sessionId,
-                        taskRunId = taskRunId,
-                        origin = if (runMode == ModelRunMode.Scheduled) {
-                            ToolInvocationOrigin.ScheduledModel
-                        } else {
-                            ToolInvocationOrigin.Model
-                        },
-                        runMode = runMode,
-                        requestedName = toolCall.name,
-                        canonicalName = toolCall.name,
-                        requestId = requestId ?: toolCall.id,
-                    ),
-                    arguments = toolCall.argumentsJson,
-                )
+                val toolResult =
+                    toolRegistry.execute(
+                        context =
+                            ToolExecutionContext(
+                                sessionId = sessionId,
+                                taskRunId = taskRunId,
+                                origin =
+                                    if (runMode == ModelRunMode.Scheduled) {
+                                        ToolInvocationOrigin.ScheduledModel
+                                    } else {
+                                        ToolInvocationOrigin.Model
+                                    },
+                                runMode = runMode,
+                                requestedName = toolCall.name,
+                                canonicalName = toolCall.name,
+                                requestId = requestId ?: toolCall.id,
+                            ),
+                        arguments = toolCall.argumentsJson,
+                    )
                 messageRepository.addMessage(
                     sessionId = sessionId,
                     role = MessageRole.ToolResult,
@@ -540,7 +555,6 @@ class AgentRunner(
                 )
             }
         }
-    }
 
     private suspend fun persistAssistantResponse(
         sessionId: String,
@@ -555,21 +569,23 @@ class AgentRunner(
         exitReason: AgentTurnExitReason = AgentTurnExitReason.Completed,
     ): AgentTurnResult {
         val persistedText = assistantText.withActiveSkills(selectedSkills)
-        val providerMeta = providerId?.let { resolvedProviderId ->
-            ProviderMessageMeta(
-                providerId = resolvedProviderId,
-                requestId = providerRequestId,
-                modelId = providerModelId,
-                usage = providerUsage?.toPayload(),
-            ).toStorageString()
-        }
-        val assistantMessage = messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.Assistant,
-            content = persistedText,
-            providerMeta = providerMeta,
-            taskRunId = taskRunId,
-        )
+        val providerMeta =
+            providerId?.let { resolvedProviderId ->
+                ProviderMessageMeta(
+                    providerId = resolvedProviderId,
+                    requestId = providerRequestId,
+                    modelId = providerModelId,
+                    usage = providerUsage?.toPayload(),
+                ).toStorageString()
+            }
+        val assistantMessage =
+            messageRepository.addMessage(
+                sessionId = sessionId,
+                role = MessageRole.Assistant,
+                content = persistedText,
+                providerMeta = providerMeta,
+                taskRunId = taskRunId,
+            )
         sessionSummaryCoordinator?.onTurnCompleted(sessionId)
         return AgentTurnResult(
             assistantMessage = persistedText,
@@ -637,29 +653,29 @@ private fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String
     }
 }
 
-private fun Throwable.isRetryable(): Boolean {
-    return this is ModelProviderException && (
-        kind == ModelProviderFailureKind.Offline ||
-        kind == ModelProviderFailureKind.Network ||
-            kind == ModelProviderFailureKind.Timeout ||
-            kind == ModelProviderFailureKind.StreamInterrupted
+private fun Throwable.isRetryable(): Boolean =
+    this is ModelProviderException &&
+        (
+            kind == ModelProviderFailureKind.Offline ||
+                kind == ModelProviderFailureKind.Network ||
+                kind == ModelProviderFailureKind.Timeout ||
+                kind == ModelProviderFailureKind.StreamInterrupted
         )
-}
 
-private fun Throwable.toFailureKind(): AgentTurnFailureKind {
-    return when (this) {
-        is ModelProviderException -> when (kind) {
-            ModelProviderFailureKind.Configuration -> AgentTurnFailureKind.Configuration
-            ModelProviderFailureKind.InvalidEndpoint -> AgentTurnFailureKind.InvalidEndpoint
-            ModelProviderFailureKind.Offline -> AgentTurnFailureKind.Offline
-            ModelProviderFailureKind.Authentication -> AgentTurnFailureKind.Authentication
-            ModelProviderFailureKind.Network -> AgentTurnFailureKind.Network
-            ModelProviderFailureKind.Timeout -> AgentTurnFailureKind.Timeout
-            ModelProviderFailureKind.Server -> AgentTurnFailureKind.Server
-            ModelProviderFailureKind.StreamInterrupted -> AgentTurnFailureKind.StreamInterrupted
-            ModelProviderFailureKind.Response -> AgentTurnFailureKind.Response
-        }
+private fun Throwable.toFailureKind(): AgentTurnFailureKind =
+    when (this) {
+        is ModelProviderException ->
+            when (kind) {
+                ModelProviderFailureKind.Configuration -> AgentTurnFailureKind.Configuration
+                ModelProviderFailureKind.InvalidEndpoint -> AgentTurnFailureKind.InvalidEndpoint
+                ModelProviderFailureKind.Offline -> AgentTurnFailureKind.Offline
+                ModelProviderFailureKind.Authentication -> AgentTurnFailureKind.Authentication
+                ModelProviderFailureKind.Network -> AgentTurnFailureKind.Network
+                ModelProviderFailureKind.Timeout -> AgentTurnFailureKind.Timeout
+                ModelProviderFailureKind.Server -> AgentTurnFailureKind.Server
+                ModelProviderFailureKind.StreamInterrupted -> AgentTurnFailureKind.StreamInterrupted
+                ModelProviderFailureKind.Response -> AgentTurnFailureKind.Response
+            }
 
         else -> AgentTurnFailureKind.Runtime
     }
-}

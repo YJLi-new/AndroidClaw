@@ -7,7 +7,6 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.testutil.MainDispatcherRule
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -20,6 +19,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -31,62 +31,66 @@ class OnboardingViewModelTest {
     private lateinit var settingsDataStore: SettingsDataStore
 
     @Before
-    fun setUp() = runTest {
-        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
-        onboardingDataStore = OnboardingDataStore(application)
-        settingsDataStore = SettingsDataStore(application)
-        onboardingDataStore.setCompleted(false)
-        settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
-    }
+    fun setUp() =
+        runTest {
+            val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+            onboardingDataStore = OnboardingDataStore(application)
+            settingsDataStore = SettingsDataStore(application)
+            onboardingDataStore.setCompleted(false)
+            settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+        }
 
     @After
-    fun tearDown() = runTest {
-        onboardingDataStore.setCompleted(false)
-        settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
-    }
+    fun tearDown() =
+        runTest {
+            onboardingDataStore.setCompleted(false)
+            settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+        }
 
     @Test
-    fun firstRun_withFakeProvider_showsWelcome() = runTest {
-        val viewModel = buildViewModel()
+    fun firstRun_withFakeProvider_showsWelcome() =
+        runTest {
+            val viewModel = buildViewModel()
 
-        val state = waitForState(viewModel) { it.visible }
+            val state = waitForState(viewModel) { it.visible }
 
-        assertTrue(state.visible)
-        assertEquals(OnboardingStep.Welcome, state.step)
-    }
-
-    @Test
-    fun realProviderSelection_skipsAutomaticOnboarding() = runTest {
-        settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(providerType = ProviderType.OpenAiCompatible),
-        )
-
-        val viewModel = buildViewModel()
-        val state = waitForState(viewModel) { !it.visible }
-
-        assertFalse(state.visible)
-    }
+            assertTrue(state.visible)
+            assertEquals(OnboardingStep.Welcome, state.step)
+        }
 
     @Test
-    fun useFakeMode_marksOnboardingComplete() = runTest {
-        val viewModel = buildViewModel()
-        waitForState(viewModel) { it.visible }
+    fun realProviderSelection_skipsAutomaticOnboarding() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot(providerType = ProviderType.OpenAiCompatible),
+            )
 
-        viewModel.useFakeMode()
+            val viewModel = buildViewModel()
+            val state = waitForState(viewModel) { !it.visible }
 
-        val state = waitForState(viewModel) { !it.visible }
+            assertFalse(state.visible)
+        }
 
-        assertFalse(state.visible)
-        assertTrue(onboardingDataStore.completed.first())
-        assertEquals(ProviderType.Fake, settingsDataStore.settings.first().providerType)
-    }
+    @Test
+    fun useFakeMode_marksOnboardingComplete() =
+        runTest {
+            val viewModel = buildViewModel()
+            waitForState(viewModel) { it.visible }
 
-    private fun buildViewModel(): OnboardingViewModel {
-        return OnboardingViewModel(
+            viewModel.useFakeMode()
+
+            val state = waitForState(viewModel) { !it.visible }
+
+            assertFalse(state.visible)
+            assertTrue(onboardingDataStore.completed.first())
+            assertEquals(ProviderType.Fake, settingsDataStore.settings.first().providerType)
+        }
+
+    private fun buildViewModel(): OnboardingViewModel =
+        OnboardingViewModel(
             onboardingDataStore = onboardingDataStore,
             settingsDataStore = settingsDataStore,
         )
-    }
 
     private fun TestScope.waitForState(
         viewModel: OnboardingViewModel,

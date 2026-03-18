@@ -13,10 +13,11 @@ class AppConfigurationTest {
     @Test
     fun `manifest declares required network permissions`() {
         val application = ApplicationProvider.getApplicationContext<android.app.Application>()
-        val packageInfo = application.packageManager.getPackageInfo(
-            application.packageName,
-            PackageManager.GET_PERMISSIONS,
-        )
+        val packageInfo =
+            application.packageManager.getPackageInfo(
+                application.packageName,
+                PackageManager.GET_PERMISSIONS,
+            )
         val requestedPermissions = packageInfo.requestedPermissions.orEmpty().toSet()
 
         assertTrue(requestedPermissions.contains("android.permission.INTERNET"))

@@ -3,7 +3,6 @@ package ai.androidclaw.feature.settings
 import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSecretStore
-import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
@@ -13,10 +12,11 @@ import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelRunMode
-import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -52,12 +52,13 @@ class SettingsViewModel(
     private val providerSecretStore: ProviderSecretStore,
     private val networkStatusProvider: NetworkStatusProvider,
 ) : ViewModel() {
-    private val mutableState = MutableStateFlow(
-        SettingsUiState(
-            availableProviders = providerRegistry.descriptors().map { it.type },
-            buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
-        ),
-    )
+    private val mutableState =
+        MutableStateFlow(
+            SettingsUiState(
+                availableProviders = providerRegistry.descriptors().map { it.type },
+                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
+            ),
+        )
     val state: StateFlow<SettingsUiState> = mutableState.asStateFlow()
     private var stateMutationVersion: Long = 0
 
@@ -86,27 +87,30 @@ class SettingsViewModel(
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
                     networkSummary = networkStatus.summary,
-                    connectionHint = buildConnectionHint(
-                        providerType = providerType,
-                        networkStatus = networkStatus,
-                    ),
+                    connectionHint =
+                        buildConnectionHint(
+                            providerType = providerType,
+                            networkStatus = networkStatus,
+                        ),
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
-                    configured = isConfigured(
-                        providerType = providerType,
-                        baseUrl = endpointSettings.baseUrl,
-                        modelId = endpointSettings.modelId,
-                        apiKeyDraft = "",
-                        hasStoredApiKey = !storedApiKey.isNullOrBlank(),
-                    ),
+                    configured =
+                        isConfigured(
+                            providerType = providerType,
+                            baseUrl = endpointSettings.baseUrl,
+                            modelId = endpointSettings.modelId,
+                            apiKeyDraft = "",
+                            hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                        ),
                     isValidatingConnection = false,
                     lastValidationSucceeded = false,
-                    statusMessage = resolveStatusMessage(
-                        explicit = null,
-                        providerType = providerType,
-                        recoveredApiKey = recoveredApiKey,
-                        networkConnected = networkStatus.isConnected,
-                    ),
+                    statusMessage =
+                        resolveStatusMessage(
+                            explicit = null,
+                            providerType = providerType,
+                            recoveredApiKey = recoveredApiKey,
+                            networkConnected = networkStatus.isConnected,
+                        ),
                     themePreference = themePreference,
                 )
             }
@@ -133,13 +137,14 @@ class SettingsViewModel(
         mutateState {
             it.copy(
                 baseUrl = value,
-                configured = isConfigured(
-                    providerType = it.providerType,
-                    baseUrl = value,
-                    modelId = it.modelId,
-                    apiKeyDraft = it.apiKeyDraft,
-                    hasStoredApiKey = it.hasStoredApiKey,
-                ),
+                configured =
+                    isConfigured(
+                        providerType = it.providerType,
+                        baseUrl = value,
+                        modelId = it.modelId,
+                        apiKeyDraft = it.apiKeyDraft,
+                        hasStoredApiKey = it.hasStoredApiKey,
+                    ),
                 lastValidationSucceeded = false,
                 statusMessage = null,
             )
@@ -150,13 +155,14 @@ class SettingsViewModel(
         mutateState {
             it.copy(
                 modelId = value,
-                configured = isConfigured(
-                    providerType = it.providerType,
-                    baseUrl = it.baseUrl,
-                    modelId = value,
-                    apiKeyDraft = it.apiKeyDraft,
-                    hasStoredApiKey = it.hasStoredApiKey,
-                ),
+                configured =
+                    isConfigured(
+                        providerType = it.providerType,
+                        baseUrl = it.baseUrl,
+                        modelId = value,
+                        apiKeyDraft = it.apiKeyDraft,
+                        hasStoredApiKey = it.hasStoredApiKey,
+                    ),
                 lastValidationSucceeded = false,
                 statusMessage = null,
             )
@@ -177,13 +183,14 @@ class SettingsViewModel(
         mutateState {
             it.copy(
                 apiKeyDraft = value,
-                configured = isConfigured(
-                    providerType = it.providerType,
-                    baseUrl = it.baseUrl,
-                    modelId = it.modelId,
-                    apiKeyDraft = value,
-                    hasStoredApiKey = it.hasStoredApiKey,
-                ),
+                configured =
+                    isConfigured(
+                        providerType = it.providerType,
+                        baseUrl = it.baseUrl,
+                        modelId = it.modelId,
+                        apiKeyDraft = value,
+                        hasStoredApiKey = it.hasStoredApiKey,
+                    ),
                 lastValidationSucceeded = false,
                 statusMessage = null,
             )
@@ -205,13 +212,14 @@ class SettingsViewModel(
                 it.copy(
                     apiKeyDraft = "",
                     hasStoredApiKey = false,
-                    configured = isConfigured(
-                        providerType = it.providerType,
-                        baseUrl = it.baseUrl,
-                        modelId = it.modelId,
-                        apiKeyDraft = "",
-                        hasStoredApiKey = false,
-                    ),
+                    configured =
+                        isConfigured(
+                            providerType = it.providerType,
+                            baseUrl = it.baseUrl,
+                            modelId = it.modelId,
+                            apiKeyDraft = "",
+                            hasStoredApiKey = false,
+                        ),
                     lastValidationSucceeded = false,
                     statusMessage = "Stored API key cleared.",
                 )
@@ -226,8 +234,9 @@ class SettingsViewModel(
             mutateState { it.copy(statusMessage = "Timeout must be a positive integer.") }
             return
         }
-        val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 }
-            ?: snapshot.providerType.defaultTimeoutSeconds
+        val normalizedTimeoutSeconds =
+            timeoutSeconds?.takeIf { it > 0 }
+                ?: snapshot.providerType.defaultTimeoutSeconds
         val mutationVersion = nextMutationVersion()
 
         viewModelScope.launch {
@@ -263,8 +272,9 @@ class SettingsViewModel(
             return
         }
         val networkStatus = networkStatusProvider.currentStatus()
-        val normalizedTimeoutSeconds = timeoutSeconds?.takeIf { it > 0 }
-            ?: snapshot.providerType.defaultTimeoutSeconds
+        val normalizedTimeoutSeconds =
+            timeoutSeconds?.takeIf { it > 0 }
+                ?: snapshot.providerType.defaultTimeoutSeconds
         val mutationVersion = nextMutationVersion()
 
         viewModelScope.launch {
@@ -277,19 +287,24 @@ class SettingsViewModel(
             }
             try {
                 persistSettings(snapshot, normalizedTimeoutSeconds)
-                if (snapshot.providerType.requiresRemoteSettings && !networkStatus.isConnected) {
+                if (
+                    snapshot.providerType.requiresRemoteSettings &&
+                    !networkStatus.isConnected &&
+                    !usesLoopbackEndpoint(snapshot.baseUrl)
+                ) {
                     throw offlineFailure()
                 }
                 providerRegistry.require(snapshot.providerType).generate(
                     ModelRequest(
                         sessionId = "provider-validation",
                         requestId = "provider-validation",
-                        messageHistory = listOf(
-                            ModelMessage(
-                                role = ModelMessageRole.User,
-                                content = "Reply with OK.",
+                        messageHistory =
+                            listOf(
+                                ModelMessage(
+                                    role = ModelMessageRole.User,
+                                    content = "Reply with OK.",
+                                ),
                             ),
-                        ),
                         systemPrompt = "You are validating AndroidClaw connectivity. Reply briefly with OK.",
                         enabledSkills = emptyList(),
                         toolDescriptors = emptyList(),
@@ -333,6 +348,15 @@ class SettingsViewModel(
         }
     }
 
+    private fun usesLoopbackEndpoint(baseUrl: String): Boolean {
+        val host =
+            runCatching { Uri.parse(baseUrl.trim()).host }
+                .getOrNull()
+                ?.lowercase()
+
+        return host == "localhost" || host == "127.0.0.1"
+    }
+
     private fun refresh(statusMessage: String? = null) {
         viewModelScope.launch {
             val refreshVersion = stateMutationVersion
@@ -346,38 +370,42 @@ class SettingsViewModel(
             if (!isCurrentMutation(refreshVersion)) {
                 return@launch
             }
-            mutableState.value = SettingsUiState(
-                activeProviderId = providerRegistry.require(providerType).id,
-                availableProviders = providerRegistry.descriptors().map { it.type },
-                providerType = providerType,
-                baseUrl = endpointSettings.baseUrl,
-                modelId = endpointSettings.modelId,
-                timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
-                networkSummary = networkStatus.summary,
-                connectionHint = buildConnectionHint(
-                    providerType = providerType,
-                    networkStatus = networkStatus,
-                ),
-                apiKeyDraft = "",
-                hasStoredApiKey = !storedApiKey.isNullOrBlank(),
-                configured = isConfigured(
+            mutableState.value =
+                SettingsUiState(
+                    activeProviderId = providerRegistry.require(providerType).id,
+                    availableProviders = providerRegistry.descriptors().map { it.type },
                     providerType = providerType,
                     baseUrl = endpointSettings.baseUrl,
                     modelId = endpointSettings.modelId,
+                    timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    networkSummary = networkStatus.summary,
+                    connectionHint =
+                        buildConnectionHint(
+                            providerType = providerType,
+                            networkStatus = networkStatus,
+                        ),
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
-                ),
-                isValidatingConnection = false,
-                lastValidationSucceeded = false,
-                statusMessage = resolveStatusMessage(
-                    explicit = statusMessage,
-                    providerType = providerType,
-                    recoveredApiKey = recoveredApiKey,
-                    networkConnected = networkStatus.isConnected,
-                ),
-                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
-                themePreference = themePreference,
-            )
+                    configured =
+                        isConfigured(
+                            providerType = providerType,
+                            baseUrl = endpointSettings.baseUrl,
+                            modelId = endpointSettings.modelId,
+                            apiKeyDraft = "",
+                            hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                        ),
+                    isValidatingConnection = false,
+                    lastValidationSucceeded = false,
+                    statusMessage =
+                        resolveStatusMessage(
+                            explicit = statusMessage,
+                            providerType = providerType,
+                            recoveredApiKey = recoveredApiKey,
+                            networkConnected = networkStatus.isConnected,
+                        ),
+                    buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
+                    themePreference = themePreference,
+                )
         }
     }
 
@@ -387,10 +415,11 @@ class SettingsViewModel(
                 mutableState.update { state ->
                     state.copy(
                         networkSummary = networkStatus.summary,
-                        connectionHint = buildConnectionHint(
-                            providerType = state.providerType,
-                            networkStatus = networkStatus,
-                        ),
+                        connectionHint =
+                            buildConnectionHint(
+                                providerType = state.providerType,
+                                networkStatus = networkStatus,
+                            ),
                     )
                 }
             }
@@ -407,9 +436,7 @@ class SettingsViewModel(
         return stateMutationVersion
     }
 
-    private fun isCurrentMutation(version: Long): Boolean {
-        return version == stateMutationVersion
-    }
+    private fun isCurrentMutation(version: Long): Boolean = version == stateMutationVersion
 
     private fun isConfigured(
         providerType: ProviderType,
@@ -417,8 +444,8 @@ class SettingsViewModel(
         modelId: String,
         apiKeyDraft: String,
         hasStoredApiKey: Boolean,
-    ): Boolean {
-        return when {
+    ): Boolean =
+        when {
             !providerType.requiresRemoteSettings -> true
             else -> {
                 baseUrl.isNotBlank() &&
@@ -426,25 +453,26 @@ class SettingsViewModel(
                     (apiKeyDraft.isNotBlank() || hasStoredApiKey)
             }
         }
-    }
 
     private suspend fun persistSettings(
         snapshot: SettingsUiState,
         normalizedTimeoutSeconds: Int,
     ) {
         val currentSettings = settingsDataStore.settings.first()
-        val updatedSettings = if (snapshot.providerType.requiresRemoteSettings) {
-            currentSettings.withEndpointSettings(
-                snapshot.providerType,
-                ProviderEndpointSettings(
-                    baseUrl = snapshot.baseUrl,
-                    modelId = snapshot.modelId,
-                    timeoutSeconds = normalizedTimeoutSeconds,
-                ),
-            ).copy(providerType = snapshot.providerType)
-        } else {
-            currentSettings.copy(providerType = snapshot.providerType)
-        }
+        val updatedSettings =
+            if (snapshot.providerType.requiresRemoteSettings) {
+                currentSettings
+                    .withEndpointSettings(
+                        snapshot.providerType,
+                        ProviderEndpointSettings(
+                            baseUrl = snapshot.baseUrl,
+                            modelId = snapshot.modelId,
+                            timeoutSeconds = normalizedTimeoutSeconds,
+                        ),
+                    ).copy(providerType = snapshot.providerType)
+            } else {
+                currentSettings.copy(providerType = snapshot.providerType)
+            }
         settingsDataStore.saveProviderSettings(updatedSettings)
         if (snapshot.providerType.requiresRemoteSettings && snapshot.apiKeyDraft.isNotBlank()) {
             providerSecretStore.writeApiKey(
@@ -459,18 +487,17 @@ class SettingsViewModel(
         providerType: ProviderType,
         recoveredApiKey: Boolean,
         networkConnected: Boolean,
-    ): String? {
-        return when {
+    ): String? =
+        when {
             !explicit.isNullOrBlank() -> explicit
             recoveredApiKey -> "Stored API key could not be restored on this device. Please enter it again."
             providerType.requiresRemoteSettings && !networkConnected ->
                 "No active network connection. Remote providers may fail until connectivity returns."
             else -> null
         }
-    }
 
-    private fun validationFailureMessage(error: ModelProviderException): String {
-        return when (error.kind) {
+    private fun validationFailureMessage(error: ModelProviderException): String =
+        when (error.kind) {
             ModelProviderFailureKind.Configuration -> error.userMessage
             ModelProviderFailureKind.InvalidEndpoint -> "Provider base URL is invalid. Check the endpoint format."
             ModelProviderFailureKind.Offline -> error.userMessage
@@ -486,13 +513,12 @@ class SettingsViewModel(
             ModelProviderFailureKind.Response ->
                 error.userMessage.ifBlank { "Provider returned an unexpected response." }
         }
-    }
 
     private fun buildConnectionHint(
         providerType: ProviderType,
         networkStatus: NetworkStatusSnapshot,
-    ): String? {
-        return when {
+    ): String? =
+        when {
             !providerType.requiresRemoteSettings -> "FakeProvider is active. It works fully offline."
             !networkStatus.isConnected ->
                 "Remote provider calls will fail until network connectivity returns."
@@ -502,21 +528,18 @@ class SettingsViewModel(
                 "Remote provider calls are using a metered network."
             else -> "Use Test connection to verify credentials, endpoint, and model."
         }
-    }
 
     companion object {
-        fun factory(dependencies: SettingsDependencies): ViewModelProvider.Factory {
-            return object : ViewModelProvider.Factory {
+        fun factory(dependencies: SettingsDependencies): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return SettingsViewModel(
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    SettingsViewModel(
                         providerRegistry = dependencies.providerRegistry,
                         settingsDataStore = dependencies.settingsDataStore,
                         providerSecretStore = dependencies.providerSecretStore,
                         networkStatusProvider = dependencies.networkStatusProvider,
                     ) as T
-                }
             }
-        }
     }
 }

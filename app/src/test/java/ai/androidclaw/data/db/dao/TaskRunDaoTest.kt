@@ -36,52 +36,56 @@ class TaskRunDaoTest {
     }
 
     @Test
-    fun `query latest runs and trim older history`() = runTest {
-        sessionDao.insert(
-            SessionEntity(
-                id = "main",
-                title = "Main session",
-                isMain = true,
-                createdAt = 1L,
-                updatedAt = 1L,
-                archivedAt = null,
-                summaryText = null,
-            ),
-        )
-        taskDao.insert(
-            TaskEntity(
-                id = "task-1",
-                name = "Task",
-                prompt = "Prompt",
-                scheduleKind = "once",
-                scheduleSpec = "{\"at\":100}",
-                executionMode = "MAIN_SESSION",
-                targetSessionId = "main",
-                enabled = true,
-                precise = false,
-                nextRunAt = 100L,
-                lastRunAt = null,
-                failureCount = 0,
-                maxRetries = 3,
-                createdAt = 1L,
-                updatedAt = 1L,
-            ),
-        )
+    fun `query latest runs and trim older history`() =
+        runTest {
+            sessionDao.insert(
+                SessionEntity(
+                    id = "main",
+                    title = "Main session",
+                    isMain = true,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            taskDao.insert(
+                TaskEntity(
+                    id = "task-1",
+                    name = "Task",
+                    prompt = "Prompt",
+                    scheduleKind = "once",
+                    scheduleSpec = "{\"at\":100}",
+                    executionMode = "MAIN_SESSION",
+                    targetSessionId = "main",
+                    enabled = true,
+                    precise = false,
+                    nextRunAt = 100L,
+                    lastRunAt = null,
+                    failureCount = 0,
+                    maxRetries = 3,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                ),
+            )
 
-        dao.insert(run("run-1", scheduledAt = 10L))
-        dao.insert(run("run-2", scheduledAt = 20L))
-        dao.insert(run("run-3", scheduledAt = 30L))
+            dao.insert(run("run-1", scheduledAt = 10L))
+            dao.insert(run("run-2", scheduledAt = 20L))
+            dao.insert(run("run-3", scheduledAt = 30L))
 
-        val runs = dao.getByTaskId("task-1").first()
-        assertEquals(listOf("run-3", "run-2", "run-1"), runs.map { it.id })
-        assertEquals("run-3", dao.getLatestByTaskId("task-1")?.id)
+            val runs = dao.getByTaskId("task-1").first()
+            assertEquals(listOf("run-3", "run-2", "run-1"), runs.map { it.id })
+            assertEquals("run-3", dao.getLatestByTaskId("task-1")?.id)
 
-        dao.deleteOlderThan(21L)
-        assertEquals(listOf("run-3"), dao.getByTaskId("task-1").first().map { it.id })
-    }
+            dao.deleteOlderThan(21L)
+            assertEquals(listOf("run-3"), dao.getByTaskId("task-1").first().map { it.id })
+        }
 
-    private fun run(id: String, scheduledAt: Long): TaskRunEntity {
-        return TaskRunEntity(
+    private fun run(
+        id: String,
+        scheduledAt: Long,
+    ): TaskRunEntity =
+        TaskRunEntity(
             id = id,
             taskId = "task-1",
             status = "SUCCESS",
@@ -93,6 +97,4 @@ class TaskRunDaoTest {
             resultSummary = "ok",
             outputMessageId = null,
         )
-    }
 }
-

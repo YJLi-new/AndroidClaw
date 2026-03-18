@@ -39,10 +39,11 @@ class OnboardingViewModel(
             val completed = onboardingDataStore.completed.first()
             val providerType = settingsDataStore.settings.first().providerType
             if (!completed && providerType == ProviderType.Fake) {
-                mutableState.value = OnboardingUiState(
-                    visible = true,
-                    step = OnboardingStep.Welcome,
-                )
+                mutableState.value =
+                    OnboardingUiState(
+                        visible = true,
+                        step = OnboardingStep.Welcome,
+                    )
             }
         }
     }
@@ -88,16 +89,14 @@ class OnboardingViewModel(
     }
 
     companion object {
-        fun factory(dependencies: OnboardingDependencies): ViewModelProvider.Factory {
-            return object : ViewModelProvider.Factory {
+        fun factory(dependencies: OnboardingDependencies): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return OnboardingViewModel(
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    OnboardingViewModel(
                         onboardingDataStore = dependencies.onboardingDataStore,
                         settingsDataStore = dependencies.settingsDataStore,
                     ) as T
-                }
             }
-        }
     }
 }

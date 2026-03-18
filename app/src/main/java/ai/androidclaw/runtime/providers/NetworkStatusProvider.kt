@@ -16,13 +16,14 @@ data class NetworkStatusSnapshot(
     val isMetered: Boolean,
 ) {
     val summary: String
-        get() = when {
-            !supported -> "Unavailable"
-            !isConnected -> "Offline"
-            !isValidated -> "Connected, internet not validated"
-            isMetered -> "Connected (metered)"
-            else -> "Connected"
-        }
+        get() =
+            when {
+                !supported -> "Unavailable"
+                !isConnected -> "Offline"
+                !isValidated -> "Connected, internet not validated"
+                isMetered -> "Connected (metered)"
+                else -> "Connected"
+            }
 }
 
 interface NetworkStatusProvider {
@@ -38,27 +39,31 @@ class AndroidNetworkStatusProvider(
         context.getSystemService(ConnectivityManager::class.java)
 
     override fun currentStatus(): NetworkStatusSnapshot {
-        val manager = connectivityManager ?: return NetworkStatusSnapshot(
-            supported = false,
-            isConnected = false,
-            isValidated = false,
-            isMetered = false,
-        )
-        val activeNetwork = manager.activeNetwork ?: return NetworkStatusSnapshot(
-            supported = true,
-            isConnected = false,
-            isValidated = false,
-            isMetered = manager.isActiveNetworkMetered,
-        )
-        val capabilities = manager.getNetworkCapabilities(activeNetwork) ?: return NetworkStatusSnapshot(
-            supported = true,
-            isConnected = false,
-            isValidated = false,
-            isMetered = manager.isActiveNetworkMetered,
-        )
+        val manager =
+            connectivityManager ?: return NetworkStatusSnapshot(
+                supported = false,
+                isConnected = false,
+                isValidated = false,
+                isMetered = false,
+            )
+        val activeNetwork =
+            manager.activeNetwork ?: return NetworkStatusSnapshot(
+                supported = true,
+                isConnected = false,
+                isValidated = false,
+                isMetered = manager.isActiveNetworkMetered,
+            )
+        val capabilities =
+            manager.getNetworkCapabilities(activeNetwork) ?: return NetworkStatusSnapshot(
+                supported = true,
+                isConnected = false,
+                isValidated = false,
+                isMetered = manager.isActiveNetworkMetered,
+            )
         val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        val validated = hasInternet &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        val validated =
+            hasInternet &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         return NetworkStatusSnapshot(
             supported = true,
             isConnected = hasInternet,
@@ -67,35 +72,37 @@ class AndroidNetworkStatusProvider(
         )
     }
 
-    override fun observeStatus(): Flow<NetworkStatusSnapshot> = callbackFlow {
-        val manager = connectivityManager
-        if (manager == null) {
+    override fun observeStatus(): Flow<NetworkStatusSnapshot> =
+        callbackFlow {
+            val manager = connectivityManager
+            if (manager == null) {
+                trySend(currentStatus())
+                close()
+                return@callbackFlow
+            }
+
+            val callback =
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: android.net.Network) {
+                        trySend(currentStatus())
+                    }
+
+                    override fun onLost(network: android.net.Network) {
+                        trySend(currentStatus())
+                    }
+
+                    override fun onCapabilitiesChanged(
+                        network: android.net.Network,
+                        networkCapabilities: NetworkCapabilities,
+                    ) {
+                        trySend(currentStatus())
+                    }
+                }
+
             trySend(currentStatus())
-            close()
-            return@callbackFlow
-        }
-
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: android.net.Network) {
-                trySend(currentStatus())
+            manager.registerDefaultNetworkCallback(callback)
+            awaitClose {
+                runCatching { manager.unregisterNetworkCallback(callback) }
             }
-
-            override fun onLost(network: android.net.Network) {
-                trySend(currentStatus())
-            }
-
-            override fun onCapabilitiesChanged(
-                network: android.net.Network,
-                networkCapabilities: NetworkCapabilities,
-            ) {
-                trySend(currentStatus())
-            }
-        }
-
-        trySend(currentStatus())
-        manager.registerDefaultNetworkCallback(callback)
-        awaitClose {
-            runCatching { manager.unregisterNetworkCallback(callback) }
-        }
-    }.distinctUntilChanged()
+        }.distinctUntilChanged()
 }

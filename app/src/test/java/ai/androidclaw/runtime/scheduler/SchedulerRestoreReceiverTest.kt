@@ -11,7 +11,6 @@ import androidx.work.Configuration
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
-import java.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -21,6 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Instant
 
 @RunWith(AndroidJUnit4::class)
 class SchedulerRestoreReceiverTest {
@@ -31,24 +31,27 @@ class SchedulerRestoreReceiverTest {
     private lateinit var coordinator: SchedulerCoordinator
 
     @Before
-    fun setUp() = runTest {
-        application = ApplicationProvider.getApplicationContext()
-        WorkManagerTestInitHelper.initializeTestWorkManager(
-            application,
-            Configuration.Builder()
-                .setWorkerFactory(application.container.workerFactory)
-                .build(),
-        )
-        database = buildTestDatabase(application)
-        taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
-        eventLogRepository = EventLogRepository(database.eventLogDao())
-        coordinator = SchedulerCoordinator(
-            application = application,
-            clock = java.time.Clock.fixed(Instant.parse("2026-03-09T00:00:00Z"), java.time.ZoneOffset.UTC),
-            taskRepository = taskRepository,
-            eventLogRepository = eventLogRepository,
-        )
-    }
+    fun setUp() =
+        runTest {
+            application = ApplicationProvider.getApplicationContext()
+            WorkManagerTestInitHelper.initializeTestWorkManager(
+                application,
+                Configuration
+                    .Builder()
+                    .setWorkerFactory(application.container.workerFactory)
+                    .build(),
+            )
+            database = buildTestDatabase(application)
+            taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
+            eventLogRepository = EventLogRepository(database.eventLogDao())
+            coordinator =
+                SchedulerCoordinator(
+                    application = application,
+                    clock = java.time.Clock.fixed(Instant.parse("2026-03-09T00:00:00Z"), java.time.ZoneOffset.UTC),
+                    taskRepository = taskRepository,
+                    eventLogRepository = eventLogRepository,
+                )
+        }
 
     @After
     fun tearDown() {
@@ -66,32 +69,38 @@ class SchedulerRestoreReceiverTest {
     }
 
     @Test
-    fun `handleSchedulerRestore logs restore event and reschedules enabled tasks`() = runTest {
-        val task = taskRepository.createTask(
-            name = "Restore me",
-            prompt = "Ping after restore",
-            schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
-            executionMode = TaskExecutionMode.MainSession,
-            targetSessionId = null,
-            precise = false,
-        )
+    fun `handleSchedulerRestore logs restore event and reschedules enabled tasks`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Restore me",
+                    prompt = "Ping after restore",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                    precise = false,
+                )
 
-        handleSchedulerRestore(
-            eventLogRepository = eventLogRepository,
-            rescheduleAll = coordinator::rescheduleAll,
-            action = android.content.Intent.ACTION_MY_PACKAGE_REPLACED,
-        )
+            handleSchedulerRestore(
+                eventLogRepository = eventLogRepository,
+                rescheduleAll = coordinator::rescheduleAll,
+                action = android.content.Intent.ACTION_MY_PACKAGE_REPLACED,
+            )
 
-        val workInfos = WorkManager.getInstance(application)
-            .getWorkInfosForUniqueWork(SchedulerCoordinator.nextWorkName(task.id))
-            .get()
-        val events = eventLogRepository.observeRecent(limit = 10).first()
+            val workInfos =
+                WorkManager
+                    .getInstance(application)
+                    .getWorkInfosForUniqueWork(SchedulerCoordinator.nextWorkName(task.id))
+                    .get()
+            val events = eventLogRepository.observeRecent(limit = 10).first()
 
-        assertEquals(1, workInfos.size)
-        assertEquals(WorkInfo.State.ENQUEUED, workInfos.single().state)
-        assertTrue(events.any { event ->
-            event.message == "Scheduler restore broadcast received." &&
-                event.details?.contains(android.content.Intent.ACTION_MY_PACKAGE_REPLACED) == true
-        })
-    }
+            assertEquals(1, workInfos.size)
+            assertEquals(WorkInfo.State.ENQUEUED, workInfos.single().state)
+            assertTrue(
+                events.any { event ->
+                    event.message == "Scheduler restore broadcast received." &&
+                        event.details?.contains(android.content.Intent.ACTION_MY_PACKAGE_REPLACED) == true
+                },
+            )
+        }
 }

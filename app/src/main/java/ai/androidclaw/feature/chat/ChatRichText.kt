@@ -16,8 +16,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.LinkInteractionListener
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -31,11 +31,17 @@ internal sealed interface ChatRichTextBlock {
         val text: String,
     ) : ChatRichTextBlock
 
-    data class Paragraph(val text: String) : ChatRichTextBlock
+    data class Paragraph(
+        val text: String,
+    ) : ChatRichTextBlock
 
-    data class BulletList(val items: List<String>) : ChatRichTextBlock
+    data class BulletList(
+        val items: List<String>,
+    ) : ChatRichTextBlock
 
-    data class CodeFence(val code: String) : ChatRichTextBlock
+    data class CodeFence(
+        val code: String,
+    ) : ChatRichTextBlock
 }
 
 @Composable
@@ -56,11 +62,12 @@ fun ChatRichText(
                 is ChatRichTextBlock.Heading -> {
                     Text(
                         text = block.text,
-                        style = if (block.level <= 1) {
-                            MaterialTheme.typography.titleMedium
-                        } else {
-                            MaterialTheme.typography.titleSmall
-                        },
+                        style =
+                            if (block.level <= 1) {
+                                MaterialTheme.typography.titleMedium
+                            } else {
+                                MaterialTheme.typography.titleSmall
+                            },
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -94,9 +101,10 @@ fun ChatRichText(
 
                 is ChatRichTextBlock.CodeFence -> {
                     Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
+                        colors =
+                            CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
                     ) {
                         Text(
                             text = block.code,
@@ -118,19 +126,22 @@ private fun RichAnnotatedText(
     modifier: Modifier = Modifier,
     onOpenUri: (String) -> Unit,
 ) {
-    val annotated = buildRichAnnotatedString(
-        source = text,
-        baseStyle = style.toSpanStyle(),
-        inlineCodeStyle = SpanStyle(
-            fontFamily = FontFamily.Monospace,
-            background = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-        linkStyle = SpanStyle(
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium,
-        ),
-        onOpenUri = onOpenUri,
-    )
+    val annotated =
+        buildRichAnnotatedString(
+            source = text,
+            baseStyle = style.toSpanStyle(),
+            inlineCodeStyle =
+                SpanStyle(
+                    fontFamily = FontFamily.Monospace,
+                    background = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            linkStyle =
+                SpanStyle(
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                ),
+            onOpenUri = onOpenUri,
+        )
     Text(
         text = annotated,
         modifier = modifier,
@@ -215,8 +226,8 @@ internal fun buildRichAnnotatedString(
     inlineCodeStyle: SpanStyle,
     linkStyle: SpanStyle,
     onOpenUri: (String) -> Unit = {},
-): AnnotatedString {
-    return buildAnnotatedString {
+): AnnotatedString =
+    buildAnnotatedString {
         var index = 0
         var inlineCode = false
         val urlRegex = URL_REGEX
@@ -235,9 +246,10 @@ internal fun buildRichAnnotatedString(
                         LinkAnnotation.Url(
                             url = url,
                             styles = TextLinkStyles(style = linkStyle),
-                            linkInteractionListener = LinkInteractionListener { annotation ->
-                                onOpenUri((annotation as? LinkAnnotation.Url)?.url ?: url)
-                            },
+                            linkInteractionListener =
+                                LinkInteractionListener { annotation ->
+                                    onOpenUri((annotation as? LinkAnnotation.Url)?.url ?: url)
+                                },
                         ),
                     ) {
                         append(urlMatch.value)
@@ -259,6 +271,5 @@ internal fun buildRichAnnotatedString(
             index += 1
         }
     }
-}
 
 private val URL_REGEX = Regex("https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+")

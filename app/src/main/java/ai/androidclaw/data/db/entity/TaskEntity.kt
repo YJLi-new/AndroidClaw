@@ -38,4 +38,3 @@ data class TaskEntity(
     val createdAt: Long,
     val updatedAt: Long,
 )
-

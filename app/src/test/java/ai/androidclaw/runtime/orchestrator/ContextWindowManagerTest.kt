@@ -15,14 +15,16 @@ class ContextWindowManagerTest {
     fun `short history is preserved without truncation`() {
         val manager = ContextWindowManager(promptBudgetUnits = 256)
 
-        val selection = manager.select(
-            systemPrompt = "short prompt",
-            persistedHistory = listOf(
-                message(ModelMessageRole.User, "hello"),
-                message(ModelMessageRole.Assistant, "hi"),
-                message(ModelMessageRole.User, "how are you"),
-            ),
-        )
+        val selection =
+            manager.select(
+                systemPrompt = "short prompt",
+                persistedHistory =
+                    listOf(
+                        message(ModelMessageRole.User, "hello"),
+                        message(ModelMessageRole.Assistant, "hi"),
+                        message(ModelMessageRole.User, "how are you"),
+                    ),
+            )
 
         assertFalse(selection.truncated)
         assertFalse(selection.summaryInserted)
@@ -32,13 +34,14 @@ class ContextWindowManagerTest {
     @Test
     fun `long history truncation is deterministic`() {
         val manager = ContextWindowManager(promptBudgetUnits = 96)
-        val history = listOf(
-            message(ModelMessageRole.User, "oldest user message with plenty of characters"),
-            message(ModelMessageRole.Assistant, "oldest assistant response with plenty of characters"),
-            message(ModelMessageRole.User, "middle user message with plenty of characters"),
-            message(ModelMessageRole.Assistant, "middle assistant response with plenty of characters"),
-            message(ModelMessageRole.User, "latest user message with plenty of characters"),
-        )
+        val history =
+            listOf(
+                message(ModelMessageRole.User, "oldest user message with plenty of characters"),
+                message(ModelMessageRole.Assistant, "oldest assistant response with plenty of characters"),
+                message(ModelMessageRole.User, "middle user message with plenty of characters"),
+                message(ModelMessageRole.Assistant, "middle assistant response with plenty of characters"),
+                message(ModelMessageRole.User, "latest user message with plenty of characters"),
+            )
 
         val first = manager.select(systemPrompt = "short prompt", persistedHistory = history)
         val second = manager.select(systemPrompt = "short prompt", persistedHistory = history)
@@ -52,33 +55,37 @@ class ContextWindowManagerTest {
     @Test
     fun `tool call closure is preserved when a tool result is selected`() {
         val manager = ContextWindowManager(promptBudgetUnits = 120)
-        val history = listOf(
-            message(ModelMessageRole.User, "start"),
-            message(
-                role = ModelMessageRole.Assistant,
-                content = "",
-                toolCalls = listOf(
-                    ProviderToolCall(
-                        id = "call-1",
-                        name = "health.status",
-                        argumentsJson = buildJsonObject {
-                            put("scope", "summary")
-                        },
-                    ),
+        val history =
+            listOf(
+                message(ModelMessageRole.User, "start"),
+                message(
+                    role = ModelMessageRole.Assistant,
+                    content = "",
+                    toolCalls =
+                        listOf(
+                            ProviderToolCall(
+                                id = "call-1",
+                                name = "health.status",
+                                argumentsJson =
+                                    buildJsonObject {
+                                        put("scope", "summary")
+                                    },
+                            ),
+                        ),
                 ),
-            ),
-            message(
-                role = ModelMessageRole.Tool,
-                content = "Health ok",
-                toolCallId = "call-1",
-            ),
-            message(ModelMessageRole.User, "latest user"),
-        )
+                message(
+                    role = ModelMessageRole.Tool,
+                    content = "Health ok",
+                    toolCallId = "call-1",
+                ),
+                message(ModelMessageRole.User, "latest user"),
+            )
 
         val selection = manager.select(systemPrompt = "short prompt", persistedHistory = history)
-        val selectedToolRoles = selection.messageHistory.filter {
-            it.toolCallId == "call-1" || it.toolCalls.any { toolCall -> toolCall.id == "call-1" }
-        }
+        val selectedToolRoles =
+            selection.messageHistory.filter {
+                it.toolCallId == "call-1" || it.toolCalls.any { toolCall -> toolCall.id == "call-1" }
+            }
 
         assertEquals(2, selectedToolRoles.size)
         assertTrue(selectedToolRoles.any { it.role == ModelMessageRole.Assistant })
@@ -88,32 +95,40 @@ class ContextWindowManagerTest {
     @Test
     fun `summary is inserted when older history is dropped`() {
         val manager = ContextWindowManager(promptBudgetUnits = 67)
-        val history = listOf(
-            message(ModelMessageRole.User, "very old user message with enough characters to be dropped"),
-            message(ModelMessageRole.Assistant, "very old assistant message with enough characters to be dropped"),
-            message(ModelMessageRole.User, "latest question"),
-        )
+        val history =
+            listOf(
+                message(ModelMessageRole.User, "very old user message with enough characters to be dropped"),
+                message(ModelMessageRole.Assistant, "very old assistant message with enough characters to be dropped"),
+                message(ModelMessageRole.User, "latest question"),
+            )
 
-        val selection = manager.select(
-            systemPrompt = "short prompt",
-            persistedHistory = history,
-            summaryText = "Older turns discussed setup.",
-        )
+        val selection =
+            manager.select(
+                systemPrompt = "short prompt",
+                persistedHistory = history,
+                summaryText = "Older turns discussed setup.",
+            )
 
         assertTrue(selection.truncated)
         assertTrue(selection.summaryInserted)
         assertEquals(ModelMessageRole.System, selection.messageHistory.first().role)
-        assertTrue(selection.messageHistory.first().content.contains("Session summary:"))
+        assertTrue(
+            selection.messageHistory
+                .first()
+                .content
+                .contains("Session summary:"),
+        )
     }
 
     @Test
     fun `latest user message is never dropped even under a tiny budget`() {
         val manager = ContextWindowManager(promptBudgetUnits = 32)
-        val history = listOf(
-            message(ModelMessageRole.User, "older user message"),
-            message(ModelMessageRole.Assistant, "older assistant message"),
-            message(ModelMessageRole.User, "latest user message must stay"),
-        )
+        val history =
+            listOf(
+                message(ModelMessageRole.User, "older user message"),
+                message(ModelMessageRole.Assistant, "older assistant message"),
+                message(ModelMessageRole.User, "latest user message must stay"),
+            )
 
         val selection = manager.select(systemPrompt = "prompt", persistedHistory = history)
 
@@ -123,12 +138,13 @@ class ContextWindowManagerTest {
     @Test
     fun `larger system prompts leave less room for message history`() {
         val manager = ContextWindowManager(promptBudgetUnits = 120)
-        val history = listOf(
-            message(ModelMessageRole.User, "message one with some length"),
-            message(ModelMessageRole.Assistant, "message two with some length"),
-            message(ModelMessageRole.User, "message three with some length"),
-            message(ModelMessageRole.Assistant, "message four with some length"),
-        )
+        val history =
+            listOf(
+                message(ModelMessageRole.User, "message one with some length"),
+                message(ModelMessageRole.Assistant, "message two with some length"),
+                message(ModelMessageRole.User, "message three with some length"),
+                message(ModelMessageRole.Assistant, "message four with some length"),
+            )
 
         val shortPrompt = manager.select(systemPrompt = "short", persistedHistory = history)
         val longPrompt = manager.select(systemPrompt = "long ".repeat(60), persistedHistory = history)
@@ -142,12 +158,11 @@ class ContextWindowManagerTest {
         content: String,
         toolCallId: String? = null,
         toolCalls: List<ProviderToolCall> = emptyList(),
-    ): ModelMessage {
-        return ModelMessage(
+    ): ModelMessage =
+        ModelMessage(
             role = role,
             content = content,
             toolCallId = toolCallId,
             toolCalls = toolCalls,
         )
-    }
 }

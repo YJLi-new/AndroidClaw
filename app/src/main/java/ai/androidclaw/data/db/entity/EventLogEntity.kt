@@ -18,4 +18,3 @@ data class EventLogEntity(
     val message: String,
     val detailsJson: String?,
 )
-

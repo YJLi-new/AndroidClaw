@@ -1,11 +1,11 @@
 package ai.androidclaw.feature.skills
 
-import android.net.Uri
 import ai.androidclaw.app.SkillsDependencies
 import ai.androidclaw.runtime.skills.SkillConfigField
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -77,11 +77,12 @@ class SkillsViewModel(
     fun openConfiguration(skill: SkillSnapshot) {
         mutableState.update {
             it.copy(
-                configurationDialog = SkillConfigurationDialogState(
-                    skillId = skill.id,
-                    skillKey = skill.skillKey,
-                    displayName = skill.displayName,
-                ),
+                configurationDialog =
+                    SkillConfigurationDialogState(
+                        skillId = skill.id,
+                        skillKey = skill.skillKey,
+                        displayName = skill.displayName,
+                    ),
             )
         }
         viewModelScope.launch {
@@ -115,20 +116,24 @@ class SkillsViewModel(
         updateDialog { dialog -> dialog.copy(message = null) }
     }
 
-    fun updateSecretDraft(envName: String, value: String) {
+    fun updateSecretDraft(
+        envName: String,
+        value: String,
+    ) {
         updateDialog { dialog ->
             dialog.copy(
                 message = null,
-                secretFields = dialog.secretFields.map { field ->
-                    if (field.envName == envName) {
-                        field.copy(
-                            draftValue = value,
-                            clearRequested = false,
-                        )
-                    } else {
-                        field
-                    }
-                },
+                secretFields =
+                    dialog.secretFields.map { field ->
+                        if (field.envName == envName) {
+                            field.copy(
+                                draftValue = value,
+                                clearRequested = false,
+                            )
+                        } else {
+                            field
+                        }
+                    },
             )
         }
     }
@@ -137,34 +142,39 @@ class SkillsViewModel(
         updateDialog { dialog ->
             dialog.copy(
                 message = null,
-                secretFields = dialog.secretFields.map { field ->
-                    if (field.envName == envName) {
-                        field.copy(
-                            draftValue = "",
-                            clearRequested = !field.clearRequested,
-                        )
-                    } else {
-                        field
-                    }
-                },
+                secretFields =
+                    dialog.secretFields.map { field ->
+                        if (field.envName == envName) {
+                            field.copy(
+                                draftValue = "",
+                                clearRequested = !field.clearRequested,
+                            )
+                        } else {
+                            field
+                        }
+                    },
             )
         }
     }
 
-    fun updateConfigDraft(path: String, value: String) {
+    fun updateConfigDraft(
+        path: String,
+        value: String,
+    ) {
         updateDialog { dialog ->
             dialog.copy(
                 message = null,
-                configFields = dialog.configFields.map { field ->
-                    if (field.path == path) {
-                        field.copy(
-                            draftValue = value,
-                            clearRequested = false,
-                        )
-                    } else {
-                        field
-                    }
-                },
+                configFields =
+                    dialog.configFields.map { field ->
+                        if (field.path == path) {
+                            field.copy(
+                                draftValue = value,
+                                clearRequested = false,
+                            )
+                        } else {
+                            field
+                        }
+                    },
             )
         }
     }
@@ -173,20 +183,22 @@ class SkillsViewModel(
         updateDialog { dialog ->
             dialog.copy(
                 message = null,
-                configFields = dialog.configFields.map { field ->
-                    if (field.path == path) {
-                        field.copy(
-                            draftValue = if (field.clearRequested) {
-                                field.storedValue.orEmpty()
-                            } else {
-                                ""
-                            },
-                            clearRequested = !field.clearRequested,
-                        )
-                    } else {
-                        field
-                    }
-                },
+                configFields =
+                    dialog.configFields.map { field ->
+                        if (field.path == path) {
+                            field.copy(
+                                draftValue =
+                                    if (field.clearRequested) {
+                                        field.storedValue.orEmpty()
+                                    } else {
+                                        ""
+                                    },
+                                clearRequested = !field.clearRequested,
+                            )
+                        } else {
+                            field
+                        }
+                    },
             )
         }
     }
@@ -205,17 +217,20 @@ class SkillsViewModel(
             }
 
             val currentDialog = mutableState.value.configurationDialog ?: return@launch
-            val secretUpdates = currentDialog.secretFields
-                .filter { !it.clearRequested && it.draftValue.isNotBlank() }
-                .associate { it.envName to it.draftValue }
-            val clearedSecrets = currentDialog.secretFields
-                .filter { it.clearRequested }
-                .mapTo(linkedSetOf()) { it.envName }
-            val configUpdates = currentDialog.configFields
-                .filter { it.clearRequested || it.draftValue != (it.storedValue ?: "") }
-                .associate { field ->
-                    field.path to if (field.clearRequested) null else field.draftValue
-                }
+            val secretUpdates =
+                currentDialog.secretFields
+                    .filter { !it.clearRequested && it.draftValue.isNotBlank() }
+                    .associate { it.envName to it.draftValue }
+            val clearedSecrets =
+                currentDialog.secretFields
+                    .filter { it.clearRequested }
+                    .mapTo(linkedSetOf()) { it.envName }
+            val configUpdates =
+                currentDialog.configFields
+                    .filter { it.clearRequested || it.draftValue != (it.storedValue ?: "") }
+                    .associate { field ->
+                        field.path to if (field.clearRequested) null else field.draftValue
+                    }
 
             runCatching {
                 skillManager.saveConfigurationCompat(
@@ -225,8 +240,9 @@ class SkillsViewModel(
                     configUpdates = configUpdates,
                 )
                 val refreshedSkills = skillManager.refreshSkillInventory(forceRefresh = true)
-                val refreshedSkill = refreshedSkills.firstOrNull { it.id == currentDialog.skillId }
-                    ?: refreshedSkills.firstOrNull { it.skillKey == currentDialog.skillKey }
+                val refreshedSkill =
+                    refreshedSkills.firstOrNull { it.id == currentDialog.skillId }
+                        ?: refreshedSkills.firstOrNull { it.skillKey == currentDialog.skillKey }
                 val refreshedConfiguration = refreshedSkill?.let { skillManager.readConfigurationCompat(it) }
                 refreshedSkills to refreshedConfiguration
             }.onSuccess { (skills, configuration) ->
@@ -235,27 +251,30 @@ class SkillsViewModel(
                     state.copy(
                         skills = skills,
                         statusMessage = "Saved configuration for ${existingDialog.displayName}.",
-                        configurationDialog = existingDialog.copy(
-                            loading = false,
-                            saving = false,
-                            message = if (configuration == null) "Saved configuration." else null,
-                            secretFields = configuration?.secretFields?.toEditableSecretFields()
-                                ?: existingDialog.secretFields.map { field ->
-                                    field.copy(
-                                        configured = !field.clearRequested,
-                                        draftValue = "",
-                                        clearRequested = false,
-                                    )
-                                },
-                            configFields = configuration?.configFields?.toEditableConfigFields()
-                                ?: existingDialog.configFields.map { field ->
-                                    field.copy(
-                                        storedValue = if (field.clearRequested) null else field.draftValue,
-                                        draftValue = if (field.clearRequested) "" else field.draftValue,
-                                        clearRequested = false,
-                                    )
-                                },
-                        ),
+                        configurationDialog =
+                            existingDialog.copy(
+                                loading = false,
+                                saving = false,
+                                message = if (configuration == null) "Saved configuration." else null,
+                                secretFields =
+                                    configuration?.secretFields?.toEditableSecretFields()
+                                        ?: existingDialog.secretFields.map { field ->
+                                            field.copy(
+                                                configured = !field.clearRequested,
+                                                draftValue = "",
+                                                clearRequested = false,
+                                            )
+                                        },
+                                configFields =
+                                    configuration?.configFields?.toEditableConfigFields()
+                                        ?: existingDialog.configFields.map { field ->
+                                            field.copy(
+                                                storedValue = if (field.clearRequested) null else field.draftValue,
+                                                draftValue = if (field.clearRequested) "" else field.draftValue,
+                                                clearRequested = false,
+                                            )
+                                        },
+                            ),
                     )
                 }
             }.onFailure { error ->
@@ -269,16 +288,20 @@ class SkillsViewModel(
         }
     }
 
-    fun toggleSkill(skillId: String, enabled: Boolean) {
+    fun toggleSkill(
+        skillId: String,
+        enabled: Boolean,
+    ) {
         viewModelScope.launch {
             skillManager.setEnabled(skillId = skillId, enabled = enabled)
             mutableState.update {
                 it.copy(
-                    statusMessage = if (enabled) {
-                        "Enabled skill."
-                    } else {
-                        "Disabled skill."
-                    },
+                    statusMessage =
+                        if (enabled) {
+                            "Enabled skill."
+                        } else {
+                            "Disabled skill."
+                        },
                 )
             }
             loadSkills(forceRefresh = true)
@@ -299,20 +322,21 @@ class SkillsViewModel(
                 mutableState.update {
                     it.copy(
                         isImporting = false,
-                        statusMessage = buildString {
-                            append("Imported ${result.importedSkillNames.size} skill")
-                            if (result.importedSkillNames.size != 1) {
-                                append('s')
-                            }
-                            if (result.importedSkillNames.isNotEmpty()) {
-                                append(": ")
-                                append(result.importedSkillNames.joinToString())
-                            }
-                            if (result.replacedSkillNames.isNotEmpty()) {
-                                append(". Replaced: ")
-                                append(result.replacedSkillNames.joinToString())
-                            }
-                        },
+                        statusMessage =
+                            buildString {
+                                append("Imported ${result.importedSkillNames.size} skill")
+                                if (result.importedSkillNames.size != 1) {
+                                    append('s')
+                                }
+                                if (result.importedSkillNames.isNotEmpty()) {
+                                    append(": ")
+                                    append(result.importedSkillNames.joinToString())
+                                }
+                                if (result.replacedSkillNames.isNotEmpty()) {
+                                    append(". Replaced: ")
+                                    append(result.replacedSkillNames.joinToString())
+                                }
+                            },
                     )
                 }
                 loadSkills(forceRefresh = true)
@@ -364,34 +388,30 @@ class SkillsViewModel(
     }
 
     companion object {
-        fun factory(dependencies: SkillsDependencies): ViewModelProvider.Factory {
-            return object : ViewModelProvider.Factory {
+        fun factory(dependencies: SkillsDependencies): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return SkillsViewModel(
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    SkillsViewModel(
                         skillManager = dependencies.skillManager,
                     ) as T
-                }
             }
-        }
     }
 }
 
-private fun List<SkillSecretField>.toEditableSecretFields(): List<EditableSkillSecretField> {
-    return map { field ->
+private fun List<SkillSecretField>.toEditableSecretFields(): List<EditableSkillSecretField> =
+    map { field ->
         EditableSkillSecretField(
             envName = field.envName,
             configured = field.configured,
         )
     }
-}
 
-private fun List<SkillConfigField>.toEditableConfigFields(): List<EditableSkillConfigField> {
-    return map { field ->
+private fun List<SkillConfigField>.toEditableConfigFields(): List<EditableSkillConfigField> =
+    map { field ->
         EditableSkillConfigField(
             path = field.path,
             storedValue = field.value,
             draftValue = field.value.orEmpty(),
         )
     }
-}

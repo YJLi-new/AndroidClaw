@@ -1,12 +1,11 @@
 package ai.androidclaw.app
 
-import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderSecretStore
+import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
-import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.providers.NetworkStatusProvider

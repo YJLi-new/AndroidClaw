@@ -48,5 +48,8 @@ interface SessionDao {
         LIMIT :limit
         """,
     )
-    suspend fun searchByTitle(query: String, limit: Int): List<SessionEntity>
+    suspend fun searchByTitle(
+        query: String,
+        limit: Int,
+    ): List<SessionEntity>
 }

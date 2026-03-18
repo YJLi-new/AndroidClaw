@@ -3,10 +3,10 @@ package ai.androidclaw.feature.chat
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Session
-import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.time.Instant
 
 enum class ChatExportFormat(
     val label: String,
@@ -37,20 +37,25 @@ data class ChatExportPayload(
 )
 
 sealed interface ChatExternalAction {
-    data class ExportDocument(val payload: ChatExportPayload) : ChatExternalAction
+    data class ExportDocument(
+        val payload: ChatExportPayload,
+    ) : ChatExternalAction
 
     data class ShareText(
         val subject: String,
         val text: String,
     ) : ChatExternalAction
 
-    data class ShareFile(val payload: ChatExportPayload) : ChatExternalAction
+    data class ShareFile(
+        val payload: ChatExportPayload,
+    ) : ChatExternalAction
 }
 
 object ChatExportFormatter {
-    private val exportJson = Json {
-        prettyPrint = true
-    }
+    private val exportJson =
+        Json {
+            prettyPrint = true
+        }
 
     fun buildExportPayload(
         session: Session,
@@ -59,11 +64,12 @@ object ChatExportFormatter {
         exportedAt: Instant = Instant.now(),
     ): ChatExportPayload {
         val fileStem = buildFileStem(session, exportedAt)
-        val content = when (format) {
-            ChatExportFormat.Text -> buildTextExport(session, messages, exportedAt)
-            ChatExportFormat.Markdown -> buildMarkdownExport(session, messages, exportedAt)
-            ChatExportFormat.Json -> buildJsonExport(session, messages, exportedAt)
-        }
+        val content =
+            when (format) {
+                ChatExportFormat.Text -> buildTextExport(session, messages, exportedAt)
+                ChatExportFormat.Markdown -> buildMarkdownExport(session, messages, exportedAt)
+                ChatExportFormat.Json -> buildJsonExport(session, messages, exportedAt)
+            }
         return ChatExportPayload(
             fileName = "$fileStem.${format.extension}",
             mimeType = format.mimeType,
@@ -75,8 +81,8 @@ object ChatExportFormatter {
         session: Session,
         messages: List<ChatMessage>,
         exportedAt: Instant,
-    ): String {
-        return buildString {
+    ): String =
+        buildString {
             appendLine("AndroidClaw session export")
             appendLine("Title: ${session.title}")
             appendLine("Session ID: ${session.id}")
@@ -95,14 +101,13 @@ object ChatExportFormatter {
                 appendLine(message.content.trimEnd())
             }
         }.trimEnd()
-    }
 
     private fun buildMarkdownExport(
         session: Session,
         messages: List<ChatMessage>,
         exportedAt: Instant,
-    ): String {
-        return buildString {
+    ): String =
+        buildString {
             appendLine("# ${escapeMarkdown(session.title)}")
             appendLine()
             appendLine("- Session ID: `${session.id}`")
@@ -110,7 +115,7 @@ object ChatExportFormatter {
             appendLine("- Archived: `${session.archived}`")
             appendLine("- Created: `${session.createdAt}`")
             appendLine("- Updated: `${session.updatedAt}`")
-            appendLine("- Exported: `${exportedAt}`")
+            appendLine("- Exported: `$exportedAt`")
             session.summaryText?.takeIf { it.isNotBlank() }?.let { summary ->
                 appendLine()
                 appendLine("## Summary")
@@ -130,83 +135,82 @@ object ChatExportFormatter {
                 appendLine("```")
             }
         }.trimEnd()
-    }
 
     private fun buildJsonExport(
         session: Session,
         messages: List<ChatMessage>,
         exportedAt: Instant,
-    ): String {
-        return exportJson.encodeToString(
+    ): String =
+        exportJson.encodeToString(
             ExportedSessionDocument(
                 exportedAt = exportedAt.toString(),
                 app = "AndroidClaw",
-                session = ExportedSessionMetadata(
-                    id = session.id,
-                    title = session.title,
-                    isMain = session.isMain,
-                    archived = session.archived,
-                    createdAt = session.createdAt.toString(),
-                    updatedAt = session.updatedAt.toString(),
-                    summaryText = session.summaryText,
-                ),
-                messages = messages.map { message ->
-                    ExportedMessage(
-                        id = message.id,
-                        role = message.role.storageName(),
-                        content = message.content,
-                        createdAt = message.createdAt.toString(),
-                        providerMeta = message.providerMeta,
-                        toolCallId = message.toolCallId,
-                        taskRunId = message.taskRunId,
-                    )
-                },
+                session =
+                    ExportedSessionMetadata(
+                        id = session.id,
+                        title = session.title,
+                        isMain = session.isMain,
+                        archived = session.archived,
+                        createdAt = session.createdAt.toString(),
+                        updatedAt = session.updatedAt.toString(),
+                        summaryText = session.summaryText,
+                    ),
+                messages =
+                    messages.map { message ->
+                        ExportedMessage(
+                            id = message.id,
+                            role = message.role.storageName(),
+                            content = message.content,
+                            createdAt = message.createdAt.toString(),
+                            providerMeta = message.providerMeta,
+                            toolCallId = message.toolCallId,
+                            taskRunId = message.taskRunId,
+                        )
+                    },
             ),
         )
-    }
 
     private fun buildFileStem(
         session: Session,
         exportedAt: Instant,
     ): String {
-        val sessionPart = session.title
-            .trim()
-            .ifBlank { "session" }
-            .replace(Regex("[^A-Za-z0-9._-]+"), "-")
-            .trim('-')
-            .ifBlank { "session" }
-            .take(48)
-        val timestampPart = exportedAt.toString()
-            .replace(':', '-')
-            .replace(Regex("[^A-Za-z0-9._-]"), "-")
-            .trim('-')
+        val sessionPart =
+            session.title
+                .trim()
+                .ifBlank { "session" }
+                .replace(Regex("[^A-Za-z0-9._-]+"), "-")
+                .trim('-')
+                .ifBlank { "session" }
+                .take(48)
+        val timestampPart =
+            exportedAt
+                .toString()
+                .replace(':', '-')
+                .replace(Regex("[^A-Za-z0-9._-]"), "-")
+                .trim('-')
         return "${sessionPart}_$timestampPart"
     }
 
-    private fun escapeMarkdown(value: String): String {
-        return value.replace("`", "\\`")
-    }
+    private fun escapeMarkdown(value: String): String = value.replace("`", "\\`")
 }
 
-private fun MessageRole.displayName(): String {
-    return when (this) {
+private fun MessageRole.displayName(): String =
+    when (this) {
         MessageRole.User -> "User"
         MessageRole.Assistant -> "Assistant"
         MessageRole.ToolCall -> "Tool call"
         MessageRole.ToolResult -> "Tool result"
         MessageRole.System -> "System"
     }
-}
 
-private fun MessageRole.storageName(): String {
-    return when (this) {
+private fun MessageRole.storageName(): String =
+    when (this) {
         MessageRole.User -> "user"
         MessageRole.Assistant -> "assistant"
         MessageRole.ToolCall -> "tool_call"
         MessageRole.ToolResult -> "tool_result"
         MessageRole.System -> "system"
     }
-}
 
 @Serializable
 private data class ExportedSessionDocument(

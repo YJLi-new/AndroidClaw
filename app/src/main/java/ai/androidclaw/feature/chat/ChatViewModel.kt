@@ -3,12 +3,12 @@ package ai.androidclaw.feature.chat
 import ai.androidclaw.app.ChatDependencies
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
-import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
-import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.AgentTurnEvent
@@ -23,8 +23,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -114,138 +114,148 @@ class ChatViewModel(
     private var lastFailedUserMessageText: String? = null
     private var lastFailedSessionId: String? = null
 
-    private val messagesFlow: Flow<List<ChatMessageUi>> = mutableCurrentSessionId.flatMapLatest { sessionId ->
-        if (sessionId.isBlank()) {
-            flowOf(emptyList())
-        } else {
-            messageRepository.observeMessages(sessionId).map { messages ->
-                messages.map(ChatMessage::toUi)
+    private val messagesFlow: Flow<List<ChatMessageUi>> =
+        mutableCurrentSessionId.flatMapLatest { sessionId ->
+            if (sessionId.isBlank()) {
+                flowOf(emptyList())
+            } else {
+                messageRepository.observeMessages(sessionId).map { messages ->
+                    messages.map(ChatMessage::toUi)
+                }
             }
         }
-    }
 
-    private val usageSummaryFlow: Flow<String?> = mutableCurrentSessionId.flatMapLatest { sessionId ->
-        if (sessionId.isBlank()) {
-            flowOf(null)
-        } else {
-            messageRepository.observeMessages(sessionId).map(::buildUsageSummary)
+    private val usageSummaryFlow: Flow<String?> =
+        mutableCurrentSessionId.flatMapLatest { sessionId ->
+            if (sessionId.isBlank()) {
+                flowOf(null)
+            } else {
+                messageRepository.observeMessages(sessionId).map(::buildUsageSummary)
+            }
         }
-    }
 
-    private val baseChromeFlow = combine(
-        draft,
-        isRunning,
-        isCancelling,
-        errorMessage,
-        noticeMessage,
-    ) { draftValue, isRunningValue, isCancellingValue, errorMessageValue, noticeMessageValue ->
-        BaseChatChrome(
-            draft = draftValue,
-            isRunning = isRunningValue,
-            isCancelling = isCancellingValue,
-            errorMessage = errorMessageValue,
-            noticeMessage = noticeMessageValue,
-        )
-    }
-
-    private val turnChromeFlow = combine(
-        streamingAssistantText,
-        canRetryLastFailedTurn,
-        activeTurnStage,
-    ) { streamingAssistantTextValue, canRetryValue, activeTurnStageValue ->
-        TurnChrome(
-            streamingAssistantText = streamingAssistantTextValue,
-            canRetryLastFailedTurn = canRetryValue,
-            activeTurnStage = activeTurnStageValue,
-        )
-    }
-
-    private val searchChromeFlow = combine(
-        searchQuery,
-        searchResults,
-        highlightedMessageId,
-    ) { searchQueryValue, searchResultsValue, highlightedMessageIdValue ->
-        SearchChrome(
-            searchQuery = searchQueryValue,
-            searchResults = searchResultsValue,
-            highlightedMessageId = highlightedMessageIdValue,
-        )
-    }
-
-    private val providerNoticeFlow = settingsDataStore.settings.map { settings ->
-        if (settings.providerType == ProviderType.Fake) {
-            "Offline demo mode is active. Replies are coming from FakeProvider."
-        } else {
-            null
-        }
-    }
-
-    private val chromeCoreFlow = combine(
-        baseChromeFlow,
-        turnChromeFlow,
-        searchChromeFlow,
-        slashCommands,
-        mutableCurrentSessionId,
-    ) { baseChrome, turnChrome, searchChrome, slashCommandsValue, currentSessionIdValue ->
-        ChatUiState(
-            currentSessionId = currentSessionIdValue,
-            sessionTitle = "",
-            sessionSummary = null,
-            searchQuery = searchChrome.searchQuery,
-            searchResults = searchChrome.searchResults,
-            highlightedMessageId = searchChrome.highlightedMessageId,
-            draft = baseChrome.draft,
-            isRunning = baseChrome.isRunning,
-            isCancelling = baseChrome.isCancelling,
-            errorMessage = baseChrome.errorMessage,
-            noticeMessage = baseChrome.noticeMessage,
-            slashCommands = slashCommandsValue,
-            sessions = emptyList(),
-            messages = emptyList(),
-            streamingAssistantText = turnChrome.streamingAssistantText,
-            canRetryLastFailedTurn = turnChrome.canRetryLastFailedTurn,
-            activeTurnStage = turnChrome.activeTurnStage,
-        )
-    }
-
-    private val chromeFlow = combine(
-        chromeCoreFlow,
-        providerNoticeFlow,
-    ) { chromeCore, providerNoticeValue ->
-        chromeCore.copy(
-            providerNotice = providerNoticeValue,
-        )
-    }
-
-    val state: StateFlow<ChatUiState> = combine(
-        chromeFlow,
-        sessionsFlow,
-        messagesFlow,
-        usageSummaryFlow,
-    ) { chrome, sessions, messages, usageSummary ->
-        val sessionItems = sessions.map { session ->
-            ChatSessionUi(
-                id = session.id,
-                title = session.title,
-                isSelected = session.id == chrome.currentSessionId,
-                isMain = session.isMain,
+    private val baseChromeFlow =
+        combine(
+            draft,
+            isRunning,
+            isCancelling,
+            errorMessage,
+            noticeMessage,
+        ) { draftValue, isRunningValue, isCancellingValue, errorMessageValue, noticeMessageValue ->
+            BaseChatChrome(
+                draft = draftValue,
+                isRunning = isRunningValue,
+                isCancelling = isCancellingValue,
+                errorMessage = errorMessageValue,
+                noticeMessage = noticeMessageValue,
             )
         }
-        val currentSession = sessionItems.firstOrNull { it.isSelected }
-        val currentSessionSummary = sessions.firstOrNull { it.id == chrome.currentSessionId }?.summaryText
-        chrome.copy(
-            sessionTitle = currentSession?.title.orEmpty(),
-            sessionSummary = currentSessionSummary,
-            sessionUsageSummary = usageSummary,
-            sessions = sessionItems,
-            messages = messages,
-            canArchiveCurrentSession = currentSession?.isMain == false,
+
+    private val turnChromeFlow =
+        combine(
+            streamingAssistantText,
+            canRetryLastFailedTurn,
+            activeTurnStage,
+        ) { streamingAssistantTextValue, canRetryValue, activeTurnStageValue ->
+            TurnChrome(
+                streamingAssistantText = streamingAssistantTextValue,
+                canRetryLastFailedTurn = canRetryValue,
+                activeTurnStage = activeTurnStageValue,
+            )
+        }
+
+    private val searchChromeFlow =
+        combine(
+            searchQuery,
+            searchResults,
+            highlightedMessageId,
+        ) { searchQueryValue, searchResultsValue, highlightedMessageIdValue ->
+            SearchChrome(
+                searchQuery = searchQueryValue,
+                searchResults = searchResultsValue,
+                highlightedMessageId = highlightedMessageIdValue,
+            )
+        }
+
+    private val providerNoticeFlow =
+        settingsDataStore.settings.map { settings ->
+            if (settings.providerType == ProviderType.Fake) {
+                "Offline demo mode is active. Replies are coming from FakeProvider."
+            } else {
+                null
+            }
+        }
+
+    private val chromeCoreFlow =
+        combine(
+            baseChromeFlow,
+            turnChromeFlow,
+            searchChromeFlow,
+            slashCommands,
+            mutableCurrentSessionId,
+        ) { baseChrome, turnChrome, searchChrome, slashCommandsValue, currentSessionIdValue ->
+            ChatUiState(
+                currentSessionId = currentSessionIdValue,
+                sessionTitle = "",
+                sessionSummary = null,
+                searchQuery = searchChrome.searchQuery,
+                searchResults = searchChrome.searchResults,
+                highlightedMessageId = searchChrome.highlightedMessageId,
+                draft = baseChrome.draft,
+                isRunning = baseChrome.isRunning,
+                isCancelling = baseChrome.isCancelling,
+                errorMessage = baseChrome.errorMessage,
+                noticeMessage = baseChrome.noticeMessage,
+                slashCommands = slashCommandsValue,
+                sessions = emptyList(),
+                messages = emptyList(),
+                streamingAssistantText = turnChrome.streamingAssistantText,
+                canRetryLastFailedTurn = turnChrome.canRetryLastFailedTurn,
+                activeTurnStage = turnChrome.activeTurnStage,
+            )
+        }
+
+    private val chromeFlow =
+        combine(
+            chromeCoreFlow,
+            providerNoticeFlow,
+        ) { chromeCore, providerNoticeValue ->
+            chromeCore.copy(
+                providerNotice = providerNoticeValue,
+            )
+        }
+
+    val state: StateFlow<ChatUiState> =
+        combine(
+            chromeFlow,
+            sessionsFlow,
+            messagesFlow,
+            usageSummaryFlow,
+        ) { chrome, sessions, messages, usageSummary ->
+            val sessionItems =
+                sessions.map { session ->
+                    ChatSessionUi(
+                        id = session.id,
+                        title = session.title,
+                        isSelected = session.id == chrome.currentSessionId,
+                        isMain = session.isMain,
+                    )
+                }
+            val currentSession = sessionItems.firstOrNull { it.isSelected }
+            val currentSessionSummary = sessions.firstOrNull { it.id == chrome.currentSessionId }?.summaryText
+            chrome.copy(
+                sessionTitle = currentSession?.title.orEmpty(),
+                sessionSummary = currentSessionSummary,
+                sessionUsageSummary = usageSummary,
+                sessions = sessionItems,
+                messages = messages,
+                canArchiveCurrentSession = currentSession?.isMain == false,
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = uiSharingStarted,
+            initialValue = ChatUiState(),
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = uiSharingStarted,
-        initialValue = ChatUiState(),
-    )
 
     init {
         viewModelScope.launch {
@@ -393,33 +403,38 @@ class ChatViewModel(
             return
         }
         viewModelScope.launch {
-            val sessionMatches = sessionRepository.searchSessions(query, limit = SEARCH_SESSION_LIMIT)
-                .map { match ->
-                    ChatSearchResultUi(
-                        sessionId = match.sessionId,
-                        sessionTitle = match.sessionTitle,
-                        preview = "Session title match",
-                        matchType = "Session",
-                    )
-                }
-            val messageMatches = messageRepository.searchMessages(query, limit = SEARCH_MESSAGE_LIMIT)
-                .map { match ->
-                    ChatSearchResultUi(
-                        sessionId = match.sessionId,
-                        sessionTitle = match.sessionTitle,
-                        preview = buildSearchPreview(match.content, query),
-                        matchType = "Message",
-                        messageId = match.messageId,
-                    )
-                }
+            val sessionMatches =
+                sessionRepository
+                    .searchSessions(query, limit = SEARCH_SESSION_LIMIT)
+                    .map { match ->
+                        ChatSearchResultUi(
+                            sessionId = match.sessionId,
+                            sessionTitle = match.sessionTitle,
+                            preview = "Session title match",
+                            matchType = "Session",
+                        )
+                    }
+            val messageMatches =
+                messageRepository
+                    .searchMessages(query, limit = SEARCH_MESSAGE_LIMIT)
+                    .map { match ->
+                        ChatSearchResultUi(
+                            sessionId = match.sessionId,
+                            sessionTitle = match.sessionTitle,
+                            preview = buildSearchPreview(match.content, query),
+                            matchType = "Message",
+                            messageId = match.messageId,
+                        )
+                    }
             val combined = (sessionMatches + messageMatches).take(MAX_SEARCH_RESULTS)
             searchResults.value = combined
             highlightedMessageId.value = null
-            noticeMessage.value = if (combined.isEmpty()) {
-                "No matches found for \"$query\"."
-            } else {
-                "Found ${combined.size} matches for \"$query\"."
-            }
+            noticeMessage.value =
+                if (combined.isEmpty()) {
+                    "No matches found for \"$query\"."
+                } else {
+                    "Found ${combined.size} matches for \"$query\"."
+                }
         }
     }
 
@@ -437,11 +452,12 @@ class ChatViewModel(
         mutableCurrentSessionId.value = result.sessionId
         highlightedMessageId.value = result.messageId
         errorMessage.value = null
-        noticeMessage.value = if (result.messageId != null) {
-            "Showing search match in ${result.sessionTitle}."
-        } else {
-            "Opened session ${result.sessionTitle}."
-        }
+        noticeMessage.value =
+            if (result.messageId != null) {
+                "Showing search match in ${result.sessionTitle}."
+            } else {
+                "Opened session ${result.sessionTitle}."
+            }
         refreshSkillCommands(result.sessionId)
         syncRetryAvailability(result.sessionId)
     }
@@ -454,8 +470,7 @@ class ChatViewModel(
                     errorMessage.value = null
                     noticeMessage.value = "Ready to save ${payload.fileName}."
                     externalActions.emit(ChatExternalAction.ExportDocument(payload))
-                }
-                .onFailure { throwable ->
+                }.onFailure { throwable ->
                     errorMessage.value = throwable.userFacingMessage("prepare export")
                 }
         }
@@ -474,8 +489,7 @@ class ChatViewModel(
                             text = payload.content,
                         ),
                     )
-                }
-                .onFailure { throwable ->
+                }.onFailure { throwable ->
                     errorMessage.value = throwable.userFacingMessage("prepare share text")
                 }
         }
@@ -489,8 +503,7 @@ class ChatViewModel(
                     errorMessage.value = null
                     noticeMessage.value = "Opening share sheet."
                     externalActions.emit(ChatExternalAction.ShareFile(payload))
-                }
-                .onFailure { throwable ->
+                }.onFailure { throwable ->
                     errorMessage.value = throwable.userFacingMessage("prepare share file")
                 }
         }
@@ -535,103 +548,107 @@ class ChatViewModel(
         activeTurnStage.value = "Waiting for response"
         canRetryLastFailedTurn.value = false
 
-        activeTurnJob = viewModelScope.launch {
-            if (isRetry) {
-                eventLogRepository.log(
-                    category = EventCategory.Provider,
-                    level = EventLevel.Info,
-                    message = "Retrying failed turn.",
-                    details = "sessionId=$sessionId",
-                )
-            }
-            try {
-                agentRunner.runInteractiveTurnStream(
-                    request = AgentTurnRequest(
-                        sessionId = sessionId,
-                        userMessage = normalizedUserMessage,
-                        persistUserMessage = persistUserMessage,
-                    ),
-                ).collect { event ->
-                    when (event) {
-                        is AgentTurnEvent.AssistantTextDelta -> {
-                            streamingAssistantText.value += event.text
-                            if (activeTurnStage.value.isNullOrBlank() || activeTurnStage.value == "Waiting for response") {
-                                activeTurnStage.value = "Generating response"
+        activeTurnJob =
+            viewModelScope.launch {
+                if (isRetry) {
+                    eventLogRepository.log(
+                        category = EventCategory.Provider,
+                        level = EventLevel.Info,
+                        message = "Retrying failed turn.",
+                        details = "sessionId=$sessionId",
+                    )
+                }
+                try {
+                    agentRunner
+                        .runInteractiveTurnStream(
+                            request =
+                                AgentTurnRequest(
+                                    sessionId = sessionId,
+                                    userMessage = normalizedUserMessage,
+                                    persistUserMessage = persistUserMessage,
+                                ),
+                        ).collect { event ->
+                            when (event) {
+                                is AgentTurnEvent.AssistantTextDelta -> {
+                                    streamingAssistantText.value += event.text
+                                    if (activeTurnStage.value.isNullOrBlank() || activeTurnStage.value == "Waiting for response") {
+                                        activeTurnStage.value = "Generating response"
+                                    }
+                                }
+
+                                is AgentTurnEvent.ToolStarted -> {
+                                    activeTurnStage.value = "Running ${event.name}"
+                                }
+
+                                is AgentTurnEvent.ToolFinished -> {
+                                    activeTurnStage.value =
+                                        if (event.success) {
+                                            "Finished ${event.name}"
+                                        } else {
+                                            "Tool ${event.name} failed"
+                                        }
+                                }
+
+                                is AgentTurnEvent.TurnCompleted -> {
+                                    streamingAssistantText.value = ""
+                                    activeTurnStage.value = null
+                                    errorMessage.value = null
+                                    noticeMessage.value = null
+                                    lastFailedUserMessageText = null
+                                    lastFailedSessionId = null
+                                    canRetryLastFailedTurn.value = false
+                                    refreshSkillCommands(sessionId)
+                                }
+
+                                is AgentTurnEvent.TurnFailed -> {
+                                    streamingAssistantText.value = ""
+                                    activeTurnStage.value = null
+                                    errorMessage.value = event.message
+                                    noticeMessage.value = null
+                                    lastFailedUserMessageText = normalizedUserMessage
+                                    lastFailedSessionId = sessionId
+                                    canRetryLastFailedTurn.value = event.retryable
+                                    logTurnFailure(
+                                        message = event.message,
+                                        kind = event.kind,
+                                        retryable = event.retryable,
+                                    )
+                                }
+
+                                AgentTurnEvent.Cancelled -> {
+                                    streamingAssistantText.value = ""
+                                    activeTurnStage.value = null
+                                    errorMessage.value = null
+                                    noticeMessage.value = "Turn cancelled."
+                                    canRetryLastFailedTurn.value = false
+                                }
                             }
                         }
-
-                        is AgentTurnEvent.ToolStarted -> {
-                            activeTurnStage.value = "Running ${event.name}"
-                        }
-
-                        is AgentTurnEvent.ToolFinished -> {
-                            activeTurnStage.value = if (event.success) {
-                                "Finished ${event.name}"
-                            } else {
-                                "Tool ${event.name} failed"
-                            }
-                        }
-
-                        is AgentTurnEvent.TurnCompleted -> {
-                            streamingAssistantText.value = ""
-                            activeTurnStage.value = null
-                            errorMessage.value = null
-                            noticeMessage.value = null
-                            lastFailedUserMessageText = null
-                            lastFailedSessionId = null
-                            canRetryLastFailedTurn.value = false
-                            refreshSkillCommands(sessionId)
-                        }
-
-                        is AgentTurnEvent.TurnFailed -> {
-                            streamingAssistantText.value = ""
-                            activeTurnStage.value = null
-                            errorMessage.value = event.message
-                            noticeMessage.value = null
-                            lastFailedUserMessageText = normalizedUserMessage
-                            lastFailedSessionId = sessionId
-                            canRetryLastFailedTurn.value = event.retryable
-                            logTurnFailure(
-                                message = event.message,
-                                kind = event.kind,
-                                retryable = event.retryable,
-                            )
-                        }
-
-                        AgentTurnEvent.Cancelled -> {
-                            streamingAssistantText.value = ""
-                            activeTurnStage.value = null
-                            errorMessage.value = null
-                            noticeMessage.value = "Turn cancelled."
-                            canRetryLastFailedTurn.value = false
-                        }
+                } catch (error: CancellationException) {
+                    if (cancelRequested) {
+                        streamingAssistantText.value = ""
+                        activeTurnStage.value = null
+                        errorMessage.value = null
+                        noticeMessage.value = "Turn cancelled."
+                        canRetryLastFailedTurn.value = false
+                    } else {
+                        throw error
                     }
+                } finally {
+                    val cancelledByUser = cancelRequested
+                    if (cancelledByUser) {
+                        streamingAssistantText.value = ""
+                        activeTurnStage.value = null
+                        errorMessage.value = null
+                        noticeMessage.value = "Turn cancelled."
+                        canRetryLastFailedTurn.value = false
+                    }
+                    isRunning.value = false
+                    isCancelling.value = false
+                    cancelRequested = false
+                    activeTurnJob = null
                 }
-            } catch (error: CancellationException) {
-                if (cancelRequested) {
-                    streamingAssistantText.value = ""
-                    activeTurnStage.value = null
-                    errorMessage.value = null
-                    noticeMessage.value = "Turn cancelled."
-                    canRetryLastFailedTurn.value = false
-                } else {
-                    throw error
-                }
-            } finally {
-                val cancelledByUser = cancelRequested
-                if (cancelledByUser) {
-                    streamingAssistantText.value = ""
-                    activeTurnStage.value = null
-                    errorMessage.value = null
-                    noticeMessage.value = "Turn cancelled."
-                    canRetryLastFailedTurn.value = false
-                }
-                isRunning.value = false
-                isCancelling.value = false
-                cancelRequested = false
-                activeTurnJob = null
             }
-        }
     }
 
     private fun logTurnFailure(
@@ -660,21 +677,24 @@ class ChatViewModel(
         sessionId: String? = mutableCurrentSessionId.value.takeIf { it.isNotBlank() },
     ) {
         viewModelScope.launch {
-            val commands = skillManager.refreshSkills(sessionId = sessionId)
-                .mapNotNull { skill ->
-                    val frontmatter = skill.frontmatter ?: return@mapNotNull null
-                    if (frontmatter.userInvocable) "/${frontmatter.name}" else null
-                }
-                .sorted()
+            val commands =
+                skillManager
+                    .refreshSkills(sessionId = sessionId)
+                    .mapNotNull { skill ->
+                        val frontmatter = skill.frontmatter ?: return@mapNotNull null
+                        if (frontmatter.userInvocable) "/${frontmatter.name}" else null
+                    }.sorted()
             slashCommands.value = commands
         }
     }
 
     private suspend fun buildExportPayload(format: ChatExportFormat): ChatExportPayload {
-        val sessionId = currentSessionId.value.takeIf { it.isNotBlank() }
-            ?: error("No active session to export.")
-        val session = sessionRepository.getSession(sessionId)
-            ?: error("Session is no longer available.")
+        val sessionId =
+            currentSessionId.value.takeIf { it.isNotBlank() }
+                ?: error("No active session to export.")
+        val session =
+            sessionRepository.getSession(sessionId)
+                ?: error("Session is no longer available.")
         val messages = messageRepository.getMessages(sessionId)
         return ChatExportFormatter.buildExportPayload(
             session = session,
@@ -688,11 +708,11 @@ class ChatViewModel(
         private const val SEARCH_MESSAGE_LIMIT = 10
         private const val MAX_SEARCH_RESULTS = 12
 
-        fun factory(dependencies: ChatDependencies): ViewModelProvider.Factory {
-            return object : ViewModelProvider.Factory {
+        fun factory(dependencies: ChatDependencies): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return ChatViewModel(
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    ChatViewModel(
                         sessionRepository = dependencies.sessionRepository,
                         messageRepository = dependencies.messageRepository,
                         eventLogRepository = dependencies.eventLogRepository,
@@ -700,9 +720,7 @@ class ChatViewModel(
                         skillManager = dependencies.skillManager,
                         settingsDataStore = dependencies.settingsDataStore,
                     ) as T
-                }
             }
-        }
     }
 }
 
@@ -802,16 +820,16 @@ private fun Throwable.userFacingMessage(operation: String): String {
     }
 }
 
-private fun ChatMessage.toUi(): ChatMessageUi {
-    return ChatMessageUi(
+private fun ChatMessage.toUi(): ChatMessageUi =
+    ChatMessageUi(
         id = id,
-        role = when (role) {
-            MessageRole.User -> "user"
-            MessageRole.Assistant -> "assistant"
-            MessageRole.ToolCall -> "tool_call"
-            MessageRole.ToolResult -> "tool_result"
-            MessageRole.System -> "system"
-        },
+        role =
+            when (role) {
+                MessageRole.User -> "user"
+                MessageRole.Assistant -> "assistant"
+                MessageRole.ToolCall -> "tool_call"
+                MessageRole.ToolResult -> "tool_result"
+                MessageRole.System -> "system"
+            },
         text = content,
     )
-}

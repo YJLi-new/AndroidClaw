@@ -19,8 +19,6 @@ enum class ThemePreference(
     ;
 
     companion object {
-        fun fromStorage(value: String?): ThemePreference {
-            return entries.firstOrNull { it.storageValue == value } ?: System
-        }
+        fun fromStorage(value: String?): ThemePreference = entries.firstOrNull { it.storageValue == value } ?: System
     }
 }

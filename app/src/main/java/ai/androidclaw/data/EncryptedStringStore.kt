@@ -1,6 +1,8 @@
 package ai.androidclaw.data
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
@@ -8,8 +10,6 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 
 internal class EncryptedStringStore(
     context: Context,
@@ -22,7 +22,8 @@ internal class EncryptedStringStore(
     fun read(storageKey: String): String? {
         val payload = preferences.getString(storageKey, null) ?: return null
         return runCatching { decrypt(payload) }.getOrElse {
-            preferences.edit()
+            preferences
+                .edit()
                 .remove(storageKey)
                 .putBoolean(recoveryKey(storageKey), true)
                 .apply()
@@ -30,15 +31,20 @@ internal class EncryptedStringStore(
         }
     }
 
-    fun write(storageKey: String, value: String?) {
+    fun write(
+        storageKey: String,
+        value: String?,
+    ) {
         if (value.isNullOrBlank()) {
-            preferences.edit()
+            preferences
+                .edit()
                 .remove(storageKey)
                 .remove(recoveryKey(storageKey))
                 .apply()
             return
         }
-        preferences.edit()
+        preferences
+            .edit()
             .putString(storageKey, encrypt(value.trim()))
             .remove(recoveryKey(storageKey))
             .apply()
@@ -83,16 +89,17 @@ internal class EncryptedStringStore(
             return existingKey
         }
 
-        val keyGenerator = KeyGenerator.getInstance(
-            KeyProperties.KEY_ALGORITHM_AES,
-            KEYSTORE_NAME,
-        )
-        keyGenerator.init(
-            KeyGenParameterSpec.Builder(
-                keyAlias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+        val keyGenerator =
+            KeyGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_AES,
+                KEYSTORE_NAME,
             )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+        keyGenerator.init(
+            KeyGenParameterSpec
+                .Builder(
+                    keyAlias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(KEY_SIZE_BITS)
                 .build(),
@@ -108,7 +115,5 @@ internal class EncryptedStringStore(
         const val RECOVERY_PREFIX = "recovered_secret_"
     }
 
-    private fun recoveryKey(storageKey: String): String {
-        return "$RECOVERY_PREFIX$storageKey"
-    }
+    private fun recoveryKey(storageKey: String): String = "$RECOVERY_PREFIX$storageKey"
 }

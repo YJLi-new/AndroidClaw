@@ -1,36 +1,42 @@
+import com.google.devtools.ksp.gradle.KspExtension
 import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.kotlin.serialization)
 }
 
-val keystoreProperties = Properties().apply {
-    val propertiesFile = rootProject.file("keystore.properties")
-    if (propertiesFile.exists()) {
-        propertiesFile.inputStream().use(::load)
+val keystoreProperties =
+    Properties().apply {
+        val propertiesFile = rootProject.file("keystore.properties")
+        if (propertiesFile.exists()) {
+            propertiesFile.inputStream().use(::load)
+        }
     }
-}
 
-fun releaseSigningValue(propertyName: String, environmentName: String): String? {
-    return keystoreProperties.getProperty(propertyName)
+fun releaseSigningValue(
+    propertyName: String,
+    environmentName: String,
+): String? =
+    keystoreProperties
+        .getProperty(propertyName)
         ?.takeIf { it.isNotBlank() }
         ?: System.getenv(environmentName)?.takeIf { it.isNotBlank() }
-}
 
 val releaseStoreFilePath = releaseSigningValue("storeFile", "ANDROIDCLAW_RELEASE_STORE_FILE")
 val releaseStorePassword = releaseSigningValue("storePassword", "ANDROIDCLAW_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = releaseSigningValue("keyAlias", "ANDROIDCLAW_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSigningValue("keyPassword", "ANDROIDCLAW_RELEASE_KEY_PASSWORD")
-val hasReleaseSigning = listOf(
-    releaseStoreFilePath,
-    releaseStorePassword,
-    releaseKeyAlias,
-    releaseKeyPassword,
-).all { !it.isNullOrBlank() }
+val hasReleaseSigning =
+    listOf(
+        releaseStoreFilePath,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword,
+    ).all { !it.isNullOrBlank() }
 
 android {
     namespace = "ai.androidclaw"
@@ -135,10 +141,8 @@ kotlin {
     }
 }
 
-kapt {
-    arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
-    }
+extensions.configure<KspExtension> {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -165,7 +169,7 @@ dependencies {
     implementation(libs.okhttpSse)
     implementation(libs.snakeyaml)
 
-    kapt(libs.androidx.room.compiler)
+    ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.junit4)
@@ -182,6 +186,7 @@ dependencies {
     androidTestImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.espresso.core)
     androidTestImplementation(libs.junit.ext)
+    androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.work.testing)
 }

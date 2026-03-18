@@ -1,7 +1,7 @@
 package ai.androidclaw.feature.chat
 
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import org.junit.Assert.assertEquals
@@ -11,19 +11,20 @@ import org.junit.Test
 class ChatRichTextTest {
     @Test
     fun `parser splits headings bullets paragraphs and code fences`() {
-        val blocks = parseChatRichText(
-            """
-            # Title
-            
-            Intro paragraph here.
-            - first item
-            - second item
-            
-            ```kotlin
-            println("hello")
-            ```
-            """.trimIndent(),
-        )
+        val blocks =
+            parseChatRichText(
+                """
+                # Title
+                
+                Intro paragraph here.
+                - first item
+                - second item
+                
+                ```kotlin
+                println("hello")
+                ```
+                """.trimIndent(),
+            )
 
         assertEquals(4, blocks.size)
         assertEquals(ChatRichTextBlock.Heading(level = 1, text = "Title"), blocks[0])
@@ -37,12 +38,13 @@ class ChatRichTextTest {
 
     @Test
     fun `annotated string marks urls and keeps inline code separate`() {
-        val annotated = buildRichAnnotatedString(
-            source = "Use `println()` and visit https://example.com/docs",
-            baseStyle = SpanStyle(),
-            inlineCodeStyle = SpanStyle(fontFamily = FontFamily.Monospace),
-            linkStyle = SpanStyle(fontWeight = FontWeight.Bold),
-        )
+        val annotated =
+            buildRichAnnotatedString(
+                source = "Use `println()` and visit https://example.com/docs",
+                baseStyle = SpanStyle(),
+                inlineCodeStyle = SpanStyle(fontFamily = FontFamily.Monospace),
+                linkStyle = SpanStyle(fontWeight = FontWeight.Bold),
+            )
 
         val link = annotated.getLinkAnnotations(start = 0, end = annotated.length)
         assertEquals(1, link.size)

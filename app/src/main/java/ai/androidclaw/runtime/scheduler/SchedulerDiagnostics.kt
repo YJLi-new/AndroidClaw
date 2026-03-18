@@ -30,15 +30,16 @@ data class NotificationVisibilityDiagnostics(
     val appNotificationsEnabled: Boolean = true,
 ) {
     val preciseReminderVisibilityWarning: String?
-        get() = when {
-            !appNotificationsEnabled && runtimePermissionRequired && !runtimePermissionGranted ->
-                "Notification permission denied and app notifications disabled; precise reminders may run without a visible notification."
-            runtimePermissionRequired && !runtimePermissionGranted ->
-                "Notification permission denied; precise reminders may run without a visible notification."
-            !appNotificationsEnabled ->
-                "App notifications are disabled; precise reminders may run without a visible notification."
-            else -> null
-        }
+        get() =
+            when {
+                !appNotificationsEnabled && runtimePermissionRequired && !runtimePermissionGranted ->
+                    "Notification permission denied and app notifications disabled; precise reminders may run without a visible notification."
+                runtimePermissionRequired && !runtimePermissionGranted ->
+                    "Notification permission denied; precise reminders may run without a visible notification."
+                !appNotificationsEnabled ->
+                    "App notifications are disabled; precise reminders may run without a visible notification."
+                else -> null
+            }
 }
 
 enum class TaskSchedulingPath {
@@ -52,11 +53,12 @@ data class TaskSchedulingDecision(
 )
 
 val Task.precisionMode: TaskPrecisionMode
-    get() = if (precise) {
-        TaskPrecisionMode.PreciseUserVisible
-    } else {
-        TaskPrecisionMode.Approximate
-    }
+    get() =
+        if (precise) {
+            TaskPrecisionMode.PreciseUserVisible
+        } else {
+            TaskPrecisionMode.Approximate
+        }
 
 fun Task.schedulingDecision(diagnostics: SchedulerDiagnostics): TaskSchedulingDecision {
     if (precisionMode == TaskPrecisionMode.Approximate) {
@@ -85,8 +87,8 @@ fun Task.userVisiblePreciseWarnings(diagnostics: SchedulerDiagnostics): List<Str
     return diagnostics.preciseSchedulingWarnings()
 }
 
-fun SchedulerDiagnostics.preciseSchedulingWarnings(): List<String> {
-    return buildList {
+fun SchedulerDiagnostics.preciseSchedulingWarnings(): List<String> =
+    buildList {
         if (!supportsExactAlarms) {
             add("Exact alarms are unavailable on this device; falling back to approximate.")
         } else if (!exactAlarmGranted) {
@@ -94,10 +96,9 @@ fun SchedulerDiagnostics.preciseSchedulingWarnings(): List<String> {
         }
         preciseReminderVisibilityWarning?.let(::add)
     }.distinct()
-}
 
-fun standbyBucketLabel(bucket: Int): String {
-    return when (bucket) {
+fun standbyBucketLabel(bucket: Int): String =
+    when (bucket) {
         UsageStatsManager.STANDBY_BUCKET_ACTIVE -> "active"
         UsageStatsManager.STANDBY_BUCKET_WORKING_SET -> "working_set"
         UsageStatsManager.STANDBY_BUCKET_FREQUENT -> "frequent"
@@ -105,12 +106,10 @@ fun standbyBucketLabel(bucket: Int): String {
         UsageStatsManager.STANDBY_BUCKET_RESTRICTED -> "restricted"
         else -> "unknown($bucket)"
     }
-}
 
-fun workStopReasonLabel(stopReason: Int): String {
-    return when {
+fun workStopReasonLabel(stopReason: Int): String =
+    when {
         stopReason == 0 -> "not_stopped"
         stopReason > 0 -> "code($stopReason)"
         else -> "unknown($stopReason)"
     }
-}

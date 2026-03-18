@@ -4,6 +4,7 @@ import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillResolutionState
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
+import ai.androidclaw.ui.components.ScreenHeader
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -13,10 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,33 +30,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ai.androidclaw.ui.components.ScreenHeader
 
 @Composable
 fun SkillsScreen(viewModel: SkillsViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            viewModel.importLocalSkills(uri)
+    val importLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            if (uri != null) {
+                viewModel.importLocalSkills(uri)
+            }
         }
-    }
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(
@@ -108,11 +109,12 @@ fun SkillsScreen(viewModel: SkillsViewModel) {
                             enabled = enabled,
                         )
                     },
-                    onConfigure = if (skill.hasConfigSurface()) {
-                        { viewModel.openConfiguration(skill) }
-                    } else {
-                        null
-                    },
+                    onConfigure =
+                        if (skill.hasConfigSurface()) {
+                            { viewModel.openConfiguration(skill) }
+                        } else {
+                            null
+                        },
                 )
             }
         }
@@ -164,9 +166,10 @@ private fun SkillCard(
                     }
                 }
                 Switch(
-                    modifier = Modifier.semantics {
-                        stateDescription = if (skill.enabled) "Enabled" else "Disabled"
-                    },
+                    modifier =
+                        Modifier.semantics {
+                            stateDescription = if (skill.enabled) "Enabled" else "Disabled"
+                        },
                     checked = skill.enabled,
                     onCheckedChange = onToggle,
                 )
@@ -210,10 +213,11 @@ private fun SkillCard(
 
 @Composable
 private fun EligibilitySummary(skill: SkillSnapshot) {
-    val eligibilityText = when (skill.eligibility.status) {
-        SkillEligibilityStatus.Eligible -> "Eligibility: ready"
-        else -> "Eligibility: ${skill.eligibility.status}"
-    }
+    val eligibilityText =
+        when (skill.eligibility.status) {
+            SkillEligibilityStatus.Eligible -> "Eligibility: ready"
+            else -> "Eligibility: ${skill.eligibility.status}"
+        }
     Text(
         text = eligibilityText,
         style = MaterialTheme.typography.labelMedium,
@@ -254,10 +258,11 @@ private fun SkillConfigurationDialog(
         },
         text = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (state.loading) {
@@ -283,11 +288,12 @@ private fun SkillConfigurationDialog(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(field.envName, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            text = when {
-                                field.clearRequested -> "Stored value will be cleared on save."
-                                field.configured -> "A value is already saved. Enter a replacement to overwrite it."
-                                else -> "No value saved yet."
-                            },
+                            text =
+                                when {
+                                    field.clearRequested -> "Stored value will be cleared on save."
+                                    field.configured -> "A value is already saved. Enter a replacement to overwrite it."
+                                    else -> "No value saved yet."
+                                },
                             style = MaterialTheme.typography.bodySmall,
                         )
                         OutlinedTextField(
@@ -316,11 +322,12 @@ private fun SkillConfigurationDialog(
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(field.path, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            text = when {
-                                field.clearRequested -> "Stored value will be cleared on save."
-                                field.storedValue != null -> "Current saved value loaded below."
-                                else -> "No saved value yet."
-                            },
+                            text =
+                                when {
+                                    field.clearRequested -> "Stored value will be cleared on save."
+                                    field.storedValue != null -> "Current saved value loaded below."
+                                    else -> "No saved value yet."
+                                },
                             style = MaterialTheme.typography.bodySmall,
                         )
                         OutlinedTextField(
@@ -365,9 +372,7 @@ private fun SkillConfigurationDialog(
     )
 }
 
-private fun SkillSnapshot.hasConfigSurface(): Boolean {
-    return secretStatuses.isNotEmpty() || configStatuses.isNotEmpty()
-}
+private fun SkillSnapshot.hasConfigSurface(): Boolean = secretStatuses.isNotEmpty() || configStatuses.isNotEmpty()
 
 private fun SkillSnapshot.statusSummary(
     label: String,
@@ -392,10 +397,9 @@ private fun SkillSnapshot.statusSummary(
     }
 }
 
-private fun SkillSnapshot.sourceLabel(): String {
-    return when (sourceType) {
+private fun SkillSnapshot.sourceLabel(): String =
+    when (sourceType) {
         SkillSourceType.Bundled -> "Bundled"
         SkillSourceType.Local -> "Local"
         SkillSourceType.Workspace -> "Workspace ${workspaceSessionId.orEmpty()}".trim()
     }
-}

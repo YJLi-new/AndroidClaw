@@ -5,10 +5,10 @@ import ai.androidclaw.runtime.providers.ModelRunMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 data class ToolArgumentSpec(
@@ -56,26 +56,24 @@ data class ToolExecutionResult(
         fun success(
             summary: String,
             payload: JsonObject,
-        ): ToolExecutionResult {
-            return ToolExecutionResult(
+        ): ToolExecutionResult =
+            ToolExecutionResult(
                 summary = summary,
                 payload = payload,
                 success = true,
             )
-        }
 
         fun failure(
             summary: String,
             errorCode: String,
             payload: JsonObject,
-        ): ToolExecutionResult {
-            return ToolExecutionResult(
+        ): ToolExecutionResult =
+            ToolExecutionResult(
                 summary = summary,
                 payload = payload,
                 success = false,
                 errorCode = errorCode,
             )
-        }
     }
 }
 
@@ -105,8 +103,8 @@ data class ToolExecutionContext(
             requestId: String? = null,
             runMode: ModelRunMode? = null,
             activeSkillId: String? = null,
-        ): ToolExecutionContext {
-            return ToolExecutionContext(
+        ): ToolExecutionContext =
+            ToolExecutionContext(
                 sessionId = sessionId,
                 taskRunId = taskRunId,
                 origin = ToolInvocationOrigin.Internal,
@@ -116,7 +114,6 @@ data class ToolExecutionContext(
                 requestId = requestId,
                 activeSkillId = activeSkillId,
             )
-        }
     }
 }
 
@@ -133,49 +130,54 @@ class ToolRegistry(
     }
 
     private val canonicalEntries = tools.sortedBy { it.descriptor.name }
-    private val entriesByName = buildMap {
-        canonicalEntries.forEach { entry ->
-            val canonicalName = entry.descriptor.name
-            require(put(canonicalName, entry) == null) {
-                "Duplicate tool name: $canonicalName"
-            }
-            entry.descriptor.aliases.forEach { alias ->
-                require(alias != canonicalName) {
-                    "Tool alias must differ from canonical name: $canonicalName"
+    private val entriesByName =
+        buildMap {
+            canonicalEntries.forEach { entry ->
+                val canonicalName = entry.descriptor.name
+                require(put(canonicalName, entry) == null) {
+                    "Duplicate tool name: $canonicalName"
                 }
-                require(put(alias, entry) == null) {
-                    "Duplicate tool alias: $alias"
+                entry.descriptor.aliases.forEach { alias ->
+                    require(alias != canonicalName) {
+                        "Tool alias must differ from canonical name: $canonicalName"
+                    }
+                    require(put(alias, entry) == null) {
+                        "Duplicate tool alias: $alias"
+                    }
                 }
             }
         }
-    }
 
     fun hasTool(name: String): Boolean = entriesByName.containsKey(name)
 
     fun findDescriptor(name: String): ToolDescriptor? = entriesByName[name]?.resolvedDescriptor()
 
-    fun descriptors(): List<ToolDescriptor> = canonicalEntries
-        .map { it.resolvedDescriptor() }
+    fun descriptors(): List<ToolDescriptor> =
+        canonicalEntries
+            .map { it.resolvedDescriptor() }
 
     suspend fun execute(
         context: ToolExecutionContext,
         arguments: JsonObject,
     ): ToolExecutionResult {
-        val entry = entriesByName[context.requestedName] ?: return ToolExecutionResult.failure(
-            summary = "Unknown tool: ${context.requestedName}",
-            errorCode = "UNKNOWN_TOOL",
-            payload = buildJsonObject {
-                put("errorCode", "UNKNOWN_TOOL")
-                put("toolName", context.requestedName)
-            },
-        ).also { result ->
-            logToolEvent(
-                level = EventLevel.Warn,
-                message = "Tool ${context.requestedName} failed before execution.",
-                context = context,
-                result = result,
-            )
-        }
+        val entry =
+            entriesByName[context.requestedName] ?: return ToolExecutionResult
+                .failure(
+                    summary = "Unknown tool: ${context.requestedName}",
+                    errorCode = "UNKNOWN_TOOL",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "UNKNOWN_TOOL")
+                            put("toolName", context.requestedName)
+                        },
+                ).also { result ->
+                    logToolEvent(
+                        level = EventLevel.Warn,
+                        message = "Tool ${context.requestedName} failed before execution.",
+                        context = context,
+                        result = result,
+                    )
+                }
         val descriptor = entry.resolvedDescriptor()
         val resolvedContext = context.copy(canonicalName = descriptor.name)
         validateArguments(
@@ -212,11 +214,12 @@ class ToolRegistry(
             entry.handler(resolvedContext, arguments).also { result ->
                 logToolEvent(
                     level = if (result.success) EventLevel.Info else EventLevel.Warn,
-                    message = if (result.success) {
-                        "Tool ${descriptor.name} completed."
-                    } else {
-                        "Tool ${descriptor.name} returned a structured failure."
-                    },
+                    message =
+                        if (result.success) {
+                            "Tool ${descriptor.name} completed."
+                        } else {
+                            "Tool ${descriptor.name} returned a structured failure."
+                        },
                     context = resolvedContext,
                     result = result,
                 )
@@ -224,22 +227,24 @@ class ToolRegistry(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            ToolExecutionResult.failure(
-                summary = error.message ?: "Tool ${descriptor.name} failed.",
-                errorCode = "TOOL_EXECUTION_FAILED",
-                payload = buildJsonObject {
-                    put("errorCode", "TOOL_EXECUTION_FAILED")
-                    put("toolName", descriptor.name)
-                    put("message", error.message ?: "Unknown error")
-                },
-            ).also { result ->
-                logToolEvent(
-                    level = EventLevel.Error,
-                    message = "Tool ${descriptor.name} threw an exception.",
-                    context = resolvedContext,
-                    result = result,
-                )
-            }
+            ToolExecutionResult
+                .failure(
+                    summary = error.message ?: "Tool ${descriptor.name} failed.",
+                    errorCode = "TOOL_EXECUTION_FAILED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "TOOL_EXECUTION_FAILED")
+                            put("toolName", descriptor.name)
+                            put("message", error.message ?: "Unknown error")
+                        },
+                ).also { result ->
+                    logToolEvent(
+                        level = EventLevel.Error,
+                        message = "Tool ${descriptor.name} threw an exception.",
+                        context = resolvedContext,
+                        result = result,
+                    )
+                }
         }
     }
 
@@ -247,26 +252,28 @@ class ToolRegistry(
         descriptor: ToolDescriptor,
         arguments: JsonObject,
     ): ToolExecutionResult? {
-        val missingRequiredArguments = descriptor.arguments
-            .filter { it.required }
-            .mapNotNull { argument ->
-                val value = arguments[argument.name]
-                argument.name.takeIf {
-                    value == null || (value is JsonPrimitive && value.content.isBlank())
+        val missingRequiredArguments =
+            descriptor.arguments
+                .filter { it.required }
+                .mapNotNull { argument ->
+                    val value = arguments[argument.name]
+                    argument.name.takeIf {
+                        value == null || (value is JsonPrimitive && value.content.isBlank())
+                    }
                 }
-            }
         if (missingRequiredArguments.isEmpty()) {
             return null
         }
         return ToolExecutionResult.failure(
             summary = "Missing required arguments for ${descriptor.name}: ${missingRequiredArguments.joinToString()}",
             errorCode = "INVALID_ARGUMENTS",
-            payload = buildJsonObject {
-                put("errorCode", "INVALID_ARGUMENTS")
-                put("toolName", descriptor.name)
-                put("missingArguments", missingRequiredArguments.toStringJsonArray())
-                put("providedArguments", arguments.keys.sorted().toStringJsonArray())
-            },
+            payload =
+                buildJsonObject {
+                    put("errorCode", "INVALID_ARGUMENTS")
+                    put("toolName", descriptor.name)
+                    put("missingArguments", missingRequiredArguments.toStringJsonArray())
+                    put("providedArguments", arguments.keys.sorted().toStringJsonArray())
+                },
         )
     }
 
@@ -275,30 +282,33 @@ class ToolRegistry(
         requestedName: String,
     ): ToolExecutionResult? {
         val availability = descriptor.availability
-        val errorCode = when (availability.status) {
-            ToolAvailabilityStatus.Available -> return null
-            ToolAvailabilityStatus.Unavailable -> "TOOL_UNAVAILABLE"
-            ToolAvailabilityStatus.PermissionRequired -> "PERMISSION_REQUIRED"
-            ToolAvailabilityStatus.ForegroundRequired -> "FOREGROUND_REQUIRED"
-            ToolAvailabilityStatus.DisabledByConfig -> "DISABLED_BY_CONFIG"
-        }
-        val summary = availability.reason ?: when (availability.status) {
-            ToolAvailabilityStatus.Available -> error("Handled above.")
-            ToolAvailabilityStatus.Unavailable -> "Tool ${descriptor.name} is currently unavailable."
-            ToolAvailabilityStatus.PermissionRequired -> "Tool ${descriptor.name} requires additional permission."
-            ToolAvailabilityStatus.ForegroundRequired -> "Tool ${descriptor.name} requires the app to be in the foreground."
-            ToolAvailabilityStatus.DisabledByConfig -> "Tool ${descriptor.name} is disabled by configuration."
-        }
+        val errorCode =
+            when (availability.status) {
+                ToolAvailabilityStatus.Available -> return null
+                ToolAvailabilityStatus.Unavailable -> "TOOL_UNAVAILABLE"
+                ToolAvailabilityStatus.PermissionRequired -> "PERMISSION_REQUIRED"
+                ToolAvailabilityStatus.ForegroundRequired -> "FOREGROUND_REQUIRED"
+                ToolAvailabilityStatus.DisabledByConfig -> "DISABLED_BY_CONFIG"
+            }
+        val summary =
+            availability.reason ?: when (availability.status) {
+                ToolAvailabilityStatus.Available -> error("Handled above.")
+                ToolAvailabilityStatus.Unavailable -> "Tool ${descriptor.name} is currently unavailable."
+                ToolAvailabilityStatus.PermissionRequired -> "Tool ${descriptor.name} requires additional permission."
+                ToolAvailabilityStatus.ForegroundRequired -> "Tool ${descriptor.name} requires the app to be in the foreground."
+                ToolAvailabilityStatus.DisabledByConfig -> "Tool ${descriptor.name} is disabled by configuration."
+            }
         return ToolExecutionResult.failure(
             summary = summary,
             errorCode = errorCode,
-            payload = buildJsonObject {
-                put("errorCode", errorCode)
-                put("requestedName", requestedName)
-                put("toolName", descriptor.name)
-                put("availabilityStatus", availability.status.name)
-                put("requiredPermissions", descriptor.requiredPermissions.toPermissionJsonArray())
-            },
+            payload =
+                buildJsonObject {
+                    put("errorCode", errorCode)
+                    put("requestedName", requestedName)
+                    put("toolName", descriptor.name)
+                    put("availabilityStatus", availability.status.name)
+                    put("requiredPermissions", descriptor.requiredPermissions.toPermissionJsonArray())
+                },
         )
     }
 
@@ -327,14 +337,13 @@ class ToolRegistry(
     }
 }
 
-private fun List<String>.toStringJsonArray(): JsonArray {
-    return buildJsonArray {
+private fun List<String>.toStringJsonArray(): JsonArray =
+    buildJsonArray {
         forEach { add(JsonPrimitive(it)) }
     }
-}
 
-private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject {
-    return buildJsonObject {
+private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject =
+    buildJsonObject {
         put("type", "object")
         put(
             "properties",
@@ -359,10 +368,9 @@ private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject 
             },
         )
     }
-}
 
-private fun List<ToolPermissionRequirement>.toPermissionJsonArray(): JsonArray {
-    return buildJsonArray {
+private fun List<ToolPermissionRequirement>.toPermissionJsonArray(): JsonArray =
+    buildJsonArray {
         forEach { permission ->
             add(
                 buildJsonObject {
@@ -372,4 +380,3 @@ private fun List<ToolPermissionRequirement>.toPermissionJsonArray(): JsonArray {
             )
         }
     }
-}

@@ -9,16 +9,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlin.system.exitProcess
 
-class AndroidClawApplication : Application(), Configuration.Provider {
+class AndroidClawApplication :
+    Application(),
+    Configuration.Provider {
     val container: AppContainer by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         AppContainer(this)
     }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(container.workerFactory)
-            .build()
+        get() =
+            Configuration
+                .Builder()
+                .setWorkerFactory(container.workerFactory)
+                .build()
 
     override fun onCreate() {
         super.onCreate()

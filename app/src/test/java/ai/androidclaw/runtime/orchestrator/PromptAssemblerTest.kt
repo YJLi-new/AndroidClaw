@@ -12,38 +12,41 @@ import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
 import ai.androidclaw.runtime.tools.ToolArgumentSpec
 import ai.androidclaw.runtime.tools.ToolDescriptor
-import java.time.Instant
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 class PromptAssemblerTest {
     private val assembler = PromptAssembler()
 
     @Test
     fun `assemble includes run mode selected skills and tools in system prompt`() {
-        val assembly = assembler.assemble(
-            persistedMessages = emptyList(),
-            selectedSkills = listOf(sampleSkill()),
-            toolDescriptors = listOf(
-                ToolDescriptor(
-                    name = "health.status",
-                    description = "Report health state",
-                    aliases = listOf("health"),
-                    arguments = listOf(
-                        ToolArgumentSpec(
-                            name = "scope",
-                            required = true,
-                            description = "Requested scope",
+        val assembly =
+            assembler.assemble(
+                persistedMessages = emptyList(),
+                selectedSkills = listOf(sampleSkill()),
+                toolDescriptors =
+                    listOf(
+                        ToolDescriptor(
+                            name = "health.status",
+                            description = "Report health state",
+                            aliases = listOf("health"),
+                            arguments =
+                                listOf(
+                                    ToolArgumentSpec(
+                                        name = "scope",
+                                        required = true,
+                                        description = "Requested scope",
+                                    ),
+                                ),
                         ),
                     ),
-                ),
-            ),
-            runMode = ModelRunMode.Scheduled,
-        )
+                runMode = ModelRunMode.Scheduled,
+            )
 
         assertTrue(assembly.systemPrompt.contains("Run mode: scheduled."))
         assertTrue(assembly.systemPrompt.contains("demo_skill"))
@@ -54,26 +57,28 @@ class PromptAssemblerTest {
 
     @Test
     fun `assemble preserves persisted tool transcript structure for provider history`() {
-        val assembly = assembler.assemble(
-            persistedMessages = listOf(
-                message(role = MessageRole.User, content = "hello"),
-                message(role = MessageRole.Assistant, content = "reply"),
-                message(role = MessageRole.System, content = "system note"),
-                message(
-                    role = MessageRole.ToolCall,
-                    content = """Tool request: health.status {"scope":"summary"}""",
-                    toolCallId = "call-1",
-                ),
-                message(
-                    role = MessageRole.ToolResult,
-                    content = "Tool result: Health ok",
-                    toolCallId = "call-1",
-                ),
-            ),
-            selectedSkills = emptyList(),
-            toolDescriptors = emptyList(),
-            runMode = ModelRunMode.Interactive,
-        )
+        val assembly =
+            assembler.assemble(
+                persistedMessages =
+                    listOf(
+                        message(role = MessageRole.User, content = "hello"),
+                        message(role = MessageRole.Assistant, content = "reply"),
+                        message(role = MessageRole.System, content = "system note"),
+                        message(
+                            role = MessageRole.ToolCall,
+                            content = """Tool request: health.status {"scope":"summary"}""",
+                            toolCallId = "call-1",
+                        ),
+                        message(
+                            role = MessageRole.ToolResult,
+                            content = "Tool result: Health ok",
+                            toolCallId = "call-1",
+                        ),
+                    ),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+            )
 
         val history = assembly.messageHistory
 
@@ -89,64 +94,80 @@ class PromptAssemblerTest {
         )
         assertEquals("", history[3].content)
         assertEquals("health.status", history[3].toolCalls.single().name)
-        assertEquals("summary", history[3].toolCalls.single().argumentsJson.getValue("scope").jsonPrimitive.content)
+        assertEquals(
+            "summary",
+            history[3]
+                .toolCalls
+                .single()
+                .argumentsJson
+                .getValue("scope")
+                .jsonPrimitive.content,
+        )
         assertEquals("call-1", history[4].toolCallId)
         assertEquals("Health ok", history[4].content)
     }
 
     @Test
     fun `tool call messages that are not parseable json fall back to assistant text`() {
-        val assembly = assembler.assemble(
-            persistedMessages = listOf(
-                message(
-                    role = MessageRole.ToolCall,
-                    content = "Tool request: tasks.list pending",
-                    toolCallId = "call-raw",
-                ),
-            ),
-            selectedSkills = emptyList(),
-            toolDescriptors = emptyList(),
-            runMode = ModelRunMode.Interactive,
-        )
+        val assembly =
+            assembler.assemble(
+                persistedMessages =
+                    listOf(
+                        message(
+                            role = MessageRole.ToolCall,
+                            content = "Tool request: tasks.list pending",
+                            toolCallId = "call-raw",
+                        ),
+                    ),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+            )
 
         assertEquals(1, assembly.messageHistory.size)
         assertEquals(ModelMessageRole.Assistant, assembly.messageHistory.single().role)
         assertEquals("Tool request: tasks.list pending", assembly.messageHistory.single().content)
-        assertTrue(assembly.messageHistory.single().toolCalls.isEmpty())
+        assertTrue(
+            assembly.messageHistory
+                .single()
+                .toolCalls
+                .isEmpty(),
+        )
     }
 
-    private fun sampleSkill(): SkillSnapshot {
-        return SkillSnapshot(
+    private fun sampleSkill(): SkillSnapshot =
+        SkillSnapshot(
             id = "skill-1",
             skillKey = "demo_skill",
             sourceType = SkillSourceType.Bundled,
             baseDir = "asset://skills/skill-1",
             enabled = true,
-            frontmatter = SkillFrontmatter(
-                name = "demo_skill",
-                description = "Demo skill",
-                homepage = null,
-                userInvocable = true,
-                disableModelInvocation = false,
-                commandDispatch = SkillCommandDispatch.Model,
-                commandTool = null,
-                commandArgMode = "raw",
-                metadata = buildJsonObject {
-                    put("enabled", JsonPrimitive(true))
-                },
-                unknownFields = emptyMap(),
-            ),
+            frontmatter =
+                SkillFrontmatter(
+                    name = "demo_skill",
+                    description = "Demo skill",
+                    homepage = null,
+                    userInvocable = true,
+                    disableModelInvocation = false,
+                    commandDispatch = SkillCommandDispatch.Model,
+                    commandTool = null,
+                    commandArgMode = "raw",
+                    metadata =
+                        buildJsonObject {
+                            put("enabled", JsonPrimitive(true))
+                        },
+                    unknownFields = emptyMap(),
+                ),
             instructionsMd = "Follow the demo instructions.",
             eligibility = SkillEligibility(SkillEligibilityStatus.Eligible),
         )
-    }
 
     private fun message(
         role: MessageRole,
         content: String,
         toolCallId: String? = null,
-    ): ChatMessage {
-        return ChatMessage(
+    ): ChatMessage =
+        ChatMessage(
             id = "message-$role-$toolCallId-$content",
             sessionId = "session-1",
             role = role,
@@ -156,5 +177,4 @@ class PromptAssemblerTest {
             toolCallId = toolCallId,
             taskRunId = null,
         )
-    }
 }

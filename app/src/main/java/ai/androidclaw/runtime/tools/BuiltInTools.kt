@@ -14,7 +14,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import java.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -22,6 +21,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.time.Instant
 
 internal fun createBuiltInToolRegistry(
     application: Application,
@@ -33,225 +33,263 @@ internal fun createBuiltInToolRegistry(
     eventLogRepository: EventLogRepository? = null,
 ): ToolRegistry {
     lateinit var toolRegistry: ToolRegistry
-    toolRegistry = ToolRegistry(
-        eventLogger = { level, message, details ->
-            eventLogRepository?.log(
-                category = EventCategory.Tool,
-                level = level,
-                message = message,
-                details = details,
-            )
-        },
-        tools = buildList {
-            addAll(
-                taskToolEntries(
-                    taskRepository = taskRepository,
-                    sessionRepository = sessionRepository,
-                    schedulerCoordinator = schedulerCoordinator,
-                ),
-            )
-            add(
-                ToolRegistry.Entry(
-                    descriptor = ToolDescriptor(
-                        name = "health.status",
-                        aliases = listOf("health.check"),
-                        description = "Return lightweight runtime health information and tool availability.",
-                    ),
-                ) { _, _ ->
-                    val providerType = settingsDataStore.settings.first().providerType
-                    ToolExecutionResult.success(
-                        summary = "Runtime bootstrapped with ${providerType.displayName}, bundled skills, and scheduler preview support.",
-                        payload = buildJsonObject {
-                            put("provider", providerType.providerId)
-                            put("schedulerReady", true)
-                            put("skillsReady", true)
-                            put("tools", buildJsonArray {
-                                toolRegistry.descriptors().forEach { tool ->
-                                    add(
-                                        buildJsonObject {
-                                            put("name", tool.name)
-                                            put("aliases", buildJsonArray {
-                                                tool.aliases.forEach { add(JsonPrimitive(it)) }
-                                            })
-                                            put("availabilityStatus", tool.availability.status.name)
-                                            put("foregroundRequired", tool.foregroundRequired)
-                                        },
-                                    )
-                                }
-                            })
-                        },
+    toolRegistry =
+        ToolRegistry(
+            eventLogger = { level, message, details ->
+                eventLogRepository?.log(
+                    category = EventCategory.Tool,
+                    level = level,
+                    message = message,
+                    details = details,
+                )
+            },
+            tools =
+                buildList {
+                    addAll(
+                        taskToolEntries(
+                            taskRepository = taskRepository,
+                            sessionRepository = sessionRepository,
+                            schedulerCoordinator = schedulerCoordinator,
+                        ),
                     )
-                },
-            )
-            add(
-                ToolRegistry.Entry(
-                    descriptor = ToolDescriptor(
-                        name = "sessions.list",
-                        aliases = listOf("session.list"),
-                        description = "List known chat sessions.",
-                    ),
-                ) { _, _ ->
-                    val sessions = sessionRepository.observeSessions().first()
-                    ToolExecutionResult.success(
-                        summary = if (sessions.isEmpty()) {
-                            "No sessions found."
-                        } else {
-                            "Found ${sessions.size} session(s)."
-                        },
-                        payload = buildJsonObject {
-                            put("sessionCount", sessions.size)
-                            put("sessions", buildJsonArray {
-                                sessions.forEach { session ->
-                                    add(
-                                        buildJsonObject {
-                                            put("id", session.id)
-                                            put("title", session.title)
-                                            put("isMain", session.isMain)
-                                            put("archived", session.archived)
-                                        },
-                                    )
-                                }
-                            })
-                        },
-                    )
-                },
-            )
-            add(
-                ToolRegistry.Entry(
-                    descriptor = ToolDescriptor(
-                        name = "skills.list",
-                        aliases = listOf("skill.list"),
-                        description = "List bundled skills and their current eligibility.",
-                    ),
-                ) { _, _ ->
-                    val skills = bundledSkillsProvider()
-                    ToolExecutionResult.success(
-                        summary = if (skills.isEmpty()) {
-                            "No bundled skills found."
-                        } else {
-                            "Found ${skills.size} bundled skill(s)."
-                        },
-                        payload = buildJsonObject {
-                            put("skillCount", skills.size)
-                            put("skills", buildJsonArray {
-                                skills.forEach { skill ->
-                                    add(
-                                        buildJsonObject {
-                                            put("id", skill.id)
-                                            put("name", skill.displayName)
-                                            put("enabled", skill.enabled)
-                                            put("sourceType", skill.sourceType.name)
-                                            put("eligibilityStatus", skill.eligibility.status.name)
-                                            put("eligibilityReasons", buildJsonArray {
-                                                skill.eligibility.reasons.forEach { add(JsonPrimitive(it)) }
-                                            })
-                                            put("secretStatuses", buildJsonArray {
-                                                skill.secretStatuses.forEach { (envName, configured) ->
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "health.status",
+                                    aliases = listOf("health.check"),
+                                    description = "Return lightweight runtime health information and tool availability.",
+                                ),
+                        ) { _, _ ->
+                            val providerType = settingsDataStore.settings.first().providerType
+                            ToolExecutionResult.success(
+                                summary = "Runtime bootstrapped with ${providerType.displayName}, bundled skills, and scheduler preview support.",
+                                payload =
+                                    buildJsonObject {
+                                        put("provider", providerType.providerId)
+                                        put("schedulerReady", true)
+                                        put("skillsReady", true)
+                                        put(
+                                            "tools",
+                                            buildJsonArray {
+                                                toolRegistry.descriptors().forEach { tool ->
                                                     add(
                                                         buildJsonObject {
-                                                            put("envName", envName)
-                                                            put("configured", configured)
+                                                            put("name", tool.name)
+                                                            put(
+                                                                "aliases",
+                                                                buildJsonArray {
+                                                                    tool.aliases.forEach { add(JsonPrimitive(it)) }
+                                                                },
+                                                            )
+                                                            put("availabilityStatus", tool.availability.status.name)
+                                                            put("foregroundRequired", tool.foregroundRequired)
                                                         },
                                                     )
                                                 }
-                                            })
-                                            put("configStatuses", buildJsonArray {
-                                                skill.configStatuses.forEach { (path, configured) ->
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "sessions.list",
+                                    aliases = listOf("session.list"),
+                                    description = "List known chat sessions.",
+                                ),
+                        ) { _, _ ->
+                            val sessions = sessionRepository.observeSessions().first()
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (sessions.isEmpty()) {
+                                        "No sessions found."
+                                    } else {
+                                        "Found ${sessions.size} session(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionCount", sessions.size)
+                                        put(
+                                            "sessions",
+                                            buildJsonArray {
+                                                sessions.forEach { session ->
                                                     add(
                                                         buildJsonObject {
-                                                            put("path", path)
-                                                            put("configured", configured)
+                                                            put("id", session.id)
+                                                            put("title", session.title)
+                                                            put("isMain", session.isMain)
+                                                            put("archived", session.archived)
                                                         },
                                                     )
                                                 }
-                                            })
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.list",
+                                    aliases = listOf("skill.list"),
+                                    description = "List bundled skills and their current eligibility.",
+                                ),
+                        ) { _, _ ->
+                            val skills = bundledSkillsProvider()
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (skills.isEmpty()) {
+                                        "No bundled skills found."
+                                    } else {
+                                        "Found ${skills.size} bundled skill(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("skillCount", skills.size)
+                                        put(
+                                            "skills",
+                                            buildJsonArray {
+                                                skills.forEach { skill ->
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("id", skill.id)
+                                                            put("name", skill.displayName)
+                                                            put("enabled", skill.enabled)
+                                                            put("sourceType", skill.sourceType.name)
+                                                            put("eligibilityStatus", skill.eligibility.status.name)
+                                                            put(
+                                                                "eligibilityReasons",
+                                                                buildJsonArray {
+                                                                    skill.eligibility.reasons.forEach { add(JsonPrimitive(it)) }
+                                                                },
+                                                            )
+                                                            put(
+                                                                "secretStatuses",
+                                                                buildJsonArray {
+                                                                    skill.secretStatuses.forEach { (envName, configured) ->
+                                                                        add(
+                                                                            buildJsonObject {
+                                                                                put("envName", envName)
+                                                                                put("configured", configured)
+                                                                            },
+                                                                        )
+                                                                    }
+                                                                },
+                                                            )
+                                                            put(
+                                                                "configStatuses",
+                                                                buildJsonArray {
+                                                                    skill.configStatuses.forEach { (path, configured) ->
+                                                                        add(
+                                                                            buildJsonObject {
+                                                                                put("path", path)
+                                                                                put("configured", configured)
+                                                                            },
+                                                                        )
+                                                                    }
+                                                                },
+                                                            )
+                                                        },
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "notifications.post",
+                                    aliases = listOf("notification.post"),
+                                    description = "Post a lightweight Android notification.",
+                                    requiredPermissions =
+                                        listOf(
+                                            ToolPermissionRequirement(
+                                                permission = android.Manifest.permission.POST_NOTIFICATIONS,
+                                                displayName = "Post notifications",
+                                            ),
+                                        ),
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "title",
+                                                required = true,
+                                                description = "Notification title",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "body",
+                                                description = "Notification body",
+                                            ),
+                                        ),
+                                ),
+                            availabilityProvider = { notificationToolAvailability(application) },
+                        ) { _, arguments ->
+                            val title = arguments["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            val body = arguments["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            val notificationManager = NotificationManagerCompat.from(application)
+                            if (
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(
+                                    application,
+                                    android.Manifest.permission.POST_NOTIFICATIONS,
+                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Grant notification permission to use notifications.post.",
+                                    errorCode = "PERMISSION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "PERMISSION_REQUIRED")
+                                            put("toolName", "notifications.post")
                                         },
-                                    )
-                                }
-                            })
+                                )
+                            }
+                            if (!notificationManager.areNotificationsEnabled()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Enable app notifications to use notifications.post.",
+                                    errorCode = "TOOL_UNAVAILABLE",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "TOOL_UNAVAILABLE")
+                                            put("toolName", "notifications.post")
+                                        },
+                                )
+                            }
+                            ensureToolNotificationChannel(application)
+                            val notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+                            notificationManager.notify(
+                                notificationId,
+                                NotificationCompat
+                                    .Builder(application, TOOL_NOTIFICATION_CHANNEL_ID)
+                                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                                    .setContentTitle(title)
+                                    .setContentText(body)
+                                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                                    .setAutoCancel(true)
+                                    .build(),
+                            )
+                            ToolExecutionResult.success(
+                                summary = "Posted notification \"$title\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("notificationId", notificationId)
+                                        put("title", title)
+                                        put("body", body)
+                                    },
+                            )
                         },
                     )
                 },
-            )
-            add(
-                ToolRegistry.Entry(
-                    descriptor = ToolDescriptor(
-                        name = "notifications.post",
-                        aliases = listOf("notification.post"),
-                        description = "Post a lightweight Android notification.",
-                        requiredPermissions = listOf(
-                            ToolPermissionRequirement(
-                                permission = android.Manifest.permission.POST_NOTIFICATIONS,
-                                displayName = "Post notifications",
-                            ),
-                        ),
-                        arguments = listOf(
-                            ToolArgumentSpec(
-                                name = "title",
-                                required = true,
-                                description = "Notification title",
-                            ),
-                            ToolArgumentSpec(
-                                name = "body",
-                                description = "Notification body",
-                            ),
-                        ),
-                    ),
-                    availabilityProvider = { notificationToolAvailability(application) },
-                ) { _, arguments ->
-                    val title = arguments["title"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                    val body = arguments["body"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                    val notificationManager = NotificationManagerCompat.from(application)
-                    if (
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(
-                            application,
-                            android.Manifest.permission.POST_NOTIFICATIONS,
-                        ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-                    ) {
-                        return@Entry ToolExecutionResult.failure(
-                            summary = "Grant notification permission to use notifications.post.",
-                            errorCode = "PERMISSION_REQUIRED",
-                            payload = buildJsonObject {
-                                put("errorCode", "PERMISSION_REQUIRED")
-                                put("toolName", "notifications.post")
-                            },
-                        )
-                    }
-                    if (!notificationManager.areNotificationsEnabled()) {
-                        return@Entry ToolExecutionResult.failure(
-                            summary = "Enable app notifications to use notifications.post.",
-                            errorCode = "TOOL_UNAVAILABLE",
-                            payload = buildJsonObject {
-                                put("errorCode", "TOOL_UNAVAILABLE")
-                                put("toolName", "notifications.post")
-                            },
-                        )
-                    }
-                    ensureToolNotificationChannel(application)
-                    val notificationId = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
-                    notificationManager.notify(
-                        notificationId,
-                        NotificationCompat.Builder(application, TOOL_NOTIFICATION_CHANNEL_ID)
-                            .setSmallIcon(android.R.drawable.ic_dialog_info)
-                            .setContentTitle(title)
-                            .setContentText(body)
-                            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                            .setAutoCancel(true)
-                            .build(),
-                    )
-                    ToolExecutionResult.success(
-                        summary = "Posted notification \"$title\".",
-                        payload = buildJsonObject {
-                            put("notificationId", notificationId)
-                            put("title", title)
-                            put("body", body)
-                        },
-                    )
-                },
-            )
-        },
-    )
+        )
     return toolRegistry
 }
 
@@ -264,58 +302,71 @@ private fun taskToolEntries(
 ): List<ToolRegistry.Entry> {
     return listOf(
         ToolRegistry.Entry(
-            descriptor = ToolDescriptor(
-                name = "tasks.list",
-                aliases = listOf("task.list"),
-                description = "List known automation capabilities and persisted tasks.",
-            ),
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.list",
+                    aliases = listOf("task.list"),
+                    description = "List known automation capabilities and persisted tasks.",
+                ),
         ) { _, _ ->
             val diagnostics = schedulerCoordinator.diagnostics()
             val tasks = taskRepository.observeTasks().first()
             ToolExecutionResult.success(
-                summary = if (tasks.isEmpty()) {
-                    "No persisted tasks yet. Scheduler supports once, interval, and cron execution."
-                } else {
-                    "Found ${tasks.size} persisted task(s)."
-                },
-                payload = buildJsonObject {
-                    put("supportsOnce", true)
-                    put("supportsInterval", true)
-                    put("supportsCron", true)
-                    put(
-                        "minimumBackgroundIntervalMinutes",
-                        schedulerCoordinator.capabilities().minimumBackgroundInterval.toMinutes(),
-                    )
-                    put("taskCount", tasks.size)
-                    put("tasks", buildJsonArray {
-                        tasks.forEach { task ->
-                            add(
-                                buildTaskPayload(
-                                    task = task,
-                                    latestRun = taskRepository.getLatestRun(task.id),
-                                    sessionRepository = sessionRepository,
-                                    diagnostics = diagnostics,
-                                ),
-                            )
-                        }
-                    })
-                },
+                summary =
+                    if (tasks.isEmpty()) {
+                        "No persisted tasks yet. Scheduler supports once, interval, and cron execution."
+                    } else {
+                        "Found ${tasks.size} persisted task(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("supportsOnce", true)
+                        put("supportsInterval", true)
+                        put("supportsCron", true)
+                        put(
+                            "minimumBackgroundIntervalMinutes",
+                            schedulerCoordinator.capabilities().minimumBackgroundInterval.toMinutes(),
+                        )
+                        put("taskCount", tasks.size)
+                        put(
+                            "tasks",
+                            buildJsonArray {
+                                tasks.forEach { task ->
+                                    add(
+                                        buildTaskPayload(
+                                            task = task,
+                                            latestRun = taskRepository.getLatestRun(task.id),
+                                            sessionRepository = sessionRepository,
+                                            diagnostics = diagnostics,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
             )
         },
         ToolRegistry.Entry(
-            descriptor = ToolDescriptor(
-                name = "tasks.get",
-                description = "Return a canonical task payload and its latest run summary.",
-                arguments = listOf(
-                    ToolArgumentSpec(
-                        name = "taskId",
-                        required = true,
-                        description = "Task identifier",
-                    ),
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.get",
+                    description = "Return a canonical task payload and its latest run summary.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Task identifier",
+                            ),
+                        ),
                 ),
-            ),
         ) { _, arguments ->
-            val taskId = arguments["taskId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
             if (taskId.isBlank()) {
                 return@Entry invalidTaskArguments(
                     toolName = "tasks.get",
@@ -323,67 +374,72 @@ private fun taskToolEntries(
                     field = "taskId",
                 )
             }
-            val task = taskRepository.getTask(taskId)
-                ?: return@Entry taskNotFoundResult(toolName = "tasks.get", taskId = taskId)
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.get", taskId = taskId)
             ToolExecutionResult.success(
                 summary = "Loaded task ${task.name}.",
-                payload = buildJsonObject {
-                    put(
-                        "task",
-                        buildTaskPayload(
-                            task = task,
-                            latestRun = taskRepository.getLatestRun(task.id),
-                            sessionRepository = sessionRepository,
-                            diagnostics = schedulerCoordinator.diagnostics(),
-                        ),
-                    )
-                },
+                payload =
+                    buildJsonObject {
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = task,
+                                latestRun = taskRepository.getLatestRun(task.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
             )
         },
         ToolRegistry.Entry(
             descriptor = taskCreateDescriptor(),
         ) { context, arguments ->
-            val spec = try {
-                parseTaskCreateSpec(
-                    arguments = arguments,
-                    context = context,
-                    sessionRepository = sessionRepository,
-                    capabilities = schedulerCoordinator.capabilities(),
-                    now = Instant.now(),
-                )
-            } catch (error: IllegalArgumentException) {
-                return@Entry invalidTaskArguments(
-                    toolName = "tasks.create",
-                    summary = error.message ?: "tasks.create received invalid arguments.",
-                )
-            }
+            val spec =
+                try {
+                    parseTaskCreateSpec(
+                        arguments = arguments,
+                        context = context,
+                        sessionRepository = sessionRepository,
+                        capabilities = schedulerCoordinator.capabilities(),
+                        now = Instant.now(),
+                    )
+                } catch (error: IllegalArgumentException) {
+                    return@Entry invalidTaskArguments(
+                        toolName = "tasks.create",
+                        summary = error.message ?: "tasks.create received invalid arguments.",
+                    )
+                }
             when (spec) {
                 is TaskToolParseResult.Failure -> spec.result
                 is TaskToolParseResult.Success -> {
-                    val createdTask = taskRepository.createTask(
-                        name = spec.value.name,
-                        prompt = spec.value.prompt,
-                        schedule = spec.value.schedule,
-                        executionMode = spec.value.executionMode,
-                        targetSessionId = spec.value.targetSessionId,
-                        precise = spec.value.precise,
-                        maxRetries = spec.value.maxRetries,
-                    )
+                    val createdTask =
+                        taskRepository.createTask(
+                            name = spec.value.name,
+                            prompt = spec.value.prompt,
+                            schedule = spec.value.schedule,
+                            executionMode = spec.value.executionMode,
+                            targetSessionId = spec.value.targetSessionId,
+                            precise = spec.value.precise,
+                            maxRetries = spec.value.maxRetries,
+                        )
                     schedulerCoordinator.scheduleTask(createdTask.id)
                     val reloadedTask = taskRepository.getTask(createdTask.id) ?: createdTask
                     ToolExecutionResult.success(
                         summary = "Created task ${reloadedTask.name}.",
-                        payload = buildJsonObject {
-                            put(
-                                "task",
-                                buildTaskPayload(
-                                    task = reloadedTask,
-                                    latestRun = taskRepository.getLatestRun(reloadedTask.id),
-                                    sessionRepository = sessionRepository,
-                                    diagnostics = schedulerCoordinator.diagnostics(),
-                                ),
-                            )
-                        },
+                        payload =
+                            buildJsonObject {
+                                put(
+                                    "task",
+                                    buildTaskPayload(
+                                        task = reloadedTask,
+                                        latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                        sessionRepository = sessionRepository,
+                                        diagnostics = schedulerCoordinator.diagnostics(),
+                                    ),
+                                )
+                            },
                     )
                 }
             }
@@ -391,7 +447,12 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor = taskUpdateDescriptor(),
         ) { context, arguments ->
-            val taskId = arguments["taskId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
             if (taskId.isBlank()) {
                 return@Entry invalidTaskArguments(
                     toolName = "tasks.update",
@@ -399,23 +460,25 @@ private fun taskToolEntries(
                     field = "taskId",
                 )
             }
-            val existingTask = taskRepository.getTask(taskId)
-                ?: return@Entry taskNotFoundResult(toolName = "tasks.update", taskId = taskId)
-            val updatedTask = try {
-                parseTaskUpdate(
-                    existingTask = existingTask,
-                    arguments = arguments,
-                    context = context,
-                    sessionRepository = sessionRepository,
-                    capabilities = schedulerCoordinator.capabilities(),
-                    now = Instant.now(),
-                )
-            } catch (error: IllegalArgumentException) {
-                return@Entry invalidTaskArguments(
-                    toolName = "tasks.update",
-                    summary = error.message ?: "tasks.update received invalid arguments.",
-                )
-            }
+            val existingTask =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.update", taskId = taskId)
+            val updatedTask =
+                try {
+                    parseTaskUpdate(
+                        existingTask = existingTask,
+                        arguments = arguments,
+                        context = context,
+                        sessionRepository = sessionRepository,
+                        capabilities = schedulerCoordinator.capabilities(),
+                        now = Instant.now(),
+                    )
+                } catch (error: IllegalArgumentException) {
+                    return@Entry invalidTaskArguments(
+                        toolName = "tasks.update",
+                        summary = error.message ?: "tasks.update received invalid arguments.",
+                    )
+                }
             when (updatedTask) {
                 is TaskToolParseResult.Failure -> updatedTask.result
                 is TaskToolParseResult.Success -> {
@@ -428,28 +491,35 @@ private fun taskToolEntries(
                     val reloadedTask = taskRepository.getTask(updatedTask.value.id) ?: updatedTask.value
                     ToolExecutionResult.success(
                         summary = "Updated task ${reloadedTask.name}.",
-                        payload = buildJsonObject {
-                            put(
-                                "task",
-                                buildTaskPayload(
-                                    task = reloadedTask,
-                                    latestRun = taskRepository.getLatestRun(reloadedTask.id),
-                                    sessionRepository = sessionRepository,
-                                    diagnostics = schedulerCoordinator.diagnostics(),
-                                ),
-                            )
-                        },
+                        payload =
+                            buildJsonObject {
+                                put(
+                                    "task",
+                                    buildTaskPayload(
+                                        task = reloadedTask,
+                                        latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                        sessionRepository = sessionRepository,
+                                        diagnostics = schedulerCoordinator.diagnostics(),
+                                    ),
+                                )
+                            },
                     )
                 }
             }
         },
         ToolRegistry.Entry(
-            descriptor = taskToggleDescriptor(
-                name = "tasks.enable",
-                description = "Enable a task and reschedule its next work.",
-            ),
+            descriptor =
+                taskToggleDescriptor(
+                    name = "tasks.enable",
+                    description = "Enable a task and reschedule its next work.",
+                ),
         ) { _, arguments ->
-            val taskId = arguments["taskId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
             if (taskId.isBlank()) {
                 return@Entry invalidTaskArguments(
                     toolName = "tasks.enable",
@@ -457,37 +527,46 @@ private fun taskToolEntries(
                     field = "taskId",
                 )
             }
-            val task = taskRepository.getTask(taskId)
-                ?: return@Entry taskNotFoundResult(toolName = "tasks.enable", taskId = taskId)
-            val updatedTask = task.copy(
-                enabled = true,
-                updatedAt = Instant.now(),
-            )
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.enable", taskId = taskId)
+            val updatedTask =
+                task.copy(
+                    enabled = true,
+                    updatedAt = Instant.now(),
+                )
             taskRepository.updateTask(updatedTask)
             schedulerCoordinator.scheduleTask(updatedTask.id)
             val reloadedTask = taskRepository.getTask(updatedTask.id) ?: updatedTask
             ToolExecutionResult.success(
                 summary = "Enabled task ${reloadedTask.name}.",
-                payload = buildJsonObject {
-                    put(
-                        "task",
-                        buildTaskPayload(
-                            task = reloadedTask,
-                            latestRun = taskRepository.getLatestRun(reloadedTask.id),
-                            sessionRepository = sessionRepository,
-                            diagnostics = schedulerCoordinator.diagnostics(),
-                        ),
-                    )
-                },
+                payload =
+                    buildJsonObject {
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
             )
         },
         ToolRegistry.Entry(
-            descriptor = taskToggleDescriptor(
-                name = "tasks.disable",
-                description = "Disable a task and cancel its queued work.",
-            ),
+            descriptor =
+                taskToggleDescriptor(
+                    name = "tasks.disable",
+                    description = "Disable a task and cancel its queued work.",
+                ),
         ) { _, arguments ->
-            val taskId = arguments["taskId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
             if (taskId.isBlank()) {
                 return@Entry invalidTaskArguments(
                     toolName = "tasks.disable",
@@ -495,37 +574,46 @@ private fun taskToolEntries(
                     field = "taskId",
                 )
             }
-            val task = taskRepository.getTask(taskId)
-                ?: return@Entry taskNotFoundResult(toolName = "tasks.disable", taskId = taskId)
-            val updatedTask = task.copy(
-                enabled = false,
-                updatedAt = Instant.now(),
-            )
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.disable", taskId = taskId)
+            val updatedTask =
+                task.copy(
+                    enabled = false,
+                    updatedAt = Instant.now(),
+                )
             taskRepository.updateTask(updatedTask)
             schedulerCoordinator.cancelTask(updatedTask.id)
             val reloadedTask = taskRepository.getTask(updatedTask.id) ?: updatedTask
             ToolExecutionResult.success(
                 summary = "Disabled task ${reloadedTask.name}.",
-                payload = buildJsonObject {
-                    put(
-                        "task",
-                        buildTaskPayload(
-                            task = reloadedTask,
-                            latestRun = taskRepository.getLatestRun(reloadedTask.id),
-                            sessionRepository = sessionRepository,
-                            diagnostics = schedulerCoordinator.diagnostics(),
-                        ),
-                    )
-                },
+                payload =
+                    buildJsonObject {
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
             )
         },
         ToolRegistry.Entry(
-            descriptor = taskToggleDescriptor(
-                name = "tasks.delete",
-                description = "Delete a task and cancel any future work.",
-            ),
+            descriptor =
+                taskToggleDescriptor(
+                    name = "tasks.delete",
+                    description = "Delete a task and cancel any future work.",
+                ),
         ) { _, arguments ->
-            val taskId = arguments["taskId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
             if (taskId.isBlank()) {
                 return@Entry invalidTaskArguments(
                     toolName = "tasks.delete",
@@ -533,25 +621,33 @@ private fun taskToolEntries(
                     field = "taskId",
                 )
             }
-            val task = taskRepository.getTask(taskId)
-                ?: return@Entry taskNotFoundResult(toolName = "tasks.delete", taskId = taskId)
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.delete", taskId = taskId)
             schedulerCoordinator.cancelTask(task.id)
             taskRepository.deleteTask(task.id)
             ToolExecutionResult.success(
                 summary = "Deleted task ${task.name}.",
-                payload = buildJsonObject {
-                    put("deletedTaskId", task.id)
-                    put("deletedTaskName", task.name)
-                },
+                payload =
+                    buildJsonObject {
+                        put("deletedTaskId", task.id)
+                        put("deletedTaskName", task.name)
+                    },
             )
         },
         ToolRegistry.Entry(
-            descriptor = taskToggleDescriptor(
-                name = "tasks.run_now",
-                description = "Queue immediate execution without changing the future schedule.",
-            ),
+            descriptor =
+                taskToggleDescriptor(
+                    name = "tasks.run_now",
+                    description = "Queue immediate execution without changing the future schedule.",
+                ),
         ) { _, arguments ->
-            val taskId = arguments["taskId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
             if (taskId.isBlank()) {
                 return@Entry invalidTaskArguments(
                     toolName = "tasks.run_now",
@@ -559,66 +655,66 @@ private fun taskToolEntries(
                     field = "taskId",
                 )
             }
-            val task = taskRepository.getTask(taskId)
-                ?: return@Entry taskNotFoundResult(toolName = "tasks.run_now", taskId = taskId)
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.run_now", taskId = taskId)
             val queuedAt = Instant.now()
             schedulerCoordinator.runNow(task.id)
             val reloadedTask = taskRepository.getTask(task.id) ?: task
             ToolExecutionResult.success(
                 summary = "Queued run now for ${task.name}.",
-                payload = buildJsonObject {
-                    put("queuedAtIso", queuedAt.toString())
-                    put("trigger", "manual")
-                    put(
-                        "task",
-                        buildTaskPayload(
-                            task = reloadedTask,
-                            latestRun = taskRepository.getLatestRun(reloadedTask.id),
-                            sessionRepository = sessionRepository,
-                            diagnostics = schedulerCoordinator.diagnostics(),
-                        ),
-                    )
-                },
+                payload =
+                    buildJsonObject {
+                        put("queuedAtIso", queuedAt.toString())
+                        put("trigger", "manual")
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
             )
         },
     )
 }
 
-private fun taskCreateDescriptor(): ToolDescriptor {
-    return ToolDescriptor(
+private fun taskCreateDescriptor(): ToolDescriptor =
+    ToolDescriptor(
         name = "tasks.create",
         description = "Create a scheduled automation using explicit schedule fields.",
         arguments = taskMutationArguments(requiredTaskId = false),
     )
-}
 
-private fun taskUpdateDescriptor(): ToolDescriptor {
-    return ToolDescriptor(
+private fun taskUpdateDescriptor(): ToolDescriptor =
+    ToolDescriptor(
         name = "tasks.update",
         description = "Patch an existing task without replacing unspecified fields.",
         arguments = taskMutationArguments(requiredTaskId = true),
     )
-}
 
 private fun taskToggleDescriptor(
     name: String,
     description: String,
-): ToolDescriptor {
-    return ToolDescriptor(
+): ToolDescriptor =
+    ToolDescriptor(
         name = name,
         description = description,
-        arguments = listOf(
-            ToolArgumentSpec(
-                name = "taskId",
-                required = true,
-                description = "Task identifier",
+        arguments =
+            listOf(
+                ToolArgumentSpec(
+                    name = "taskId",
+                    required = true,
+                    description = "Task identifier",
+                ),
             ),
-        ),
     )
-}
 
-private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpec> {
-    return buildList {
+private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpec> =
+    buildList {
         if (requiredTaskId) {
             add(
                 ToolArgumentSpec(
@@ -660,7 +756,6 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
         add(ToolArgumentSpec(name = "precise", description = "true | false"))
         add(ToolArgumentSpec(name = "maxRetries", description = "Non-negative retry count"))
     }
-}
 
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 
@@ -691,12 +786,13 @@ private fun ensureToolNotificationChannel(application: Application) {
         return
     }
     val notificationManager = application.getSystemService(NotificationManager::class.java)
-    val channel = NotificationChannel(
-        TOOL_NOTIFICATION_CHANNEL_ID,
-        "AndroidClaw tools",
-        NotificationManager.IMPORTANCE_DEFAULT,
-    ).apply {
-        description = "Notifications created by AndroidClaw tool executions."
-    }
+    val channel =
+        NotificationChannel(
+            TOOL_NOTIFICATION_CHANNEL_ID,
+            "AndroidClaw tools",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Notifications created by AndroidClaw tool executions."
+        }
     notificationManager.createNotificationChannel(channel)
 }

@@ -6,12 +6,12 @@ import ai.androidclaw.data.model.SkillRecord
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.skills.SkillSourceType
-import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import java.time.Instant
 
 class SkillRepository(
     private val dao: SkillRecordDao,
@@ -26,21 +26,21 @@ class SkillRepository(
         dao.upsertAll(records.map { it.toEntity(json) })
     }
 
-    fun observeSkills(): Flow<List<SkillRecord>> = dao.getAll().map { records ->
-        records.map { it.toDomain(json) }
-    }
+    fun observeSkills(): Flow<List<SkillRecord>> =
+        dao.getAll().map { records ->
+            records.map { it.toDomain(json) }
+        }
 
-    suspend fun getAllSkills(): List<SkillRecord> {
-        return dao.getAllOnce().map { it.toDomain(json) }
-    }
+    suspend fun getAllSkills(): List<SkillRecord> = dao.getAllOnce().map { it.toDomain(json) }
 
-    suspend fun getEnabledSkills(): List<SkillRecord> {
-        return dao.getEnabled().map { it.toDomain(json) }
-    }
+    suspend fun getEnabledSkills(): List<SkillRecord> = dao.getEnabled().map { it.toDomain(json) }
 
     suspend fun getSkill(id: String): SkillRecord? = dao.getById(id)?.toDomain(json)
 
-    suspend fun setEnabled(id: String, enabled: Boolean) {
+    suspend fun setEnabled(
+        id: String,
+        enabled: Boolean,
+    ) {
         val existing = dao.getById(id) ?: return
         dao.upsert(
             existing.copy(
@@ -55,8 +55,8 @@ class SkillRepository(
     }
 }
 
-private fun SkillRecord.toEntity(json: Json): SkillRecordEntity {
-    return SkillRecordEntity(
+private fun SkillRecord.toEntity(json: Json): SkillRecordEntity =
+    SkillRecordEntity(
         id = id,
         skillKey = skillKey,
         sourceType = sourceType.toStorage(),
@@ -73,10 +73,9 @@ private fun SkillRecord.toEntity(json: Json): SkillRecordEntity {
         importedAt = importedAt?.toEpochMilli(),
         updatedAt = updatedAt.toEpochMilli(),
     )
-}
 
-private fun SkillRecordEntity.toDomain(json: Json): SkillRecord {
-    return SkillRecord(
+private fun SkillRecordEntity.toDomain(json: Json): SkillRecord =
+    SkillRecord(
         id = id,
         skillKey = skillKey,
         sourceType = sourceType.toSkillSourceType(),
@@ -93,40 +92,35 @@ private fun SkillRecordEntity.toDomain(json: Json): SkillRecord {
         importedAt = importedAt?.let(Instant::ofEpochMilli),
         updatedAt = Instant.ofEpochMilli(updatedAt),
     )
-}
 
-private fun SkillSourceType.toStorage(): String {
-    return when (this) {
+private fun SkillSourceType.toStorage(): String =
+    when (this) {
         SkillSourceType.Bundled -> "bundled"
         SkillSourceType.Local -> "local"
         SkillSourceType.Workspace -> "workspace"
     }
-}
 
-private fun String.toSkillSourceType(): SkillSourceType {
-    return when (this) {
+private fun String.toSkillSourceType(): SkillSourceType =
+    when (this) {
         "bundled" -> SkillSourceType.Bundled
         "local" -> SkillSourceType.Local
         "workspace" -> SkillSourceType.Workspace
         else -> SkillSourceType.Local
     }
-}
 
-private fun SkillEligibilityStatus.toStorage(): String {
-    return when (this) {
+private fun SkillEligibilityStatus.toStorage(): String =
+    when (this) {
         SkillEligibilityStatus.Eligible -> "Eligible"
         SkillEligibilityStatus.Invalid -> "Invalid"
         SkillEligibilityStatus.MissingTool -> "MissingTool"
         SkillEligibilityStatus.BridgeOnly -> "BridgeOnly"
     }
-}
 
-private fun String.toSkillEligibilityStatus(): SkillEligibilityStatus {
-    return when (this) {
+private fun String.toSkillEligibilityStatus(): SkillEligibilityStatus =
+    when (this) {
         "Eligible" -> SkillEligibilityStatus.Eligible
         "Invalid" -> SkillEligibilityStatus.Invalid
         "MissingTool" -> SkillEligibilityStatus.MissingTool
         "BridgeOnly" -> SkillEligibilityStatus.BridgeOnly
         else -> SkillEligibilityStatus.Invalid
     }
-}

@@ -15,7 +15,6 @@ import ai.androidclaw.testutil.buildTestProviderRegistry
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -36,80 +35,99 @@ class SessionSummaryCoordinatorTest {
     private lateinit var settingsDataStore: SettingsDataStore
 
     @Before
-    fun setUp() = runTest {
-        application = ApplicationProvider.getApplicationContext()
-        database = buildTestDatabase(application)
-        sessionRepository = SessionRepository(database.sessionDao())
-        messageRepository = MessageRepository(database.messageDao())
-        settingsDataStore = SettingsDataStore(application)
-        settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(providerType = ProviderType.OpenAiCompatible),
-        )
-    }
+    fun setUp() =
+        runTest {
+            application = ApplicationProvider.getApplicationContext()
+            database = buildTestDatabase(application)
+            sessionRepository = SessionRepository(database.sessionDao())
+            messageRepository = MessageRepository(database.messageDao())
+            settingsDataStore = SettingsDataStore(application)
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot(providerType = ProviderType.OpenAiCompatible),
+            )
+        }
 
     @After
-    fun tearDown() = runTest {
-        settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
-        database.close()
-    }
+    fun tearDown() =
+        runTest {
+            settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            database.close()
+        }
 
     @Test
-    fun `eligible session generates and stores a summary`() = runTest {
-        val provider = RecordingSummaryProvider("First summary")
-        val coordinator = buildCoordinator(provider = provider)
-        val sessionId = seedConversation(messageCount = 4)
+    fun `eligible session generates and stores a summary`() =
+        runTest {
+            val provider = RecordingSummaryProvider("First summary")
+            val coordinator = buildCoordinator(provider = provider)
+            val sessionId = seedConversation(messageCount = 4)
 
-        val result = coordinator.maybeRefreshSummary(sessionId)
+            val result = coordinator.maybeRefreshSummary(sessionId)
 
-        assertTrue(result.refreshed)
-        assertEquals("First summary", sessionRepository.getSession(sessionId)?.summaryText)
-        assertEquals(1, provider.requests.size)
-        assertTrue(provider.requests.single().messageHistory.single().content.contains("Recent transcript"))
-    }
-
-    @Test
-    fun `summary refresh waits for enough new messages`() = runTest {
-        val provider = RecordingSummaryProvider("First summary", "Updated summary")
-        val coordinator = buildCoordinator(provider = provider)
-        val sessionId = seedConversation(messageCount = 4)
-
-        val initial = coordinator.maybeRefreshSummary(sessionId)
-        assertTrue(initial.refreshed)
-
-        appendConversationMessages(sessionId, 1)
-        val skipped = coordinator.maybeRefreshSummary(sessionId)
-        assertFalse(skipped.refreshed)
-        assertEquals("not_enough_new_messages", skipped.skippedReason)
-
-        appendConversationMessages(sessionId, 1)
-        val refreshed = coordinator.maybeRefreshSummary(sessionId)
-        assertTrue(refreshed.refreshed)
-        assertEquals("Updated summary", sessionRepository.getSession(sessionId)?.summaryText)
-        assertEquals(2, provider.requests.size)
-        assertTrue(provider.requests.last().messageHistory.single().content.contains("Existing summary:"))
-    }
+            assertTrue(result.refreshed)
+            assertEquals("First summary", sessionRepository.getSession(sessionId)?.summaryText)
+            assertEquals(1, provider.requests.size)
+            assertTrue(
+                provider.requests
+                    .single()
+                    .messageHistory
+                    .single()
+                    .content
+                    .contains("Recent transcript"),
+            )
+        }
 
     @Test
-    fun `fake provider is skipped by default`() = runTest {
-        settingsDataStore.saveProviderSettings(
-            ProviderSettingsSnapshot(providerType = ProviderType.Fake),
-        )
-        val provider = RecordingSummaryProvider("Should not be used")
-        val coordinator = buildCoordinator(provider = provider)
-        val sessionId = seedConversation(messageCount = 4)
+    fun `summary refresh waits for enough new messages`() =
+        runTest {
+            val provider = RecordingSummaryProvider("First summary", "Updated summary")
+            val coordinator = buildCoordinator(provider = provider)
+            val sessionId = seedConversation(messageCount = 4)
 
-        val result = coordinator.maybeRefreshSummary(sessionId)
+            val initial = coordinator.maybeRefreshSummary(sessionId)
+            assertTrue(initial.refreshed)
 
-        assertFalse(result.refreshed)
-        assertEquals("fake_provider_disabled", result.skippedReason)
-        assertTrue(sessionRepository.getSession(sessionId)?.summaryText.isNullOrBlank())
-        assertTrue(provider.requests.isEmpty())
-    }
+            appendConversationMessages(sessionId, 1)
+            val skipped = coordinator.maybeRefreshSummary(sessionId)
+            assertFalse(skipped.refreshed)
+            assertEquals("not_enough_new_messages", skipped.skippedReason)
+
+            appendConversationMessages(sessionId, 1)
+            val refreshed = coordinator.maybeRefreshSummary(sessionId)
+            assertTrue(refreshed.refreshed)
+            assertEquals("Updated summary", sessionRepository.getSession(sessionId)?.summaryText)
+            assertEquals(2, provider.requests.size)
+            assertTrue(
+                provider.requests
+                    .last()
+                    .messageHistory
+                    .single()
+                    .content
+                    .contains("Existing summary:"),
+            )
+        }
+
+    @Test
+    fun `fake provider is skipped by default`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot(providerType = ProviderType.Fake),
+            )
+            val provider = RecordingSummaryProvider("Should not be used")
+            val coordinator = buildCoordinator(provider = provider)
+            val sessionId = seedConversation(messageCount = 4)
+
+            val result = coordinator.maybeRefreshSummary(sessionId)
+
+            assertFalse(result.refreshed)
+            assertEquals("fake_provider_disabled", result.skippedReason)
+            assertTrue(sessionRepository.getSession(sessionId)?.summaryText.isNullOrBlank())
+            assertTrue(provider.requests.isEmpty())
+        }
 
     private fun TestScope.buildCoordinator(
         provider: ModelProvider,
-    ): SessionSummaryCoordinator {
-        return SessionSummaryCoordinator(
+    ): SessionSummaryCoordinator =
+        SessionSummaryCoordinator(
             applicationScope = backgroundScope,
             providerRegistry = buildTestProviderRegistry(openAiCompatibleProvider = provider),
             settingsDataStore = settingsDataStore,
@@ -120,7 +138,6 @@ class SessionSummaryCoordinatorTest {
             refreshIntervalMessages = 2,
             summarySourceMessageLimit = 12,
         )
-    }
 
     private suspend fun seedConversation(messageCount: Int): String {
         val sessionId = sessionRepository.createSession("Summary test").id
@@ -128,7 +145,10 @@ class SessionSummaryCoordinatorTest {
         return sessionId
     }
 
-    private suspend fun appendConversationMessages(sessionId: String, messageCount: Int) {
+    private suspend fun appendConversationMessages(
+        sessionId: String,
+        messageCount: Int,
+    ) {
         repeat(messageCount) { index ->
             messageRepository.addMessage(
                 sessionId = sessionId,

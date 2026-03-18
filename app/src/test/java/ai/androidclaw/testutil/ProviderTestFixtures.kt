@@ -11,10 +11,11 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 
-private val testClock: Clock = Clock.fixed(
-    Instant.parse("2026-03-08T00:00:00Z"),
-    ZoneOffset.UTC,
-)
+private val testClock: Clock =
+    Clock.fixed(
+        Instant.parse("2026-03-08T00:00:00Z"),
+        ZoneOffset.UTC,
+    )
 
 class InMemoryProviderSecretStore(
     initialSecrets: Map<ProviderType, String> = emptyMap(),
@@ -23,11 +24,12 @@ class InMemoryProviderSecretStore(
     private val secrets = initialSecrets.toMutableMap()
     private val recoveryNotices = initialRecoveryNotices.toMutableSet()
 
-    override suspend fun readApiKey(providerType: ProviderType): String? {
-        return secrets[providerType]
-    }
+    override suspend fun readApiKey(providerType: ProviderType): String? = secrets[providerType]
 
-    override suspend fun writeApiKey(providerType: ProviderType, apiKey: String?) {
+    override suspend fun writeApiKey(
+        providerType: ProviderType,
+        apiKey: String?,
+    ) {
         if (apiKey.isNullOrBlank()) {
             secrets.remove(providerType)
         } else {
@@ -35,9 +37,7 @@ class InMemoryProviderSecretStore(
         }
     }
 
-    override suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean {
-        return recoveryNotices.remove(providerType)
-    }
+    override suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean = recoveryNotices.remove(providerType)
 
     fun markRecoveryNotice(providerType: ProviderType) {
         recoveryNotices += providerType
@@ -53,32 +53,32 @@ fun buildTestProviderRegistry(
     fakeProvider: ModelProvider = FakeProvider(clock = testClock),
     openAiCompatibleProvider: ModelProvider = StubModelProvider(ProviderType.OpenAiCompatible.providerId),
     anthropicProvider: ModelProvider = StubModelProvider(ProviderType.Anthropic.providerId),
-): ProviderRegistry {
-    return ProviderRegistry(
-        providers = listOf(
-            ProviderRegistry.RegisteredProviderEntry(
-                type = ProviderType.Fake,
-                displayName = ProviderType.Fake.displayName,
-                provider = fakeProvider,
-            ),
-        ) + ProviderType.configurableProviders.map { providerType ->
-            ProviderRegistry.RegisteredProviderEntry(
-                type = providerType,
-                displayName = providerType.displayName,
-                provider = when (providerType) {
-                    ProviderType.Anthropic -> anthropicProvider
-                    ProviderType.OpenAiCompatible -> openAiCompatibleProvider
-                    else -> StubModelProvider(providerType.providerId)
+): ProviderRegistry =
+    ProviderRegistry(
+        providers =
+            listOf(
+                ProviderRegistry.RegisteredProviderEntry(
+                    type = ProviderType.Fake,
+                    displayName = ProviderType.Fake.displayName,
+                    provider = fakeProvider,
+                ),
+            ) +
+                ProviderType.configurableProviders.map { providerType ->
+                    ProviderRegistry.RegisteredProviderEntry(
+                        type = providerType,
+                        displayName = providerType.displayName,
+                        provider =
+                            when (providerType) {
+                                ProviderType.Anthropic -> anthropicProvider
+                                ProviderType.OpenAiCompatible -> openAiCompatibleProvider
+                                else -> StubModelProvider(providerType.providerId)
+                            },
+                    )
                 },
-            )
-        },
     )
-}
 
 private class StubModelProvider(
     override val id: String,
 ) : ModelProvider {
-    override suspend fun generate(request: ModelRequest): ModelResponse {
-        return ModelResponse(text = "Stub response")
-    }
+    override suspend fun generate(request: ModelRequest): ModelResponse = ModelResponse(text = "Stub response")
 }

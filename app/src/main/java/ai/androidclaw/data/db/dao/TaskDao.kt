@@ -38,4 +38,3 @@ interface TaskDao {
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun delete(id: String)
 }
-

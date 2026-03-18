@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.chat
 
+import ai.androidclaw.ui.components.ScreenHeader
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -8,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,9 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -32,9 +32,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,9 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import ai.androidclaw.ui.components.ScreenHeader
-import java.io.File
 import kotlinx.coroutines.flow.collect
+import java.io.File
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
@@ -59,31 +58,32 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
     var pendingExport by remember { mutableStateOf<ChatExportPayload?>(null) }
     val messageListState = rememberLazyListState()
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val payload = pendingExport
-        pendingExport = null
-        if (payload == null) return@rememberLauncherForActivityResult
-        if (result.resultCode != Activity.RESULT_OK) {
-            viewModel.onExportCancelled()
-            return@rememberLauncherForActivityResult
+    val exportLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
+            val payload = pendingExport
+            pendingExport = null
+            if (payload == null) return@rememberLauncherForActivityResult
+            if (result.resultCode != Activity.RESULT_OK) {
+                viewModel.onExportCancelled()
+                return@rememberLauncherForActivityResult
+            }
+            val uri = result.data?.data
+            if (uri == null) {
+                viewModel.onExternalActionFailed("Failed to export ${payload.fileName}: no file destination selected.")
+                return@rememberLauncherForActivityResult
+            }
+            runCatching {
+                writeExportPayload(context, uri, payload)
+            }.onSuccess {
+                viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
+            }.onFailure { error ->
+                viewModel.onExternalActionFailed(
+                    "Failed to export ${payload.fileName}: ${error.message ?: "unknown error"}.",
+                )
+            }
         }
-        val uri = result.data?.data
-        if (uri == null) {
-            viewModel.onExternalActionFailed("Failed to export ${payload.fileName}: no file destination selected.")
-            return@rememberLauncherForActivityResult
-        }
-        runCatching {
-            writeExportPayload(context, uri, payload)
-        }.onSuccess {
-            viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
-        }.onFailure { error ->
-            viewModel.onExternalActionFailed(
-                "Failed to export ${payload.fileName}: ${error.message ?: "unknown error"}.",
-            )
-        }
-    }
 
     LaunchedEffect(state.sessionTitle, state.currentSessionId) {
         renameDraft = state.sessionTitle
@@ -124,11 +124,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp)
-            .testTag("chatScreen"),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(16.dp)
+                .testTag("chatScreen"),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenHeader(
@@ -315,9 +316,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
         state.noticeMessage?.let { noticeMessage ->
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { liveRegion = LiveRegionMode.Polite },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics { liveRegion = LiveRegionMode.Polite },
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
@@ -334,9 +336,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
         state.errorMessage?.let { errorMessage ->
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { liveRegion = LiveRegionMode.Assertive },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics { liveRegion = LiveRegionMode.Assertive },
             ) {
                 Column(
                     modifier = Modifier.padding(12.dp),
@@ -396,9 +399,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 item(key = "empty-chat") {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
+                        colors =
+                            CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
                     ) {
                         Column(
                             modifier = Modifier.padding(14.dp),
@@ -417,15 +421,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
             items(state.messages, key = { it.id }) { message ->
-                val appearance = messageAppearance(
-                    role = message.role,
-                    isHighlighted = message.id == state.highlightedMessageId,
-                )
+                val appearance =
+                    messageAppearance(
+                        role = message.role,
+                        isHighlighted = message.id == state.highlightedMessageId,
+                    )
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = appearance.containerColor,
-                    ),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor = appearance.containerColor,
+                        ),
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
@@ -438,9 +444,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         )
                         ChatRichText(
                             text = message.text,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = appearance.contentColor,
-                            ),
+                            style =
+                                MaterialTheme.typography.bodyLarge.copy(
+                                    color = appearance.contentColor,
+                                ),
                         )
                     }
                 }
@@ -449,9 +456,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 item(key = "streaming-assistant") {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
+                        colors =
+                            CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            ),
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -481,18 +489,20 @@ fun ChatScreen(viewModel: ChatViewModel) {
         if (state.isRunning) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val runningStateDescription =
                         state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response"
                     CircularProgressIndicator(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .semantics { stateDescription = runningStateDescription },
+                        modifier =
+                            Modifier
+                                .size(20.dp)
+                                .semantics { stateDescription = runningStateDescription },
                     )
                     Text(
                         text = runningStateDescription,
@@ -536,13 +546,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 }
 
-private fun createExportDocumentIntent(payload: ChatExportPayload): Intent {
-    return Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+private fun createExportDocumentIntent(payload: ChatExportPayload): Intent =
+    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
         addCategory(Intent.CATEGORY_OPENABLE)
         type = payload.mimeType
         putExtra(Intent.EXTRA_TITLE, payload.fileName)
     }
-}
 
 private fun writeExportPayload(
     context: Context,
@@ -559,11 +568,12 @@ private fun launchShareText(
     context: Context,
     action: ChatExternalAction.ShareText,
 ) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, action.subject)
-        putExtra(Intent.EXTRA_TEXT, action.text)
-    }
+    val intent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, action.subject)
+            putExtra(Intent.EXTRA_TEXT, action.text)
+        }
     context.startActivity(Intent.createChooser(intent, "Share session"))
 }
 
@@ -586,12 +596,13 @@ private fun launchShareFile(
     payload: ChatExportPayload,
     uri: Uri,
 ) {
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = payload.mimeType
-        putExtra(Intent.EXTRA_STREAM, uri)
-        putExtra(Intent.EXTRA_SUBJECT, payload.fileName)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
+    val intent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = payload.mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, payload.fileName)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
     context.startActivity(Intent.createChooser(intent, "Share session file"))
 }
 
@@ -607,44 +618,51 @@ private fun messageAppearance(
     role: String,
     isHighlighted: Boolean,
 ): MessageAppearance {
-    val base = when (role.lowercase()) {
-        "user" -> MessageAppearance(
-            label = "User",
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-        "assistant" -> MessageAppearance(
-            label = "Assistant",
-            containerColor = MaterialTheme.colorScheme.surface,
-            labelColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        )
-        "tool_call" -> MessageAppearance(
-            label = "Tool call",
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
-        "tool_result" -> MessageAppearance(
-            label = "Tool result",
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-        )
-        "system" -> MessageAppearance(
-            label = "System",
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            labelColor = MaterialTheme.colorScheme.onErrorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        )
-        else -> MessageAppearance(
-            label = role,
-            containerColor = MaterialTheme.colorScheme.surface,
-            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        )
-    }
+    val base =
+        when (role.lowercase()) {
+            "user" ->
+                MessageAppearance(
+                    label = "User",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            "assistant" ->
+                MessageAppearance(
+                    label = "Assistant",
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    labelColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                )
+            "tool_call" ->
+                MessageAppearance(
+                    label = "Tool call",
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            "tool_result" ->
+                MessageAppearance(
+                    label = "Tool result",
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            "system" ->
+                MessageAppearance(
+                    label = "System",
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            else ->
+                MessageAppearance(
+                    label = role,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                )
+        }
     return if (isHighlighted) {
         base.copy(containerColor = MaterialTheme.colorScheme.secondaryContainer)
     } else {

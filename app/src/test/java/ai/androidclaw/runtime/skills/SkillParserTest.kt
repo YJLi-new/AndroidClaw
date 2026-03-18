@@ -1,7 +1,7 @@
 package ai.androidclaw.runtime.skills
 
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -13,7 +13,8 @@ class SkillParserTest {
 
     @Test
     fun `parses supported fields and preserves unknown fields`() {
-        val raw = """
+        val raw =
+            """
             ---
             name: list_tasks
             description: Direct tool dispatch
@@ -26,7 +27,7 @@ class SkillParserTest {
             ---
             
             Body content.
-        """.trimIndent()
+            """.trimIndent()
 
         val result = parser.parse(raw)
         assertTrue(result is SkillParseResult.Success)
@@ -37,13 +38,16 @@ class SkillParserTest {
         assertEquals("tasks.list", document.frontmatter.commandTool)
         assertEquals(
             "keep-me",
-            document.frontmatter.unknownFields.getValue("unknown-field").jsonPrimitive.content,
+            document.frontmatter.unknownFields
+                .getValue("unknown-field")
+                .jsonPrimitive.content,
         )
         val metadata = document.frontmatter.metadata
         assertNotNull(metadata)
         assertEquals(
             "tasks.list",
-            metadata!!.jsonObject
+            metadata!!
+                .jsonObject
                 .getValue("android")
                 .jsonObject
                 .getValue("requiresTools")
@@ -55,11 +59,12 @@ class SkillParserTest {
 
     @Test
     fun `fails when required fields are missing`() {
-        val raw = """
+        val raw =
+            """
             ---
             description: Missing name
             ---
-        """.trimIndent()
+            """.trimIndent()
 
         val result = parser.parse(raw)
         assertTrue(result is SkillParseResult.Failure)

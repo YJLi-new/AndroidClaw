@@ -13,10 +13,12 @@ fun buildDiagnosticsExportPayload(
     state: HealthUiState,
     exportedAt: Instant = Instant.now(),
 ): HealthDiagnosticsExportPayload {
-    val timestamp = exportedAt.toString()
-        .replace(':', '-')
-        .replace(Regex("[^A-Za-z0-9._-]"), "-")
-        .trim('-')
+    val timestamp =
+        exportedAt
+            .toString()
+            .replace(':', '-')
+            .replace(Regex("[^A-Za-z0-9._-]"), "-")
+            .trim('-')
     return HealthDiagnosticsExportPayload(
         fileName = "androidclaw-diagnostics_$timestamp.txt",
         mimeType = "text/plain",
@@ -24,8 +26,8 @@ fun buildDiagnosticsExportPayload(
     )
 }
 
-fun buildDiagnosticsReport(state: HealthUiState): String {
-    return buildString {
+fun buildDiagnosticsReport(state: HealthUiState): String =
+    buildString {
         appendLine("AndroidClaw diagnostics")
         appendLine("Provider: ${state.providerId}")
         appendLine("Network: ${state.networkSummary}")
@@ -53,4 +55,3 @@ fun buildDiagnosticsReport(state: HealthUiState): String {
             }
         }
     }.trim()
-}

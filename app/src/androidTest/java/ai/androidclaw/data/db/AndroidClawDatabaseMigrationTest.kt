@@ -3,8 +3,8 @@ package ai.androidclaw.data.db
 import android.database.Cursor
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
-import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -14,11 +14,12 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AndroidClawDatabaseMigrationTest {
     @get:Rule
-    val helper = MigrationTestHelper(
-        InstrumentationRegistry.getInstrumentation(),
-        requireNotNull(AndroidClawDatabase::class.java.canonicalName),
-        FrameworkSQLiteOpenHelperFactory(),
-    )
+    val helper =
+        MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            requireNotNull(AndroidClawDatabase::class.java.canonicalName),
+            FrameworkSQLiteOpenHelperFactory(),
+        )
 
     @Test
     fun migrate1To2_preservesLegacySkillRowsAndAddsNewColumns() {
@@ -53,25 +54,26 @@ class AndroidClawDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(
-            SKILL_TEST_DB,
-            2,
-            true,
-            AndroidClawDatabaseMigrations.MIGRATION_1_2,
-        ).query(
-            """
-            SELECT skillKey, workspaceSessionId, baseDir, instructionsMd, parseError
-            FROM skill_records
-            WHERE id = 'bundled-summary'
-            """.trimIndent(),
-        ).useCursor { cursor ->
-            assertTrueMoveToFirst(cursor)
-            assertEquals("Summary", cursor.getString(0))
-            assertTrue(cursor.isNull(1))
-            assertEquals("legacy://bundled/bundled-summary", cursor.getString(2))
-            assertEquals("", cursor.getString(3))
-            assertTrue(cursor.isNull(4))
-        }
+        helper
+            .runMigrationsAndValidate(
+                SKILL_TEST_DB,
+                2,
+                true,
+                AndroidClawDatabaseMigrations.MIGRATION_1_2,
+            ).query(
+                """
+                SELECT skillKey, workspaceSessionId, baseDir, instructionsMd, parseError
+                FROM skill_records
+                WHERE id = 'bundled-summary'
+                """.trimIndent(),
+            ).useCursor { cursor ->
+                assertTrueMoveToFirst(cursor)
+                assertEquals("Summary", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+                assertEquals("legacy://bundled/bundled-summary", cursor.getString(2))
+                assertEquals("", cursor.getString(3))
+                assertTrue(cursor.isNull(4))
+            }
     }
 
     @Test
@@ -173,117 +175,118 @@ class AndroidClawDatabaseMigrationTest {
             close()
         }
 
-        helper.runMigrationsAndValidate(
-            RUNTIME_TEST_DB,
-            2,
-            true,
-            AndroidClawDatabaseMigrations.MIGRATION_1_2,
-        ).apply {
-            assertRowCount(this, "sessions", 2)
-            assertRowCount(this, "messages", 3)
-            assertRowCount(this, "tasks", 3)
-            assertRowCount(this, "task_runs", 3)
-            assertRowCount(this, "skill_records", 3)
-            assertRowCount(this, "event_logs", 2)
+        helper
+            .runMigrationsAndValidate(
+                RUNTIME_TEST_DB,
+                2,
+                true,
+                AndroidClawDatabaseMigrations.MIGRATION_1_2,
+            ).apply {
+                assertRowCount(this, "sessions", 2)
+                assertRowCount(this, "messages", 3)
+                assertRowCount(this, "tasks", 3)
+                assertRowCount(this, "task_runs", 3)
+                assertRowCount(this, "skill_records", 3)
+                assertRowCount(this, "event_logs", 2)
 
-            query("SELECT archivedAt, summaryText FROM sessions WHERE id = 'archive'").useCursor { cursor ->
-                assertTrueMoveToFirst(cursor)
-                assertEquals(2200L, cursor.getLong(0))
-                assertEquals("archived summary", cursor.getString(1))
+                query("SELECT archivedAt, summaryText FROM sessions WHERE id = 'archive'").useCursor { cursor ->
+                    assertTrueMoveToFirst(cursor)
+                    assertEquals(2200L, cursor.getLong(0))
+                    assertEquals("archived summary", cursor.getString(1))
+                }
+
+                query(
+                    """
+                    SELECT sessionId, role, providerMeta, toolCallId, taskRunId
+                    FROM messages
+                    WHERE id = 'msg-archived'
+                    """.trimIndent(),
+                ).useCursor { cursor ->
+                    assertTrueMoveToFirst(cursor)
+                    assertEquals("archive", cursor.getString(0))
+                    assertEquals("system", cursor.getString(1))
+                    assertTrue(cursor.isNull(2))
+                    assertEquals("call-1", cursor.getString(3))
+                    assertEquals("run-failure", cursor.getString(4))
+                }
+
+                query(
+                    """
+                    SELECT name, scheduleKind, scheduleSpec, executionMode, targetSessionId, precise
+                    FROM tasks
+                    WHERE id = 'task-interval'
+                    """.trimIndent(),
+                ).useCursor { cursor ->
+                    assertTrueMoveToFirst(cursor)
+                    assertEquals("Heartbeat", cursor.getString(0))
+                    assertEquals("interval", cursor.getString(1))
+                    assertEquals("""{"everyMinutes":60,"anchorAt":"2026-03-09T01:00:00Z"}""", cursor.getString(2))
+                    assertEquals("ISOLATED_SESSION", cursor.getString(3))
+                    assertEquals("archive", cursor.getString(4))
+                    assertEquals(0, cursor.getInt(5))
+                }
+
+                query(
+                    """
+                    SELECT taskId, status, startedAt, finishedAt, errorCode, errorMessage, resultSummary, outputMessageId
+                    FROM task_runs
+                    WHERE id = 'run-failure'
+                    """.trimIndent(),
+                ).useCursor { cursor ->
+                    assertTrueMoveToFirst(cursor)
+                    assertEquals("task-cron", cursor.getString(0))
+                    assertEquals("FAILURE", cursor.getString(1))
+                    assertEquals(1700007200100L, cursor.getLong(2))
+                    assertEquals(1700007200200L, cursor.getLong(3))
+                    assertEquals("NETWORK", cursor.getString(4))
+                    assertEquals("offline", cursor.getString(5))
+                    assertEquals("Failed", cursor.getString(6))
+                    assertTrue(cursor.isNull(7))
+                }
+
+                assertMigratedSkill(
+                    db = this,
+                    id = "bundled-summary",
+                    expectedSkillKey = "Summary",
+                    expectedSourceType = "bundled",
+                    expectedBaseDir = "legacy://bundled/bundled-summary",
+                    expectedEnabled = 1,
+                    expectedImportedAt = null,
+                )
+                assertMigratedSkill(
+                    db = this,
+                    id = "local-helper",
+                    expectedSkillKey = "Local Helper",
+                    expectedSourceType = "local",
+                    expectedBaseDir = "legacy://local/local-helper",
+                    expectedEnabled = 0,
+                    expectedImportedAt = 1700000000000L,
+                )
+                assertMigratedSkill(
+                    db = this,
+                    id = "workspace-ops",
+                    expectedSkillKey = "Workspace Ops",
+                    expectedSourceType = "workspace",
+                    expectedBaseDir = "legacy://workspace/workspace-ops",
+                    expectedEnabled = 1,
+                    expectedImportedAt = 1700000002000L,
+                )
+
+                query(
+                    """
+                    SELECT category, level, message, detailsJson
+                    FROM event_logs
+                    WHERE id = 'event-1'
+                    """.trimIndent(),
+                ).useCursor { cursor ->
+                    assertTrueMoveToFirst(cursor)
+                    assertEquals("scheduler", cursor.getString(0))
+                    assertEquals("warn", cursor.getString(1))
+                    assertEquals("Degraded", cursor.getString(2))
+                    assertEquals("""{"reason":"exact_alarm_denied"}""", cursor.getString(3))
+                }
+                close()
             }
-
-            query(
-                """
-                SELECT sessionId, role, providerMeta, toolCallId, taskRunId
-                FROM messages
-                WHERE id = 'msg-archived'
-                """.trimIndent(),
-            ).useCursor { cursor ->
-                assertTrueMoveToFirst(cursor)
-                assertEquals("archive", cursor.getString(0))
-                assertEquals("system", cursor.getString(1))
-                assertTrue(cursor.isNull(2))
-                assertEquals("call-1", cursor.getString(3))
-                assertEquals("run-failure", cursor.getString(4))
-            }
-
-            query(
-                """
-                SELECT name, scheduleKind, scheduleSpec, executionMode, targetSessionId, precise
-                FROM tasks
-                WHERE id = 'task-interval'
-                """.trimIndent(),
-            ).useCursor { cursor ->
-                assertTrueMoveToFirst(cursor)
-                assertEquals("Heartbeat", cursor.getString(0))
-                assertEquals("interval", cursor.getString(1))
-                assertEquals("""{"everyMinutes":60,"anchorAt":"2026-03-09T01:00:00Z"}""", cursor.getString(2))
-                assertEquals("ISOLATED_SESSION", cursor.getString(3))
-                assertEquals("archive", cursor.getString(4))
-                assertEquals(0, cursor.getInt(5))
-            }
-
-            query(
-                """
-                SELECT taskId, status, startedAt, finishedAt, errorCode, errorMessage, resultSummary, outputMessageId
-                FROM task_runs
-                WHERE id = 'run-failure'
-                """.trimIndent(),
-            ).useCursor { cursor ->
-                assertTrueMoveToFirst(cursor)
-                assertEquals("task-cron", cursor.getString(0))
-                assertEquals("FAILURE", cursor.getString(1))
-                assertEquals(1700007200100L, cursor.getLong(2))
-                assertEquals(1700007200200L, cursor.getLong(3))
-                assertEquals("NETWORK", cursor.getString(4))
-                assertEquals("offline", cursor.getString(5))
-                assertEquals("Failed", cursor.getString(6))
-                assertTrue(cursor.isNull(7))
-            }
-
-            assertMigratedSkill(
-                db = this,
-                id = "bundled-summary",
-                expectedSkillKey = "Summary",
-                expectedSourceType = "bundled",
-                expectedBaseDir = "legacy://bundled/bundled-summary",
-                expectedEnabled = 1,
-                expectedImportedAt = null,
-            )
-            assertMigratedSkill(
-                db = this,
-                id = "local-helper",
-                expectedSkillKey = "Local Helper",
-                expectedSourceType = "local",
-                expectedBaseDir = "legacy://local/local-helper",
-                expectedEnabled = 0,
-                expectedImportedAt = 1700000000000L,
-            )
-            assertMigratedSkill(
-                db = this,
-                id = "workspace-ops",
-                expectedSkillKey = "Workspace Ops",
-                expectedSourceType = "workspace",
-                expectedBaseDir = "legacy://workspace/workspace-ops",
-                expectedEnabled = 1,
-                expectedImportedAt = 1700000002000L,
-            )
-
-            query(
-                """
-                SELECT category, level, message, detailsJson
-                FROM event_logs
-                WHERE id = 'event-1'
-                """.trimIndent(),
-            ).useCursor { cursor ->
-                assertTrueMoveToFirst(cursor)
-                assertEquals("scheduler", cursor.getString(0))
-                assertEquals("warn", cursor.getString(1))
-                assertEquals("Degraded", cursor.getString(2))
-                assertEquals("""{"reason":"exact_alarm_denied"}""", cursor.getString(3))
-            }
-            close()
-        }
     }
 
     private fun assertMigratedSkill(
@@ -295,31 +298,36 @@ class AndroidClawDatabaseMigrationTest {
         expectedEnabled: Int,
         expectedImportedAt: Long?,
     ) {
-        db.query(
-            """
-            SELECT skillKey, sourceType, workspaceSessionId, baseDir, enabled, instructionsMd, parseError, importedAt
-            FROM skill_records
-            WHERE id = ?
-            """.trimIndent(),
-            arrayOf(id),
-        ).useCursor { cursor ->
-            assertTrueMoveToFirst(cursor)
-            assertEquals(expectedSkillKey, cursor.getString(0))
-            assertEquals(expectedSourceType, cursor.getString(1))
-            assertTrue(cursor.isNull(2))
-            assertEquals(expectedBaseDir, cursor.getString(3))
-            assertEquals(expectedEnabled, cursor.getInt(4))
-            assertEquals("", cursor.getString(5))
-            assertTrue(cursor.isNull(6))
-            if (expectedImportedAt == null) {
-                assertTrue(cursor.isNull(7))
-            } else {
-                assertEquals(expectedImportedAt, cursor.getLong(7))
+        db
+            .query(
+                """
+                SELECT skillKey, sourceType, workspaceSessionId, baseDir, enabled, instructionsMd, parseError, importedAt
+                FROM skill_records
+                WHERE id = ?
+                """.trimIndent(),
+                arrayOf(id),
+            ).useCursor { cursor ->
+                assertTrueMoveToFirst(cursor)
+                assertEquals(expectedSkillKey, cursor.getString(0))
+                assertEquals(expectedSourceType, cursor.getString(1))
+                assertTrue(cursor.isNull(2))
+                assertEquals(expectedBaseDir, cursor.getString(3))
+                assertEquals(expectedEnabled, cursor.getInt(4))
+                assertEquals("", cursor.getString(5))
+                assertTrue(cursor.isNull(6))
+                if (expectedImportedAt == null) {
+                    assertTrue(cursor.isNull(7))
+                } else {
+                    assertEquals(expectedImportedAt, cursor.getLong(7))
+                }
             }
-        }
     }
 
-    private fun assertRowCount(db: androidx.sqlite.db.SupportSQLiteDatabase, tableName: String, expectedCount: Int) {
+    private fun assertRowCount(
+        db: androidx.sqlite.db.SupportSQLiteDatabase,
+        tableName: String,
+        expectedCount: Int,
+    ) {
         db.query("SELECT COUNT(*) FROM $tableName").useCursor { cursor ->
             assertTrueMoveToFirst(cursor)
             assertEquals(expectedCount, cursor.getInt(0))
@@ -330,9 +338,7 @@ class AndroidClawDatabaseMigrationTest {
         check(cursor.moveToFirst()) { "Expected migrated row to exist." }
     }
 
-    private fun <T> Cursor.useCursor(block: (Cursor) -> T): T {
-        return use(block)
-    }
+    private fun <T> Cursor.useCursor(block: (Cursor) -> T): T = use(block)
 
     companion object {
         private const val SKILL_TEST_DB = "androidclaw-migration-skill-test"

@@ -18,6 +18,8 @@ Inspired by NanoClaw and OpenClaw, built from the ground up for Android.
 
 ## 💡 What is AndroidClaw?
 
+Last verified against repo: 2026-03-18
+
 AndroidClaw is a **single-APK** AI assistant host that runs entirely on your Android device. It turns your phone into a capable AI workstation with durable chat history, extensible tool use, skill-based customization, and scheduled automations — no cloud dependency required.
 
 ### 🎯 Four Core Contracts
@@ -68,7 +70,7 @@ AndroidClaw already ships a usable local-first runtime:
 
 **Build & CI**
 - Installable `qa` APK lane + release AAB packaging
-- GitHub Actions CI: `fast` (assemble + test + lint) and `packaging` (APK + AAB)
+- GitHub Actions CI: `fast` (`ktlint` + assemble + test + lint) and `packaging` (APK + AAB)
 - Windows-emulator and Android instrumentation validation paths
 
 ## 🏗️ Tech Stack
@@ -95,7 +97,8 @@ export JAVA_HOME=/path/to/jdk17
 # Debug build
 ./gradlew :app:assembleDebug
 
-# Unit tests & lint
+# Formatting, unit tests, and lint
+./scripts/run_ktlint.sh
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:lintDebug
 ```
@@ -116,7 +119,7 @@ export JAVA_HOME=/path/to/jdk17
 ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
   ./scripts/run_windows_android_test.sh \
   --avd AndroidClawApi34 \
-  --test-class ai.androidclaw.app.MainActivitySmokeTest
+  --test-class ai.androidclaw.app.MainActivitySmokeTest,ai.androidclaw.runtime.scheduler.TaskExecutionWorkerSmokeTest,ai.androidclaw.app.OnboardingProviderSetupSmokeTest,ai.androidclaw.feature.tasks.TasksScreenSmokeTest
 
 ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
   ./scripts/run_exact_alarm_regression.sh \
@@ -137,9 +140,9 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
 |:------:|:-----|
 | ✅ | Native Anthropic provider support |
 | ✅ | Named provider presets for MiniMax / GLM / Kimi / Gemini |
-| 🔲 | Session-summary generation (seam already in place) |
-| 🔲 | Chat export / share / search |
-| 🔲 | Room `kapt → ksp` migration |
+| ✅ | Session-summary generation and context-budgeted prompt assembly |
+| ✅ | Chat export / share / search |
+| ✅ | Room `kapt → ksp` migration |
 | 🔲 | Baseline Profiles for startup optimization |
 
 ## 🚧 Non-Goals (v0)

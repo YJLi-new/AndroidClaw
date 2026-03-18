@@ -12,17 +12,19 @@ data class CronExpression(
 ) {
     fun matches(dateTime: ZonedDateTime): Boolean {
         val domMatches = dayOfMonth.matches(dateTime.dayOfMonth)
-        val dowValue = when (dateTime.dayOfWeek) {
-            DayOfWeek.SUNDAY -> 0
-            else -> dateTime.dayOfWeek.value
-        }
+        val dowValue =
+            when (dateTime.dayOfWeek) {
+                DayOfWeek.SUNDAY -> 0
+                else -> dateTime.dayOfWeek.value
+            }
         val dowMatches = dayOfWeek.matches(dowValue)
-        val dayMatches = when {
-            dayOfMonth.isWildcard && dayOfWeek.isWildcard -> true
-            dayOfMonth.isWildcard -> dowMatches
-            dayOfWeek.isWildcard -> domMatches
-            else -> domMatches || dowMatches
-        }
+        val dayMatches =
+            when {
+                dayOfMonth.isWildcard && dayOfWeek.isWildcard -> true
+                dayOfMonth.isWildcard -> dowMatches
+                dayOfWeek.isWildcard -> domMatches
+                else -> domMatches || dowMatches
+            }
         return minute.matches(dateTime.minute) &&
             hour.matches(dateTime.hour) &&
             month.matches(dateTime.monthValue) &&
@@ -31,13 +33,14 @@ data class CronExpression(
 
     companion object {
         fun parse(input: String): CronExpression {
-            val expanded = when (input.trim()) {
-                "@hourly" -> "0 * * * *"
-                "@daily" -> "0 0 * * *"
-                "@weekly" -> "0 0 * * 0"
-                "@monthly" -> "0 0 1 * *"
-                else -> input.trim()
-            }
+            val expanded =
+                when (input.trim()) {
+                    "@hourly" -> "0 * * * *"
+                    "@daily" -> "0 0 * * *"
+                    "@weekly" -> "0 0 * * 0"
+                    "@monthly" -> "0 0 1 * *"
+                    else -> input.trim()
+                }
             val parts = expanded.split(Regex("\\s+"))
             require(parts.size == 5) { "Cron expression must contain 5 fields." }
             return CronExpression(
@@ -67,17 +70,19 @@ data class CronField(
             val normalized = input.trim()
             if (normalized == "*") {
                 return CronField(
-                    allowed = (minimum..maximum)
-                        .map { if (normalizeSevenToZero && it == 7) 0 else it }
-                        .toSet(),
+                    allowed =
+                        (minimum..maximum)
+                            .map { if (normalizeSevenToZero && it == 7) 0 else it }
+                            .toSet(),
                     isWildcard = true,
                 )
             }
 
-            val values = normalized
-                .split(',')
-                .flatMap { parsePart(it.trim(), minimum, maximum, normalizeSevenToZero) }
-                .toSet()
+            val values =
+                normalized
+                    .split(',')
+                    .flatMap { parsePart(it.trim(), minimum, maximum, normalizeSevenToZero) }
+                    .toSet()
 
             require(values.isNotEmpty()) { "Cron field cannot be empty." }
             return CronField(allowed = values, isWildcard = false)
@@ -94,18 +99,19 @@ data class CronField(
             val step = if (slashIndex == -1) 1 else input.substring(slashIndex + 1).toInt()
             require(step > 0) { "Step must be > 0." }
 
-            val seed = when {
-                base == "*" -> (minimum..maximum).toList()
-                '-' in base -> {
-                    val (startRaw, endRaw) = base.split('-', limit = 2)
-                    val start = startRaw.toInt()
-                    val end = endRaw.toInt()
-                    require(start <= end) { "Range start must be <= end." }
-                    (start..end).toList()
+            val seed =
+                when {
+                    base == "*" -> (minimum..maximum).toList()
+                    '-' in base -> {
+                        val (startRaw, endRaw) = base.split('-', limit = 2)
+                        val start = startRaw.toInt()
+                        val end = endRaw.toInt()
+                        require(start <= end) { "Range start must be <= end." }
+                        (start..end).toList()
+                    }
+                    base.isNotBlank() -> listOf(base.toInt())
+                    else -> emptyList()
                 }
-                base.isNotBlank() -> listOf(base.toInt())
-                else -> emptyList()
-            }
 
             return seed
                 .filterIndexed { index, _ -> index % step == 0 }
@@ -118,4 +124,3 @@ data class CronField(
         }
     }
 }
-

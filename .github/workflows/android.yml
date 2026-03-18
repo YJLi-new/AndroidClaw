@@ -33,6 +33,9 @@ jobs:
       - name: Ensure Gradle wrapper is executable
         run: chmod +x ./gradlew
 
+      - name: Ktlint validation
+        run: ./scripts/run_ktlint.sh
+
       - name: Fast validation
         run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 

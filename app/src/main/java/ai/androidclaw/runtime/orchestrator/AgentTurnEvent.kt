@@ -14,9 +14,13 @@ enum class AgentTurnFailureKind {
 }
 
 sealed interface AgentTurnEvent {
-    data class AssistantTextDelta(val text: String) : AgentTurnEvent
+    data class AssistantTextDelta(
+        val text: String,
+    ) : AgentTurnEvent
 
-    data class ToolStarted(val name: String) : AgentTurnEvent
+    data class ToolStarted(
+        val name: String,
+    ) : AgentTurnEvent
 
     data class ToolFinished(
         val name: String,
@@ -24,7 +28,9 @@ sealed interface AgentTurnEvent {
         val summary: String,
     ) : AgentTurnEvent
 
-    data class TurnCompleted(val result: AgentTurnResult) : AgentTurnEvent
+    data class TurnCompleted(
+        val result: AgentTurnResult,
+    ) : AgentTurnEvent
 
     data class TurnFailed(
         val message: String,

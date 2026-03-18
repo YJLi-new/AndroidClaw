@@ -33,14 +33,15 @@ class ContextWindowManager(
                 messageHistory = emptyList(),
                 truncated = false,
                 summaryInserted = false,
-                diagnostics = ContextWindowDiagnostics(
-                    budgetUnits = promptBudgetUnits,
-                    reservedUnits = reservedUnits,
-                    availableMessageUnits = availableMessageUnits(reservedUnits),
-                    usedMessageUnits = 0,
-                    selectedMessageCount = 0,
-                    droppedMessageCount = 0,
-                ),
+                diagnostics =
+                    ContextWindowDiagnostics(
+                        budgetUnits = promptBudgetUnits,
+                        reservedUnits = reservedUnits,
+                        availableMessageUnits = availableMessageUnits(reservedUnits),
+                        usedMessageUnits = 0,
+                        selectedMessageCount = 0,
+                        droppedMessageCount = 0,
+                    ),
             )
         }
 
@@ -77,15 +78,17 @@ class ContextWindowManager(
         val selectedMessages = selectedOrderedIndices.map(persistedHistory::get).toMutableList()
         var summaryInserted = false
         if (truncated && !summaryText.isNullOrBlank()) {
-            val summaryMessage = ModelMessage(
-                role = ModelMessageRole.System,
-                content = "Session summary: ${summaryText.trim()}",
-            )
+            val summaryMessage =
+                ModelMessage(
+                    role = ModelMessageRole.System,
+                    content = "Session summary: ${summaryText.trim()}",
+                )
             val summaryUnits = estimateMessageUnits(summaryMessage)
             while (usedUnits + summaryUnits > availableMessageUnits) {
-                val removableIndexPosition = selectedOrderedIndices.indexOfFirst { index ->
-                    index !in requiredIndices
-                }
+                val removableIndexPosition =
+                    selectedOrderedIndices.indexOfFirst { index ->
+                        index !in requiredIndices
+                    }
                 if (removableIndexPosition == -1) {
                     break
                 }
@@ -105,14 +108,15 @@ class ContextWindowManager(
             messageHistory = selectedMessages,
             truncated = truncated,
             summaryInserted = summaryInserted,
-            diagnostics = ContextWindowDiagnostics(
-                budgetUnits = promptBudgetUnits,
-                reservedUnits = reservedUnits,
-                availableMessageUnits = availableMessageUnits,
-                usedMessageUnits = usedUnits,
-                selectedMessageCount = selectedMessages.size,
-                droppedMessageCount = persistedHistory.size - selectedIndices.size,
-            ),
+            diagnostics =
+                ContextWindowDiagnostics(
+                    budgetUnits = promptBudgetUnits,
+                    reservedUnits = reservedUnits,
+                    availableMessageUnits = availableMessageUnits,
+                    usedMessageUnits = usedUnits,
+                    selectedMessageCount = selectedMessages.size,
+                    droppedMessageCount = persistedHistory.size - selectedIndices.size,
+                ),
         )
     }
 
@@ -125,11 +129,12 @@ class ContextWindowManager(
     }
 
     private fun estimateMessageUnits(message: ModelMessage): Int {
-        val structuredUnits = when (message.role) {
-            ModelMessageRole.Assistant -> message.toolCalls.size * TOOL_CALL_UNITS
-            ModelMessageRole.Tool -> TOOL_RESULT_UNITS
-            else -> 0
-        }
+        val structuredUnits =
+            when (message.role) {
+                ModelMessageRole.Assistant -> message.toolCalls.size * TOOL_CALL_UNITS
+                ModelMessageRole.Tool -> TOOL_RESULT_UNITS
+                else -> 0
+            }
         return estimateTextUnits(message.content) + structuredUnits
     }
 
@@ -139,9 +144,10 @@ class ContextWindowManager(
             return emptySet()
         }
         val required = linkedSetOf(latestUserIndex)
-        val latestAssistantBeforeUser = (latestUserIndex - 1 downTo 0).firstOrNull { index ->
-            history[index].role == ModelMessageRole.Assistant
-        }
+        val latestAssistantBeforeUser =
+            (latestUserIndex - 1 downTo 0).firstOrNull { index ->
+                history[index].role == ModelMessageRole.Assistant
+            }
         latestAssistantBeforeUser?.let(required::add)
         return required
     }
@@ -177,9 +183,7 @@ class ContextWindowManager(
         }
     }
 
-    private fun availableMessageUnits(reservedUnits: Int): Int {
-        return (promptBudgetUnits - reservedUnits).coerceAtLeast(0)
-    }
+    private fun availableMessageUnits(reservedUnits: Int): Int = (promptBudgetUnits - reservedUnits).coerceAtLeast(0)
 
     private companion object {
         const val DEFAULT_PROMPT_BUDGET_UNITS = 12_000

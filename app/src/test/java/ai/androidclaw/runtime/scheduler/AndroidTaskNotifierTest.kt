@@ -3,7 +3,6 @@ package ai.androidclaw.runtime.scheduler
 import ai.androidclaw.data.model.Task
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -11,6 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Instant
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [31])
@@ -65,7 +65,12 @@ class AndroidTaskNotifierTest {
         assertEquals(TASK_FAILURES_NOTIFICATION_CHANNEL_ID, notifications.single().channelId)
         assertEquals("Task failed: Daily check", notifications.single().extras.getString("android.title"))
         assertTrue(
-            notifications.single().extras.getString("android.text").orEmpty().contains("Run now failed."),
+            notifications
+                .single()
+                .extras
+                .getString("android.text")
+                .orEmpty()
+                .contains("Run now failed."),
         )
     }
 }

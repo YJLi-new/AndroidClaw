@@ -30,17 +30,18 @@ class EventLogDaoTest {
     }
 
     @Test
-    fun `read recent events in descending order and trim old rows`() = runTest {
-        dao.insert(EventLogEntity("e1", 10L, "system", "info", "boot", null))
-        dao.insert(EventLogEntity("e2", 20L, "skill", "warn", "skill missing", "{\"id\":\"task\"}"))
-        dao.insert(EventLogEntity("e3", 30L, "scheduler", "error", "run failed", null))
+    fun `read recent events in descending order and trim old rows`() =
+        runTest {
+            dao.insert(EventLogEntity("e1", 10L, "system", "info", "boot", null))
+            dao.insert(EventLogEntity("e2", 20L, "skill", "warn", "skill missing", "{\"id\":\"task\"}"))
+            dao.insert(EventLogEntity("e3", 30L, "scheduler", "error", "run failed", null))
 
-        val recent = dao.getRecent(limit = 2).first()
-        assertEquals(listOf("e3", "e2"), recent.map { it.id })
-        assertEquals(3, dao.count())
+            val recent = dao.getRecent(limit = 2).first()
+            assertEquals(listOf("e3", "e2"), recent.map { it.id })
+            assertEquals(3, dao.count())
 
-        dao.deleteOlderThan(21L)
-        assertEquals(listOf("e3"), dao.getRecent(limit = 10).first().map { it.id })
-        assertEquals(1, dao.count())
-    }
+            dao.deleteOlderThan(21L)
+            assertEquals(listOf("e3"), dao.getRecent(limit = 10).first().map { it.id })
+            assertEquals(1, dao.count())
+        }
 }

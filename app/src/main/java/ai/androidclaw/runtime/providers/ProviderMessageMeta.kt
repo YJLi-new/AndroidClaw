@@ -19,14 +19,13 @@ data class ProviderUsagePayload(
     val totalTokens: Int? = null,
 )
 
-private val providerMetaJson = Json {
-    ignoreUnknownKeys = true
-    explicitNulls = false
-}
+private val providerMetaJson =
+    Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
 
-fun ProviderMessageMeta.toStorageString(): String {
-    return providerMetaJson.encodeToString(ProviderMessageMeta.serializer(), this)
-}
+fun ProviderMessageMeta.toStorageString(): String = providerMetaJson.encodeToString(ProviderMessageMeta.serializer(), this)
 
 fun parseProviderMessageMeta(rawValue: String?): ProviderMessageMeta? {
     if (rawValue.isNullOrBlank()) {
@@ -37,10 +36,9 @@ fun parseProviderMessageMeta(rawValue: String?): ProviderMessageMeta? {
     }.getOrNull()
 }
 
-fun ProviderUsage.toPayload(): ProviderUsagePayload {
-    return ProviderUsagePayload(
+fun ProviderUsage.toPayload(): ProviderUsagePayload =
+    ProviderUsagePayload(
         inputTokens = inputTokens,
         outputTokens = outputTokens,
         totalTokens = totalTokens,
     )
-}

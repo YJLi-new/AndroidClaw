@@ -33,36 +33,37 @@ class MessageDaoTest {
     }
 
     @Test
-    fun `query session messages in ascending order and recent limit in descending order`() = runTest {
-        sessionDao.insert(
-            SessionEntity(
-                id = "main",
-                title = "Main session",
-                isMain = true,
-                createdAt = 1L,
-                updatedAt = 1L,
-                archivedAt = null,
-                summaryText = null,
-            ),
-        )
-        dao.insertAll(
-            listOf(
-                MessageEntity("m1", "main", "user", "hello", 10L, null, null, null),
-                MessageEntity("m2", "main", "assistant", "world", 20L, null, null, null),
-                MessageEntity("m3", "main", "tool_result", "done", 30L, "{\"latency\":1}", "call-1", null),
-            ),
-        )
+    fun `query session messages in ascending order and recent limit in descending order`() =
+        runTest {
+            sessionDao.insert(
+                SessionEntity(
+                    id = "main",
+                    title = "Main session",
+                    isMain = true,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            dao.insertAll(
+                listOf(
+                    MessageEntity("m1", "main", "user", "hello", 10L, null, null, null),
+                    MessageEntity("m2", "main", "assistant", "world", 20L, null, null, null),
+                    MessageEntity("m3", "main", "tool_result", "done", 30L, "{\"latency\":1}", "call-1", null),
+                ),
+            )
 
-        val messages = dao.getBySessionId("main").first()
-        val allMessages = dao.getAllBySessionId("main")
-        assertEquals(listOf("m1", "m2", "m3"), messages.map { it.id })
-        assertEquals(listOf("m1", "m2", "m3"), allMessages.map { it.id })
+            val messages = dao.getBySessionId("main").first()
+            val allMessages = dao.getAllBySessionId("main")
+            assertEquals(listOf("m1", "m2", "m3"), messages.map { it.id })
+            assertEquals(listOf("m1", "m2", "m3"), allMessages.map { it.id })
 
-        val recent = dao.getRecentBySessionId("main", limit = 2)
-        assertEquals(listOf("m3", "m2"), recent.map { it.id })
-        assertEquals(3, dao.countBySessionId("main"))
+            val recent = dao.getRecentBySessionId("main", limit = 2)
+            assertEquals(listOf("m3", "m2"), recent.map { it.id })
+            assertEquals(3, dao.countBySessionId("main"))
 
-        dao.deleteBySessionId("main")
-        assertEquals(0, dao.countBySessionId("main"))
-    }
+            dao.deleteBySessionId("main")
+            assertEquals(0, dao.countBySessionId("main"))
+        }
 }

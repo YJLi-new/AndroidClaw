@@ -1,20 +1,22 @@
 package ai.androidclaw.runtime.scheduler
 
 import ai.androidclaw.data.model.Task
-import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 class SchedulerDiagnosticsTest {
     @Test
     fun `approximate tasks stay on WorkManager`() {
-        val decision = task(precise = false).schedulingDecision(
-            diagnostics = SchedulerDiagnostics(
-                supportsExactAlarms = true,
-                exactAlarmGranted = true,
-            ),
-        )
+        val decision =
+            task(precise = false).schedulingDecision(
+                diagnostics =
+                    SchedulerDiagnostics(
+                        supportsExactAlarms = true,
+                        exactAlarmGranted = true,
+                    ),
+            )
 
         assertEquals(TaskSchedulingPath.WorkManagerApproximate, decision.path)
         assertEquals(null, decision.degradedReason)
@@ -22,12 +24,14 @@ class SchedulerDiagnosticsTest {
 
     @Test
     fun `precise tasks use exact alarms when granted`() {
-        val decision = task(precise = true).schedulingDecision(
-            diagnostics = SchedulerDiagnostics(
-                supportsExactAlarms = true,
-                exactAlarmGranted = true,
-            ),
-        )
+        val decision =
+            task(precise = true).schedulingDecision(
+                diagnostics =
+                    SchedulerDiagnostics(
+                        supportsExactAlarms = true,
+                        exactAlarmGranted = true,
+                    ),
+            )
 
         assertEquals(TaskSchedulingPath.ExactAlarm, decision.path)
         assertEquals(null, decision.degradedReason)
@@ -35,12 +39,14 @@ class SchedulerDiagnosticsTest {
 
     @Test
     fun `precise tasks degrade cleanly when permission is denied`() {
-        val decision = task(precise = true).schedulingDecision(
-            diagnostics = SchedulerDiagnostics(
-                supportsExactAlarms = true,
-                exactAlarmGranted = false,
-            ),
-        )
+        val decision =
+            task(precise = true).schedulingDecision(
+                diagnostics =
+                    SchedulerDiagnostics(
+                        supportsExactAlarms = true,
+                        exactAlarmGranted = false,
+                    ),
+            )
 
         assertEquals(TaskSchedulingPath.WorkManagerApproximate, decision.path)
         assertTrue(decision.degradedReason?.contains("permission denied", ignoreCase = true) == true)
@@ -54,13 +60,15 @@ class SchedulerDiagnosticsTest {
 
     @Test
     fun `notification visibility warning is exposed for denied permission`() {
-        val diagnostics = SchedulerDiagnostics(
-            notificationVisibility = NotificationVisibilityDiagnostics(
-                runtimePermissionRequired = true,
-                runtimePermissionGranted = false,
-                appNotificationsEnabled = true,
-            ),
-        )
+        val diagnostics =
+            SchedulerDiagnostics(
+                notificationVisibility =
+                    NotificationVisibilityDiagnostics(
+                        runtimePermissionRequired = true,
+                        runtimePermissionGranted = false,
+                        appNotificationsEnabled = true,
+                    ),
+            )
 
         assertTrue(
             diagnostics.preciseReminderVisibilityWarning?.contains("Notification permission denied") == true,
@@ -69,17 +77,20 @@ class SchedulerDiagnosticsTest {
 
     @Test
     fun `precise warnings include exact alarm degradation and notification visibility`() {
-        val warnings = task(precise = true).userVisiblePreciseWarnings(
-            diagnostics = SchedulerDiagnostics(
-                supportsExactAlarms = true,
-                exactAlarmGranted = false,
-                notificationVisibility = NotificationVisibilityDiagnostics(
-                    runtimePermissionRequired = true,
-                    runtimePermissionGranted = false,
-                    appNotificationsEnabled = false,
-                ),
-            ),
-        )
+        val warnings =
+            task(precise = true).userVisiblePreciseWarnings(
+                diagnostics =
+                    SchedulerDiagnostics(
+                        supportsExactAlarms = true,
+                        exactAlarmGranted = false,
+                        notificationVisibility =
+                            NotificationVisibilityDiagnostics(
+                                runtimePermissionRequired = true,
+                                runtimePermissionGranted = false,
+                                appNotificationsEnabled = false,
+                            ),
+                    ),
+            )
 
         assertEquals(2, warnings.size)
         assertTrue(warnings.any { it.contains("permission denied", ignoreCase = true) })
@@ -87,8 +98,8 @@ class SchedulerDiagnosticsTest {
     }
 }
 
-private fun task(precise: Boolean): Task {
-    return Task(
+private fun task(precise: Boolean): Task =
+    Task(
         id = "task-1",
         name = "Task 1",
         prompt = "Run task",
@@ -104,4 +115,3 @@ private fun task(precise: Boolean): Task {
         createdAt = Instant.parse("2026-03-08T00:00:00Z"),
         updatedAt = Instant.parse("2026-03-08T00:00:00Z"),
     )
-}

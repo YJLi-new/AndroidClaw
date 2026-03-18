@@ -39,27 +39,30 @@ class SessionLaneCoordinatorTest {
     }
 
     @Test
-    fun `same-session writes are serialized without interleaving`() = runTest {
-        val sessionId = sessionRepository.createSession("Lane test").id
-        val writerA = async {
-            laneCoordinator.withLane(sessionId) {
-                messageRepository.addMessage(sessionId, MessageRole.User, "a1")
-                delay(25)
-                messageRepository.addMessage(sessionId, MessageRole.Assistant, "a2")
-            }
+    fun `same-session writes are serialized without interleaving`() =
+        runTest {
+            val sessionId = sessionRepository.createSession("Lane test").id
+            val writerA =
+                async {
+                    laneCoordinator.withLane(sessionId) {
+                        messageRepository.addMessage(sessionId, MessageRole.User, "a1")
+                        delay(25)
+                        messageRepository.addMessage(sessionId, MessageRole.Assistant, "a2")
+                    }
+                }
+            val writerB =
+                async {
+                    delay(5)
+                    laneCoordinator.withLane(sessionId) {
+                        messageRepository.addMessage(sessionId, MessageRole.User, "b1")
+                        messageRepository.addMessage(sessionId, MessageRole.Assistant, "b2")
+                    }
+                }
+
+            awaitAll(writerA, writerB)
+
+            val messages = messageRepository.getRecentMessages(sessionId, limit = 10).asReversed()
+
+            assertEquals(listOf("a1", "a2", "b1", "b2"), messages.map { it.content })
         }
-        val writerB = async {
-            delay(5)
-            laneCoordinator.withLane(sessionId) {
-                messageRepository.addMessage(sessionId, MessageRole.User, "b1")
-                messageRepository.addMessage(sessionId, MessageRole.Assistant, "b2")
-            }
-        }
-
-        awaitAll(writerA, writerB)
-
-        val messages = messageRepository.getRecentMessages(sessionId, limit = 10).asReversed()
-
-        assertEquals(listOf("a1", "a2", "b1", "b2"), messages.map { it.content })
-    }
 }
