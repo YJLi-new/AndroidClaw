@@ -81,6 +81,14 @@ h1 {
   line-height: 1.7;
 }
 
+.hero-note {
+  width: min(760px, 100%);
+  margin: 16px auto 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+  line-height: 1.7;
+}
+
 .link-row,
 .link-grid {
   display: flex;
@@ -174,7 +182,7 @@ main {
 
 .grid-section {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 22px;
 }
 

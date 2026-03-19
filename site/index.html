@@ -6,7 +6,11 @@
     <title>AndroidClaw | Android-native local AI assistant host</title>
     <meta
       name="description"
-      content="AndroidClaw is an Android-native local AI assistant host with durable chat sessions, typed tools, SKILL.md-based skills, and scheduled automations."
+      content="AndroidClaw is an Android-native local AI assistant host with streaming chat, multi-provider support, typed tools, SKILL.md-based skills, and scheduled automations."
+    />
+    <meta
+      name="keywords"
+      content="Android AI assistant, Kotlin Android app, OpenAI compatible Android, Anthropic Android, AI automation app, WorkManager scheduler, SKILL.md"
     />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <meta name="googlebot" content="index,follow,max-image-preview:large" />
@@ -16,7 +20,7 @@
     <meta property="og:title" content="AndroidClaw" />
     <meta
       property="og:description"
-      content="Android-native local AI assistant host with chat sessions, tools, skills, and scheduled automations."
+      content="Android-native local AI assistant host with streaming chat, multi-provider support, tools, skills, and scheduled automations."
     />
     <meta property="og:url" content="https://yjli-new.github.io/AndroidClaw/" />
     <meta
@@ -27,7 +31,7 @@
     <meta name="twitter:title" content="AndroidClaw" />
     <meta
       name="twitter:description"
-      content="A lightweight Android-native assistant host with streaming chat, tools, skills, and scheduled automations."
+      content="A lightweight Android-native assistant host with streaming chat, multi-provider support, tools, skills, and scheduled automations."
     />
     <meta
       name="twitter:image"
@@ -41,9 +45,14 @@
         "name": "AndroidClaw",
         "codeRepository": "https://github.com/YJLi-new/AndroidClaw",
         "url": "https://yjli-new.github.io/AndroidClaw/",
+        "sameAs": [
+          "https://github.com/YJLi-new/AndroidClaw",
+          "https://github.com/YJLi-new/AndroidClaw/releases/latest"
+        ],
         "programmingLanguage": "Kotlin",
         "runtimePlatform": "Android",
-        "description": "Android-native local AI assistant host with durable chat sessions, typed tools, SKILL.md-based skills, and scheduled automations."
+        "description": "Android-native local AI assistant host with streaming chat, multi-provider support, typed tools, SKILL.md-based skills, and scheduled automations.",
+        "dateModified": "2026-03-19"
       }
     </script>
   </head>
@@ -53,12 +62,17 @@
         <p class="eyebrow">Android-native local AI assistant host</p>
         <h1>AndroidClaw</h1>
         <p class="lede">
-          A lightweight single-APK assistant runtime for Android that keeps chat,
-          tools, skills, and scheduled automations on-device.
+          A lightweight single-APK assistant runtime for Android with streaming
+          chat, multi-provider support, skills, and scheduled automations.
+        </p>
+        <p class="hero-note">
+          Current public beta features native Claude support, OpenAI-compatible
+          provider presets, onboarding, session summaries, search and export,
+          and exact-alarm-aware task automation.
         </p>
         <div class="link-row">
           <a class="primary-link" href="https://github.com/YJLi-new/AndroidClaw">GitHub Repository</a>
-          <a href="https://github.com/YJLi-new/AndroidClaw/releases">Latest Release</a>
+          <a href="https://github.com/YJLi-new/AndroidClaw/releases/latest">Latest Release</a>
           <a href="https://github.com/YJLi-new/AndroidClaw/actions">GitHub Actions</a>
         </div>
       </header>
@@ -73,7 +87,10 @@
               desktop Node.js host, it keeps the core contracts that matter on
               Android: durable chat sessions, typed tools, <code>SKILL.md</code>
               skills, and automation through WorkManager plus exact-alarm-aware
-              scheduling.
+              scheduling. The current public build also ships first-run
+              onboarding, multi-provider settings, provider-backed streaming,
+              session summaries, chat search/export, and release-like
+              validation lanes.
             </p>
           </div>
           <dl class="facts">
@@ -82,38 +99,49 @@
               <dd>Kotlin, Compose, Room, WorkManager</dd>
             </div>
             <div>
-              <dt>Provider path</dt>
-              <dd>FakeProvider + OpenAI-compatible streaming</dd>
+              <dt>Providers</dt>
+              <dd>Fake, Claude, OpenAI-compatible, MiniMax, GLM, Kimi, Gemini</dd>
             </div>
             <div>
-              <dt>Automation</dt>
-              <dd><code>once</code>, <code>interval</code>, <code>cron</code></dd>
+              <dt>User flows</dt>
+              <dd>Onboarding, search/export/share, theme, usage, task history</dd>
             </div>
             <div>
-              <dt>Packaging</dt>
-              <dd>debug, qa, release, bundleRelease</dd>
+              <dt>Validation</dt>
+              <dd><code>qa</code>, <code>release</code>, API 34 smoke, API 31/34 exact alarms</dd>
             </div>
           </dl>
         </section>
 
         <section class="grid-section">
           <article class="paper-card">
-            <p class="section-label">Highlights</p>
+            <p class="section-label">Runtime</p>
             <ul class="compact-list">
-              <li>Visible streamed assistant output with cancel and retry.</li>
-              <li>Budgeted context assembly instead of a fixed last-N slice.</li>
-              <li>Typed tools and a persisted tool-call runtime loop.</li>
-              <li>Bundled, local, and workspace skills with slash dispatch.</li>
-              <li>Scheduler diagnostics, exact-alarm degradation, and task history.</li>
+              <li>Visible streamed assistant output with cancel, retry, and clearer failure taxonomy.</li>
+              <li>Budgeted context assembly and session summaries instead of a fixed last-N slice.</li>
+              <li>Typed tools and a persisted tool-call runtime loop across chat and tasks.</li>
+              <li>Bundled, local, and workspace skills with slash dispatch and precedence.</li>
+              <li>Scheduler diagnostics, exact-alarm degradation, and task run history.</li>
+            </ul>
+          </article>
+
+          <article class="paper-card">
+            <p class="section-label">Latest Works</p>
+            <ul class="compact-list">
+              <li>Native Anthropic Messages support for Claude.</li>
+              <li>Named OpenAI-compatible presets for MiniMax, GLM, Kimi, and Gemini.</li>
+              <li>First-run onboarding plus provider configuration and validation.</li>
+              <li>Chat search, export/share, richer message rendering, and usage summaries.</li>
+              <li>Task notifications, health diagnostics export, and local crash markers.</li>
             </ul>
           </article>
 
           <article class="paper-card">
             <p class="section-label">Validation</p>
             <ul class="compact-list">
-              <li>Fast loop: <code>:app:assembleDebug</code>, unit tests, lint.</li>
-              <li>Release-like lane: <code>:app:assembleQa</code>, <code>:app:assembleRelease</code>.</li>
-              <li>Windows AVD smoke path from WSL.</li>
+              <li>Fast loop: <code>ktlint</code>, <code>:app:assembleDebug</code>, unit tests, lint.</li>
+              <li>Packaging lane: <code>:app:assembleQa</code>, <code>:app:assembleRelease</code>, <code>:app:bundleRelease</code>.</li>
+              <li>Windows AVD smoke path for main activity, worker, onboarding, and task creation.</li>
               <li>Exact-alarm regression lane on API 34 / API 31 emulators.</li>
             </ul>
           </article>
@@ -140,7 +168,7 @@
               </div>
               <figcaption>
                 <strong>Chat</strong>
-                <span>Durable sessions, slash skills, and streamed provider turns.</span>
+                <span>Durable sessions, streamed provider turns, search, summaries, and retry/cancel.</span>
               </figcaption>
             </figure>
 
@@ -154,7 +182,7 @@
               </div>
               <figcaption>
                 <strong>Tasks</strong>
-                <span>Automation creation, schedule previews, and diagnostics.</span>
+                <span>Create once/interval/cron tasks, inspect recent runs, and follow exact-alarm guidance.</span>
               </figcaption>
             </figure>
 
@@ -168,7 +196,7 @@
               </div>
               <figcaption>
                 <strong>Skills</strong>
-                <span>Bundled and imported <code>SKILL.md</code> workflows with eligibility state.</span>
+                <span>Bundled, local, and workspace <code>SKILL.md</code> workflows with import, config, and eligibility state.</span>
               </figcaption>
             </figure>
 
@@ -182,7 +210,7 @@
               </div>
               <figcaption>
                 <strong>Health</strong>
-                <span>Provider, scheduler, and tool visibility for device-side debugging.</span>
+                <span>Provider/network state, scheduler diagnostics, crash markers, and exportable reports.</span>
               </figcaption>
             </figure>
           </div>
@@ -192,7 +220,7 @@
           <p class="section-label">Project Links</p>
           <div class="link-grid">
             <a href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
-            <a href="https://github.com/YJLi-new/AndroidClaw/releases">Latest Release</a>
+            <a href="https://github.com/YJLi-new/AndroidClaw/releases/latest">Latest Release</a>
             <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.md">README</a>
             <a href="https://github.com/YJLi-new/AndroidClaw/actions">GitHub Actions</a>
           </div>
