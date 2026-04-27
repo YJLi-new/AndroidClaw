@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="site/assets/androidclaw-logo.png" alt="AndroidClaw logo" width="148" height="148" />
+
 # 🤖 AndroidClaw
 
 **Android-native local AI assistant host — your pocket-sized AI command center.**
