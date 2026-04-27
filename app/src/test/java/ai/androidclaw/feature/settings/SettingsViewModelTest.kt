@@ -5,6 +5,8 @@ import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.runtime.providers.ModelProviderException
+import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
@@ -246,6 +248,44 @@ class SettingsViewModelTest {
             assertEquals("codex@example.test", signedIn.oAuthProfileLabel)
             assertEquals(1, oAuthClient.loginCount)
             assertEquals("access-token", secretStore.readOAuthCredential(ProviderType.OpenAiCodex)?.accessToken)
+        }
+
+    @Test
+    fun `openai codex sign in surfaces oauth timeout message`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCodex,
+                        ProviderEndpointSettings(
+                            baseUrl = ProviderType.OpenAiCodex.defaultBaseUrl,
+                            modelId = ProviderType.OpenAiCodex.defaultModelId,
+                            timeoutSeconds = 60,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCodex),
+            )
+            oAuthClient =
+                FakeOpenAiCodexOAuthClient(
+                    loginFailure =
+                        ModelProviderException(
+                            kind = ModelProviderFailureKind.Timeout,
+                            userMessage = "OpenAI device authorization timed out after 15 minutes.",
+                        ),
+                )
+            val viewModel = buildViewModel()
+            waitForState(viewModel) { it.providerType == ProviderType.OpenAiCodex }
+
+            viewModel.startOpenAiCodexDeviceCodeSignIn()
+
+            val timedOut =
+                waitForState(viewModel) {
+                    it.providerType == ProviderType.OpenAiCodex &&
+                        it.statusMessage == "OpenAI device authorization timed out after 15 minutes."
+                }
+
+            assertFalse(timedOut.hasOAuthCredential)
+            assertFalse(timedOut.isSigningInWithOpenAiCodex)
+            assertEquals("ABCD-EFGH", timedOut.deviceCodeUserCode)
         }
 
     @Test

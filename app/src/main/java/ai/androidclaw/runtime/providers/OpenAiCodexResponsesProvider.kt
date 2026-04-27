@@ -26,6 +26,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
 import java.time.Clock
 
 class OpenAiCodexResponsesProvider(
@@ -56,11 +57,11 @@ class OpenAiCodexResponsesProvider(
         )
     }
 
-    override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> =
-        streamProviderEvents(
+    override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> {
+        val functionNames = ProviderFunctionNameMap.from(request.toolDescriptors)
+        return streamProviderEvents(
             buildContext = {
                 val config = resolveConfig()
-                val functionNames = ProviderFunctionNameMap.from(request.toolDescriptors)
                 val payload =
                     buildResponsesPayload(
                         request = request,
@@ -70,7 +71,7 @@ class OpenAiCodexResponsesProvider(
                 val httpRequest =
                     buildHttpRequest(
                         url = config.url,
-                        accessToken = config.credential.accessToken,
+                        credential = config.credential,
                         requestId = request.requestId,
                         payload = payload,
                     )
@@ -97,7 +98,15 @@ class OpenAiCodexResponsesProvider(
                 )
             },
             mapHttpFailure = ::mapFailure,
+            fallbackForNonEventStream = { _, rawBody ->
+                parseOpenAiCodexNonEventStreamResponse(
+                    rawBody = rawBody,
+                    json = json,
+                    functionNames = functionNames,
+                )
+            },
         )
+    }
 
     private suspend fun resolveConfig(): ResolvedOAuthRequestConfig {
         val settings = settingsDataStore.settings.first()
@@ -298,7 +307,7 @@ class OpenAiCodexResponsesProvider(
 
     private fun buildHttpRequest(
         url: HttpUrl,
-        accessToken: String,
+        credential: ProviderOAuthCredential,
         requestId: String?,
         payload: JsonObject,
     ): Request {
@@ -309,10 +318,16 @@ class OpenAiCodexResponsesProvider(
         return Request
             .Builder()
             .url(url)
-            .header("Authorization", "Bearer $accessToken")
+            .header("Authorization", "Bearer ${credential.accessToken}")
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
+            .header("OpenAI-Beta", "responses=experimental")
+            .header("originator", "pi")
             .apply {
+                val accountId =
+                    credential.chatGptAccountId
+                        ?: resolveCodexChatGptAccountId(credential.accessToken)
+                accountId?.let { header("chatgpt-account-id", it) }
                 requestId?.let { header("X-Request-Id", it) }
             }.post(body)
             .build()
@@ -732,6 +747,117 @@ private fun handleOpenAiCodexResponsesSseData(
     }
     return false
 }
+
+private fun parseOpenAiCodexNonEventStreamResponse(
+    rawBody: String,
+    json: Json,
+    functionNames: ProviderFunctionNameMap,
+): ModelResponse? {
+    if (rawBody.isBlank()) {
+        return null
+    }
+    if (rawBody.lineSequence().any { it.startsWith("data:") }) {
+        val accumulator =
+            OpenAiCodexResponsesAccumulator(
+                json = json,
+                functionNames = functionNames,
+            )
+        var completedResponse: ModelResponse? = null
+        readSseDataEvents(Buffer().writeUtf8(rawBody)) { data ->
+            handleOpenAiCodexResponsesSseData(
+                data = data,
+                accumulator = accumulator,
+                onEvent = {},
+                onCompleted = { completedResponse = it },
+            )
+        }
+        return completedResponse
+            ?: if (accumulator.hasSeenEvent()) {
+                accumulator.buildResponse()
+            } else {
+                null
+            }
+    }
+    val response =
+        runCatching {
+            val payload = json.parseToJsonElement(rawBody).jsonObject
+            payload["response"]?.jsonObjectOrNull() ?: payload
+        }.getOrNull() ?: return null
+    return parseOpenAiCodexResponseObject(
+        response = response,
+        json = json,
+        functionNames = functionNames,
+    )
+}
+
+private fun parseOpenAiCodexResponseObject(
+    response: JsonObject,
+    json: Json,
+    functionNames: ProviderFunctionNameMap,
+): ModelResponse? {
+    val output = response["output"]?.jsonArrayOrNull().orEmpty()
+    val text =
+        output
+            .mapNotNull { item ->
+                val block = item.jsonObjectOrNull() ?: return@mapNotNull null
+                when (block.stringValue("type")) {
+                    "message" -> extractOutputText(block["content"]?.jsonArrayOrNull())
+                    "output_text" -> block.stringValue("text")
+                    "refusal" -> block.stringValue("refusal")
+                    else -> null
+                }
+            }.joinToString("")
+    val toolCalls =
+        output
+            .mapNotNull { item ->
+                val block = item.jsonObjectOrNull() ?: return@mapNotNull null
+                if (block.stringValue("type") != "function_call") {
+                    return@mapNotNull null
+                }
+                val callId = block.stringValue("call_id").orEmpty()
+                val itemId = block.stringValue("id").orEmpty()
+                val name = block.stringValue("name") ?: return@mapNotNull null
+                ProviderToolCall(
+                    id =
+                        ResponsesToolCallId(
+                            callId = callId.ifBlank { itemId },
+                            itemId = itemId.takeIf { it.isNotBlank() },
+                        ).storageId(),
+                    name = functionNames.toAndroidName(name),
+                    argumentsJson =
+                        parseOpenAiCodexToolArguments(
+                            json = json,
+                            arguments = block.stringValue("arguments").orEmpty(),
+                        ),
+                )
+            }
+    if (text.isBlank() && toolCalls.isEmpty()) {
+        return null
+    }
+    return ModelResponse(
+        text = text,
+        providerRequestId = response.stringValue("id"),
+        finishReason =
+            if (toolCalls.isNotEmpty()) {
+                "tool_use"
+            } else {
+                mapResponsesStopReason(response.stringValue("status"))
+            },
+        toolCalls = toolCalls,
+        modelId = response.stringValue("model"),
+        usage = response["usage"]?.jsonObjectOrNull()?.toProviderUsage(),
+    )
+}
+
+private fun parseOpenAiCodexToolArguments(
+    json: Json,
+    arguments: String,
+): JsonObject =
+    if (arguments.isBlank()) {
+        buildJsonObject {}
+    } else {
+        json.parseToJsonElement(arguments).jsonObject
+    }
 
 private fun extractOutputText(content: JsonArray?): String =
     content

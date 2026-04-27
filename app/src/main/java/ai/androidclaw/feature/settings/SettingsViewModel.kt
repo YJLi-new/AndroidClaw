@@ -310,7 +310,7 @@ class SettingsViewModel(
                     mutableState.update {
                         it.copy(
                             isSigningInWithOpenAiCodex = false,
-                            statusMessage = validationFailureMessage(error),
+                            statusMessage = openAiCodexSignInFailureMessage(error),
                         )
                     }
                 } catch (error: Exception) {
@@ -666,6 +666,13 @@ class SettingsViewModel(
                 "Provider streaming was interrupted before completion. Retry when the connection is stable."
             ModelProviderFailureKind.Response ->
                 error.userMessage.ifBlank { "Provider returned an unexpected response." }
+        }
+
+    private fun openAiCodexSignInFailureMessage(error: ModelProviderException): String =
+        when (error.kind) {
+            ModelProviderFailureKind.Timeout ->
+                error.userMessage.ifBlank { "OpenAI Codex sign-in timed out." }
+            else -> validationFailureMessage(error)
         }
 
     private fun buildConnectionHint(

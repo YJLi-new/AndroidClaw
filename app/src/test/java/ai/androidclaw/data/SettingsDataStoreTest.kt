@@ -114,7 +114,7 @@ class SettingsDataStoreTest {
         assertEquals("openai-codex", ProviderType.OpenAiCodex.providerId)
         assertEquals(ProviderAuthMode.OpenAiCodexDeviceCode, ProviderType.OpenAiCodex.authMode)
         assertEquals("https://chatgpt.com/backend-api/codex", defaults.baseUrl)
-        assertEquals("gpt-5.5", defaults.modelId)
+        assertEquals("gpt-5.3-codex-spark", defaults.modelId)
     }
 
     @Test

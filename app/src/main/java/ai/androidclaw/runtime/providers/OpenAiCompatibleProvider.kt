@@ -114,7 +114,7 @@ class OpenAiCompatibleProvider(
                     null
                 }
             },
-            fallbackForNonEventStream = {
+            fallbackForNonEventStream = { _, _ ->
                 generate(request)
             },
         )

@@ -81,7 +81,7 @@ internal fun streamProviderEvents(
     buildContext: suspend () -> ProviderStreamContext,
     mapHttpFailure: (Int, String) -> ModelProviderException,
     fallbackForHttpResponse: suspend (Int, String) -> ModelResponse? = { _, _ -> null },
-    fallbackForNonEventStream: suspend (String) -> ModelResponse? = { null },
+    fallbackForNonEventStream: suspend (String, String) -> ModelResponse? = { _, _ -> null },
 ): Flow<ModelStreamEvent> =
     channelFlow {
         val context =
@@ -122,7 +122,8 @@ internal fun streamProviderEvents(
                         )
                     val contentType = body.contentType()?.toString().orEmpty()
                     if (!contentType.startsWith(PROVIDER_EVENT_STREAM_CONTENT_TYPE_PREFIX)) {
-                        val fallback = fallbackForNonEventStream(contentType)
+                        val rawBody = body.string()
+                        val fallback = fallbackForNonEventStream(contentType, rawBody)
                         if (fallback != null) {
                             complete(fallback)
                             return@use
@@ -130,7 +131,7 @@ internal fun streamProviderEvents(
                         throw ModelProviderException(
                             kind = ModelProviderFailureKind.Response,
                             userMessage = "Provider stream did not return an event stream.",
-                            details = contentType,
+                            details = "$contentType ${rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS)}".trim(),
                         )
                     }
 
@@ -210,7 +211,7 @@ internal fun mapProviderStreamingFailure(
     }
 }
 
-private fun readSseDataEvents(
+internal fun readSseDataEvents(
     source: BufferedSource,
     handleDataEvent: (String) -> Boolean,
 ): Boolean {

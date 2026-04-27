@@ -81,6 +81,7 @@ class OpenAiCodexResponsesProviderTest {
                     expiresAtEpochMillis = clock.millis() + 600_000,
                     email = "codex@example.test",
                     profileName = "codex@example.test",
+                    chatGptAccountId = "acct-123",
                 ),
             )
         }
@@ -113,6 +114,9 @@ class OpenAiCodexResponsesProviderTest {
             assertEquals(9, response.usage?.totalTokens)
             assertEquals("/backend-api/codex/responses", recordedRequest.path)
             assertEquals("Bearer access-token", recordedRequest.getHeader("Authorization"))
+            assertEquals("acct-123", recordedRequest.getHeader("chatgpt-account-id"))
+            assertEquals("responses=experimental", recordedRequest.getHeader("OpenAI-Beta"))
+            assertEquals("pi", recordedRequest.getHeader("originator"))
             assertEquals("req-123", recordedRequest.getHeader("X-Request-Id"))
             assertEquals("gpt-5.5", payload.getValue("model").jsonPrimitive.content)
             assertEquals("system prompt", payload.getValue("instructions").jsonPrimitive.content)
@@ -214,6 +218,58 @@ class OpenAiCodexResponsesProviderTest {
 
             assertTrue(events.any { it == ModelStreamEvent.TextDelta("OK") })
             assertTrue(events.last() is ModelStreamEvent.Completed)
+        }
+
+    @Test
+    fun `codex response tolerates raw sse body with non event stream content type`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "text/plain")
+                    .setBody(textResponseEvents().joinToString(separator = "\n\n", postfix = "\n\n") { "data: $it" }),
+            )
+
+            val response = buildProvider().generate(buildRequest())
+
+            assertEquals("OK", response.text)
+            assertEquals("resp-123", response.providerRequestId)
+        }
+
+    @Test
+    fun `codex response tolerates completed json body with non event stream content type`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "id": "resp-json",
+                          "model": "gpt-5.5",
+                          "status": "completed",
+                          "output": [
+                            {
+                              "type": "message",
+                              "content": [
+                                {"type": "output_text", "text": "JSON OK"}
+                              ]
+                            }
+                          ],
+                          "usage": {
+                            "input_tokens": 3,
+                            "output_tokens": 2,
+                            "total_tokens": 5
+                          }
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val response = buildProvider().generate(buildRequest())
+
+            assertEquals("JSON OK", response.text)
+            assertEquals("resp-json", response.providerRequestId)
+            assertEquals(5, response.usage?.totalTokens)
         }
 
     private fun buildProvider(): OpenAiCodexResponsesProvider =

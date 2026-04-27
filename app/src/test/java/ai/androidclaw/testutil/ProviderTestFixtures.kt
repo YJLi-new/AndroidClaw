@@ -5,6 +5,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.ModelProvider
+import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.providers.OpenAiCodexDeviceCodePrompt
@@ -79,6 +80,7 @@ class FakeOpenAiCodexOAuthClient(
             profileName = "codex@example.test",
         ),
     private val refreshedCredential: ProviderOAuthCredential = loginCredential,
+    private val loginFailure: ModelProviderException? = null,
 ) : OpenAiCodexOAuthClient {
     var loginCount: Int = 0
         private set
@@ -98,6 +100,7 @@ class FakeOpenAiCodexOAuthClient(
                 expiresInMillis = 900_000,
             ),
         )
+        loginFailure?.let { throw it }
         return loginCredential
     }
 

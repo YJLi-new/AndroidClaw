@@ -20,6 +20,8 @@ data class ProviderOAuthCredential(
     val email: String? = null,
     @SerialName("profile_name")
     val profileName: String? = null,
+    @SerialName("chatgpt_account_id")
+    val chatGptAccountId: String? = null,
 )
 
 interface ProviderSecretStore {

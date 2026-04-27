@@ -1,7 +1,9 @@
 package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderOAuthCredential
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -100,16 +102,18 @@ class HttpOpenAiCodexOAuthClient(
             )
         }
         val refresh = payload.stringValue("refresh_token") ?: credential.refreshToken
+        val identity = resolveCodexAuthIdentity(access)
         return credential.copy(
             accessToken = access,
             refreshToken = refresh,
             expiresAtEpochMillis = resolveExpiresAt(payload, access),
-            email = resolveCodexAuthIdentity(access).email ?: credential.email,
-            profileName = resolveCodexAuthIdentity(access).profileName ?: credential.profileName,
+            email = identity.email ?: credential.email,
+            profileName = identity.profileName ?: credential.profileName,
+            chatGptAccountId = identity.chatGptAccountId ?: credential.chatGptAccountId,
         )
     }
 
-    private fun requestDeviceCode(): RequestedDeviceCode {
+    private suspend fun requestDeviceCode(): RequestedDeviceCode {
         val responseBody =
             executeText(
                 request =
@@ -148,22 +152,24 @@ class HttpOpenAiCodexOAuthClient(
         val deadline = clock.millis() + OPENAI_CODEX_DEVICE_CODE_TIMEOUT_MILLIS
         while (clock.millis() < deadline) {
             val response =
-                httpClient
-                    .newCall(
-                        Request
-                            .Builder()
-                            .url(authUrl("/api/accounts/deviceauth/token"))
-                            .header("Content-Type", PROVIDER_JSON_MEDIA_TYPE.toString())
-                            .post(
-                                """
-                                {
-                                  "device_auth_id": "$deviceAuthId",
-                                  "user_code": "$userCode"
-                                }
-                                """.trimIndent()
-                                    .toRequestBody(PROVIDER_JSON_MEDIA_TYPE),
-                            ).build(),
-                    ).execute()
+                withContext(Dispatchers.IO) {
+                    httpClient
+                        .newCall(
+                            Request
+                                .Builder()
+                                .url(authUrl("/api/accounts/deviceauth/token"))
+                                .header("Content-Type", PROVIDER_JSON_MEDIA_TYPE.toString())
+                                .post(
+                                    """
+                                    {
+                                      "device_auth_id": "$deviceAuthId",
+                                      "user_code": "$userCode"
+                                    }
+                                    """.trimIndent()
+                                        .toRequestBody(PROVIDER_JSON_MEDIA_TYPE),
+                                ).build(),
+                        ).execute()
+                }
             response.use {
                 val bodyText = it.body?.string().orEmpty()
                 if (it.isSuccessful) {
@@ -198,7 +204,7 @@ class HttpOpenAiCodexOAuthClient(
         )
     }
 
-    private fun exchangeAuthorizationCode(
+    private suspend fun exchangeAuthorizationCode(
         authorizationCode: String,
         codeVerifier: String,
     ): ProviderOAuthCredential {
@@ -239,24 +245,27 @@ class HttpOpenAiCodexOAuthClient(
             expiresAtEpochMillis = resolveExpiresAt(payload, access),
             email = identity.email,
             profileName = identity.profileName,
+            chatGptAccountId = identity.chatGptAccountId,
         )
     }
 
-    private fun executeText(
+    private suspend fun executeText(
         request: Request,
         failurePrefix: String,
     ): String =
         try {
-            httpClient.newCall(request).execute().use { response ->
-                val bodyText = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    throw formatOAuthHttpFailure(
-                        prefix = failurePrefix,
-                        statusCode = response.code,
-                        rawBody = bodyText,
-                    )
+            withContext(Dispatchers.IO) {
+                httpClient.newCall(request).execute().use { response ->
+                    val bodyText = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        throw formatOAuthHttpFailure(
+                            prefix = failurePrefix,
+                            statusCode = response.code,
+                            rawBody = bodyText,
+                        )
+                    }
+                    bodyText
                 }
-                bodyText
             }
         } catch (error: IOException) {
             throw mapTransportFailure(error)
@@ -349,6 +358,7 @@ class HttpOpenAiCodexOAuthClient(
 data class OpenAiCodexAuthIdentity(
     val email: String? = null,
     val profileName: String? = null,
+    val chatGptAccountId: String? = null,
 )
 
 fun resolveCodexAccessTokenExpiry(accessToken: String): Long? =
@@ -359,23 +369,33 @@ fun resolveCodexAccessTokenExpiry(accessToken: String): Long? =
 
 fun resolveCodexAuthIdentity(accessToken: String): OpenAiCodexAuthIdentity {
     val payload = decodeCodexJwtPayload(accessToken) ?: return OpenAiCodexAuthIdentity()
+    val auth = payload["https://api.openai.com/auth"]?.jsonObjectOrNull()
+    val accountId = auth?.stringValue("chatgpt_account_id")
     val profile = payload["https://api.openai.com/profile"]?.jsonObjectOrNull()
     val email = profile?.stringValue("email")
     if (!email.isNullOrBlank()) {
-        return OpenAiCodexAuthIdentity(email = email, profileName = email)
+        return OpenAiCodexAuthIdentity(
+            email = email,
+            profileName = email,
+            chatGptAccountId = accountId,
+        )
     }
-    val auth = payload["https://api.openai.com/auth"]?.jsonObjectOrNull()
     val subject =
         auth?.stringValue("chatgpt_account_user_id")
             ?: auth?.stringValue("chatgpt_user_id")
             ?: auth?.stringValue("user_id")
             ?: payload.stringValue("sub")
     if (subject.isNullOrBlank()) {
-        return OpenAiCodexAuthIdentity()
+        return OpenAiCodexAuthIdentity(chatGptAccountId = accountId)
     }
     val encodedSubject = Base64.getUrlEncoder().withoutPadding().encodeToString(subject.toByteArray())
-    return OpenAiCodexAuthIdentity(profileName = "id-$encodedSubject")
+    return OpenAiCodexAuthIdentity(
+        profileName = "id-$encodedSubject",
+        chatGptAccountId = accountId,
+    )
 }
+
+fun resolveCodexChatGptAccountId(accessToken: String): String? = resolveCodexAuthIdentity(accessToken).chatGptAccountId
 
 private fun decodeCodexJwtPayload(accessToken: String): JsonObject? {
     val parts = accessToken.split(".")

@@ -41,7 +41,12 @@ class OpenAiCodexOAuthClientTest {
     @Test
     fun `device code login stores oauth credential identity and expiry`() =
         runTest {
-            val accessToken = fakeJwt(email = "codex@example.test", expiresAtEpochSeconds = 1_800_000_000)
+            val accessToken =
+                fakeJwt(
+                    email = "codex@example.test",
+                    accountId = "acct-123",
+                    expiresAtEpochSeconds = 1_800_000_000,
+                )
             server.enqueue(
                 MockResponse()
                     .setHeader("Content-Type", "application/json")
@@ -91,6 +96,7 @@ class OpenAiCodexOAuthClientTest {
             assertEquals(accessToken, credential.accessToken)
             assertEquals("refresh-token", credential.refreshToken)
             assertEquals("codex@example.test", credential.email)
+            assertEquals("acct-123", credential.chatGptAccountId)
             assertEquals(clock.millis() + 3_600_000, credential.expiresAtEpochMillis)
             assertEquals("ABCD-EFGH", prompts.single().userCode)
             assertEquals("/api/accounts/deviceauth/usercode", server.takeRequest(5, TimeUnit.SECONDS)!!.path)
@@ -101,7 +107,12 @@ class OpenAiCodexOAuthClientTest {
     @Test
     fun `refresh credential keeps old refresh token when response omits one`() =
         runTest {
-            val accessToken = fakeJwt(email = "fresh@example.test", expiresAtEpochSeconds = 1_800_000_000)
+            val accessToken =
+                fakeJwt(
+                    email = "fresh@example.test",
+                    accountId = "acct-fresh",
+                    expiresAtEpochSeconds = 1_800_000_000,
+                )
             server.enqueue(
                 MockResponse()
                     .setHeader("Content-Type", "application/json")
@@ -130,6 +141,7 @@ class OpenAiCodexOAuthClientTest {
             assertEquals(accessToken, refreshed.accessToken)
             assertEquals("old-refresh", refreshed.refreshToken)
             assertEquals("fresh@example.test", refreshed.email)
+            assertEquals("acct-fresh", refreshed.chatGptAccountId)
             assertEquals(clock.millis() + 120_000, refreshed.expiresAtEpochMillis)
             assertEquals("/oauth/token", request.path)
             assertTrue(body.contains("grant_type=refresh_token"))
@@ -167,6 +179,7 @@ class OpenAiCodexOAuthClientTest {
 
     private fun fakeJwt(
         email: String,
+        accountId: String,
         expiresAtEpochSeconds: Long,
     ): String {
         val encoder = Base64.getUrlEncoder().withoutPadding()
@@ -177,6 +190,9 @@ class OpenAiCodexOAuthClientTest {
                 {
                   "exp": $expiresAtEpochSeconds,
                   "sub": "user-123",
+                  "https://api.openai.com/auth": {
+                    "chatgpt_account_id": "$accountId"
+                  },
                   "https://api.openai.com/profile": {
                     "email": "$email"
                   }
