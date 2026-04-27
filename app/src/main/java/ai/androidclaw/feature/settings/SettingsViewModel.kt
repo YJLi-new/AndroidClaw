@@ -1,6 +1,7 @@
 package ai.androidclaw.feature.settings
 
 import ai.androidclaw.app.SettingsDependencies
+import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
@@ -18,7 +19,6 @@ import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
 import android.net.Uri
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -530,16 +530,14 @@ class SettingsViewModel(
         }
 
     companion object {
-        fun factory(dependencies: SettingsDependencies): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    SettingsViewModel(
-                        providerRegistry = dependencies.providerRegistry,
-                        settingsDataStore = dependencies.settingsDataStore,
-                        providerSecretStore = dependencies.providerSecretStore,
-                        networkStatusProvider = dependencies.networkStatusProvider,
-                    ) as T
+        fun factory(dependencies: SettingsDependencies) =
+            viewModelFactory {
+                SettingsViewModel(
+                    providerRegistry = dependencies.providerRegistry,
+                    settingsDataStore = dependencies.settingsDataStore,
+                    providerSecretStore = dependencies.providerSecretStore,
+                    networkStatusProvider = dependencies.networkStatusProvider,
+                )
             }
     }
 }

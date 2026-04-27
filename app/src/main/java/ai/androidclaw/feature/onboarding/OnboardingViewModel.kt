@@ -1,11 +1,11 @@
 package ai.androidclaw.feature.onboarding
 
 import ai.androidclaw.app.OnboardingDependencies
+import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -89,14 +89,12 @@ class OnboardingViewModel(
     }
 
     companion object {
-        fun factory(dependencies: OnboardingDependencies): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    OnboardingViewModel(
-                        onboardingDataStore = dependencies.onboardingDataStore,
-                        settingsDataStore = dependencies.settingsDataStore,
-                    ) as T
+        fun factory(dependencies: OnboardingDependencies) =
+            viewModelFactory {
+                OnboardingViewModel(
+                    onboardingDataStore = dependencies.onboardingDataStore,
+                    settingsDataStore = dependencies.settingsDataStore,
+                )
             }
     }
 }

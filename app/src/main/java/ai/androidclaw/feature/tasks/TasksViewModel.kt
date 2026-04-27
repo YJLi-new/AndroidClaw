@@ -1,6 +1,7 @@
 package ai.androidclaw.feature.tasks
 
 import ai.androidclaw.app.TasksDependencies
+import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.repository.MessageRepository
@@ -15,7 +16,6 @@ import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -250,16 +250,14 @@ class TasksViewModel(
     }
 
     companion object {
-        fun factory(dependencies: TasksDependencies): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    TasksViewModel(
-                        taskRepository = dependencies.taskRepository,
-                        schedulerCoordinator = dependencies.schedulerCoordinator,
-                        sessionRepository = dependencies.sessionRepository,
-                        messageRepository = dependencies.messageRepository,
-                    ) as T
+        fun factory(dependencies: TasksDependencies) =
+            viewModelFactory {
+                TasksViewModel(
+                    taskRepository = dependencies.taskRepository,
+                    schedulerCoordinator = dependencies.schedulerCoordinator,
+                    sessionRepository = dependencies.sessionRepository,
+                    messageRepository = dependencies.messageRepository,
+                )
             }
     }
 }

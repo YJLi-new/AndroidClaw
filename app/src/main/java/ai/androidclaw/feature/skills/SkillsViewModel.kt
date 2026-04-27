@@ -1,13 +1,13 @@
 package ai.androidclaw.feature.skills
 
 import ai.androidclaw.app.SkillsDependencies
+import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.runtime.skills.SkillConfigField
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import android.net.Uri
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -87,7 +87,7 @@ class SkillsViewModel(
         }
         viewModelScope.launch {
             runCatching {
-                skillManager.readConfigurationCompat(skill)
+                skillManager.readConfiguration(skill)
             }.onSuccess { configuration ->
                 updateDialog { dialog ->
                     dialog.copy(
@@ -233,7 +233,7 @@ class SkillsViewModel(
                     }
 
             runCatching {
-                skillManager.saveConfigurationCompat(
+                skillManager.saveConfiguration(
                     skillKey = currentDialog.skillKey,
                     secretUpdates = secretUpdates,
                     clearedSecrets = clearedSecrets,
@@ -243,7 +243,7 @@ class SkillsViewModel(
                 val refreshedSkill =
                     refreshedSkills.firstOrNull { it.id == currentDialog.skillId }
                         ?: refreshedSkills.firstOrNull { it.skillKey == currentDialog.skillKey }
-                val refreshedConfiguration = refreshedSkill?.let { skillManager.readConfigurationCompat(it) }
+                val refreshedConfiguration = refreshedSkill?.let { skillManager.readConfiguration(it) }
                 refreshedSkills to refreshedConfiguration
             }.onSuccess { (skills, configuration) ->
                 mutableState.update { state ->
@@ -388,13 +388,11 @@ class SkillsViewModel(
     }
 
     companion object {
-        fun factory(dependencies: SkillsDependencies): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    SkillsViewModel(
-                        skillManager = dependencies.skillManager,
-                    ) as T
+        fun factory(dependencies: SkillsDependencies) =
+            viewModelFactory {
+                SkillsViewModel(
+                    skillManager = dependencies.skillManager,
+                )
             }
     }
 }

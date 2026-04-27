@@ -2,6 +2,7 @@ package ai.androidclaw.feature.health
 
 import ai.androidclaw.app.CrashMarkerStore
 import ai.androidclaw.app.HealthDependencies
+import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
@@ -14,7 +15,6 @@ import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.tools.ToolRegistry
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -135,19 +135,17 @@ class HealthViewModel(
     }
 
     companion object {
-        fun factory(dependencies: HealthDependencies): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    HealthViewModel(
-                        schedulerCoordinator = dependencies.schedulerCoordinator,
-                        toolRegistry = dependencies.toolRegistry,
-                        providerRegistry = dependencies.providerRegistry,
-                        networkStatusProvider = dependencies.networkStatusProvider,
-                        settingsDataStore = dependencies.settingsDataStore,
-                        eventLogRepository = dependencies.eventLogRepository,
-                        crashMarkerStore = dependencies.crashMarkerStore,
-                    ) as T
+        fun factory(dependencies: HealthDependencies) =
+            viewModelFactory {
+                HealthViewModel(
+                    schedulerCoordinator = dependencies.schedulerCoordinator,
+                    toolRegistry = dependencies.toolRegistry,
+                    providerRegistry = dependencies.providerRegistry,
+                    networkStatusProvider = dependencies.networkStatusProvider,
+                    settingsDataStore = dependencies.settingsDataStore,
+                    eventLogRepository = dependencies.eventLogRepository,
+                    crashMarkerStore = dependencies.crashMarkerStore,
+                )
             }
     }
 }

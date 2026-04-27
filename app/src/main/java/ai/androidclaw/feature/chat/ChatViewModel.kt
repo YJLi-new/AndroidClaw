@@ -1,6 +1,7 @@
 package ai.androidclaw.feature.chat
 
 import ai.androidclaw.app.ChatDependencies
+import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.ChatMessage
@@ -17,7 +18,6 @@ import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
 import ai.androidclaw.runtime.providers.parseProviderMessageMeta
 import ai.androidclaw.runtime.skills.SkillManager
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -708,18 +708,16 @@ class ChatViewModel(
         private const val SEARCH_MESSAGE_LIMIT = 10
         private const val MAX_SEARCH_RESULTS = 12
 
-        fun factory(dependencies: ChatDependencies): ViewModelProvider.Factory =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                    ChatViewModel(
-                        sessionRepository = dependencies.sessionRepository,
-                        messageRepository = dependencies.messageRepository,
-                        eventLogRepository = dependencies.eventLogRepository,
-                        agentRunner = dependencies.agentRunner,
-                        skillManager = dependencies.skillManager,
-                        settingsDataStore = dependencies.settingsDataStore,
-                    ) as T
+        fun factory(dependencies: ChatDependencies) =
+            viewModelFactory {
+                ChatViewModel(
+                    sessionRepository = dependencies.sessionRepository,
+                    messageRepository = dependencies.messageRepository,
+                    eventLogRepository = dependencies.eventLogRepository,
+                    agentRunner = dependencies.agentRunner,
+                    skillManager = dependencies.skillManager,
+                    settingsDataStore = dependencies.settingsDataStore,
+                )
             }
     }
 }
