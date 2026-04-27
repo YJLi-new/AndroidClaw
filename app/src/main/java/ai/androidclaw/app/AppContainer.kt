@@ -20,7 +20,9 @@ import ai.androidclaw.runtime.orchestrator.SessionSummaryCoordinator
 import ai.androidclaw.runtime.providers.AndroidNetworkStatusProvider
 import ai.androidclaw.runtime.providers.AnthropicProvider
 import ai.androidclaw.runtime.providers.FakeProvider
+import ai.androidclaw.runtime.providers.HttpOpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.OpenAiCodexResponsesProvider
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.createProviderBaseHttpClient
@@ -53,6 +55,12 @@ class AppContainer(
             ignoreUnknownKeys = true
         }
     private val providerHttpClient = createProviderBaseHttpClient()
+    private val openAiCodexOAuthClient =
+        HttpOpenAiCodexOAuthClient(
+            httpClient = providerHttpClient,
+            json = json,
+            clock = clock,
+        )
     val database = AndroidClawDatabase.build(application)
     val crashMarkerStore = CrashMarkerStore(application)
     val settingsDataStore = SettingsDataStore(application)
@@ -153,6 +161,16 @@ class AppContainer(
                                             json = json,
                                         )
 
+                                    ProviderType.OpenAiCodex ->
+                                        OpenAiCodexResponsesProvider(
+                                            settingsDataStore = settingsDataStore,
+                                            providerSecretStore = providerSecretStore,
+                                            oAuthClient = openAiCodexOAuthClient,
+                                            baseHttpClient = providerHttpClient,
+                                            json = json,
+                                            clock = clock,
+                                        )
+
                                     else ->
                                         OpenAiCompatibleProvider(
                                             providerType = providerType,
@@ -239,6 +257,7 @@ class AppContainer(
                 providerRegistry = providerRegistry,
                 settingsDataStore = settingsDataStore,
                 providerSecretStore = providerSecretStore,
+                openAiCodexOAuthClient = openAiCodexOAuthClient,
                 networkStatusProvider = networkStatusProvider,
             )
 

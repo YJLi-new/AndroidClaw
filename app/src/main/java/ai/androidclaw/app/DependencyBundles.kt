@@ -9,6 +9,7 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
+import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.skills.SkillManager
@@ -38,6 +39,7 @@ data class SettingsDependencies(
     val providerRegistry: ProviderRegistry,
     val settingsDataStore: SettingsDataStore,
     val providerSecretStore: ProviderSecretStore,
+    val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     val networkStatusProvider: NetworkStatusProvider,
 )
 

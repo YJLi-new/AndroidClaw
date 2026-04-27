@@ -10,6 +10,7 @@ import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.createProviderBaseHttpClient
+import ai.androidclaw.testutil.FakeOpenAiCodexOAuthClient
 import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
@@ -57,6 +58,7 @@ class SettingsViewModelTest {
             override fun observeStatus() = networkStatusFlow
         }
     private val json = Json { ignoreUnknownKeys = true }
+    private lateinit var oAuthClient: FakeOpenAiCodexOAuthClient
 
     @Before
     fun setUp() =
@@ -64,6 +66,7 @@ class SettingsViewModelTest {
             val application = ApplicationProvider.getApplicationContext<android.app.Application>()
             settingsDataStore = SettingsDataStore(application)
             secretStore = InMemoryProviderSecretStore()
+            oAuthClient = FakeOpenAiCodexOAuthClient()
             currentNetworkStatus =
                 NetworkStatusSnapshot(
                     supported = true,
@@ -211,6 +214,78 @@ class SettingsViewModelTest {
 
             assertFalse(cleared.configured)
             assertNull(secretStore.readApiKey(ProviderType.Kimi))
+        }
+
+    @Test
+    fun `openai codex sign in stores oauth credential and configures provider`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCodex,
+                        ProviderEndpointSettings(
+                            baseUrl = ProviderType.OpenAiCodex.defaultBaseUrl,
+                            modelId = ProviderType.OpenAiCodex.defaultModelId,
+                            timeoutSeconds = 60,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCodex),
+            )
+            val viewModel = buildViewModel()
+            waitForState(viewModel) { it.providerType == ProviderType.OpenAiCodex }
+
+            viewModel.startOpenAiCodexDeviceCodeSignIn()
+
+            val signedIn =
+                waitForState(viewModel) {
+                    it.providerType == ProviderType.OpenAiCodex &&
+                        it.hasOAuthCredential &&
+                        it.statusMessage == "OpenAI Codex sign-in complete."
+                }
+
+            assertTrue(signedIn.configured)
+            assertEquals("codex@example.test", signedIn.oAuthProfileLabel)
+            assertEquals(1, oAuthClient.loginCount)
+            assertEquals("access-token", secretStore.readOAuthCredential(ProviderType.OpenAiCodex)?.accessToken)
+        }
+
+    @Test
+    fun `clearing openai codex sign in updates configuration state`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCodex,
+                        ProviderEndpointSettings(
+                            baseUrl = ProviderType.OpenAiCodex.defaultBaseUrl,
+                            modelId = ProviderType.OpenAiCodex.defaultModelId,
+                            timeoutSeconds = 60,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCodex),
+            )
+            secretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ai.androidclaw.data.ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "access-token",
+                    refreshToken = "refresh-token",
+                    expiresAtEpochMillis = 1_800_000_000_000,
+                    email = "codex@example.test",
+                    profileName = "codex@example.test",
+                ),
+            )
+            val viewModel = buildViewModel()
+            waitForState(viewModel) { it.providerType == ProviderType.OpenAiCodex && it.hasOAuthCredential }
+
+            viewModel.clearOpenAiCodexSignIn()
+            val cleared =
+                waitForState(viewModel) {
+                    it.providerType == ProviderType.OpenAiCodex &&
+                        !it.hasOAuthCredential &&
+                        it.statusMessage == "OpenAI Codex sign-in cleared."
+                }
+
+            assertFalse(cleared.configured)
+            assertNull(secretStore.readOAuthCredential(ProviderType.OpenAiCodex))
         }
 
     @Test
@@ -461,6 +536,7 @@ class SettingsViewModelTest {
             providerRegistry = providerRegistry,
             settingsDataStore = settingsDataStore,
             providerSecretStore = secretStore,
+            openAiCodexOAuthClient = oAuthClient,
             networkStatusProvider = networkStatusProvider,
         )
 

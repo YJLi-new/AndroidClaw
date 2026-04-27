@@ -50,15 +50,16 @@ AndroidClaw already ships a usable local-first runtime:
 - Durable chat sessions with a deterministic `FakeProvider` for local testing
 - Real-provider support for:
   - `OpenAI-compatible`
+  - `OpenAI Codex` via device-code OAuth and Codex Responses transport
   - `MiniMax`
   - `GLM`
   - `Kimi`
   - `Claude` via a native Anthropic Messages provider
   - `Gemini` via its OpenAI-compatible endpoint
-- SSE streaming with safe batch fallback on compatible providers
+- SSE streaming with safe batch fallback on compatible providers and Responses streaming for OpenAI Codex
 - Visible streamed assistant output, cancel, retry, and clearer failure states
 - Budgeted context assembly via `ContextWindowManager` — no more naive fixed-count slicing
-- Per-provider saved base URL, model ID, timeout, and encrypted API key storage in Settings
+- Per-provider saved base URL, model ID, timeout, encrypted API key storage, and encrypted OpenAI Codex OAuth credentials in Settings
 
 **Skills & Tools**
 - Bundled, local, and workspace `SKILL.md` skill loading

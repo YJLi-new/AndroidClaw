@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ThemePreference
 import ai.androidclaw.ui.components.ScreenHeader
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -28,6 +30,7 @@ fun SettingsScreen(
     onOpenSetupGuide: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
 
     Column(
         modifier =
@@ -126,30 +129,105 @@ fun SettingsScreen(
                         label = { Text("Timeout seconds") },
                         singleLine = true,
                     )
-                    OutlinedTextField(
-                        value = state.apiKeyDraft,
-                        onValueChange = viewModel::onApiKeyChanged,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("providerApiKeyField"),
-                        label = {
-                            Text(
-                                if (state.hasStoredApiKey) {
-                                    "API key (leave blank to keep stored key)"
-                                } else {
-                                    "API key"
+                    when (state.authMode) {
+                        ProviderAuthMode.None -> Unit
+                        ProviderAuthMode.ApiKey -> {
+                            OutlinedTextField(
+                                value = state.apiKeyDraft,
+                                onValueChange = viewModel::onApiKeyChanged,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag("providerApiKeyField"),
+                                label = {
+                                    Text(
+                                        if (state.hasStoredApiKey) {
+                                            "API key (leave blank to keep stored key)"
+                                        } else {
+                                            "API key"
+                                        },
+                                    )
                                 },
+                                singleLine = true,
                             )
-                        },
-                        singleLine = true,
-                    )
-                    if (state.hasStoredApiKey) {
-                        Button(
-                            onClick = viewModel::clearStoredApiKey,
-                            modifier = Modifier.testTag("clearStoredApiKeyButton"),
-                        ) {
-                            Text("Clear stored API key")
+                            if (state.hasStoredApiKey) {
+                                Button(
+                                    onClick = viewModel::clearStoredApiKey,
+                                    modifier = Modifier.testTag("clearStoredApiKeyButton"),
+                                ) {
+                                    Text("Clear stored API key")
+                                }
+                            }
+                        }
+
+                        ProviderAuthMode.OpenAiCodexDeviceCode -> {
+                            Text(
+                                text =
+                                    if (state.hasOAuthCredential) {
+                                        "Signed in: ${state.oAuthProfileLabel.orEmpty()}"
+                                    } else {
+                                        "OpenAI Codex requires device-code sign-in."
+                                    },
+                                modifier = Modifier.testTag("openAiCodexAuthStatus"),
+                            )
+                            state.oAuthExpiresAtText?.let { expires ->
+                                Text(expires)
+                            }
+                            state.deviceCodeUserCode?.let { code ->
+                                Text(
+                                    text = "Code: $code",
+                                    modifier = Modifier.testTag("openAiCodexDeviceCode"),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
+                            state.deviceCodeVerificationUrl?.let { url ->
+                                Text(
+                                    text = url,
+                                    modifier = Modifier.testTag("openAiCodexVerificationUrl"),
+                                )
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Button(
+                                    onClick = viewModel::startOpenAiCodexDeviceCodeSignIn,
+                                    enabled = !state.isSigningInWithOpenAiCodex,
+                                    modifier = Modifier.testTag("openAiCodexSignInButton"),
+                                ) {
+                                    Text(
+                                        if (state.isSigningInWithOpenAiCodex) {
+                                            "Signing in..."
+                                        } else {
+                                            "Sign in with OpenAI"
+                                        },
+                                    )
+                                }
+                                state.deviceCodeVerificationUrl?.let { url ->
+                                    Button(
+                                        onClick = { uriHandler.openUri(url) },
+                                        modifier = Modifier.testTag("openAiCodexOpenVerificationButton"),
+                                    ) {
+                                        Text("Open verification page")
+                                    }
+                                }
+                                if (state.isSigningInWithOpenAiCodex) {
+                                    Button(
+                                        onClick = viewModel::cancelOpenAiCodexDeviceCodeSignIn,
+                                        modifier = Modifier.testTag("openAiCodexCancelSignInButton"),
+                                    ) {
+                                        Text("Cancel")
+                                    }
+                                }
+                                if (state.hasOAuthCredential) {
+                                    Button(
+                                        onClick = viewModel::clearOpenAiCodexSignIn,
+                                        modifier = Modifier.testTag("clearOpenAiCodexSignInButton"),
+                                    ) {
+                                        Text("Clear sign-in")
+                                    }
+                                }
+                            }
                         }
                     }
                 }

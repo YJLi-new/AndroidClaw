@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.onboarding
 
+import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.feature.settings.SettingsUiState
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
@@ -33,9 +35,14 @@ fun OnboardingDialog(
     onModelIdChanged: (String) -> Unit,
     onTimeoutChanged: (String) -> Unit,
     onApiKeyChanged: (String) -> Unit,
+    onStartOpenAiCodexSignIn: () -> Unit,
+    onCancelOpenAiCodexSignIn: () -> Unit,
+    onClearOpenAiCodexSignIn: () -> Unit,
     onValidateConnection: () -> Unit,
     onFinish: () -> Unit,
 ) {
+    val uriHandler = LocalUriHandler.current
+
     AlertDialog(
         modifier = Modifier.testTag("onboardingDialog"),
         onDismissRequest = {},
@@ -111,24 +118,81 @@ fun OnboardingDialog(
                         label = { Text("Timeout seconds") },
                         singleLine = true,
                     )
-                    OutlinedTextField(
-                        value = settingsState.apiKeyDraft,
-                        onValueChange = onApiKeyChanged,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("onboardingApiKeyField"),
-                        label = {
+                    when (settingsState.authMode) {
+                        ProviderAuthMode.None -> Unit
+                        ProviderAuthMode.ApiKey ->
+                            OutlinedTextField(
+                                value = settingsState.apiKeyDraft,
+                                onValueChange = onApiKeyChanged,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .testTag("onboardingApiKeyField"),
+                                label = {
+                                    Text(
+                                        if (settingsState.hasStoredApiKey) {
+                                            "API key (leave blank to keep stored key)"
+                                        } else {
+                                            "API key"
+                                        },
+                                    )
+                                },
+                                singleLine = true,
+                            )
+
+                        ProviderAuthMode.OpenAiCodexDeviceCode -> {
                             Text(
-                                if (settingsState.hasStoredApiKey) {
-                                    "API key (leave blank to keep stored key)"
+                                if (settingsState.hasOAuthCredential) {
+                                    "Signed in: ${settingsState.oAuthProfileLabel.orEmpty()}"
                                 } else {
-                                    "API key"
+                                    "OpenAI Codex requires device-code sign-in."
                                 },
                             )
-                        },
-                        singleLine = true,
-                    )
+                            settingsState.deviceCodeUserCode?.let { code ->
+                                Text(
+                                    text = "Code: $code",
+                                    modifier = Modifier.testTag("onboardingOpenAiCodexDeviceCode"),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                            }
+                            settingsState.deviceCodeVerificationUrl?.let { url ->
+                                Button(
+                                    onClick = { uriHandler.openUri(url) },
+                                    modifier = Modifier.testTag("onboardingOpenAiCodexOpenVerificationButton"),
+                                ) {
+                                    Text("Open verification page")
+                                }
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Button(
+                                    onClick = onStartOpenAiCodexSignIn,
+                                    enabled = !settingsState.isSigningInWithOpenAiCodex,
+                                    modifier = Modifier.testTag("onboardingOpenAiCodexSignInButton"),
+                                ) {
+                                    Text(
+                                        if (settingsState.isSigningInWithOpenAiCodex) {
+                                            "Signing in..."
+                                        } else {
+                                            "Sign in"
+                                        },
+                                    )
+                                }
+                                if (settingsState.isSigningInWithOpenAiCodex) {
+                                    Button(onClick = onCancelOpenAiCodexSignIn) {
+                                        Text("Cancel")
+                                    }
+                                }
+                                if (settingsState.hasOAuthCredential) {
+                                    Button(onClick = onClearOpenAiCodexSignIn) {
+                                        Text("Clear sign-in")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     settingsState.statusMessage?.let { message ->
                         Text(
                             message,

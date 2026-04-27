@@ -2,7 +2,9 @@ package ai.androidclaw.feature.settings
 
 import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.app.viewModelFactory
+import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -15,17 +17,21 @@ import ai.androidclaw.runtime.providers.ModelRequest
 import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
+import ai.androidclaw.runtime.providers.OpenAiCodexDeviceCodePrompt
+import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 data class SettingsUiState(
     val activeProviderId: String = "",
@@ -36,8 +42,15 @@ data class SettingsUiState(
     val timeoutSeconds: String = "",
     val networkSummary: String = "",
     val connectionHint: String? = null,
+    val authMode: ProviderAuthMode = ProviderAuthMode.None,
     val apiKeyDraft: String = "",
     val hasStoredApiKey: Boolean = false,
+    val hasOAuthCredential: Boolean = false,
+    val oAuthProfileLabel: String? = null,
+    val oAuthExpiresAtText: String? = null,
+    val isSigningInWithOpenAiCodex: Boolean = false,
+    val deviceCodeUserCode: String? = null,
+    val deviceCodeVerificationUrl: String? = null,
     val configured: Boolean = false,
     val isValidatingConnection: Boolean = false,
     val lastValidationSucceeded: Boolean = false,
@@ -50,17 +63,19 @@ class SettingsViewModel(
     private val providerRegistry: ProviderRegistry,
     private val settingsDataStore: SettingsDataStore,
     private val providerSecretStore: ProviderSecretStore,
+    private val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     private val networkStatusProvider: NetworkStatusProvider,
 ) : ViewModel() {
     private val mutableState =
         MutableStateFlow(
             SettingsUiState(
                 availableProviders = providerRegistry.descriptors().map { it.type },
-                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
+                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider, API-key providers, native Claude, and OpenAI Codex device OAuth.",
             ),
         )
     val state: StateFlow<SettingsUiState> = mutableState.asStateFlow()
     private var stateMutationVersion: Long = 0
+    private var openAiCodexSignInJob: Job? = null
 
     init {
         refresh()
@@ -73,6 +88,7 @@ class SettingsViewModel(
             val settings = settingsDataStore.settings.first()
             val themePreference = settingsDataStore.themePreference.first()
             val storedApiKey = providerSecretStore.readApiKey(providerType)
+            val oAuthCredential = providerSecretStore.readOAuthCredential(providerType)
             val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val endpointSettings = settings.endpointSettings(providerType)
             val networkStatus = networkStatusProvider.currentStatus()
@@ -92,8 +108,15 @@ class SettingsViewModel(
                             providerType = providerType,
                             networkStatus = networkStatus,
                         ),
+                    authMode = providerType.authMode,
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                    hasOAuthCredential = oAuthCredential != null,
+                    oAuthProfileLabel = oAuthCredential?.displayLabel(),
+                    oAuthExpiresAtText = oAuthCredential?.expiresAtText(),
+                    isSigningInWithOpenAiCodex = false,
+                    deviceCodeUserCode = null,
+                    deviceCodeVerificationUrl = null,
                     configured =
                         isConfigured(
                             providerType = providerType,
@@ -101,6 +124,7 @@ class SettingsViewModel(
                             modelId = endpointSettings.modelId,
                             apiKeyDraft = "",
                             hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                            hasOAuthCredential = oAuthCredential != null,
                         ),
                     isValidatingConnection = false,
                     lastValidationSucceeded = false,
@@ -144,6 +168,7 @@ class SettingsViewModel(
                         modelId = it.modelId,
                         apiKeyDraft = it.apiKeyDraft,
                         hasStoredApiKey = it.hasStoredApiKey,
+                        hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
                 statusMessage = null,
@@ -162,6 +187,7 @@ class SettingsViewModel(
                         modelId = value,
                         apiKeyDraft = it.apiKeyDraft,
                         hasStoredApiKey = it.hasStoredApiKey,
+                        hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
                 statusMessage = null,
@@ -190,6 +216,7 @@ class SettingsViewModel(
                         modelId = it.modelId,
                         apiKeyDraft = value,
                         hasStoredApiKey = it.hasStoredApiKey,
+                        hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
                 statusMessage = null,
@@ -199,7 +226,7 @@ class SettingsViewModel(
 
     fun clearStoredApiKey() {
         val providerType = state.value.providerType
-        if (!providerType.requiresRemoteSettings) {
+        if (!providerType.requiresApiKey) {
             return
         }
         val mutationVersion = nextMutationVersion()
@@ -219,9 +246,123 @@ class SettingsViewModel(
                             modelId = it.modelId,
                             apiKeyDraft = "",
                             hasStoredApiKey = false,
+                            hasOAuthCredential = it.hasOAuthCredential,
                         ),
                     lastValidationSucceeded = false,
                     statusMessage = "Stored API key cleared.",
+                )
+            }
+        }
+    }
+
+    fun startOpenAiCodexDeviceCodeSignIn() {
+        val snapshot = state.value
+        if (snapshot.providerType != ProviderType.OpenAiCodex) {
+            return
+        }
+        val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
+        if (timeoutSeconds == null || timeoutSeconds <= 0) {
+            mutateState { it.copy(statusMessage = "Timeout must be a positive integer.") }
+            return
+        }
+        val networkStatus = networkStatusProvider.currentStatus()
+        if (!networkStatus.isConnected && !usesLoopbackEndpoint(snapshot.baseUrl)) {
+            mutateState {
+                it.copy(
+                    statusMessage = "No active network connection. OpenAI Codex sign-in needs internet access.",
+                )
+            }
+            return
+        }
+        openAiCodexSignInJob?.cancel()
+        val mutationVersion = nextMutationVersion()
+        openAiCodexSignInJob =
+            viewModelScope.launch {
+                mutableState.update {
+                    it.copy(
+                        isSigningInWithOpenAiCodex = true,
+                        lastValidationSucceeded = false,
+                        statusMessage = "Starting OpenAI Codex sign-in...",
+                        deviceCodeUserCode = null,
+                        deviceCodeVerificationUrl = null,
+                    )
+                }
+                try {
+                    persistSettings(snapshot, timeoutSeconds)
+                    val credential =
+                        openAiCodexOAuthClient.loginWithDeviceCode(
+                            onVerification = { prompt -> showOpenAiCodexDeviceCode(prompt) },
+                            onProgress = { message ->
+                                mutableState.update {
+                                    it.copy(statusMessage = message)
+                                }
+                            },
+                        )
+                    providerSecretStore.writeOAuthCredential(ProviderType.OpenAiCodex, credential)
+                    if (!isCurrentMutation(mutationVersion)) {
+                        return@launch
+                    }
+                    refresh(statusMessage = "OpenAI Codex sign-in complete.")
+                } catch (error: ModelProviderException) {
+                    if (!isCurrentMutation(mutationVersion)) {
+                        return@launch
+                    }
+                    mutableState.update {
+                        it.copy(
+                            isSigningInWithOpenAiCodex = false,
+                            statusMessage = validationFailureMessage(error),
+                        )
+                    }
+                } catch (error: Exception) {
+                    if (!isCurrentMutation(mutationVersion)) {
+                        return@launch
+                    }
+                    mutableState.update {
+                        it.copy(
+                            isSigningInWithOpenAiCodex = false,
+                            statusMessage = error.message ?: "OpenAI Codex sign-in failed.",
+                        )
+                    }
+                }
+            }
+    }
+
+    fun cancelOpenAiCodexDeviceCodeSignIn() {
+        openAiCodexSignInJob?.cancel()
+        openAiCodexSignInJob = null
+        mutateState {
+            it.copy(
+                isSigningInWithOpenAiCodex = false,
+                deviceCodeUserCode = null,
+                deviceCodeVerificationUrl = null,
+                statusMessage = "OpenAI Codex sign-in cancelled.",
+            )
+        }
+    }
+
+    fun clearOpenAiCodexSignIn() {
+        val mutationVersion = nextMutationVersion()
+        viewModelScope.launch {
+            providerSecretStore.writeOAuthCredential(ProviderType.OpenAiCodex, null)
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
+            }
+            mutableState.update {
+                it.copy(
+                    hasOAuthCredential = false,
+                    oAuthProfileLabel = null,
+                    oAuthExpiresAtText = null,
+                    configured =
+                        isConfigured(
+                            providerType = it.providerType,
+                            baseUrl = it.baseUrl,
+                            modelId = it.modelId,
+                            apiKeyDraft = it.apiKeyDraft,
+                            hasStoredApiKey = it.hasStoredApiKey,
+                            hasOAuthCredential = false,
+                        ),
+                    lastValidationSucceeded = false,
+                    statusMessage = "OpenAI Codex sign-in cleared.",
                 )
             }
         }
@@ -365,6 +506,7 @@ class SettingsViewModel(
             val providerType = settings.providerType
             val endpointSettings = settings.endpointSettings(providerType)
             val storedApiKey = providerSecretStore.readApiKey(providerType)
+            val oAuthCredential = providerSecretStore.readOAuthCredential(providerType)
             val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val networkStatus = networkStatusProvider.currentStatus()
             if (!isCurrentMutation(refreshVersion)) {
@@ -384,8 +526,15 @@ class SettingsViewModel(
                             providerType = providerType,
                             networkStatus = networkStatus,
                         ),
+                    authMode = providerType.authMode,
                     apiKeyDraft = "",
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                    hasOAuthCredential = oAuthCredential != null,
+                    oAuthProfileLabel = oAuthCredential?.displayLabel(),
+                    oAuthExpiresAtText = oAuthCredential?.expiresAtText(),
+                    isSigningInWithOpenAiCodex = false,
+                    deviceCodeUserCode = null,
+                    deviceCodeVerificationUrl = null,
                     configured =
                         isConfigured(
                             providerType = providerType,
@@ -393,6 +542,7 @@ class SettingsViewModel(
                             modelId = endpointSettings.modelId,
                             apiKeyDraft = "",
                             hasStoredApiKey = !storedApiKey.isNullOrBlank(),
+                            hasOAuthCredential = oAuthCredential != null,
                         ),
                     isValidatingConnection = false,
                     lastValidationSucceeded = false,
@@ -403,7 +553,7 @@ class SettingsViewModel(
                             recoveredApiKey = recoveredApiKey,
                             networkConnected = networkStatus.isConnected,
                         ),
-                    buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider plus OpenAI-compatible presets and native Claude.",
+                    buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider, API-key providers, native Claude, and OpenAI Codex device OAuth.",
                     themePreference = themePreference,
                 )
         }
@@ -444,14 +594,18 @@ class SettingsViewModel(
         modelId: String,
         apiKeyDraft: String,
         hasStoredApiKey: Boolean,
+        hasOAuthCredential: Boolean,
     ): Boolean =
-        when {
-            !providerType.requiresRemoteSettings -> true
-            else -> {
+        when (providerType.authMode) {
+            ProviderAuthMode.None -> true
+            ProviderAuthMode.ApiKey ->
                 baseUrl.isNotBlank() &&
                     modelId.isNotBlank() &&
                     (apiKeyDraft.isNotBlank() || hasStoredApiKey)
-            }
+            ProviderAuthMode.OpenAiCodexDeviceCode ->
+                baseUrl.isNotBlank() &&
+                    modelId.isNotBlank() &&
+                    hasOAuthCredential
         }
 
     private suspend fun persistSettings(
@@ -474,7 +628,7 @@ class SettingsViewModel(
                 currentSettings.copy(providerType = snapshot.providerType)
             }
         settingsDataStore.saveProviderSettings(updatedSettings)
-        if (snapshot.providerType.requiresRemoteSettings && snapshot.apiKeyDraft.isNotBlank()) {
+        if (snapshot.providerType.requiresApiKey && snapshot.apiKeyDraft.isNotBlank()) {
             providerSecretStore.writeApiKey(
                 providerType = snapshot.providerType,
                 apiKey = snapshot.apiKeyDraft,
@@ -490,7 +644,7 @@ class SettingsViewModel(
     ): String? =
         when {
             !explicit.isNullOrBlank() -> explicit
-            recoveredApiKey -> "Stored API key could not be restored on this device. Please enter it again."
+            providerType.requiresApiKey && recoveredApiKey -> "Stored API key could not be restored on this device. Please enter it again."
             providerType.requiresRemoteSettings && !networkConnected ->
                 "No active network connection. Remote providers may fail until connectivity returns."
             else -> null
@@ -501,7 +655,7 @@ class SettingsViewModel(
             ModelProviderFailureKind.Configuration -> error.userMessage
             ModelProviderFailureKind.InvalidEndpoint -> "Provider base URL is invalid. Check the endpoint format."
             ModelProviderFailureKind.Offline -> error.userMessage
-            ModelProviderFailureKind.Authentication -> "Authentication failed. Check the API key."
+            ModelProviderFailureKind.Authentication -> error.userMessage.ifBlank { "Authentication failed. Check credentials." }
             ModelProviderFailureKind.Network ->
                 error.userMessage
             ModelProviderFailureKind.Timeout ->
@@ -529,6 +683,18 @@ class SettingsViewModel(
             else -> "Use Test connection to verify credentials, endpoint, and model."
         }
 
+    private suspend fun showOpenAiCodexDeviceCode(prompt: OpenAiCodexDeviceCodePrompt) {
+        mutableState.update {
+            it.copy(
+                deviceCodeUserCode = prompt.userCode,
+                deviceCodeVerificationUrl = prompt.verificationUrl,
+                statusMessage =
+                    "Enter code ${prompt.userCode} at ${prompt.verificationUrl}. Code expires in " +
+                        "${(prompt.expiresInMillis / 60_000).coerceAtLeast(1)} minutes.",
+            )
+        }
+    }
+
     companion object {
         fun factory(dependencies: SettingsDependencies) =
             viewModelFactory {
@@ -536,8 +702,16 @@ class SettingsViewModel(
                     providerRegistry = dependencies.providerRegistry,
                     settingsDataStore = dependencies.settingsDataStore,
                     providerSecretStore = dependencies.providerSecretStore,
+                    openAiCodexOAuthClient = dependencies.openAiCodexOAuthClient,
                     networkStatusProvider = dependencies.networkStatusProvider,
                 )
             }
     }
 }
+
+private fun ProviderOAuthCredential.displayLabel(): String =
+    email
+        ?: profileName
+        ?: "OpenAI Codex account"
+
+private fun ProviderOAuthCredential.expiresAtText(): String = "Expires ${Instant.ofEpochMilli(expiresAtEpochMillis)}"

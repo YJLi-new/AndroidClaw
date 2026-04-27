@@ -108,10 +108,10 @@ class SettingsDataStore(
             ProviderType.OpenAiCompatible -> {
                 preferences[modelIdKey(providerType)]
                     ?: preferences[legacyOpenAiModelIdKey]
-                    ?: ""
+                    ?: providerType.defaultModelId
             }
 
-            else -> preferences[modelIdKey(providerType)] ?: ""
+            else -> preferences[modelIdKey(providerType)] ?: providerType.defaultModelId
         }
 
     private fun readTimeoutSeconds(

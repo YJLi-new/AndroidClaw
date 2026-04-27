@@ -108,6 +108,16 @@ class SettingsDataStoreTest {
     }
 
     @Test
+    fun `openai codex has oauth defaults`() {
+        val defaults = ProviderType.OpenAiCodex.defaultEndpointSettings()
+
+        assertEquals("openai-codex", ProviderType.OpenAiCodex.providerId)
+        assertEquals(ProviderAuthMode.OpenAiCodexDeviceCode, ProviderType.OpenAiCodex.authMode)
+        assertEquals("https://chatgpt.com/backend-api/codex", defaults.baseUrl)
+        assertEquals("gpt-5.5", defaults.modelId)
+    }
+
+    @Test
     fun `theme preference round trips independently from provider settings`() =
         runTest {
             settingsDataStore.setThemePreference(ThemePreference.Dark)

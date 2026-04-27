@@ -145,6 +145,9 @@ fun AndroidClawApp(container: AppContainer) {
                     onModelIdChanged = settingsViewModel::onModelIdChanged,
                     onTimeoutChanged = settingsViewModel::onTimeoutChanged,
                     onApiKeyChanged = settingsViewModel::onApiKeyChanged,
+                    onStartOpenAiCodexSignIn = settingsViewModel::startOpenAiCodexDeviceCodeSignIn,
+                    onCancelOpenAiCodexSignIn = settingsViewModel::cancelOpenAiCodexDeviceCodeSignIn,
+                    onClearOpenAiCodexSignIn = settingsViewModel::clearOpenAiCodexSignIn,
                     onValidateConnection = settingsViewModel::validateConnection,
                     onFinish = onboardingViewModel::finish,
                 )
