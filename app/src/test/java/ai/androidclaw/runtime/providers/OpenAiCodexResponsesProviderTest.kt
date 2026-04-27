@@ -116,7 +116,13 @@ class OpenAiCodexResponsesProviderTest {
             assertEquals("req-123", recordedRequest.getHeader("X-Request-Id"))
             assertEquals("gpt-5.5", payload.getValue("model").jsonPrimitive.content)
             assertEquals("system prompt", payload.getValue("instructions").jsonPrimitive.content)
-            assertEquals("user", input[0].jsonObject.getValue("role").jsonPrimitive.content)
+            assertEquals(
+                "user",
+                input[0]
+                    .jsonObject
+                    .getValue("role")
+                    .jsonPrimitive.content,
+            )
         }
 
     @Test
@@ -161,10 +167,19 @@ class OpenAiCodexResponsesProviderTest {
             assertEquals("tool_use", response.finishReason)
             assertEquals("call-1|fc-1", toolCall.id)
             assertEquals("health.status", toolCall.name)
-            assertEquals("summary", toolCall.argumentsJson.getValue("scope").jsonPrimitive.content)
+            assertEquals(
+                "summary",
+                toolCall.argumentsJson
+                    .getValue("scope")
+                    .jsonPrimitive.content,
+            )
             assertEquals(
                 "health_status",
-                tools.single().jsonObject.getValue("name").jsonPrimitive.content,
+                tools
+                    .single()
+                    .jsonObject
+                    .getValue("name")
+                    .jsonPrimitive.content,
             )
         }
 

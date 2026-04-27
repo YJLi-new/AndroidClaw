@@ -12,27 +12,20 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
-import java.io.InterruptedIOException
-import java.net.SocketTimeoutException
 import java.time.Clock
 
 class OpenAiCodexResponsesProvider(
@@ -128,8 +121,9 @@ class OpenAiCodexResponsesProvider(
                     userMessage = "OpenAI Codex sign-in is required.",
                 )
         val refreshedCredential = refreshIfNeeded(credential)
-        val url = buildResponsesUrl(endpointSettings.baseUrl)
-            ?: throw invalidEndpointFailure(endpointSettings.baseUrl)
+        val url =
+            buildResponsesUrl(endpointSettings.baseUrl)
+                ?: throw invalidEndpointFailure(endpointSettings.baseUrl)
 
         return ResolvedOAuthRequestConfig(
             endpointSettings = endpointSettings,
@@ -328,7 +322,8 @@ class OpenAiCodexResponsesProvider(
         val parsed = baseUrl.trim().toHttpUrlOrNull() ?: return null
         val canonicalBase =
             if (parsed.host == "chatgpt.com") {
-                parsed.newBuilder()
+                parsed
+                    .newBuilder()
                     .encodedPath("/backend-api/codex")
                     .build()
             } else {
@@ -351,7 +346,11 @@ class OpenAiCodexResponsesProvider(
     ): ModelProviderException {
         val errorMessage =
             runCatching {
-                json.parseToJsonElement(rawBody).jsonObject["error"]?.jsonObject?.stringValue("message")
+                json
+                    .parseToJsonElement(rawBody)
+                    .jsonObject["error"]
+                    ?.jsonObject
+                    ?.stringValue("message")
             }.getOrNull().orEmpty()
 
         return when (statusCode) {

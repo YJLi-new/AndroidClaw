@@ -106,6 +106,19 @@ export JAVA_HOME=/path/to/jdk17
 ./gradlew :app:lintDebug
 ```
 
+If Gradle cannot reach Google Maven from WSL but direct `curl` downloads work, seed the project-local fallback repo and rerun the fast loop offline:
+
+```bash
+./scripts/seed_android_build_local_maven.sh
+./gradlew --offline :app:assembleDebug :app:lintDebug
+```
+
+For PATH-independent adb access from this repo:
+
+```bash
+./scripts/adb.sh devices -l
+```
+
 ### Release Artifacts
 
 ```bash
