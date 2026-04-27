@@ -93,6 +93,7 @@ class AppContainer(
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { skillManagerRef.refreshSkills() },
             eventLogRepository = eventLogRepository,
+            clock = clock,
         )
 
     private val bundledSkillLoader =

@@ -21,7 +21,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import java.time.Instant
+import java.time.Clock
 
 internal fun createBuiltInToolRegistry(
     application: Application,
@@ -31,6 +31,7 @@ internal fun createBuiltInToolRegistry(
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
     eventLogRepository: EventLogRepository? = null,
+    clock: Clock = Clock.systemDefaultZone(),
 ): ToolRegistry {
     lateinit var toolRegistry: ToolRegistry
     toolRegistry =
@@ -50,6 +51,7 @@ internal fun createBuiltInToolRegistry(
                             taskRepository = taskRepository,
                             sessionRepository = sessionRepository,
                             schedulerCoordinator = schedulerCoordinator,
+                            clock = clock,
                         ),
                     )
                     add(
@@ -299,6 +301,7 @@ private fun taskToolEntries(
     taskRepository: TaskRepository,
     sessionRepository: SessionRepository,
     schedulerCoordinator: SchedulerCoordinator,
+    clock: Clock,
 ): List<ToolRegistry.Entry> {
     return listOf(
         ToolRegistry.Entry(
@@ -403,7 +406,7 @@ private fun taskToolEntries(
                         context = context,
                         sessionRepository = sessionRepository,
                         capabilities = schedulerCoordinator.capabilities(),
-                        now = Instant.now(),
+                        now = clock.instant(),
                     )
                 } catch (error: IllegalArgumentException) {
                     return@Entry invalidTaskArguments(
@@ -471,7 +474,7 @@ private fun taskToolEntries(
                         context = context,
                         sessionRepository = sessionRepository,
                         capabilities = schedulerCoordinator.capabilities(),
-                        now = Instant.now(),
+                        now = clock.instant(),
                     )
                 } catch (error: IllegalArgumentException) {
                     return@Entry invalidTaskArguments(
@@ -533,7 +536,7 @@ private fun taskToolEntries(
             val updatedTask =
                 task.copy(
                     enabled = true,
-                    updatedAt = Instant.now(),
+                    updatedAt = clock.instant(),
                 )
             taskRepository.updateTask(updatedTask)
             schedulerCoordinator.scheduleTask(updatedTask.id)
@@ -580,7 +583,7 @@ private fun taskToolEntries(
             val updatedTask =
                 task.copy(
                     enabled = false,
-                    updatedAt = Instant.now(),
+                    updatedAt = clock.instant(),
                 )
             taskRepository.updateTask(updatedTask)
             schedulerCoordinator.cancelTask(updatedTask.id)
@@ -658,7 +661,7 @@ private fun taskToolEntries(
             val task =
                 taskRepository.getTask(taskId)
                     ?: return@Entry taskNotFoundResult(toolName = "tasks.run_now", taskId = taskId)
-            val queuedAt = Instant.now()
+            val queuedAt = clock.instant()
             schedulerCoordinator.runNow(task.id)
             val reloadedTask = taskRepository.getTask(task.id) ?: task
             ToolExecutionResult.success(

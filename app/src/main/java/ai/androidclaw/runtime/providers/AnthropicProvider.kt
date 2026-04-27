@@ -4,12 +4,8 @@ import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -21,16 +17,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 class AnthropicProvider(
     private val settingsDataStore: SettingsDataStore,
@@ -74,146 +66,44 @@ class AnthropicProvider(
     }
 
     override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> =
-        channelFlow {
-            val config =
-                try {
-                    resolveConfig()
-                } catch (error: Exception) {
-                    close(error)
-                    return@channelFlow
-                }
-            val payload = buildRequestPayload(request, config.endpointSettings, stream = true)
-            val httpRequest =
-                buildHttpRequest(
-                    url = config.url,
-                    apiKey = config.apiKey,
-                    requestId = request.requestId,
-                    payload = payload,
-                )
-            val accumulator = AnthropicStreamAccumulator(json)
-            val completed = AtomicBoolean(false)
-            val cancelledByCollector = AtomicBoolean(false)
-            val streamingClient =
-                config.httpClient
-                    .newBuilder()
-                    .callTimeout(0, TimeUnit.MILLISECONDS)
-                    .readTimeout(0, TimeUnit.MILLISECONDS)
-                    .build()
-            val call = streamingClient.newCall(httpRequest)
-
-            launch(Dispatchers.IO) {
-                try {
-                    call.execute().use { response ->
-                        if (!response.isSuccessful) {
-                            val rawBody = response.body?.string().orEmpty()
-                            throw mapFailure(response.code, rawBody)
-                        }
-
-                        val body =
-                            response.body ?: throw ModelProviderException(
-                                kind = ModelProviderFailureKind.Response,
-                                userMessage = "Provider stream ended without a response body.",
-                            )
-                        val contentType = body.contentType()?.toString().orEmpty()
-                        if (!contentType.startsWith(EVENT_STREAM_CONTENT_TYPE_PREFIX)) {
-                            throw ModelProviderException(
-                                kind = ModelProviderFailureKind.Response,
-                                userMessage = "Provider stream did not return an event stream.",
-                                details = contentType,
-                            )
-                        }
-
-                        val pendingDataLines = mutableListOf<String>()
-                        val source = body.source()
-                        var doneSeen = false
-
-                        while (!doneSeen) {
-                            val line = source.readUtf8Line() ?: break
-                            if (line.startsWith("event:")) {
-                                continue
-                            }
-                            if (line.isBlank()) {
-                                doneSeen =
-                                    flushPendingAnthropicEvent(
-                                        pendingDataLines = pendingDataLines,
-                                        accumulator = accumulator,
-                                        onEvent = { event: ModelStreamEvent -> trySend(event) },
-                                        onCompleted = { responseValue: ModelResponse ->
-                                            if (completed.compareAndSet(false, true)) {
-                                                trySend(ModelStreamEvent.Completed(responseValue))
-                                                close()
-                                            }
-                                        },
-                                    )
-                                continue
-                            }
-                            if (line.startsWith("data:")) {
-                                pendingDataLines += line.removePrefix("data:").trimStart()
-                            }
-                        }
-
-                        if (!doneSeen) {
-                            doneSeen =
-                                flushPendingAnthropicEvent(
-                                    pendingDataLines = pendingDataLines,
-                                    accumulator = accumulator,
-                                    onEvent = { event: ModelStreamEvent -> trySend(event) },
-                                    onCompleted = { responseValue: ModelResponse ->
-                                        if (completed.compareAndSet(false, true)) {
-                                            trySend(ModelStreamEvent.Completed(responseValue))
-                                            close()
-                                        }
-                                    },
-                                )
-                        }
-
-                        if (!doneSeen) {
-                            if (!accumulator.canCompleteWithoutTerminalSignal()) {
-                                throw streamInterruptedFailure(
-                                    details = "Provider stream ended before a terminal event was received.",
-                                )
-                            }
-                            if (completed.compareAndSet(false, true)) {
-                                trySend(ModelStreamEvent.Completed(accumulator.buildResponse()))
-                                close()
-                            }
-                        }
-                    }
-                } catch (error: Exception) {
-                    if (cancelledByCollector.get() && error is IOException) {
-                        return@launch
-                    }
-                    if (completed.get()) {
-                        return@launch
-                    }
-                    if (completed.compareAndSet(false, true)) {
-                        close(
-                            mapStreamingFailure(
-                                settings = config.endpointSettings,
-                                response = null,
-                                rawBody = "",
-                                throwable = error,
-                                streamStarted = accumulator.hasSeenEvent(),
-                            ),
+        streamProviderEvents(
+            buildContext = {
+                val config = resolveConfig()
+                val payload = buildRequestPayload(request, config.endpointSettings, stream = true)
+                val httpRequest =
+                    buildHttpRequest(
+                        url = config.url,
+                        apiKey = config.apiKey,
+                        requestId = request.requestId,
+                        payload = payload,
+                    )
+                val accumulator = AnthropicStreamAccumulator(json)
+                ProviderStreamContext(
+                    endpointSettings = config.endpointSettings,
+                    httpClient = config.httpClient,
+                    request = httpRequest,
+                    streamStarted = accumulator::hasSeenEvent,
+                    canCompleteWithoutTerminalSignal = accumulator::canCompleteWithoutTerminalSignal,
+                    buildResponse = accumulator::buildResponse,
+                    handleDataEvent = { data, onEvent, onCompleted ->
+                        handleAnthropicSseData(
+                            data = data,
+                            accumulator = accumulator,
+                            onEvent = onEvent,
+                            onCompleted = onCompleted,
                         )
-                    }
-                }
-            }
-
-            awaitClose {
-                if (!completed.get()) {
-                    cancelledByCollector.set(true)
-                    call.cancel()
-                }
-            }
-        }
+                    },
+                )
+            },
+            mapHttpFailure = ::mapFailure,
+        )
 
     private suspend fun resolveConfig(): ResolvedRequestConfig {
         val settings = settingsDataStore.settings.first()
         val endpointSettings = settings.endpointSettings(ProviderType.Anthropic)
         val apiKey = providerSecretStore.readApiKey(ProviderType.Anthropic)
 
-        validateSettings(endpointSettings, apiKey)
+        validateRemoteProviderSettings(endpointSettings, apiKey)
 
         val url =
             endpointSettings.baseUrl
@@ -227,39 +117,8 @@ class AnthropicProvider(
             endpointSettings = endpointSettings,
             apiKey = apiKey.orEmpty(),
             url = url,
-            httpClient =
-                baseHttpClient
-                    .newBuilder()
-                    .callTimeout(endpointSettings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                    .connectTimeout(endpointSettings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                    .readTimeout(endpointSettings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                    .writeTimeout(endpointSettings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-                    .build(),
+            httpClient = baseHttpClient.withProviderTimeouts(endpointSettings),
         )
-    }
-
-    private fun validateSettings(
-        settings: ProviderEndpointSettings,
-        apiKey: String?,
-    ) {
-        if (settings.baseUrl.isBlank()) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Configuration,
-                userMessage = "Provider base URL is required.",
-            )
-        }
-        if (settings.modelId.isBlank()) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Configuration,
-                userMessage = "Provider model ID is required.",
-            )
-        }
-        if (apiKey.isNullOrBlank()) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Configuration,
-                userMessage = "Provider API key is required.",
-            )
-        }
     }
 
     private fun buildRequestPayload(
@@ -368,7 +227,7 @@ class AnthropicProvider(
         val body =
             json
                 .encodeToString(AnthropicMessagesRequest.serializer(), payload)
-                .toRequestBody(JSON_MEDIA_TYPE)
+                .toRequestBody(PROVIDER_JSON_MEDIA_TYPE)
         return Request
             .Builder()
             .url(url)
@@ -389,7 +248,7 @@ class AnthropicProvider(
                 throw ModelProviderException(
                     kind = ModelProviderFailureKind.Response,
                     userMessage = "Provider returned malformed JSON.",
-                    details = rawBody.take(MAX_ERROR_BODY_CHARS),
+                    details = rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS),
                     cause = error,
                 )
             }
@@ -422,7 +281,7 @@ class AnthropicProvider(
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
                 userMessage = "Provider response did not contain an assistant message.",
-                details = rawBody.take(MAX_ERROR_BODY_CHARS),
+                details = rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS),
             )
         }
 
@@ -455,65 +314,19 @@ class AnthropicProvider(
                 ModelProviderException(
                     kind = ModelProviderFailureKind.Authentication,
                     userMessage = "Provider authentication failed.",
-                    details = parsedMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
+                    details = parsedMessage.ifBlank { rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS) },
                 )
 
             else ->
                 ModelProviderException(
                     kind = ModelProviderFailureKind.Server,
                     userMessage = "Provider request failed with HTTP $statusCode.",
-                    details = parsedMessage.ifBlank { rawBody.take(MAX_ERROR_BODY_CHARS) },
+                    details = parsedMessage.ifBlank { rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS) },
                 )
         }
     }
-
-    private fun mapStreamingFailure(
-        settings: ProviderEndpointSettings,
-        response: Response?,
-        rawBody: String,
-        throwable: Throwable?,
-        streamStarted: Boolean,
-    ): ModelProviderException {
-        if (throwable is ModelProviderException) {
-            return throwable
-        }
-        if (response != null) {
-            return mapFailure(response.code, rawBody)
-        }
-        return when (throwable) {
-            is SocketTimeoutException -> timeoutFailure(settings, throwable)
-            is InterruptedIOException -> timeoutFailure(settings, throwable)
-            is IOException ->
-                if (streamStarted) {
-                    streamInterruptedFailure(
-                        details = throwable.message,
-                        cause = throwable,
-                    )
-                } else {
-                    mapTransportFailure(throwable)
-                }
-
-            else ->
-                ModelProviderException(
-                    kind = ModelProviderFailureKind.Response,
-                    userMessage = "Provider streaming failed.",
-                    details = throwable?.message,
-                    cause = throwable,
-                )
-        }
-    }
-
-    private data class ResolvedRequestConfig(
-        val endpointSettings: ProviderEndpointSettings,
-        val apiKey: String,
-        val url: HttpUrl,
-        val httpClient: OkHttpClient,
-    )
 
     private companion object {
-        val JSON_MEDIA_TYPE = "application/json".toMediaType()
-        const val EVENT_STREAM_CONTENT_TYPE_PREFIX = "text/event-stream"
-        const val MAX_ERROR_BODY_CHARS = 500
         const val ANTHROPIC_VERSION = "2023-06-01"
         const val DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 2048
     }
@@ -649,7 +462,7 @@ private class AnthropicStreamAccumulator(
                 throw ModelProviderException(
                     kind = ModelProviderFailureKind.Response,
                     userMessage = "Provider returned malformed SSE event.",
-                    details = rawEnvelope.take(500),
+                    details = rawEnvelope.take(MAX_PROVIDER_ERROR_BODY_CHARS),
                     cause = error,
                 )
             }
@@ -814,7 +627,7 @@ private class AnthropicStreamAccumulator(
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
                 userMessage = "Provider returned malformed tool arguments.",
-                details = arguments.take(500),
+                details = arguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
                 cause = error,
             )
         }
@@ -840,21 +653,16 @@ private fun AnthropicUsage.toProviderUsage(): ProviderUsage {
     )
 }
 
-private fun flushPendingAnthropicEvent(
-    pendingDataLines: MutableList<String>,
+private fun handleAnthropicSseData(
+    data: String,
     accumulator: AnthropicStreamAccumulator,
     onEvent: (ModelStreamEvent) -> Unit,
     onCompleted: (ModelResponse) -> Unit,
 ): Boolean {
-    if (pendingDataLines.isEmpty()) {
-        return false
-    }
-    val data = pendingDataLines.joinToString(separator = "\n").trim()
-    pendingDataLines.clear()
     if (data.isBlank()) {
         return false
     }
-    if (data == "[DONE]") {
+    if (data == PROVIDER_SSE_DONE_SENTINEL) {
         onCompleted(accumulator.buildResponse())
         return true
     }

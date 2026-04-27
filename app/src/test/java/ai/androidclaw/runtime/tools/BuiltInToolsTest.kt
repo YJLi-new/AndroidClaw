@@ -39,6 +39,7 @@ import java.time.ZoneOffset
 
 @RunWith(AndroidJUnit4::class)
 class BuiltInToolsTest {
+    private val testClock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC)
     private lateinit var application: android.app.Application
     private lateinit var database: AndroidClawDatabase
     private lateinit var sessionRepository: SessionRepository
@@ -63,7 +64,7 @@ class BuiltInToolsTest {
             schedulerCoordinator =
                 SchedulerCoordinator(
                     application = application,
-                    clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                    clock = testClock,
                     taskRepository = taskRepository,
                     eventLogRepository = eventLogRepository,
                 )
@@ -419,6 +420,7 @@ class BuiltInToolsTest {
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { bundledSkills },
             eventLogRepository = eventLogRepository,
+            clock = testClock,
         )
 }
 

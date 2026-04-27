@@ -690,10 +690,11 @@ class AgentRunnerTest {
                 application,
                 Configuration.Builder().build(),
             )
+            val testClock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC)
             val schedulerCoordinator =
                 SchedulerCoordinator(
                     application = application,
-                    clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                    clock = testClock,
                     taskRepository = taskRepository,
                     eventLogRepository = eventLogRepository,
                 )
@@ -706,6 +707,7 @@ class AgentRunnerTest {
                     schedulerCoordinator = schedulerCoordinator,
                     bundledSkillsProvider = { emptyList() },
                     eventLogRepository = eventLogRepository,
+                    clock = testClock,
                 )
             var providerCalls = 0
             val runner =
