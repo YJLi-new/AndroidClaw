@@ -10,11 +10,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -45,11 +47,17 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.collect
 import java.io.File
+
+private val ChatChipMaxWidth = 160.dp
+private val SelectedSessionChipMaxWidth = 128.dp
+private val SessionChipMaxWidth = 92.dp
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
@@ -146,7 +154,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 value = renameDraft,
                 onValueChange = { renameDraft = it },
                 modifier = Modifier.weight(1f),
-                label = { Text("Session title") },
+                label = { SingleLineText("Session title") },
                 singleLine = true,
                 enabled = !state.isRunning,
             )
@@ -172,7 +180,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 value = state.searchQuery,
                 onValueChange = viewModel::onSearchQueryChanged,
                 modifier = Modifier.weight(1f),
-                label = { Text("Search sessions and messages") },
+                label = { SingleLineText("Search history") },
                 singleLine = true,
                 enabled = !state.isRunning,
             )
@@ -247,21 +255,21 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     item {
                         AssistChip(
                             onClick = { viewModel.exportCurrentSession(ChatExportFormat.Text) },
-                            label = { Text("Export TXT") },
+                            label = { SingleLineText("Export TXT") },
                             enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
                         )
                     }
                     item {
                         AssistChip(
                             onClick = { viewModel.exportCurrentSession(ChatExportFormat.Markdown) },
-                            label = { Text("Export MD") },
+                            label = { SingleLineText("Export MD") },
                             enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
                         )
                     }
                     item {
                         AssistChip(
                             onClick = { viewModel.exportCurrentSession(ChatExportFormat.Json) },
-                            label = { Text("Export JSON") },
+                            label = { SingleLineText("Export JSON") },
                             enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
                         )
                     }
@@ -270,14 +278,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     item {
                         AssistChip(
                             onClick = viewModel::shareCurrentSessionAsText,
-                            label = { Text("Share text") },
+                            label = { SingleLineText("Share text") },
                             enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
                         )
                     }
                     item {
                         AssistChip(
                             onClick = { viewModel.shareCurrentSessionAsFile(ChatExportFormat.Markdown) },
-                            label = { Text("Share file") },
+                            label = { SingleLineText("Share file") },
                             enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
                         )
                     }
@@ -362,29 +370,42 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
         }
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(end = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             items(state.sessions, key = { it.id }) { session ->
+                val sessionLabelMaxWidth =
+                    if (session.isSelected) {
+                        SelectedSessionChipMaxWidth
+                    } else {
+                        SessionChipMaxWidth
+                    }
                 FilterChip(
                     selected = session.isSelected,
                     onClick = { viewModel.switchSession(session.id) },
-                    label = { Text(session.title) },
+                    label = { SingleLineText(session.title, maxWidth = sessionLabelMaxWidth) },
                     enabled = !state.isRunning,
                 )
             }
             item {
                 AssistChip(
                     onClick = { viewModel.createNewSession("Session ${state.sessions.size + 1}") },
-                    label = { Text("New session") },
+                    label = { SingleLineText("New session") },
                     enabled = !state.isRunning,
                 )
             }
         }
         if (state.slashCommands.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.slashCommands.take(3).forEach { command ->
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.slashCommands.take(3), key = { it }) { command ->
                     AssistChip(
                         onClick = { viewModel.onDraftChanged("$command ") },
-                        label = { Text(command) },
+                        label = { CompactChipText(command, maxWidth = ChatChipMaxWidth) },
                         enabled = !state.isRunning,
                     )
                 }
@@ -522,7 +543,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             value = state.draft,
             onValueChange = viewModel::onDraftChanged,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Message or slash command") },
+            label = { SingleLineText("Message or slash command") },
             minLines = 2,
             enabled = !state.isRunning,
         )
@@ -544,6 +565,33 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun SingleLineText(
+    text: String,
+    maxWidth: Dp? = null,
+) {
+    Text(
+        text = text,
+        modifier = if (maxWidth == null) Modifier else Modifier.widthIn(max = maxWidth),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun CompactChipText(
+    text: String,
+    maxWidth: Dp? = null,
+) {
+    Text(
+        text = text,
+        modifier = if (maxWidth == null) Modifier else Modifier.widthIn(max = maxWidth),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        style = MaterialTheme.typography.labelMedium,
+    )
 }
 
 private fun createExportDocumentIntent(payload: ChatExportPayload): Intent =
