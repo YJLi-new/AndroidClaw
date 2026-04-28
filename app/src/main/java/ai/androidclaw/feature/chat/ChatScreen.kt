@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.chat
 
+import ai.androidclaw.R
 import ai.androidclaw.ui.components.ScreenHeader
 import android.app.Activity
 import android.content.Context
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -32,6 +34,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -45,9 +49,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -75,6 +81,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var showSearchDialog by rememberSaveable { mutableStateOf(false) }
     var showShareDialog by rememberSaveable { mutableStateOf(false) }
     var showUsageDialog by rememberSaveable { mutableStateOf(false) }
+    var showMoreFeatures by rememberSaveable { mutableStateOf(false) }
     val messageListState = rememberLazyListState()
     val exportLauncher =
         rememberLauncherForActivityResult(
@@ -189,31 +196,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Text("Archive")
             }
         }
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                AssistChip(
-                    onClick = { showSearchDialog = true },
-                    label = { SingleLineText("Search") },
-                    enabled = !state.isRunning,
-                )
-            }
-            item {
-                AssistChip(
-                    onClick = { showShareDialog = true },
-                    label = { SingleLineText("Share") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-            }
-            item {
-                AssistChip(
-                    onClick = { showUsageDialog = true },
-                    label = { SingleLineText("Usage") },
-                )
-            }
-        }
         state.providerNotice?.let { providerNotice ->
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -302,20 +284,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     label = { SingleLineText("New session") },
                     enabled = !state.isRunning,
                 )
-            }
-        }
-        if (state.slashCommands.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(state.slashCommands, key = { it }) { command ->
-                    AssistChip(
-                        onClick = { viewModel.onDraftChanged("$command ") },
-                        label = { CompactChipText(command, maxWidth = ChatChipMaxWidth) },
-                        enabled = !state.isRunning,
-                    )
-                }
             }
         }
         LazyColumn(
@@ -469,12 +437,36 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         },
                     ),
             )
-            Button(
+            ComposerIconButton(
+                iconRes = R.drawable.ic_send_enter,
+                contentDescription = "Send message",
                 onClick = viewModel::sendCurrentDraft,
                 enabled = canSendDraft,
-            ) {
-                Text("Send")
-            }
+            )
+            ComposerIconButton(
+                iconRes = R.drawable.ic_plus_circle,
+                contentDescription =
+                    if (showMoreFeatures) {
+                        "Hide more features"
+                    } else {
+                        "Show more features"
+                    },
+                selected = showMoreFeatures,
+                enabled = !state.isRunning,
+                onClick = { showMoreFeatures = !showMoreFeatures },
+            )
+        }
+        if (showMoreFeatures) {
+            MoreFeaturesPanel(
+                state = state,
+                onSearch = { showSearchDialog = true },
+                onShare = { showShareDialog = true },
+                onUsage = { showUsageDialog = true },
+                onSlashCommand = { command ->
+                    viewModel.onDraftChanged("$command ")
+                    showMoreFeatures = false
+                },
+            )
         }
     }
 
@@ -517,6 +509,103 @@ fun ChatScreen(viewModel: ChatViewModel) {
             sessionSummary = state.sessionSummary,
             onDismiss = { showUsageDialog = false },
         )
+    }
+}
+
+@Composable
+private fun ComposerIconButton(
+    iconRes: Int,
+    contentDescription: String,
+    enabled: Boolean,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val containerColor =
+        when {
+            !enabled -> MaterialTheme.colorScheme.surfaceVariant
+            selected -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.primary
+        }
+    val iconColor =
+        when {
+            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+            selected -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onPrimary
+        }
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier =
+            Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(containerColor),
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = iconColor,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+@Composable
+private fun MoreFeaturesPanel(
+    state: ChatUiState,
+    onSearch: () -> Unit,
+    onShare: () -> Unit,
+    onUsage: () -> Unit,
+    onSlashCommand: (String) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 116.dp)
+                    .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "More features",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AssistChip(
+                    onClick = onSearch,
+                    label = { SingleLineText("Search") },
+                    enabled = !state.isRunning,
+                )
+                AssistChip(
+                    onClick = onShare,
+                    label = { SingleLineText("Share") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+                AssistChip(
+                    onClick = onUsage,
+                    label = { SingleLineText("Usage") },
+                )
+            }
+            if (state.slashCommands.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(state.slashCommands, key = { it }) { command ->
+                        AssistChip(
+                            onClick = { onSlashCommand(command) },
+                            label = { CompactChipText(command, maxWidth = ChatChipMaxWidth) },
+                            enabled = !state.isRunning,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
