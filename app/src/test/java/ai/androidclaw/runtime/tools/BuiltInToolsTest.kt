@@ -208,6 +208,32 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks create ignores blank optional target session fields from model output`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Model generated reminder")
+                            put("prompt", "Check status")
+                            put("scheduleKind", "interval")
+                            put("anchorAtIso", "2026-03-20T08:00:00Z")
+                            put("repeatEveryMinutes", 30)
+                            put("targetSessionId", "")
+                            put("targetSessionAlias", "")
+                        },
+                )
+
+            assertTrue(result.success)
+            val createdTask = taskRepository.observeTasks().first().single()
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            assertEquals(mainSession.id, createdTask.targetSessionId)
+        }
+
+    @Test
     fun `tasks create rejects once schedules in the past`() =
         runTest {
             val registry = buildRegistry()

@@ -509,10 +509,7 @@ private fun JsonObject.optionalString(
 ): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     val value = primitive.contentOrNull?.trim() ?: return null
-    if (value.isEmpty()) {
-        throw IllegalArgumentException("$toolName received an empty $field.")
-    }
-    return value
+    return value.ifEmpty { null }
 }
 
 private fun taskNextRun(
