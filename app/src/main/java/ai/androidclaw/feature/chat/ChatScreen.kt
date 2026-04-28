@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -47,6 +49,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -539,27 +542,32 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
         }
-        OutlinedTextField(
-            value = state.draft,
-            onValueChange = viewModel::onDraftChanged,
-            modifier = Modifier.fillMaxWidth(),
-            label = { SingleLineText("Message or slash command") },
-            minLines = 2,
-            enabled = !state.isRunning,
-        )
+        val canSendDraft = !state.isRunning && state.draft.isNotBlank()
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom,
         ) {
-            if (state.canRetryLastFailedTurn && !state.isRunning) {
-                Button(onClick = viewModel::retryLastFailedTurn) {
-                    Text("Retry")
-                }
-            }
+            OutlinedTextField(
+                value = state.draft,
+                onValueChange = viewModel::onDraftChanged,
+                modifier = Modifier.weight(1f),
+                label = { SingleLineText("Message or slash command") },
+                minLines = 2,
+                enabled = !state.isRunning,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions =
+                    KeyboardActions(
+                        onSend = {
+                            if (canSendDraft) {
+                                viewModel.sendCurrentDraft()
+                            }
+                        },
+                    ),
+            )
             Button(
                 onClick = viewModel::sendCurrentDraft,
-                enabled = !state.isRunning && state.draft.isNotBlank(),
+                enabled = canSendDraft,
             ) {
                 Text("Send")
             }
