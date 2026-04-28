@@ -10,10 +10,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -23,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -32,6 +35,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +72,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val context = LocalContext.current
     var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
     var pendingExport by remember { mutableStateOf<ChatExportPayload?>(null) }
+    var showSearchDialog by rememberSaveable { mutableStateOf(false) }
+    var showShareDialog by rememberSaveable { mutableStateOf(false) }
+    var showUsageDialog by rememberSaveable { mutableStateOf(false) }
     val messageListState = rememberLazyListState()
     val exportLauncher =
         rememberLauncherForActivityResult(
@@ -108,6 +115,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
     }
 
+    LaunchedEffect(state.messages.size, state.isRunning, state.activeTurnStage, state.highlightedMessageId) {
+        if (state.highlightedMessageId != null || state.messages.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val streamingItemVisible = state.streamingAssistantText.isNotBlank() || state.activeTurnStage != null
+        val targetIndex = if (streamingItemVisible) state.messages.size else state.messages.lastIndex
+        messageListState.animateScrollToItem(targetIndex)
+    }
+
     LaunchedEffect(viewModel, context) {
         viewModel.actions.collect { action ->
             when (action) {
@@ -145,7 +161,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
     ) {
         ScreenHeader(
             title = state.sessionTitle.ifBlank { "Loading session..." },
-            subtitle = "Rename this session, search history, and export or share the transcript.",
             titleTestTag = "chatHeading",
         )
         Text("Session", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
@@ -174,59 +189,29 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Text("Archive")
             }
         }
-        Text("Search", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        Row(
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = viewModel::onSearchQueryChanged,
-                modifier = Modifier.weight(1f),
-                label = { SingleLineText("Search history") },
-                singleLine = true,
-                enabled = !state.isRunning,
-            )
-            Button(
-                onClick = viewModel::runSearch,
-                enabled = !state.isRunning,
-            ) {
-                Text("Search")
+            item {
+                AssistChip(
+                    onClick = { showSearchDialog = true },
+                    label = { SingleLineText("Search") },
+                    enabled = !state.isRunning,
+                )
             }
-            Button(
-                onClick = viewModel::clearSearch,
-                enabled = !state.isRunning && (state.searchQuery.isNotBlank() || state.searchResults.isNotEmpty()),
-            ) {
-                Text("Clear")
+            item {
+                AssistChip(
+                    onClick = { showShareDialog = true },
+                    label = { SingleLineText("Share") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
             }
-        }
-        if (state.searchResults.isNotEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = "Search results",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    state.searchResults.forEach { result ->
-                        Button(
-                            onClick = { viewModel.openSearchResult(result) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.isRunning,
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                Text("${result.matchType}: ${result.sessionTitle}")
-                                Text(result.preview, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                }
+            item {
+                AssistChip(
+                    onClick = { showUsageDialog = true },
+                    label = { SingleLineText("Usage") },
+                )
             }
         }
         state.providerNotice?.let { providerNotice ->
@@ -239,87 +224,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     )
                     Text(
                         text = providerNotice,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "Export and share",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        AssistChip(
-                            onClick = { viewModel.exportCurrentSession(ChatExportFormat.Text) },
-                            label = { SingleLineText("Export TXT") },
-                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                        )
-                    }
-                    item {
-                        AssistChip(
-                            onClick = { viewModel.exportCurrentSession(ChatExportFormat.Markdown) },
-                            label = { SingleLineText("Export MD") },
-                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                        )
-                    }
-                    item {
-                        AssistChip(
-                            onClick = { viewModel.exportCurrentSession(ChatExportFormat.Json) },
-                            label = { SingleLineText("Export JSON") },
-                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                        )
-                    }
-                }
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        AssistChip(
-                            onClick = viewModel::shareCurrentSessionAsText,
-                            label = { SingleLineText("Share text") },
-                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                        )
-                    }
-                    item {
-                        AssistChip(
-                            onClick = { viewModel.shareCurrentSessionAsFile(ChatExportFormat.Markdown) },
-                            label = { SingleLineText("Share file") },
-                            enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                        )
-                    }
-                }
-            }
-        }
-        state.sessionSummary?.takeIf { it.isNotBlank() }?.let { sessionSummary ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Session summary",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        text = sessionSummary,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-        state.sessionUsageSummary?.let { usageSummary ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Session usage",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        text = usageSummary,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -573,6 +477,213 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
         }
     }
+
+    if (showSearchDialog) {
+        SearchHistoryDialog(
+            state = state,
+            onQueryChanged = viewModel::onSearchQueryChanged,
+            onRunSearch = viewModel::runSearch,
+            onClearSearch = viewModel::clearSearch,
+            onOpenResult = { result ->
+                viewModel.openSearchResult(result)
+                showSearchDialog = false
+            },
+            onDismiss = { showSearchDialog = false },
+        )
+    }
+
+    if (showShareDialog) {
+        ShareSessionDialog(
+            state = state,
+            onExport = { format ->
+                showShareDialog = false
+                viewModel.exportCurrentSession(format)
+            },
+            onShareText = {
+                showShareDialog = false
+                viewModel.shareCurrentSessionAsText()
+            },
+            onShareFile = {
+                showShareDialog = false
+                viewModel.shareCurrentSessionAsFile(ChatExportFormat.Markdown)
+            },
+            onDismiss = { showShareDialog = false },
+        )
+    }
+
+    if (showUsageDialog) {
+        UsageDialog(
+            usageSummary = state.sessionUsageSummary,
+            sessionSummary = state.sessionSummary,
+            onDismiss = { showUsageDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun SearchHistoryDialog(
+    state: ChatUiState,
+    onQueryChanged: (String) -> Unit,
+    onRunSearch: () -> Unit,
+    onClearSearch: () -> Unit,
+    onOpenResult: (ChatSearchResultUi) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search history") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = state.searchQuery,
+                    onValueChange = onQueryChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { SingleLineText("Search sessions and messages") },
+                    singleLine = true,
+                    enabled = !state.isRunning,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onRunSearch,
+                        enabled = !state.isRunning,
+                    ) {
+                        Text("Search")
+                    }
+                    TextButton(
+                        onClick = onClearSearch,
+                        enabled = !state.isRunning && (state.searchQuery.isNotBlank() || state.searchResults.isNotEmpty()),
+                    ) {
+                        Text("Clear")
+                    }
+                }
+                if (state.searchResults.isEmpty()) {
+                    Text(
+                        text = "No results to show.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(state.searchResults, key = { "${it.sessionId}:${it.messageId}:${it.preview}" }) { result ->
+                            Button(
+                                onClick = { onOpenResult(result) },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !state.isRunning,
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text("${result.matchType}: ${result.sessionTitle}")
+                                    Text(
+                                        text = result.preview,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ShareSessionDialog(
+    state: ChatUiState,
+    onExport: (ChatExportFormat) -> Unit,
+    onShareText: () -> Unit,
+    onShareFile: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Share") },
+        text = {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AssistChip(
+                    onClick = { onExport(ChatExportFormat.Text) },
+                    label = { SingleLineText("Export TXT") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+                AssistChip(
+                    onClick = { onExport(ChatExportFormat.Markdown) },
+                    label = { SingleLineText("Export MD") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+                AssistChip(
+                    onClick = { onExport(ChatExportFormat.Json) },
+                    label = { SingleLineText("Export JSON") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+                AssistChip(
+                    onClick = onShareText,
+                    label = { SingleLineText("Share text") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+                AssistChip(
+                    onClick = onShareFile,
+                    label = { SingleLineText("Share file") },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
+}
+
+@Composable
+private fun UsageDialog(
+    usageSummary: String?,
+    sessionSummary: String?,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Usage") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = usageSummary ?: "No token usage recorded for this session yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                sessionSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                    Text(
+                        text = "Session summary",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                    )
+                    Text(
+                        text = summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
 }
 
 @Composable
