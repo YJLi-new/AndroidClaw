@@ -309,7 +309,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(state.slashCommands.take(3), key = { it }) { command ->
+                items(state.slashCommands, key = { it }) { command ->
                     AssistChip(
                         onClick = { viewModel.onDraftChanged("$command ") },
                         label = { CompactChipText(command, maxWidth = ChatChipMaxWidth) },

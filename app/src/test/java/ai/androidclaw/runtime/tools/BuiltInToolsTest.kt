@@ -107,6 +107,48 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions compact stores explicit summary for active session`() =
+        runTest {
+            val session = sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compact", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "Goal: finish /compact. Next: validate and push.")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("Compacted this session with an explicit summary.", result.summary)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Goal: finish /compact. Next: validate and push.", result.payload["summaryText"]?.jsonPrimitive?.content)
+            assertEquals("Goal: finish /compact. Next: validate and push.", sessionRepository.getSession(session.id)?.summaryText)
+        }
+
+    @Test
+    fun `sessions compact requires explicit summary text`() =
+        runTest {
+            val session = sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compact", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "   ")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("MISSING_SUMMARY", result.errorCode)
+            assertEquals(null, sessionRepository.getSession(session.id)?.summaryText)
+        }
+
+    @Test
     fun `tasks list returns canonical task payloads and latest run summary`() =
         runTest {
             val task =

@@ -174,6 +174,76 @@ class AgentRunnerTest {
         }
 
     @Test
+    fun `compact slash command stores explicit summary without provider`() =
+        runTest {
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "sessions.compact",
+                                        description = "Compact session",
+                                    ),
+                            ) { context, arguments ->
+                                val summary = arguments["command"]?.jsonPrimitive?.content.orEmpty()
+                                sessionRepository.updateSummary(context.sessionId.orEmpty(), summary)
+                                ToolExecutionResult.success(
+                                    summary = "Compacted this session with an explicit summary.",
+                                    payload =
+                                        buildJsonObject {
+                                            put("summaryText", summary)
+                                        },
+                                )
+                            },
+                        ),
+                )
+            val skillManager =
+                buildSkillManager(
+                    toolRegistry = toolRegistry,
+                    skills =
+                        listOf(
+                            skillSnapshot(
+                                id = "compact",
+                                name = "compact",
+                                commandDispatch = SkillCommandDispatch.Tool,
+                                commandTool = "sessions.compact",
+                            ),
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider = failOnGenerateProvider(),
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = skillManager,
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            val result =
+                runner.runInteractiveTurn(
+                    AgentTurnRequest(
+                        sessionId = sessionId,
+                        userMessage = "/compact Goal: preserve compact context. Next: validate.",
+                    ),
+                )
+
+            assertTrue(result.assistantMessage.contains("Compacted this session"))
+            assertEquals(listOf("compact"), result.selectedSkills.map { it.displayName })
+            assertNull(result.providerRequestId)
+            assertEquals(
+                "Goal: preserve compact context. Next: validate.",
+                sessionRepository.getSession(sessionId)?.summaryText,
+            )
+        }
+
+    @Test
     fun `blocked slash skill returns eligibility reason instead of falling through to provider`() =
         runTest {
             val toolRegistry =
@@ -772,7 +842,18 @@ class AgentRunnerTest {
             assertTrue(result.assistantMessage.contains("Created the task."))
         }
 
-    private fun buildSkillManager(toolRegistry: ToolRegistry): SkillManager =
+    private fun buildSkillManager(
+        toolRegistry: ToolRegistry,
+        skills: List<SkillSnapshot> =
+            listOf(
+                skillSnapshot(
+                    id = "list_tasks",
+                    name = "list_tasks",
+                    commandDispatch = SkillCommandDispatch.Tool,
+                    commandTool = "tasks.list",
+                ),
+            ),
+    ): SkillManager =
         createTestSkillManager(
             application = application,
             skillRepository =
@@ -782,15 +863,7 @@ class AgentRunnerTest {
             bundledSkillLoader =
                 StaticBundledSkillLoader(
                     assetManager = application.assets,
-                    skills =
-                        listOf(
-                            skillSnapshot(
-                                id = "list_tasks",
-                                name = "list_tasks",
-                                commandDispatch = SkillCommandDispatch.Tool,
-                                commandTool = "tasks.list",
-                            ),
-                        ),
+                    skills = skills,
                 ),
         )
 

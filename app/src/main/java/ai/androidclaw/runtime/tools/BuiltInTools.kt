@@ -138,6 +138,65 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.compact",
+                                    aliases = listOf("session.compact"),
+                                    description = "Store an explicit compacted summary for the active chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "summary",
+                                                description = "Explicit compacted summary text to store.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "command",
+                                                description = "Raw slash command text used as the summary fallback.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to compact.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val compactedSummary =
+                                arguments.optionalText("summary")
+                                    ?: arguments.optionalText("command")
+                            if (compactedSummary.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Provide an explicit summary after /compact.",
+                                    errorCode = "MISSING_SUMMARY",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SUMMARY")
+                                            put("sessionId", sessionId)
+                                        },
+                                )
+                            }
+                            val boundedSummary = compactedSummary.take(COMPACT_SUMMARY_MAX_CHARS)
+                            sessionRepository.updateSummary(sessionId, boundedSummary)
+                            ToolExecutionResult.success(
+                                summary = "Compacted this session with an explicit summary.",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", sessionId)
+                                        put("summaryText", boundedSummary)
+                                        put("summaryLength", boundedSummary.length)
+                                        put("truncated", compactedSummary.length > COMPACT_SUMMARY_MAX_CHARS)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.list",
                                     aliases = listOf("skill.list"),
                                     description = "List bundled skills and their current eligibility.",
@@ -760,7 +819,13 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
         add(ToolArgumentSpec(name = "maxRetries", description = "Non-negative retry count"))
     }
 
+private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+
+private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {
+    val primitive = this[field] as? JsonPrimitive ?: return null
+    return primitive.contentOrNull?.trim()?.ifBlank { null }
+}
 
 internal fun notificationToolAvailability(application: Application): ToolAvailability {
     if (
