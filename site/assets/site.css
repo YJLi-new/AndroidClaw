@@ -31,8 +31,8 @@
   --code-bg: #0d1411;
 
   /* Geometry */
-  --shell-max: 1240px;
-  --shell-pad: clamp(20px, 4vw, 56px);
+  --shell-max: 1480px;
+  --shell-pad: clamp(22px, 5vw, 100px);
   --radius: 4px;
 
   /* Shadow */
@@ -57,16 +57,27 @@
 }
 
 html {
+  min-height: 100%;
   scroll-behavior: smooth;
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 780px at -6% 86%, rgba(46, 133, 91, 0.28), transparent 62%),
+    radial-gradient(1000px 740px at 100% 84%, rgba(41, 122, 85, 0.26), transparent 62%),
+    linear-gradient(180deg, #080c0b 0%, var(--bg) 38%, #080c0b 100%);
+  background-color: var(--bg);
   -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 780px at -6% 86%, rgba(46, 133, 91, 0.28), transparent 62%),
+    radial-gradient(1000px 740px at 100% 84%, rgba(41, 122, 85, 0.26), transparent 62%),
+    linear-gradient(180deg, #080c0b 0%, var(--bg) 38%, #080c0b 100%);
+  background-color: var(--bg);
+  background-attachment: fixed;
   font-family: var(--font-body);
   font-weight: 400;
   font-size: 16px;
@@ -167,7 +178,7 @@ code {
    ------------------------------------------------------------------------- */
 
 .shell {
-  width: min(var(--shell-max), calc(100% - var(--shell-pad) * 2));
+  width: min(var(--shell-max), calc(100% - var(--shell-pad) - var(--shell-pad)));
   margin-inline: auto;
   min-width: 0;
 }
@@ -175,8 +186,8 @@ code {
 main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: clamp(72px, 9vw, 140px);
-  padding-block: clamp(40px, 6vw, 96px) clamp(72px, 8vw, 120px);
+  gap: clamp(80px, 9vw, 150px);
+  padding-block: 0 clamp(72px, 8vw, 120px);
   min-width: 0;
 }
 
@@ -199,7 +210,7 @@ main {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding-block: 14px;
+  padding-block: 24px;
 }
 
 .brand {
@@ -207,7 +218,7 @@ main {
   align-items: center;
   gap: 12px;
   font-family: var(--font-display);
-  font-size: 1.05rem;
+  font-size: 1.24rem;
   font-weight: 500;
   letter-spacing: 0;
   color: var(--ink);
@@ -215,9 +226,9 @@ main {
 
 .brand img {
   display: block;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
   background: var(--surface);
   border: 1px solid var(--line);
 }
@@ -295,8 +306,18 @@ main {
 
 .hero {
   display: grid;
-  gap: clamp(24px, 3vw, 40px);
-  padding-block: clamp(40px, 6vw, 88px) clamp(24px, 3vw, 40px);
+  grid-template-columns: minmax(0, 1.35fr) minmax(380px, 0.65fr);
+  gap: clamp(48px, 4vw, 64px);
+  align-items: start;
+  min-height: calc(100svh - 88px);
+  padding-block: clamp(64px, 7vw, 78px) clamp(32px, 5vw, 64px);
+}
+
+.hero-copy {
+  display: grid;
+  gap: clamp(28px, 3.5vw, 48px);
+  padding-top: clamp(12px, 2vw, 28px);
+  min-width: 0;
 }
 
 .hero-meta {
@@ -335,7 +356,7 @@ main {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(2.6rem, 11vw, 8.6rem);
+  font-size: clamp(3.4rem, 8.4vw, 8.8rem);
   line-height: 0.92;
   letter-spacing: -0.035em;
   color: var(--ink);
@@ -363,25 +384,17 @@ main {
   border-radius: 50%;
 }
 
-.hero-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
-  gap: clamp(24px, 4vw, 64px);
-  align-items: start;
-  margin-top: clamp(8px, 2vw, 24px);
-}
-
 .hero-lead {
   display: grid;
-  gap: 24px;
-  max-width: 64ch;
+  gap: 26px;
+  max-width: 66ch;
 }
 
 .lede {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 300;
-  font-size: clamp(1.2rem, 1.8vw, 1.65rem);
+  font-size: clamp(1.35rem, 1.9vw, 1.82rem);
   line-height: 1.45;
   letter-spacing: -0.005em;
   color: var(--ink);
@@ -414,7 +427,8 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 13px 20px;
+  min-height: 64px;
+  padding: 17px 28px;
   font-family: var(--font-mono);
   font-size: 0.78rem;
   font-weight: 500;
@@ -459,7 +473,10 @@ main {
 /* Spec card — identification card */
 .spec {
   position: relative;
-  padding: 32px 26px 30px;
+  width: min(100%, 420px);
+  min-height: 730px;
+  justify-self: center;
+  padding: 54px 34px 30px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background:
@@ -496,9 +513,9 @@ main {
 
 .spec-portrait {
   position: relative;
-  width: 132px;
-  height: 132px;
-  margin: 6px auto 0;
+  width: 168px;
+  height: 168px;
+  margin: 0 auto;
 }
 
 .spec-portrait img {
@@ -507,15 +524,15 @@ main {
   width: 100%;
   height: 100%;
   display: block;
-  border-radius: 18px;
+  border-radius: 22px;
   background: var(--bg);
   border: 1px solid var(--line-strong);
 }
 
 .spec-portrait-ring {
   position: absolute;
-  inset: -10px;
-  border-radius: 24px;
+  inset: -14px;
+  border-radius: 30px;
   border: 1px dashed rgba(124, 226, 154, 0.28);
   pointer-events: none;
 }
@@ -532,7 +549,7 @@ main {
 
 .spec-id {
   text-align: center;
-  margin-top: 22px;
+  margin-top: 24px;
   display: grid;
   gap: 6px;
 }
@@ -541,7 +558,7 @@ main {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: 1.85rem;
+  font-size: 2.35rem;
   line-height: 1;
   letter-spacing: -0.02em;
   color: var(--ink);
@@ -560,7 +577,7 @@ main {
 
 .spec-rule {
   position: relative;
-  margin: 22px 0;
+  margin: 30px 0;
   border: 0;
   height: 1px;
   background: var(--line-strong);
@@ -582,13 +599,13 @@ main {
 .spec-facts {
   margin: 0;
   display: grid;
-  gap: 14px;
+  gap: 20px;
 }
 
 .spec-facts .fact {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 18px;
   align-items: baseline;
 }
 
@@ -605,7 +622,7 @@ main {
 .spec-facts dd {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 0.98rem;
+  font-size: 1.16rem;
   font-weight: 400;
   line-height: 1.45;
   color: var(--ink);
@@ -637,7 +654,7 @@ main {
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .provider-tags li {
@@ -645,12 +662,12 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 11px 6px 9px;
+  padding: 7px 12px 7px 10px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: rgba(11, 15, 13, 0.5);
   font-family: var(--font-mono);
-  font-size: 0.66rem;
+  font-size: 0.68rem;
   font-weight: 500;
   letter-spacing: 0.06em;
   color: var(--ink-soft);
@@ -1219,10 +1236,13 @@ main {
    ------------------------------------------------------------------------- */
 
 @media (max-width: 1100px) {
-  .hero-body {
+  .hero {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
   .spec {
+    justify-self: stretch;
+    width: 100%;
     margin-top: 16px;
   }
   .section-head {
@@ -1237,6 +1257,10 @@ main {
   }
   .brand {
     font-size: 0.95rem;
+  }
+  .brand img {
+    width: 32px;
+    height: 32px;
   }
   .brand-tag {
     display: none;
@@ -1288,11 +1312,80 @@ main {
   :root {
     --shell-pad: 18px;
   }
+  .topbar-inner {
+    display: grid;
+    gap: 10px;
+  }
+  .topbar nav {
+    justify-content: start;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .topbar nav::-webkit-scrollbar {
+    display: none;
+  }
   .topbar nav .nav-out span {
     display: none;
   }
+  .hero {
+    padding-top: 48px;
+  }
+  .hero-meta {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    font-size: 0.62rem;
+    line-height: 1.6;
+  }
+  .hero-meta span:last-child {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .hero-meta span:last-child,
+  .lede,
+  .hero-note,
+  code {
+    overflow-wrap: anywhere;
+  }
   .masthead {
+    font-size: clamp(3rem, 15vw, 4.1rem);
     letter-spacing: -0.04em;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+  .lede {
+    max-width: 100%;
+    font-size: 1.16rem;
+    line-height: 1.48;
+  }
+  .lede code {
+    font-size: 0.74em;
+    white-space: normal;
+  }
+  .hero-note {
+    font-size: 0.92rem;
+  }
+  .actions {
+    align-items: stretch;
+  }
+  .actions .btn {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .spec {
+    min-height: 0;
+    padding: 34px 20px 24px;
+  }
+  .spec-portrait {
+    width: 142px;
+    height: 142px;
+  }
+  .spec-name {
+    font-size: 2rem;
+  }
+  .spec-facts .fact {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
   .section-head {
     grid-template-columns: 1fr;
