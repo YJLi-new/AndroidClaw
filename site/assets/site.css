@@ -167,14 +167,17 @@ code {
    ------------------------------------------------------------------------- */
 
 .shell {
-  width: min(var(--shell-max), 100% - calc(var(--shell-pad) * 2));
+  width: min(var(--shell-max), calc(100% - var(--shell-pad) * 2));
   margin-inline: auto;
+  min-width: 0;
 }
 
 main {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: clamp(72px, 9vw, 140px);
   padding-block: clamp(40px, 6vw, 96px) clamp(72px, 8vw, 120px);
+  min-width: 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -332,11 +335,13 @@ main {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(3.4rem, 13.5vw, 9.2rem);
+  font-size: clamp(2.6rem, 11vw, 8.6rem);
   line-height: 0.92;
   letter-spacing: -0.035em;
   color: var(--ink);
   font-variation-settings: "opsz" 144, "SOFT" 30;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .masthead em {
@@ -987,6 +992,8 @@ main {
   background: var(--code-bg);
   overflow: hidden;
   box-shadow: var(--shadow-card);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .term-bar {
@@ -1024,6 +1031,8 @@ main {
   color: var(--ink-soft);
   overflow-x: auto;
   white-space: pre;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .term-body code {
