@@ -756,7 +756,6 @@ main {
 .ticker-track {
   display: flex;
   align-items: center;
-  gap: 36px;
   white-space: nowrap;
   width: max-content;
   font-family: var(--font-mono);
@@ -765,6 +764,14 @@ main {
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--ink-soft);
+}
+
+.ticker-sequence {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 36px;
+  padding-right: 36px;
 }
 
 .ticker-track .dot {
@@ -776,9 +783,6 @@ main {
 @media (prefers-reduced-motion: no-preference) {
   .ticker-track {
     animation: scroll 42s linear infinite;
-  }
-  .ticker:hover .ticker-track {
-    animation-play-state: paused;
   }
 }
 
