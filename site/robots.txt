@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://yjli-new.github.io/AndroidClaw/sitemap.xml
+Sitemap: https://androidclaw.top/sitemap.xml
