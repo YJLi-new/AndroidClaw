@@ -14,8 +14,10 @@
     />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <meta name="googlebot" content="index,follow,max-image-preview:large" />
+    <meta name="theme-color" content="#0b0f0d" />
     <link rel="canonical" href="https://yjli-new.github.io/AndroidClaw/" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="favicon.svg" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="AndroidClaw" />
     <meta
@@ -37,7 +39,15 @@
       name="twitter:image"
       content="https://yjli-new.github.io/AndroidClaw/assets/androidclaw-logo.png"
     />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400..700&display=swap"
+    />
     <link rel="stylesheet" href="assets/site.css" />
+
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -59,25 +69,35 @@
     </script>
   </head>
   <body>
-    <div class="page-shell">
-      <header class="site-header">
-        <a class="brand-link" href="https://yjli-new.github.io/AndroidClaw/" aria-label="AndroidClaw home">
-          <img src="assets/androidclaw-logo.png" alt="" width="44" height="44" />
-          <span>AndroidClaw</span>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="topbar">
+      <div class="topbar-inner shell">
+        <a class="brand" href="https://yjli-new.github.io/AndroidClaw/" aria-label="AndroidClaw home">
+          <img src="assets/androidclaw-logo.png" alt="" width="32" height="32" />
+          <span class="brand-name">AndroidClaw</span>
+          <span class="brand-tag" aria-hidden="true">v0 · BETA</span>
         </a>
         <nav aria-label="Project navigation">
           <a href="#contracts">Contracts</a>
           <a href="#screens">Screens</a>
           <a href="#validation">Validation</a>
-          <a href="https://github.com/YJLi-new/AndroidClaw">GitHub</a>
+          <a class="nav-out" href="https://github.com/YJLi-new/AndroidClaw">GitHub <span aria-hidden="true">↗</span></a>
         </nav>
-      </header>
+      </div>
+    </header>
 
-      <main>
-        <section class="hero" aria-labelledby="page-title">
-          <div class="hero-copy">
-            <p class="eyebrow">Public beta refreshed April 28, 2026</p>
-            <h1 id="page-title">AndroidClaw</h1>
+    <main id="main">
+      <section class="hero shell" data-num="01" aria-labelledby="page-title">
+        <div class="hero-meta">
+          <span class="pulse" aria-hidden="true"></span>
+          <span>01 &nbsp;—&nbsp; Public beta · refreshed Apr 28, 2026</span>
+        </div>
+
+        <h1 class="masthead" id="page-title">Android<em>Claw</em></h1>
+
+        <div class="hero-body">
+          <div class="hero-lead">
             <p class="lede">
               A lightweight Android-native assistant host for durable chat
               sessions, typed tools, <code>SKILL.md</code> skills, provider
@@ -89,203 +109,342 @@
               favor of a small Kotlin app that can be built, inspected, and
               installed directly.
             </p>
-            <div class="action-row">
-              <a class="primary-link" href="https://github.com/YJLi-new/AndroidClaw/releases/latest">Latest Release</a>
-              <a href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
-              <a href="https://github.com/YJLi-new/AndroidClaw/actions">CI Status</a>
+            <div class="actions">
+              <a class="btn btn-primary" href="https://github.com/YJLi-new/AndroidClaw/releases/latest">
+                <span>Latest Release</span>
+                <span class="btn-arrow" aria-hidden="true">→</span>
+              </a>
+              <a class="btn" href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
+              <a class="btn" href="https://github.com/YJLi-new/AndroidClaw/actions">CI Status</a>
             </div>
           </div>
 
-          <aside class="status-panel" aria-label="Current project status">
-            <img
-              class="hero-logo"
-              src="assets/androidclaw-logo.png"
-              alt="AndroidClaw logo"
-              width="148"
-              height="148"
-            />
-            <dl>
+          <aside class="spec" aria-label="Current project status">
+            <div class="spec-portrait">
+              <span class="halo" aria-hidden="true"></span>
+              <img src="assets/androidclaw-logo.png" alt="AndroidClaw mark" width="148" height="148" />
+            </div>
+            <dl class="spec-list">
               <div>
                 <dt>App model</dt>
                 <dd>Single Android app module</dd>
               </div>
               <div>
                 <dt>Runtime</dt>
-                <dd>Kotlin, Compose, Room, WorkManager</dd>
+                <dd>Kotlin · Compose · Room · WorkManager</dd>
               </div>
               <div>
                 <dt>Providers</dt>
-                <dd>Fake, Claude, OpenAI-compatible, OpenAI Codex OAuth, MiniMax, GLM, Kimi, Gemini</dd>
+                <dd>Fake · Claude · OpenAI-compatible · Codex OAuth · MiniMax · GLM · Kimi · Gemini</dd>
               </div>
               <div>
                 <dt>Validation</dt>
-                <dd>ktlint, debug build, unit tests, lint, QA/release packaging</dd>
+                <dd>ktlint · debug build · unit tests · lint · QA/release packaging</dd>
               </div>
             </dl>
           </aside>
-        </section>
+        </div>
+      </section>
 
-        <section id="contracts" class="contract-grid" aria-label="Core runtime contracts">
-          <article>
-            <p class="section-label">Session Contract</p>
-            <h2>Persistent assistant history</h2>
+      <section class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+          <span>Anthropic</span>
+          <span class="dot">·</span>
+          <span>OpenAI Codex</span>
+          <span class="dot">·</span>
+          <span>OpenAI-compatible</span>
+          <span class="dot">·</span>
+          <span>MiniMax</span>
+          <span class="dot">·</span>
+          <span>GLM</span>
+          <span class="dot">·</span>
+          <span>Kimi</span>
+          <span class="dot">·</span>
+          <span>Gemini</span>
+          <span class="dot">·</span>
+          <span>Fake (deterministic)</span>
+          <span class="dot">·</span>
+          <span>Anthropic</span>
+          <span class="dot">·</span>
+          <span>OpenAI Codex</span>
+          <span class="dot">·</span>
+          <span>OpenAI-compatible</span>
+          <span class="dot">·</span>
+          <span>MiniMax</span>
+          <span class="dot">·</span>
+          <span>GLM</span>
+          <span class="dot">·</span>
+          <span>Kimi</span>
+          <span class="dot">·</span>
+          <span>Gemini</span>
+          <span class="dot">·</span>
+          <span>Fake (deterministic)</span>
+          <span class="dot">·</span>
+        </div>
+      </section>
+
+      <section id="contracts" class="contracts shell" data-num="02" aria-label="Core runtime contracts">
+        <header class="section-head">
+          <span class="section-num">02</span>
+          <h2 class="section-title">Four core <em>contracts</em></h2>
+          <p class="section-blurb">The runtime promises that hold the app together — every shipped feature lives under one of these.</p>
+        </header>
+
+        <div class="contract-grid">
+          <article class="contract-card" style="--mark: var(--signal);">
+            <span class="card-tag">Session</span>
+            <h3>Persistent assistant history</h3>
             <p>
               Main and normal sessions keep durable Room-backed messages,
               streamed output, retry/cancel paths, summaries, search, export,
               and prompt budgeting.
             </p>
+            <span class="crop tl" aria-hidden="true"></span>
+            <span class="crop tr" aria-hidden="true"></span>
+            <span class="crop bl" aria-hidden="true"></span>
+            <span class="crop br" aria-hidden="true"></span>
           </article>
-          <article>
-            <p class="section-label">Tool Contract</p>
-            <h2>Typed local capabilities</h2>
+
+          <article class="contract-card" style="--mark: var(--cyan);">
+            <span class="card-tag">Tool</span>
+            <h3>Typed local capabilities</h3>
             <p>
               Tool calls and tool results are persisted as transcript records,
               with clear descriptors and deterministic built-in task/session
               utilities.
             </p>
+            <span class="crop tl" aria-hidden="true"></span>
+            <span class="crop tr" aria-hidden="true"></span>
+            <span class="crop bl" aria-hidden="true"></span>
+            <span class="crop br" aria-hidden="true"></span>
           </article>
-          <article>
-            <p class="section-label">Skill Contract</p>
-            <h2><code>SKILL.md</code> workflows</h2>
+
+          <article class="contract-card" style="--mark: var(--amber);">
+            <span class="card-tag">Skill</span>
+            <h3><code>SKILL.md</code> workflows</h3>
             <p>
               Bundled, local, and workspace skills support frontmatter parsing,
               precedence, enable/disable state, config, secrets, eligibility,
               and slash command dispatch.
             </p>
+            <span class="crop tl" aria-hidden="true"></span>
+            <span class="crop tr" aria-hidden="true"></span>
+            <span class="crop bl" aria-hidden="true"></span>
+            <span class="crop br" aria-hidden="true"></span>
           </article>
-          <article>
-            <p class="section-label">Automation Contract</p>
-            <h2>Scheduled runtime turns</h2>
+
+          <article class="contract-card" style="--mark: var(--paper);">
+            <span class="card-tag">Automation</span>
+            <h3>Scheduled runtime turns</h3>
             <p>
               Once, interval, and cron tasks run through WorkManager with
               exact-alarm-aware routing, task history, diagnostics, and main or
               isolated session execution modes.
             </p>
+            <span class="crop tl" aria-hidden="true"></span>
+            <span class="crop tr" aria-hidden="true"></span>
+            <span class="crop bl" aria-hidden="true"></span>
+            <span class="crop br" aria-hidden="true"></span>
           </article>
-        </section>
+        </div>
+      </section>
 
-        <section class="split-section">
-          <div>
-            <p class="section-label">Current Build</p>
-            <h2>What the app does today</h2>
-            <p>
-              The current AndroidClaw beta is already a usable local-first
-              runtime: it can configure providers, stream assistant responses,
-              preserve conversations, run typed tools, import skills, schedule
-              automations, surface health diagnostics, and produce installable
-              QA/release artifacts.
-            </p>
+      <section class="features shell" data-num="03">
+        <header class="section-head">
+          <span class="section-num">03</span>
+          <h2 class="section-title">What the app does <em>today</em></h2>
+          <p class="section-blurb">
+            The current AndroidClaw beta is already a usable local-first
+            runtime — configure providers, stream responses, preserve
+            conversations, run typed tools, import skills, schedule automations,
+            and produce installable QA / release artifacts.
+          </p>
+        </header>
+
+        <dl class="ledger">
+          <div class="ledger-row">
+            <dt>Native Anthropic Messages</dt>
+            <dd>Claude support, no shim</dd>
           </div>
-          <ul class="check-list">
-            <li>Native Anthropic Messages support for Claude.</li>
-            <li>OpenAI-compatible presets for MiniMax, GLM, Kimi, and Gemini.</li>
-            <li>OpenAI Codex provider with device-code OAuth and Responses streaming.</li>
-            <li>First-run onboarding with provider configuration and validation.</li>
-            <li>Task notifications, run history, exact-alarm fallback, and diagnostics export.</li>
-            <li>Repository-hosted GitHub Pages page, screenshots, and release links.</li>
-          </ul>
-        </section>
+          <div class="ledger-row">
+            <dt>OpenAI-compatible presets</dt>
+            <dd>MiniMax · GLM · Kimi · Gemini</dd>
+          </div>
+          <div class="ledger-row">
+            <dt>OpenAI Codex provider</dt>
+            <dd>Device-code OAuth · Responses streaming</dd>
+          </div>
+          <div class="ledger-row">
+            <dt>First-run onboarding</dt>
+            <dd>Provider configuration · validation</dd>
+          </div>
+          <div class="ledger-row">
+            <dt>Task automation surface</dt>
+            <dd>Notifications · run history · exact-alarm fallback · diagnostics export</dd>
+          </div>
+          <div class="ledger-row">
+            <dt>Public project page</dt>
+            <dd>Screenshots · release links · GitHub Pages</dd>
+          </div>
+        </dl>
+      </section>
 
-        <section id="screens" class="screenshots">
-          <div class="section-header">
-            <div>
-              <p class="section-label">Application Screens</p>
-              <h2>Runtime surface area</h2>
+      <section id="screens" class="screens shell" data-num="04">
+        <header class="section-head">
+          <span class="section-num">04</span>
+          <h2 class="section-title">Runtime <em>surface</em> area</h2>
+          <p class="section-blurb">
+            Emulator captures refreshed April 28, 2026 — the four working
+            surfaces a user touches every day.
+          </p>
+        </header>
+
+        <div class="screen-rows">
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screenshots/chat.png"
+                alt="AndroidClaw chat screen showing an assistant conversation"
+                loading="eager"
+              />
             </div>
-            <p>
-              Emulator captures refreshed April 28, 2026 show the four main
-              working surfaces: chat, scheduled tasks, skills, and health.
-            </p>
+            <div class="screen-text">
+              <span class="screen-tag">CHAT &nbsp;·&nbsp; 01</span>
+              <h3>Durable conversations</h3>
+              <p>
+                Streamed provider turns, summaries, export, compact, and an
+                expandable composer with a typed actions row. Tool calls and
+                results are part of the transcript, not a side panel.
+              </p>
+              <p class="screen-spec">STREAMING · CANCEL · RETRY · SUMMARIZE</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screenshots/tasks.png"
+                alt="AndroidClaw tasks screen showing scheduler diagnostics and task creation"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">TASKS &nbsp;·&nbsp; 02</span>
+              <h3>Scheduled runtime turns</h3>
+              <p>
+                Create once, interval, and cron tasks. Inspect recent runs,
+                follow exact-alarm guidance, and route scheduled work through
+                main or isolated sessions.
+              </p>
+              <p class="screen-spec">ONCE · INTERVAL · CRON · DIAGNOSTICS</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screenshots/skills.png"
+                alt="AndroidClaw skills screen showing skill inventory and import controls"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">SKILLS &nbsp;·&nbsp; 03</span>
+              <h3><code>SKILL.md</code> inventory</h3>
+              <p>
+                Bundled, local, and workspace workflows side by side, with
+                source, eligibility state, slash-command dispatch, and clear
+                precedence between layers.
+              </p>
+              <p class="screen-spec">BUNDLED · LOCAL · WORKSPACE · SLASH</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screenshots/health.png"
+                alt="AndroidClaw health screen showing provider, scheduler, and tool diagnostics"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">HEALTH &nbsp;·&nbsp; 04</span>
+              <h3>Diagnostics, on-device</h3>
+              <p>
+                Provider and network state, scheduler diagnostics, crash
+                markers, and exportable reports — everything you need to triage
+                without leaving the phone.
+              </p>
+              <p class="screen-spec">PROVIDERS · SCHEDULER · NETWORK · EXPORT</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="validation" class="validation shell" data-num="05">
+        <header class="section-head">
+          <span class="section-num">05</span>
+          <h2 class="section-title">Fast local <em>checks</em></h2>
+          <p class="section-blurb">
+            The repo keeps required validation deterministic and local by
+            default. Network-backed provider QA is optional and not part of
+            the required test suite.
+          </p>
+        </header>
+
+        <div class="terminal" aria-label="Validation commands">
+          <div class="term-bar">
+            <span class="term-dot" aria-hidden="true"></span>
+            <span class="term-dot" aria-hidden="true"></span>
+            <span class="term-dot" aria-hidden="true"></span>
+            <span class="term-title">androidclaw — local validation</span>
           </div>
+          <pre class="term-body"><code><span class="prompt">›</span> ./scripts/run_ktlint.sh
+<span class="prompt">›</span> ./gradlew :app:assembleDebug
+<span class="prompt">›</span> ./gradlew :app:testDebugUnitTest
+<span class="prompt">›</span> ./gradlew :app:lintDebug
+<span class="prompt">›</span> ./gradlew :app:assembleQa :app:assembleRelease :app:bundleRelease</code></pre>
+        </div>
+      </section>
 
-          <div class="shot-grid">
-            <figure class="shot-card">
-              <div class="device-frame">
-                <img
-                  src="assets/screenshots/chat.png"
-                  alt="AndroidClaw chat screen showing an assistant conversation"
-                  loading="eager"
-                />
-              </div>
-              <figcaption>
-                <strong>Chat</strong>
-                <span>Durable sessions, streamed provider turns, summaries, export, compact, and expandable composer actions.</span>
-              </figcaption>
-            </figure>
+      <section class="links shell" data-num="06" aria-label="Project index">
+        <header class="section-head">
+          <span class="section-num">06</span>
+          <h2 class="section-title">Project <em>index</em></h2>
+          <p class="section-blurb">Where to look next.</p>
+        </header>
 
-            <figure class="shot-card">
-              <div class="device-frame">
-                <img
-                  src="assets/screenshots/tasks.png"
-                  alt="AndroidClaw tasks screen showing scheduler diagnostics and task creation"
-                  loading="lazy"
-                />
-              </div>
-              <figcaption>
-                <strong>Tasks</strong>
-                <span>Create once, interval, and cron tasks, inspect recent runs, and follow exact-alarm guidance.</span>
-              </figcaption>
-            </figure>
+        <ol class="toc">
+          <li class="toc-row">
+            <span class="toc-num" aria-hidden="true">I</span>
+            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
+            <span class="toc-arrow" aria-hidden="true">→</span>
+          </li>
+          <li class="toc-row">
+            <span class="toc-num" aria-hidden="true">II</span>
+            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/releases/latest">Latest Release</a>
+            <span class="toc-arrow" aria-hidden="true">→</span>
+          </li>
+          <li class="toc-row">
+            <span class="toc-num" aria-hidden="true">III</span>
+            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.md">README</a>
+            <span class="toc-arrow" aria-hidden="true">→</span>
+          </li>
+          <li class="toc-row">
+            <span class="toc-num" aria-hidden="true">IV</span>
+            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/actions">GitHub Actions</a>
+            <span class="toc-arrow" aria-hidden="true">→</span>
+          </li>
+        </ol>
+      </section>
+    </main>
 
-            <figure class="shot-card">
-              <div class="device-frame">
-                <img
-                  src="assets/screenshots/skills.png"
-                  alt="AndroidClaw skills screen showing skill inventory and import controls"
-                  loading="lazy"
-                />
-              </div>
-              <figcaption>
-                <strong>Skills</strong>
-                <span>Bundled, local, and workspace <code>SKILL.md</code> workflows with source and eligibility state.</span>
-              </figcaption>
-            </figure>
-
-            <figure class="shot-card">
-              <div class="device-frame">
-                <img
-                  src="assets/screenshots/health.png"
-                  alt="AndroidClaw health screen showing provider, scheduler, and tool diagnostics"
-                  loading="lazy"
-                />
-              </div>
-              <figcaption>
-                <strong>Health</strong>
-                <span>Provider and network state, scheduler diagnostics, crash markers, and exportable reports.</span>
-              </figcaption>
-            </figure>
-          </div>
-        </section>
-
-        <section id="validation" class="validation-section">
-          <div>
-            <p class="section-label">Validation</p>
-            <h2>Fast local checks</h2>
-            <p>
-              The repo keeps required validation deterministic and local by
-              default. Network-backed provider QA is optional and not part of
-              the required test suite.
-            </p>
-          </div>
-          <div class="command-panel" aria-label="Validation commands">
-            <code>./scripts/run_ktlint.sh</code>
-            <code>./gradlew :app:assembleDebug</code>
-            <code>./gradlew :app:testDebugUnitTest</code>
-            <code>./gradlew :app:lintDebug</code>
-            <code>./gradlew :app:assembleQa :app:assembleRelease :app:bundleRelease</code>
-          </div>
-        </section>
-
-        <section class="project-links">
-          <p class="section-label">Project Links</p>
-          <div class="link-grid">
-            <a href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
-            <a href="https://github.com/YJLi-new/AndroidClaw/releases/latest">Latest Release</a>
-            <a href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.md">README</a>
-            <a href="https://github.com/YJLi-new/AndroidClaw/actions">GitHub Actions</a>
-          </div>
-        </section>
-      </main>
-    </div>
+    <footer class="page-foot">
+      <div class="shell page-foot-inner">
+        <span>Apache-2.0 &nbsp;·&nbsp; YJLi-new/AndroidClaw</span>
+        <span class="page-foot-mark">Pocket mission control · v0 beta</span>
+      </div>
+    </footer>
   </body>
 </html>
