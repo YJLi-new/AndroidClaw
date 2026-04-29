@@ -794,6 +794,19 @@ main {
   }
 }
 
+@media (orientation: landscape) {
+  .ticker {
+    padding-block: 10px;
+  }
+  .ticker-track {
+    font-size: 0.76rem;
+    line-height: 1.2;
+  }
+  .ticker-track .dot {
+    font-size: 1rem;
+  }
+}
+
 @keyframes scroll {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
