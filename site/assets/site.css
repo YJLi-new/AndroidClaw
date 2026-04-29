@@ -231,7 +231,7 @@ main {
   width: 38px;
   height: 38px;
   border-radius: 8px;
-  background: var(--surface);
+  background: #fff;
   border: 1px solid var(--line);
 }
 
@@ -527,7 +527,7 @@ main {
   height: 100%;
   display: block;
   border-radius: 22px;
-  background: var(--bg);
+  background: #fff;
   border: 1px solid var(--line-strong);
 }
 

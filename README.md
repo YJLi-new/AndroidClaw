@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="site/assets/androidclaw-logo.png" alt="AndroidClaw logo" width="148" height="148" />
+<img src="android_arch_logo_minimal.svg" alt="AndroidClaw logo" width="148" height="148" />
 
 # 🤖 AndroidClaw
 
