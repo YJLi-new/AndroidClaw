@@ -186,6 +186,7 @@ code {
 main {
   --section-gap: clamp(80px, 9vw, 150px);
   --hero-ticker-peek: 64px;
+  --landscape-ticker-next-gap: 32px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--section-gap);
@@ -797,6 +798,9 @@ main {
 @media (orientation: landscape) {
   .ticker {
     padding-block: 10px;
+  }
+  .ticker + .contracts {
+    margin-top: calc(-1 * (var(--section-gap) - var(--landscape-ticker-next-gap)));
   }
   .ticker-track {
     font-size: 0.76rem;
