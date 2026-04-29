@@ -81,7 +81,6 @@
         <nav aria-label="Project navigation">
           <a href="#contracts">Contracts</a>
           <a href="#screens">Screens</a>
-          <a href="#validation">Validation</a>
           <a class="nav-out" href="https://github.com/YJLi-new/AndroidClaw">GitHub <span aria-hidden="true">↗</span></a>
         </nav>
       </div>
@@ -377,35 +376,9 @@
         </div>
       </section>
 
-      <section id="validation" class="validation shell" data-num="05">
+      <section class="links shell" data-num="05" aria-label="Project index">
         <header class="section-head">
           <span class="section-num">05</span>
-          <h2 class="section-title">Fast local <em>checks</em></h2>
-          <p class="section-blurb">
-            The repo keeps required validation deterministic and local by
-            default. Network-backed provider QA is optional and not part of
-            the required test suite.
-          </p>
-        </header>
-
-        <div class="terminal" aria-label="Validation commands">
-          <div class="term-bar">
-            <span class="term-dot" aria-hidden="true"></span>
-            <span class="term-dot" aria-hidden="true"></span>
-            <span class="term-dot" aria-hidden="true"></span>
-            <span class="term-title">androidclaw — local validation</span>
-          </div>
-          <pre class="term-body"><code><span class="prompt">›</span> ./scripts/run_ktlint.sh
-<span class="prompt">›</span> ./gradlew :app:assembleDebug
-<span class="prompt">›</span> ./gradlew :app:testDebugUnitTest
-<span class="prompt">›</span> ./gradlew :app:lintDebug
-<span class="prompt">›</span> ./gradlew :app:assembleQa :app:assembleRelease :app:bundleRelease</code></pre>
-        </div>
-      </section>
-
-      <section class="links shell" data-num="06" aria-label="Project index">
-        <header class="section-head">
-          <span class="section-num">06</span>
           <h2 class="section-title">Project <em>index</em></h2>
           <p class="section-blurb">Where to look next.</p>
         </header>
