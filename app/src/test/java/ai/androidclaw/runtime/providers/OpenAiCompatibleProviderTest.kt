@@ -879,6 +879,55 @@ class OpenAiCompatibleProviderTest {
             assertEquals("Bearer gem-test", recordedRequest.getHeader("Authorization"))
         }
 
+    @Test
+    fun `deepseek provider uses openai compatible chat completions path`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.DeepSeek,
+                        ai.androidclaw.data.ProviderEndpointSettings(
+                            baseUrl = server.url("/").toString().removeSuffix("/"),
+                            modelId = "deepseek-v4-flash",
+                            timeoutSeconds = 5,
+                        ),
+                    ).copy(providerType = ProviderType.DeepSeek),
+            )
+            secretStore.writeApiKey(ProviderType.DeepSeek, "ds-test")
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "id": "resp-deepseek",
+                          "model": "deepseek-v4-flash",
+                          "choices": [
+                            {
+                              "message": {
+                                "role": "assistant",
+                                "content": "Hello from DeepSeek"
+                              }
+                            }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val response = buildProvider(ProviderType.DeepSeek).generate(buildRequest())
+            val recordedRequest =
+                server.takeRequest(5, TimeUnit.SECONDS)
+                    ?: error("Expected provider request.")
+            val payload = json.parseToJsonElement(recordedRequest.body.readUtf8()).jsonObject
+
+            assertEquals("Hello from DeepSeek", response.text)
+            assertEquals("deepseek-v4-flash", response.modelId)
+            assertEquals("/chat/completions", recordedRequest.path)
+            assertEquals("Bearer ds-test", recordedRequest.getHeader("Authorization"))
+            assertEquals("deepseek-v4-flash", payload.getValue("model").jsonPrimitive.content)
+        }
+
     private fun buildProvider(providerType: ProviderType = ProviderType.OpenAiCompatible): OpenAiCompatibleProvider =
         OpenAiCompatibleProvider(
             providerType = providerType,

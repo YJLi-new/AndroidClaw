@@ -118,6 +118,17 @@ class SettingsDataStoreTest {
     }
 
     @Test
+    fun `deepseek has openai compatible defaults`() {
+        val defaults = ProviderType.DeepSeek.defaultEndpointSettings()
+
+        assertEquals("deepseek", ProviderType.DeepSeek.providerId)
+        assertEquals(ProviderAuthMode.ApiKey, ProviderType.DeepSeek.authMode)
+        assertEquals("https://api.deepseek.com", defaults.baseUrl)
+        assertEquals("deepseek-v4-flash", defaults.modelId)
+        assertEquals(60, defaults.timeoutSeconds)
+    }
+
+    @Test
     fun `theme preference round trips independently from provider settings`() =
         runTest {
             settingsDataStore.setThemePreference(ThemePreference.Dark)

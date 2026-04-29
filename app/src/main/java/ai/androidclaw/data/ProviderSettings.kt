@@ -103,6 +103,16 @@ enum class ProviderType(
         defaultModelId = "",
         defaultTimeoutSeconds = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     ),
+    DeepSeek(
+        storageValue = "deepseek",
+        providerId = "deepseek",
+        displayName = "DeepSeek",
+        protocolFamily = ProviderProtocolFamily.OpenAiCompatible,
+        authMode = ProviderAuthMode.ApiKey,
+        defaultBaseUrl = DEEPSEEK_DEFAULT_BASE_URL,
+        defaultModelId = DEEPSEEK_DEFAULT_MODEL_ID,
+        defaultTimeoutSeconds = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    ),
     ;
 
     val requiresRemoteSettings: Boolean
@@ -174,3 +184,5 @@ const val GLM_DEFAULT_BASE_URL: String = "https://open.bigmodel.cn/api/paas/v4"
 const val KIMI_DEFAULT_BASE_URL: String = "https://api.moonshot.cn/v1"
 const val ANTHROPIC_DEFAULT_BASE_URL: String = "https://api.anthropic.com/v1"
 const val GEMINI_OPENAI_DEFAULT_BASE_URL: String = "https://generativelanguage.googleapis.com/v1beta/openai"
+const val DEEPSEEK_DEFAULT_BASE_URL: String = "https://api.deepseek.com"
+const val DEEPSEEK_DEFAULT_MODEL_ID: String = "deepseek-v4-flash"

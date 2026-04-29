@@ -56,6 +56,7 @@ AndroidClaw already ships a usable local-first runtime:
   - `Kimi`
   - `Claude` via a native Anthropic Messages provider
   - `Gemini` via its OpenAI-compatible endpoint
+  - `DeepSeek` via its OpenAI-compatible endpoint
 - SSE streaming with safe batch fallback on compatible providers and Responses streaming for OpenAI Codex
 - Visible streamed assistant output, cancel, retry, and clearer failure states
 - Budgeted context assembly via `ContextWindowManager` — no more naive fixed-count slicing
@@ -148,14 +149,14 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
 - **Streaming is additive.** Providers that don't support streaming still work through the non-streaming path — no breaking changes.
 - **Ephemeral partial text.** Streamed assistant tokens stay ephemeral until the final message is committed to Room.
 - **Budgeted context selection.** The latest important turns and tool-call closures stay within a bounded prompt budget, replacing naive recent-message slicing.
-- **Hybrid provider strategy.** Claude uses a native Anthropic transport; MiniMax / GLM / Kimi / Gemini reuse the OpenAI-compatible runtime path to keep the app small.
+- **Hybrid provider strategy.** Claude uses a native Anthropic transport; MiniMax / GLM / Kimi / Gemini / DeepSeek reuse the OpenAI-compatible runtime path to keep the app small.
 
 ## 🗺️ Roadmap
 
 | Status | Item |
 |:------:|:-----|
 | ✅ | Native Anthropic provider support |
-| ✅ | Named provider presets for MiniMax / GLM / Kimi / Gemini |
+| ✅ | Named provider presets for MiniMax / GLM / Kimi / Gemini / DeepSeek |
 | ✅ | Session-summary generation and context-budgeted prompt assembly |
 | ✅ | Chat export / share / search |
 | ✅ | Room `kapt → ksp` migration |
