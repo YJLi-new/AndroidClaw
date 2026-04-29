@@ -184,9 +184,11 @@ code {
 }
 
 main {
+  --section-gap: clamp(80px, 9vw, 150px);
+  --hero-ticker-peek: 64px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: clamp(80px, 9vw, 150px);
+  gap: var(--section-gap);
   padding-block: 0 clamp(72px, 8vw, 120px);
   min-width: 0;
 }
@@ -310,7 +312,7 @@ main {
   gap: clamp(48px, 4vw, 64px);
   align-items: start;
   min-height: calc(100svh - 88px);
-  padding-block: clamp(64px, 7vw, 78px) clamp(32px, 5vw, 64px);
+  padding-block: clamp(48px, 5vw, 64px) clamp(18px, 2vw, 32px);
 }
 
 .hero-copy {
@@ -732,6 +734,12 @@ main {
     var(--bg-elev) 50%,
     var(--bg) 100%
   );
+}
+
+@media (min-width: 1101px) {
+  .hero + .ticker {
+    margin-top: calc(-1 * (var(--section-gap) + var(--hero-ticker-peek)));
+  }
 }
 
 .ticker::before,
