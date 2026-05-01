@@ -13,12 +13,19 @@ import ai.androidclaw.feature.skills.SkillsScreen
 import ai.androidclaw.feature.skills.SkillsViewModel
 import ai.androidclaw.feature.tasks.TasksScreen
 import ai.androidclaw.feature.tasks.TasksViewModel
+import ai.androidclaw.ui.components.ClawGreen
+import ai.androidclaw.ui.components.ClawGreenMuted
+import ai.androidclaw.ui.components.ClawInk
+import ai.androidclaw.ui.components.ClawInkMuted
+import ai.androidclaw.ui.components.ClawPageBackground
 import ai.androidclaw.ui.theme.AndroidClawTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,8 +59,13 @@ fun AndroidClawApp(container: AppContainer) {
     AndroidClawTheme(themePreference = settingsState.themePreference) {
         Box {
             Scaffold(
+                containerColor = ClawPageBackground,
                 bottomBar = {
-                    NavigationBar(modifier = Modifier.testTag("topLevelNav")) {
+                    NavigationBar(
+                        modifier = Modifier.testTag("topLevelNav"),
+                        containerColor = ClawPageBackground,
+                        tonalElevation = NavigationBarDefaults.Elevation,
+                    ) {
                         TopLevelDestination.entries.forEach { destination ->
                             val selected =
                                 backStackEntry
@@ -74,6 +86,14 @@ fun AndroidClawApp(container: AppContainer) {
                                         }
                                     }
                                 },
+                                colors =
+                                    NavigationBarItemDefaults.colors(
+                                        selectedIconColor = ClawGreen,
+                                        selectedTextColor = ClawGreen,
+                                        indicatorColor = ClawGreenMuted,
+                                        unselectedIconColor = ClawInk,
+                                        unselectedTextColor = ClawInkMuted,
+                                    ),
                                 icon = {
                                     Icon(
                                         painter = painterResource(destination.iconRes),

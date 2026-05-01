@@ -78,8 +78,16 @@ object AndroidClawDatabaseMigrations {
             }
         }
 
+    val MIGRATION_2_3: Migration =
+        object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `compactedUntilMessageId` TEXT")
+            }
+        }
+
     val ALL: Array<Migration> =
         arrayOf(
             MIGRATION_1_2,
+            MIGRATION_2_3,
         )
 }

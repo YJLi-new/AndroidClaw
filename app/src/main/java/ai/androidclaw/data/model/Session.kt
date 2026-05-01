@@ -10,4 +10,5 @@ data class Session(
     val updatedAt: Instant,
     val archived: Boolean,
     val summaryText: String?,
+    val compactedUntilMessageId: String? = null,
 )

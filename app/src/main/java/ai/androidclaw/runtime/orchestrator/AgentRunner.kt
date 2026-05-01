@@ -1,6 +1,8 @@
 package ai.androidclaw.runtime.orchestrator
 
+import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.runtime.providers.ModelMessage
@@ -35,6 +37,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
@@ -72,6 +75,7 @@ class AgentRunner(
     private val promptAssembler: PromptAssembler,
     private val sessionSummaryCoordinator: SessionSummaryCoordinator? = null,
     private val loadSessionSummary: suspend (String) -> String? = { null },
+    private val loadSessionCompactionBoundary: suspend (String) -> String? = { null },
     private val networkStatusProvider: NetworkStatusProvider? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
@@ -168,6 +172,17 @@ class AgentRunner(
         val normalizedUserMessage = userMessage.trim()
         val availableSkills = skillManager.refreshSkillInventory(sessionId = sessionId)
         val slashCommand = SlashCommand.parse(normalizedUserMessage)
+        val compactBoundaryMessageId =
+            if (slashCommand?.name == COMPACT_COMMAND_NAME) {
+                messageRepository
+                    .getRecentMessages(
+                        sessionId = sessionId,
+                        limit = 1,
+                    ).firstOrNull()
+                    ?.id
+            } else {
+                null
+            }
         if (persistUserMessage) {
             messageRepository.addMessage(
                 sessionId = sessionId,
@@ -207,6 +222,13 @@ class AgentRunner(
                     frontmatter.commandDispatch == SkillCommandDispatch.Tool &&
                     frontmatter.commandTool != null
                 ) {
+                    val compactSummary =
+                        buildCompactSummaryIfNeeded(
+                            sessionId = sessionId,
+                            slashCommand = slashCommand,
+                            toolName = frontmatter.commandTool,
+                            compactBoundaryMessageId = compactBoundaryMessageId,
+                        )
                     val toolResult =
                         executeDirectToolDispatch(
                             sessionId = sessionId,
@@ -215,6 +237,11 @@ class AgentRunner(
                             toolName = frontmatter.commandTool,
                             runMode = runMode,
                             taskRunId = taskRunId,
+                            extraArguments =
+                                compactToolArguments(
+                                    compactBoundaryMessageId = compactBoundaryMessageId,
+                                    compactSummary = compactSummary,
+                                ),
                             onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
                             onToolFinished = { name, result ->
                                 emitEvent(
@@ -233,6 +260,7 @@ class AgentRunner(
                         directToolResult = toolResult,
                         taskRunId = taskRunId,
                         exitReason = AgentTurnExitReason.DirectToolDispatch,
+                        triggerSummaryRefresh = frontmatter.commandTool != COMPACT_TOOL_NAME,
                     )
                 }
             }
@@ -263,13 +291,15 @@ class AgentRunner(
                         limit = MESSAGE_CONTEXT_FETCH_LIMIT,
                     ).asReversed()
             val sessionSummary = loadSessionSummary(sessionId)
+            val compactionBoundary = loadSessionCompactionBoundary(sessionId)
             val promptAssembly =
                 promptAssembler.assemble(
-                    persistedMessages = persistedMessages,
+                    persistedMessages = persistedMessages.afterBoundary(compactionBoundary).withoutCompactControlMessages(),
                     selectedSkills = selectedSkills,
                     toolDescriptors = toolDescriptors,
                     runMode = runMode,
                     sessionSummary = sessionSummary,
+                    forceSessionSummary = !sessionSummary.isNullOrBlank() && compactionBoundary != null,
                 )
             var messageHistory = promptAssembly.messageHistory
             var providerRequestId: String? = null
@@ -455,6 +485,7 @@ class AgentRunner(
         toolName: String,
         runMode: ModelRunMode,
         taskRunId: String?,
+        extraArguments: JsonObject = buildJsonObject {},
         onToolStarted: suspend (String) -> Unit = {},
         onToolFinished: suspend (String, ToolExecutionResult) -> Unit = { _, _ -> },
     ): ToolExecutionResult {
@@ -464,14 +495,30 @@ class AgentRunner(
                 put("command", slashCommand.arguments)
                 put("commandName", slashCommand.name)
                 put("skillName", slashSkill.displayName)
+                extraArguments.forEach { (key, value) ->
+                    put(key, value)
+                }
             }
-        messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.ToolCall,
-            content = "Tool request: $toolName $toolArguments",
-            toolCallId = toolCallId,
-            taskRunId = taskRunId,
-        )
+        val isCompactDirectDispatch = toolName == COMPACT_TOOL_NAME && slashCommand.name == COMPACT_COMMAND_NAME
+        val toolCallMessage =
+            messageRepository.addMessage(
+                sessionId = sessionId,
+                role = MessageRole.ToolCall,
+                content =
+                    if (isCompactDirectDispatch) {
+                        "Tool request: $toolName {summary stored in session summary}"
+                    } else {
+                        "Tool request: $toolName $toolArguments"
+                    },
+                toolCallId = toolCallId,
+                taskRunId = taskRunId,
+            )
+        val executionArguments =
+            if (isCompactDirectDispatch && toolArguments.containsKey("compactedUntilMessageId")) {
+                toolArguments.withCompactedUntilMessageId(toolCallMessage.id)
+            } else {
+                toolArguments
+            }
         onToolStarted(toolName)
         val toolResult =
             toolRegistry.execute(
@@ -486,7 +533,7 @@ class AgentRunner(
                         requestId = toolCallId,
                         activeSkillId = slashSkill.id,
                     ),
-                arguments = toolArguments,
+                arguments = executionArguments,
             )
         messageRepository.addMessage(
             sessionId = sessionId,
@@ -498,6 +545,88 @@ class AgentRunner(
         onToolFinished(toolName, toolResult)
         return toolResult
     }
+
+    private suspend fun buildCompactSummaryIfNeeded(
+        sessionId: String,
+        slashCommand: SlashCommand,
+        toolName: String,
+        compactBoundaryMessageId: String?,
+    ): String? {
+        if (toolName != COMPACT_TOOL_NAME || slashCommand.name != COMPACT_COMMAND_NAME || slashCommand.arguments.isNotBlank()) {
+            return null
+        }
+        if (compactBoundaryMessageId.isNullOrBlank()) {
+            return null
+        }
+        val allMessages = messageRepository.getMessages(sessionId)
+        val existingSummary = loadSessionSummary(sessionId)
+        val sourceMessages =
+            allMessages
+                .afterBoundary(loadSessionCompactionBoundary(sessionId))
+                .withoutCompactControlMessages()
+                .throughBoundary(compactBoundaryMessageId)
+        if (sourceMessages.isEmpty()) {
+            return null
+        }
+        val fallbackSummary =
+            buildLocalCompactSummary(
+                existingSummary = existingSummary,
+                sourceMessages = sourceMessages,
+            )
+        val providerSettings = settingsDataStore.settings.first()
+        if (providerSettings.providerType == ProviderType.Fake) {
+            return fallbackSummary
+        }
+        if (
+            providerSettings.providerType.requiresRemoteSettings &&
+            networkStatusProvider?.currentStatus()?.isConnected == false
+        ) {
+            return fallbackSummary
+        }
+        val generatedSummary =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    providerRegistry.require(providerSettings.providerType).generate(
+                        ModelRequest(
+                            sessionId = sessionId,
+                            requestId = "compact-$sessionId-$compactBoundaryMessageId",
+                            messageHistory =
+                                listOf(
+                                    ModelMessage(
+                                        role = ModelMessageRole.User,
+                                        content =
+                                            buildCompactSummaryPrompt(
+                                                existingSummary = existingSummary,
+                                                sourceMessages = sourceMessages,
+                                            ),
+                                    ),
+                                ),
+                            systemPrompt = COMPACT_SYSTEM_PROMPT,
+                            enabledSkills = emptyList(),
+                            toolDescriptors = emptyList(),
+                            runMode = ModelRunMode.Scheduled,
+                        ),
+                    )
+                }
+            }.getOrNull()
+                ?.text
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        return generatedSummary ?: fallbackSummary
+    }
+
+    private fun compactToolArguments(
+        compactBoundaryMessageId: String?,
+        compactSummary: String?,
+    ): JsonObject =
+        buildJsonObject {
+            compactBoundaryMessageId?.takeIf { it.isNotBlank() }?.let { boundary ->
+                put("compactedUntilMessageId", boundary)
+            }
+            compactSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                put("summary", summary)
+            }
+        }
 
     private suspend fun executeProviderToolCalls(
         sessionId: String,
@@ -567,6 +696,7 @@ class AgentRunner(
         providerUsage: ai.androidclaw.runtime.providers.ProviderUsage? = null,
         taskRunId: String?,
         exitReason: AgentTurnExitReason = AgentTurnExitReason.Completed,
+        triggerSummaryRefresh: Boolean = true,
     ): AgentTurnResult {
         val persistedText = assistantText.withActiveSkills(selectedSkills)
         val providerMeta =
@@ -586,7 +716,9 @@ class AgentRunner(
                 providerMeta = providerMeta,
                 taskRunId = taskRunId,
             )
-        sessionSummaryCoordinator?.onTurnCompleted(sessionId)
+        if (triggerSummaryRefresh) {
+            sessionSummaryCoordinator?.onTurnCompleted(sessionId)
+        }
         return AgentTurnResult(
             assistantMessage = persistedText,
             assistantMessageId = assistantMessage.id,
@@ -639,8 +771,123 @@ class AgentRunner(
         private const val MAX_TOOL_ROUNDS = 6
         private const val MESSAGE_CONTEXT_FETCH_LIMIT = 256
         private const val TOOL_USE_FINISH_REASON = "tool_use"
+        private const val COMPACT_COMMAND_NAME = "compact"
+        private const val COMPACT_TOOL_NAME = "sessions.compact"
+        private val COMPACT_SYSTEM_PROMPT =
+            """
+            You compact AndroidClaw chat sessions.
+            Return only a concise plain-text summary.
+            Preserve stable facts, user preferences, decisions, current goals, unresolved tasks, and useful technical context.
+            Do not include hidden reasoning or chain-of-thought.
+            """.trimIndent()
     }
 }
+
+private fun List<ChatMessage>.afterBoundary(boundaryMessageId: String?): List<ChatMessage> {
+    if (boundaryMessageId.isNullOrBlank()) {
+        return this
+    }
+    val boundaryIndex = indexOfFirst { it.id == boundaryMessageId }
+    if (boundaryIndex == -1) {
+        return this
+    }
+    return drop(boundaryIndex + 1)
+}
+
+private fun List<ChatMessage>.withoutCompactControlMessages(): List<ChatMessage> = filterNot(ChatMessage::isCompactControlMessage)
+
+private fun ChatMessage.isCompactControlMessage(): Boolean {
+    val trimmedContent = content.trim()
+    return when (role) {
+        MessageRole.User -> trimmedContent.startsWith("/compact")
+        MessageRole.ToolCall -> trimmedContent.startsWith("Tool request: sessions.compact")
+        MessageRole.ToolResult -> trimmedContent.startsWith("Tool result: Compacted this session")
+        MessageRole.Assistant ->
+            trimmedContent.startsWith("Compacted this session") &&
+                trimmedContent.contains("Active skills: compact")
+
+        MessageRole.System -> false
+    }
+}
+
+private fun JsonObject.withCompactedUntilMessageId(messageId: String): JsonObject =
+    buildJsonObject {
+        this@withCompactedUntilMessageId.forEach { (key, value) ->
+            if (key == "compactedUntilMessageId") {
+                put(key, messageId)
+            } else {
+                put(key, value)
+            }
+        }
+    }
+
+private fun List<ChatMessage>.throughBoundary(boundaryMessageId: String): List<ChatMessage> {
+    val boundaryIndex = indexOfFirst { it.id == boundaryMessageId }
+    if (boundaryIndex == -1) {
+        return this
+    }
+    return take(boundaryIndex + 1)
+}
+
+private fun buildCompactSummaryPrompt(
+    existingSummary: String?,
+    sourceMessages: List<ChatMessage>,
+): String =
+    buildString {
+        if (!existingSummary.isNullOrBlank()) {
+            appendLine("Existing compacted summary:")
+            appendLine(existingSummary.trim())
+            appendLine()
+            appendLine("Update it with the transcript below.")
+        } else {
+            appendLine("Create a first compacted summary from the transcript below.")
+        }
+        appendLine()
+        appendLine("Transcript to compact:")
+        sourceMessages
+            .takeLast(COMPACT_SOURCE_MESSAGE_LIMIT)
+            .forEach { message ->
+                appendLine("${message.compactRoleLabel()}: ${message.content.trim().take(1_200)}")
+            }
+    }.trim()
+
+private fun buildLocalCompactSummary(
+    existingSummary: String?,
+    sourceMessages: List<ChatMessage>,
+): String =
+    buildString {
+        if (!existingSummary.isNullOrBlank()) {
+            appendLine("Previous summary:")
+            appendLine(existingSummary.trim())
+            appendLine()
+        }
+        appendLine("Recent transcript:")
+        sourceMessages
+            .takeLast(12)
+            .forEach { message ->
+                val text =
+                    message.content
+                        .trim()
+                        .replace(COMPACT_WHITESPACE_REGEX, " ")
+                        .take(240)
+                if (text.isNotBlank()) {
+                    appendLine("- ${message.compactRoleLabel()}: $text")
+                }
+            }
+    }.trim().take(COMPACT_SUMMARY_MAX_CHARS)
+
+private fun ChatMessage.compactRoleLabel(): String =
+    when (role) {
+        MessageRole.User -> "User"
+        MessageRole.Assistant -> "Assistant"
+        MessageRole.System -> "System"
+        MessageRole.ToolCall -> "Tool request"
+        MessageRole.ToolResult -> "Tool result"
+    }
+
+private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
+private const val COMPACT_SOURCE_MESSAGE_LIMIT = 48
+private val COMPACT_WHITESPACE_REGEX = Regex("\\s+")
 
 private fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String {
     if (selectedSkills.isEmpty()) {

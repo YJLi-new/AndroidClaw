@@ -149,6 +149,7 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
 - **Streaming is additive.** Providers that don't support streaming still work through the non-streaming path — no breaking changes.
 - **Ephemeral partial text.** Streamed assistant tokens stay ephemeral until the final message is committed to Room.
 - **Budgeted context selection.** The latest important turns and tool-call closures stay within a bounded prompt budget, replacing naive recent-message slicing.
+- **Session compaction.** `/compact` can summarize older turns, keep the full transcript searchable/exportable, and hide compacted history behind a reveal control.
 - **Hybrid provider strategy.** Claude uses a native Anthropic transport; MiniMax / GLM / Kimi / Gemini / DeepSeek reuse the OpenAI-compatible runtime path to keep the app small.
 
 ## 🗺️ Roadmap

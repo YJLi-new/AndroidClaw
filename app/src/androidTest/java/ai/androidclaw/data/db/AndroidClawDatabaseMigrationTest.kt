@@ -77,6 +77,40 @@ class AndroidClawDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate2To3_addsNullableCompactionBoundary() {
+        helper.createDatabase(COMPACT_TEST_DB, 2).apply {
+            execSQL(
+                """
+                INSERT INTO sessions (
+                    id, title, isMain, createdAt, updatedAt, archivedAt, summaryText
+                ) VALUES (
+                    'main', 'Main session', 1, 1000, 1000, NULL, 'existing summary'
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper
+            .runMigrationsAndValidate(
+                COMPACT_TEST_DB,
+                3,
+                true,
+                AndroidClawDatabaseMigrations.MIGRATION_2_3,
+            ).query(
+                """
+                SELECT summaryText, compactedUntilMessageId
+                FROM sessions
+                WHERE id = 'main'
+                """.trimIndent(),
+            ).useCursor { cursor ->
+                assertTrueMoveToFirst(cursor)
+                assertEquals("existing summary", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+            }
+    }
+
+    @Test
     fun migrate1To2_preservesMeaningfulRuntimeDataAcrossTables() {
         helper.createDatabase(RUNTIME_TEST_DB, 1).apply {
             execSQL(
@@ -342,6 +376,7 @@ class AndroidClawDatabaseMigrationTest {
 
     companion object {
         private const val SKILL_TEST_DB = "androidclaw-migration-skill-test"
+        private const val COMPACT_TEST_DB = "androidclaw-migration-compact-test"
         private const val RUNTIME_TEST_DB = "androidclaw-migration-runtime-test"
     }
 }

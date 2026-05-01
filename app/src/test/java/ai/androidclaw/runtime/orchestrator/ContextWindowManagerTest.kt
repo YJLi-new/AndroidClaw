@@ -121,6 +121,32 @@ class ContextWindowManagerTest {
     }
 
     @Test
+    fun `summary can be forced into short post compact history`() {
+        val manager = ContextWindowManager(promptBudgetUnits = 256)
+
+        val selection =
+            manager.select(
+                systemPrompt = "short prompt",
+                persistedHistory =
+                    listOf(
+                        message(ModelMessageRole.User, "new question after compaction"),
+                    ),
+                summaryText = "Older turns covered setup.",
+                forceSummary = true,
+            )
+
+        assertFalse(selection.truncated)
+        assertTrue(selection.summaryInserted)
+        assertEquals(ModelMessageRole.System, selection.messageHistory.first().role)
+        assertTrue(
+            selection.messageHistory
+                .first()
+                .content
+                .contains("Older turns covered setup."),
+        )
+    }
+
+    @Test
     fun `latest user message is never dropped even under a tiny budget`() {
         val manager = ContextWindowManager(promptBudgetUnits = 32)
         val history =

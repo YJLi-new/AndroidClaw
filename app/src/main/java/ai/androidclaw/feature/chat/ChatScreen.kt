@@ -1,7 +1,16 @@
 package ai.androidclaw.feature.chat
 
 import ai.androidclaw.R
-import ai.androidclaw.ui.components.ScreenHeader
+import ai.androidclaw.ui.components.ClawActionPill
+import ai.androidclaw.ui.components.ClawBlueSoft
+import ai.androidclaw.ui.components.ClawCard
+import ai.androidclaw.ui.components.ClawCardBackground
+import ai.androidclaw.ui.components.ClawGreen
+import ai.androidclaw.ui.components.ClawInk
+import ai.androidclaw.ui.components.ClawInkMuted
+import ai.androidclaw.ui.components.ClawMintSoft
+import ai.androidclaw.ui.components.ClawPage
+import ai.androidclaw.ui.components.ClawScreenHeader
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -10,6 +19,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,10 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -118,7 +125,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
         val highlightedMessageId = state.highlightedMessageId ?: return@LaunchedEffect
         val targetIndex = state.messages.indexOfFirst { it.id == highlightedMessageId }
         if (targetIndex >= 0) {
-            messageListState.animateScrollToItem(targetIndex)
+            val leadingItemCount = if (state.compactedHiddenMessageCount > 0) 1 else 0
+            messageListState.animateScrollToItem(targetIndex + leadingItemCount)
         }
     }
 
@@ -127,7 +135,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
             return@LaunchedEffect
         }
         val streamingItemVisible = state.streamingAssistantText.isNotBlank() || state.activeTurnStage != null
-        val targetIndex = if (streamingItemVisible) state.messages.size else state.messages.lastIndex
+        val leadingItemCount = if (state.compactedHiddenMessageCount > 0) 1 else 0
+        val targetIndex =
+            leadingItemCount +
+                if (streamingItemVisible) {
+                    state.messages.size
+                } else {
+                    state.messages.lastIndex
+                }
         messageListState.animateScrollToItem(targetIndex)
     }
 
@@ -157,316 +172,326 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
     }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(16.dp)
-                .testTag("chatScreen"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ScreenHeader(
-            title = state.sessionTitle.ifBlank { "Loading session..." },
-            titleTestTag = "chatHeading",
-        )
-        Text("Session", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ClawPage(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .testTag("chatScreen"),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
-                value = renameDraft,
-                onValueChange = { renameDraft = it },
-                modifier = Modifier.weight(1f),
-                label = { SingleLineText("Session title") },
-                singleLine = true,
-                enabled = !state.isRunning,
+            ClawScreenHeader(
+                iconRes = R.drawable.ic_launcher,
+                title = state.sessionTitle.ifBlank { "Loading session..." },
+                subtitle = "Active session",
+                titleTestTag = "chatHeading",
+                iconTint = null,
             )
-            Button(
-                onClick = { viewModel.renameCurrentSession(renameDraft) },
-                enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+            Text("Session", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Rename")
+                OutlinedTextField(
+                    value = renameDraft,
+                    onValueChange = { renameDraft = it },
+                    modifier = Modifier.weight(1f),
+                    label = { SingleLineText("Session title") },
+                    singleLine = true,
+                    enabled = !state.isRunning,
+                )
+                ClawActionPill(
+                    text = "Rename",
+                    onClick = { viewModel.renameCurrentSession(renameDraft) },
+                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
+                )
+                ClawActionPill(
+                    text = "Archive",
+                    onClick = viewModel::archiveCurrentSession,
+                    enabled = state.canArchiveCurrentSession && !state.isRunning,
+                )
             }
-            Button(
-                onClick = viewModel::archiveCurrentSession,
-                enabled = state.canArchiveCurrentSession && !state.isRunning,
-            ) {
-                Text("Archive")
-            }
-        }
-        state.providerNotice?.let { providerNotice ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Provider",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        text = providerNotice,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+            state.providerNotice?.let { providerNotice ->
+                ClawCard(containerColor = ClawMintSoft) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Provider",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ClawGreen,
+                        )
+                        Text(
+                            text = providerNotice,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
-        }
-        state.noticeMessage?.let { noticeMessage ->
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .semantics { liveRegion = LiveRegionMode.Polite },
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "Status",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        text = noticeMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-        state.errorMessage?.let { errorMessage ->
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .semantics { liveRegion = LiveRegionMode.Assertive },
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            state.noticeMessage?.let { noticeMessage ->
+                ClawCard(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                    containerColor = ClawMintSoft,
                 ) {
-                    Text(
-                        text = "Turn failed",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Text(
-                        text = errorMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    if (state.canRetryLastFailedTurn) {
-                        Button(onClick = viewModel::retryLastFailedTurn) {
-                            Text("Retry")
-                        }
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Status",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ClawGreen,
+                        )
+                        Text(
+                            text = noticeMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
             }
-        }
-        LazyRow(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(end = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(state.sessions, key = { it.id }) { session ->
-                val sessionLabelMaxWidth =
-                    if (session.isSelected) {
-                        SelectedSessionChipMaxWidth
-                    } else {
-                        SessionChipMaxWidth
-                    }
-                FilterChip(
-                    selected = session.isSelected,
-                    onClick = { viewModel.switchSession(session.id) },
-                    label = { SingleLineText(session.title, maxWidth = sessionLabelMaxWidth) },
-                    enabled = !state.isRunning,
-                )
-            }
-            item {
-                AssistChip(
-                    onClick = { viewModel.createNewSession("Session ${state.sessions.size + 1}") },
-                    label = { SingleLineText("New session") },
-                    enabled = !state.isRunning,
-                )
-            }
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            state = messageListState,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (state.messages.isEmpty() && state.streamingAssistantText.isBlank() && !state.isRunning) {
-                item(key = "empty-chat") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors =
-                            CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            ),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = "No messages yet",
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                text = "Start a conversation, run a slash command, or export/share the current session once it has content.",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    }
-                }
-            }
-            items(state.messages, key = { it.id }) { message ->
-                val appearance =
-                    messageAppearance(
-                        role = message.role,
-                        isHighlighted = message.id == state.highlightedMessageId,
-                    )
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors =
-                        CardDefaults.cardColors(
-                            containerColor = appearance.containerColor,
-                        ),
+            state.errorMessage?.let { errorMessage ->
+                ClawCard(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics { liveRegion = LiveRegionMode.Assertive },
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = appearance.label,
+                            text = "Turn failed",
                             style = MaterialTheme.typography.labelMedium,
-                            color = appearance.labelColor,
+                            color = MaterialTheme.colorScheme.error,
                         )
-                        ChatRichText(
-                            text = message.text,
-                            style =
-                                MaterialTheme.typography.bodyLarge.copy(
-                                    color = appearance.contentColor,
-                                ),
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
-                    }
-                }
-            }
-            if (state.streamingAssistantText.isNotBlank() || (state.isRunning && state.activeTurnStage != null)) {
-                item(key = "streaming-assistant") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors =
-                            CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            ),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                text = "ASSISTANT",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            state.activeTurnStage?.let { stage ->
-                                Text(
-                                    text = stage,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
+                        if (state.canRetryLastFailedTurn) {
+                            Button(onClick = viewModel::retryLastFailedTurn) {
+                                Text("Retry")
                             }
-                            ChatRichText(
-                                text = state.streamingAssistantText.ifBlank { "Working..." },
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
                         }
                     }
                 }
             }
-        }
-        if (state.isRunning) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(end = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(state.sessions, key = { it.id }) { session ->
+                    val sessionLabelMaxWidth =
+                        if (session.isSelected) {
+                            SelectedSessionChipMaxWidth
+                        } else {
+                            SessionChipMaxWidth
+                        }
+                    ClawActionPill(
+                        text = session.title,
+                        onClick = { viewModel.switchSession(session.id) },
+                        modifier = Modifier.widthIn(max = sessionLabelMaxWidth),
+                        selected = session.isSelected,
+                        enabled = !state.isRunning,
+                    )
+                }
+                item {
+                    ClawActionPill(
+                        text = "New session",
+                        onClick = { viewModel.createNewSession("Session ${state.sessions.size + 1}") },
+                        enabled = !state.isRunning,
+                    )
+                }
+            }
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                state = messageListState,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (state.compactedHiddenMessageCount > 0) {
+                    item(key = "compact-summary") {
+                        ClawCard(containerColor = ClawMintSoft) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "Session compacted",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                state.sessionSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                                    ChatRichText(
+                                        text = summary,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                                Text(
+                                    text = "${state.compactedHiddenMessageCount} older messages hidden behind this summary.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (
+                    state.messages.isEmpty() &&
+                    state.compactedHiddenMessageCount == 0 &&
+                    state.streamingAssistantText.isBlank() &&
+                    !state.isRunning
                 ) {
-                    val runningStateDescription =
-                        state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response"
-                    CircularProgressIndicator(
-                        modifier =
-                            Modifier
-                                .size(20.dp)
-                                .semantics { stateDescription = runningStateDescription },
+                    item(key = "empty-chat") {
+                        ClawCard(containerColor = ClawMintSoft) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = "No messages yet",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    text = "Start a conversation, run a slash command, or export/share the current session once it has content.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                    }
+                }
+                items(state.messages, key = { it.id }) { message ->
+                    val appearance =
+                        messageAppearance(
+                            role = message.role,
+                            isHighlighted = message.id == state.highlightedMessageId,
+                        )
+                    MessageBubble(
+                        message = message,
+                        appearance = appearance,
                     )
-                    Text(
-                        text = runningStateDescription,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Button(
-                        onClick = viewModel::cancelActiveTurn,
-                        enabled = !state.isCancelling,
-                    ) {
-                        Text(if (state.isCancelling) "Cancelling" else "Cancel")
+                }
+                if (state.streamingAssistantText.isNotBlank() || (state.isRunning && state.activeTurnStage != null)) {
+                    item(key = "streaming-assistant") {
+                        ClawCard(containerColor = ClawBlueSoft) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "ASSISTANT",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                state.activeTurnStage?.let { stage ->
+                                    Text(
+                                        text = stage,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                ChatRichText(
+                                    text = state.streamingAssistantText.ifBlank { "Working..." },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
-        val canSendDraft = !state.isRunning && state.draft.isNotBlank()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = state.draft,
-                onValueChange = viewModel::onDraftChanged,
-                modifier = Modifier.weight(1f),
-                label = { SingleLineText("Message or slash command") },
-                minLines = 2,
-                enabled = !state.isRunning,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions =
-                    KeyboardActions(
-                        onSend = {
-                            if (canSendDraft) {
-                                viewModel.sendCurrentDraft()
-                            }
+            if (state.isRunning) {
+                ClawCard {
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val runningStateDescription =
+                            state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response"
+                        CircularProgressIndicator(
+                            modifier =
+                                Modifier
+                                    .size(20.dp)
+                                    .semantics { stateDescription = runningStateDescription },
+                        )
+                        Text(
+                            text = runningStateDescription,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(
+                            onClick = viewModel::cancelActiveTurn,
+                            enabled = !state.isCancelling,
+                        ) {
+                            Text(if (state.isCancelling) "Cancelling" else "Cancel")
+                        }
+                    }
+                }
+            }
+            val canSendDraft = !state.isRunning && state.draft.isNotBlank()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                OutlinedTextField(
+                    value = state.draft,
+                    onValueChange = viewModel::onDraftChanged,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { SingleLineText("Message or slash command") },
+                    minLines = 1,
+                    maxLines = 4,
+                    enabled = !state.isRunning,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions =
+                        KeyboardActions(
+                            onSend = {
+                                if (canSendDraft) {
+                                    viewModel.sendCurrentDraft()
+                                }
+                            },
+                        ),
+                )
+                ComposerIconButton(
+                    iconRes = R.drawable.ic_send_enter,
+                    contentDescription = "Send message",
+                    onClick = viewModel::sendCurrentDraft,
+                    enabled = canSendDraft,
+                    accentColor = ClawGreen,
+                    accentContentColor = Color.White,
+                )
+                ComposerIconButton(
+                    iconRes = R.drawable.ic_plus_circle,
+                    contentDescription =
+                        if (showMoreFeatures) {
+                            "Hide more features"
+                        } else {
+                            "Show more features"
                         },
-                    ),
-            )
-            ComposerIconButton(
-                iconRes = R.drawable.ic_send_enter,
-                contentDescription = "Send message",
-                onClick = viewModel::sendCurrentDraft,
-                enabled = canSendDraft,
-            )
-            ComposerIconButton(
-                iconRes = R.drawable.ic_plus_circle,
-                contentDescription =
-                    if (showMoreFeatures) {
-                        "Hide more features"
-                    } else {
-                        "Show more features"
+                    selected = showMoreFeatures,
+                    enabled = !state.isRunning,
+                    onClick = { showMoreFeatures = !showMoreFeatures },
+                    accentColor = ClawInk,
+                )
+            }
+            if (showMoreFeatures) {
+                MoreFeaturesPanel(
+                    state = state,
+                    onSearch = { showSearchDialog = true },
+                    onShare = { showShareDialog = true },
+                    onUsage = { showUsageDialog = true },
+                    onCompact = {
+                        viewModel.compactCurrentSession()
+                        showMoreFeatures = false
                     },
-                selected = showMoreFeatures,
-                enabled = !state.isRunning,
-                onClick = { showMoreFeatures = !showMoreFeatures },
-            )
-        }
-        if (showMoreFeatures) {
-            MoreFeaturesPanel(
-                state = state,
-                onSearch = { showSearchDialog = true },
-                onShare = { showShareDialog = true },
-                onUsage = { showUsageDialog = true },
-                onSlashCommand = { command ->
-                    viewModel.onDraftChanged("$command ")
-                    showMoreFeatures = false
-                },
-            )
+                    onSlashCommand = { command ->
+                        viewModel.onDraftChanged("$command ")
+                        showMoreFeatures = false
+                    },
+                )
+            }
         }
     }
 
@@ -513,24 +538,90 @@ fun ChatScreen(viewModel: ChatViewModel) {
 }
 
 @Composable
+private fun MessageBubble(
+    message: ChatMessageUi,
+    appearance: MessageAppearance,
+) {
+    ClawCard(containerColor = appearance.containerColor) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            MessageAvatar(appearance = appearance)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = appearance.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = appearance.labelColor,
+                    )
+                    Text(
+                        text = message.timeText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ClawInkMuted,
+                    )
+                }
+                ChatRichText(
+                    text = message.text,
+                    style =
+                        MaterialTheme.typography.bodyLarge.copy(
+                            color = appearance.contentColor,
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageAvatar(appearance: MessageAppearance) {
+    Box(
+        modifier =
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(appearance.avatarBackground),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = appearance.avatarText,
+            color = appearance.labelColor,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
 private fun ComposerIconButton(
     iconRes: Int,
     contentDescription: String,
     enabled: Boolean,
     selected: Boolean = false,
+    accentColor: Color = ClawInk,
+    accentContentColor: Color = Color.White,
     onClick: () -> Unit,
 ) {
     val containerColor =
         when {
             !enabled -> MaterialTheme.colorScheme.surfaceVariant
             selected -> MaterialTheme.colorScheme.primaryContainer
-            else -> MaterialTheme.colorScheme.primary
+            else -> accentColor
         }
     val iconColor =
         when {
             !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
             selected -> MaterialTheme.colorScheme.onPrimaryContainer
-            else -> MaterialTheme.colorScheme.onPrimary
+            else -> accentContentColor
         }
     IconButton(
         onClick = onClick,
@@ -556,9 +647,10 @@ private fun MoreFeaturesPanel(
     onSearch: () -> Unit,
     onShare: () -> Unit,
     onUsage: () -> Unit,
+    onCompact: () -> Unit,
     onSlashCommand: (String) -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    ClawCard {
         Column(
             modifier =
                 Modifier
@@ -589,6 +681,11 @@ private fun MoreFeaturesPanel(
                 AssistChip(
                     onClick = onUsage,
                     label = { SingleLineText("Usage") },
+                )
+                AssistChip(
+                    onClick = onCompact,
+                    label = { SingleLineText("Compact") },
+                    enabled = state.canCompactCurrentSession && !state.isRunning,
                 )
             }
             if (state.slashCommands.isNotEmpty()) {
@@ -867,6 +964,8 @@ private data class MessageAppearance(
     val containerColor: Color,
     val labelColor: Color,
     val contentColor: Color,
+    val avatarBackground: Color,
+    val avatarText: String,
 )
 
 @Composable
@@ -879,37 +978,47 @@ private fun messageAppearance(
             "user" ->
                 MessageAppearance(
                     label = "User",
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = ClawMintSoft,
+                    labelColor = ClawGreen,
+                    contentColor = ClawInk,
+                    avatarBackground = Color(0xFFDDF5E7),
+                    avatarText = "U",
                 )
             "assistant" ->
                 MessageAppearance(
                     label = "Assistant",
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    labelColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    containerColor = ClawCardBackground,
+                    labelColor = ClawGreen,
+                    contentColor = ClawInk,
+                    avatarBackground = Color(0xFFF0F2F6),
+                    avatarText = "A",
                 )
             "tool_call" ->
                 MessageAppearance(
                     label = "Tool call",
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    containerColor = ClawBlueSoft,
+                    labelColor = Color(0xFF4B55D9),
+                    contentColor = ClawInk,
+                    avatarBackground = Color(0xFFE7EBFF),
+                    avatarText = "T",
                 )
             "tool_result" ->
                 MessageAppearance(
                     label = "Tool result",
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    containerColor = ClawMintSoft,
+                    labelColor = ClawGreen,
+                    contentColor = ClawInk,
+                    avatarBackground = Color(0xFFDDF5E7),
+                    avatarText = "R",
                 )
             "system" ->
                 MessageAppearance(
                     label = "System",
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    containerColor = Color(0xFFFFECEF),
+                    labelColor = Color(0xFF9A1B1F),
+                    contentColor = Color(0xFF6E1114),
+                    avatarBackground = Color(0xFFFAD4DA),
+                    avatarText = "!",
                 )
             else ->
                 MessageAppearance(
@@ -917,10 +1026,12 @@ private fun messageAppearance(
                     containerColor = MaterialTheme.colorScheme.surface,
                     labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     contentColor = MaterialTheme.colorScheme.onSurface,
+                    avatarBackground = MaterialTheme.colorScheme.surfaceVariant,
+                    avatarText = "?",
                 )
         }
     return if (isHighlighted) {
-        base.copy(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        base.copy(containerColor = ClawBlueSoft)
     } else {
         base
     }

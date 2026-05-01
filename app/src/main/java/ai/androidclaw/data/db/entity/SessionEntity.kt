@@ -19,4 +19,5 @@ data class SessionEntity(
     val updatedAt: Long,
     val archivedAt: Long?,
     val summaryText: String?,
+    val compactedUntilMessageId: String? = null,
 )

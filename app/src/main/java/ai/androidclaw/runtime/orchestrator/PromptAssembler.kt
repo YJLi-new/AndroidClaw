@@ -29,6 +29,7 @@ class PromptAssembler(
         toolDescriptors: List<ToolDescriptor>,
         runMode: ModelRunMode,
         sessionSummary: String? = null,
+        forceSessionSummary: Boolean = false,
     ): PromptAssembly {
         val systemPrompt = buildSystemPrompt(selectedSkills, toolDescriptors, runMode)
         val contextSelection =
@@ -36,6 +37,7 @@ class PromptAssembler(
                 systemPrompt = systemPrompt,
                 persistedHistory = persistedMessages.mapNotNull(ChatMessage::toModelMessage),
                 summaryText = sessionSummary,
+                forceSummary = forceSessionSummary,
             )
         return PromptAssembly(
             systemPrompt = systemPrompt,

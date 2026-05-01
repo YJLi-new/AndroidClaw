@@ -36,11 +36,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 data class ChatMessageUi(
     val id: String,
     val role: String,
     val text: String,
+    val timeText: String,
 )
 
 data class ChatSessionUi(
@@ -63,6 +66,8 @@ data class ChatUiState(
     val sessionTitle: String = "",
     val sessionSummary: String? = null,
     val sessionUsageSummary: String? = null,
+    val compactedHiddenMessageCount: Int = 0,
+    val showCompactedHistory: Boolean = false,
     val searchQuery: String = "",
     val searchResults: List<ChatSearchResultUi> = emptyList(),
     val highlightedMessageId: String? = null,
@@ -75,6 +80,7 @@ data class ChatUiState(
     val sessions: List<ChatSessionUi> = emptyList(),
     val messages: List<ChatMessageUi> = emptyList(),
     val canArchiveCurrentSession: Boolean = false,
+    val canCompactCurrentSession: Boolean = false,
     val streamingAssistantText: String = "",
     val canRetryLastFailedTurn: Boolean = false,
     val activeTurnStage: String? = null,
@@ -100,6 +106,7 @@ class ChatViewModel(
     private val searchQuery = MutableStateFlow("")
     private val searchResults = MutableStateFlow<List<ChatSearchResultUi>>(emptyList())
     private val highlightedMessageId = MutableStateFlow<String?>(null)
+    private val showCompactedHistory = MutableStateFlow(false)
     private val externalActions = MutableSharedFlow<ChatExternalAction>(extraBufferCapacity = 4)
     private val mutableCurrentSessionId = MutableStateFlow("")
     private val streamingAssistantText = MutableStateFlow("")
@@ -231,7 +238,8 @@ class ChatViewModel(
             sessionsFlow,
             messagesFlow,
             usageSummaryFlow,
-        ) { chrome, sessions, messages, usageSummary ->
+            showCompactedHistory,
+        ) { chrome, sessions, messages, usageSummary, showCompactedHistoryValue ->
             val sessionItems =
                 sessions.map { session ->
                     ChatSessionUi(
@@ -242,14 +250,41 @@ class ChatViewModel(
                     )
                 }
             val currentSession = sessionItems.firstOrNull { it.isSelected }
-            val currentSessionSummary = sessions.firstOrNull { it.id == chrome.currentSessionId }?.summaryText
+            val currentSessionDomain = sessions.firstOrNull { it.id == chrome.currentSessionId }
+            val currentSessionSummary = currentSessionDomain?.summaryText
+            val compactBoundary = currentSessionDomain?.compactedUntilMessageId
+            val boundaryIndex =
+                compactBoundary
+                    ?.let { boundary -> messages.indexOfFirst { it.id == boundary } }
+                    ?: -1
+            val compactedHiddenMessageCount =
+                if (boundaryIndex >= 0) {
+                    boundaryIndex + 1
+                } else {
+                    0
+                }
+            val sourceMessagesAfterBoundary =
+                if (boundaryIndex >= 0) {
+                    messages.drop(compactedHiddenMessageCount)
+                } else {
+                    messages
+                }
+            val visibleMessages =
+                if (compactedHiddenMessageCount > 0) {
+                    sourceMessagesAfterBoundary.filterNot(ChatMessageUi::isCompactControlMessage)
+                } else {
+                    messages
+                }
             chrome.copy(
                 sessionTitle = currentSession?.title.orEmpty(),
                 sessionSummary = currentSessionSummary,
                 sessionUsageSummary = usageSummary,
+                compactedHiddenMessageCount = compactedHiddenMessageCount,
+                showCompactedHistory = false,
                 sessions = sessionItems,
-                messages = messages,
+                messages = visibleMessages,
                 canArchiveCurrentSession = currentSession?.isMain == false,
+                canCompactCurrentSession = sourceMessagesAfterBoundary.any { !it.isCompactControlMessage() },
             )
         }.stateIn(
             scope = viewModelScope,
@@ -278,6 +313,7 @@ class ChatViewModel(
                     }
                 }
                 if (mutableCurrentSessionId.value != previousSessionId) {
+                    showCompactedHistory.value = false
                     refreshSkillCommands(mutableCurrentSessionId.value)
                     syncRetryAvailability(mutableCurrentSessionId.value)
                 }
@@ -341,6 +377,7 @@ class ChatViewModel(
         if (isRunning.value) return
         mutableCurrentSessionId.value = sessionId
         highlightedMessageId.value = null
+        showCompactedHistory.value = false
         errorMessage.value = null
         noticeMessage.value = null
         refreshSkillCommands(sessionId)
@@ -354,6 +391,7 @@ class ChatViewModel(
             val created = sessionRepository.createSession(normalizedTitle)
             mutableCurrentSessionId.value = created.id
             highlightedMessageId.value = null
+            showCompactedHistory.value = false
             errorMessage.value = null
             noticeMessage.value = null
             refreshSkillCommands(created.id)
@@ -451,6 +489,9 @@ class ChatViewModel(
         if (isRunning.value) return
         mutableCurrentSessionId.value = result.sessionId
         highlightedMessageId.value = result.messageId
+        if (result.messageId != null) {
+            showCompactedHistory.value = false
+        }
         errorMessage.value = null
         noticeMessage.value =
             if (result.messageId != null) {
@@ -474,6 +515,25 @@ class ChatViewModel(
                     errorMessage.value = throwable.userFacingMessage("prepare export")
                 }
         }
+    }
+
+    fun toggleCompactedHistory() {
+        showCompactedHistory.value = false
+    }
+
+    fun compactCurrentSession() {
+        val stateSnapshot = state.value
+        val sessionId = stateSnapshot.currentSessionId
+        if (sessionId.isBlank() || isRunning.value || !stateSnapshot.canCompactCurrentSession) {
+            return
+        }
+        startTurn(
+            sessionId = sessionId,
+            userMessage = "/compact",
+            persistUserMessage = true,
+            clearDraft = false,
+            isRetry = false,
+        )
     }
 
     fun shareCurrentSessionAsText() {
@@ -830,4 +890,24 @@ private fun ChatMessage.toUi(): ChatMessageUi =
                 MessageRole.System -> "system"
             },
         text = content,
+        timeText = MessageTimeFormatter.format(createdAt),
     )
+
+private fun ChatMessageUi.isCompactControlMessage(): Boolean {
+    val trimmedText = text.trim()
+    return when (role) {
+        "user" -> trimmedText.startsWith("/compact")
+        "tool_call" -> trimmedText.startsWith("Tool request: sessions.compact")
+        "tool_result" -> trimmedText.startsWith("Tool result: Compacted this session")
+        "assistant" ->
+            trimmedText.startsWith("Compacted this session") &&
+                trimmedText.contains("Active skills: compact")
+
+        else -> false
+    }
+}
+
+private val MessageTimeFormatter: DateTimeFormatter =
+    DateTimeFormatter
+        .ofPattern("HH:mm")
+        .withZone(ZoneId.systemDefault())

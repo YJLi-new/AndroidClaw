@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.tasks
 
+import ai.androidclaw.R
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.runtime.scheduler.CronExpression
@@ -10,21 +11,33 @@ import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
 import ai.androidclaw.runtime.scheduler.preciseSchedulingWarnings
 import ai.androidclaw.runtime.scheduler.schedulingDecision
 import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
-import ai.androidclaw.ui.components.ScreenHeader
+import ai.androidclaw.ui.components.ClawActionPill
+import ai.androidclaw.ui.components.ClawCard
+import ai.androidclaw.ui.components.ClawChoicePill
+import ai.androidclaw.ui.components.ClawFactRow
+import ai.androidclaw.ui.components.ClawGreenMuted
+import ai.androidclaw.ui.components.ClawIconBadge
+import ai.androidclaw.ui.components.ClawInfoCard
+import ai.androidclaw.ui.components.ClawInk
+import ai.androidclaw.ui.components.ClawInkMuted
+import ai.androidclaw.ui.components.ClawPage
+import ai.androidclaw.ui.components.ClawPrimaryButton
+import ai.androidclaw.ui.components.ClawScreenHeader
+import ai.androidclaw.ui.components.ClawStatusDot
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -35,7 +48,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -72,347 +87,395 @@ fun TasksScreen(viewModel: TasksViewModel) {
         viewModel.refreshDiagnostics()
     }
 
-    LazyColumn(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .testTag("tasksScreen"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            ScreenHeader(
-                title = "Tasks",
-                subtitle = "Schedule once, interval, and cron automations with precise or approximate delivery.",
-                titleTestTag = "tasksHeading",
-            )
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = viewModel::refreshDiagnostics) {
-                    Text("Refresh diagnostics")
-                }
-                Button(onClick = viewModel::clearActionMessage) {
-                    Text("Clear status")
-                }
-            }
-        }
-        item {
-            SchedulerCard(
-                title = "Supported kinds",
-                body = state.capabilities.supportedKinds.joinToString(),
-            )
-        }
-        item {
-            SchedulerCard(
-                title = "Minimum background interval",
-                body = "${state.capabilities.minimumBackgroundInterval.toMinutes()} minutes",
-            )
-        }
-        item {
-            SchedulerCard(
-                title = "Exact alarm status",
-                body =
-                    buildString {
-                        append("Supported: ").append(state.diagnostics.supportsExactAlarms)
-                        append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
-                        append("\nNotification permission: ").append(
-                            if (state.diagnostics.notificationVisibility.runtimePermissionRequired) {
-                                if (state.diagnostics.notificationVisibility.runtimePermissionGranted) {
-                                    "granted"
-                                } else {
-                                    "denied"
-                                }
-                            } else {
-                                "not required"
-                            },
+    val createTaskFromForm = createTask@{
+        val minimumMinutes = state.capabilities.minimumBackgroundInterval.toMinutes()
+        val schedule =
+            runCatching {
+                when (scheduleKind) {
+                    TaskScheduleKindUi.Once -> {
+                        val scheduledAt = Instant.parse(onceAt.trim())
+                        require(scheduledAt.isAfter(Instant.now())) {
+                            "Once tasks must be scheduled in the future."
+                        }
+                        TaskSchedule.Once(scheduledAt)
+                    }
+
+                    TaskScheduleKindUi.Interval -> {
+                        val minutes = intervalMinutes.trim().toLong()
+                        require(minutes >= minimumMinutes) {
+                            "Intervals must be at least $minimumMinutes minutes."
+                        }
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.now(),
+                            repeatEvery = Duration.ofMinutes(minutes),
                         )
-                        append(
-                            "\nApp notifications enabled: ",
-                        ).append(state.diagnostics.notificationVisibility.appNotificationsEnabled)
-                        append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
-                        if (state.diagnostics.isRestrictedBucket) {
-                            append("\nApp is in restricted bucket; background work may be delayed.")
-                        }
-                        state.diagnostics.preciseReminderVisibilityWarning?.let { warning ->
-                            append("\n").append(warning)
-                        }
-                    },
-            )
+                    }
+
+                    TaskScheduleKindUi.Cron ->
+                        TaskSchedule.Cron(
+                            expression = CronExpression.parse(cronExpression.trim()),
+                            zoneId = ZoneId.systemDefault(),
+                        )
+                }
+            }.getOrElse { error ->
+                formMessage = error.message ?: "Invalid task schedule."
+                return@createTask
+            }
+
+        if (name.trim().isBlank() || prompt.trim().isBlank()) {
+            formMessage = "Task name and prompt are required."
+            return@createTask
         }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Task notifications", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Scheduled task results and failures use separate Android notification channels so success noise can be muted without hiding failures.",
-                        style = MaterialTheme.typography.bodyMedium,
+
+        viewModel.createTask(
+            name = name.trim(),
+            prompt = prompt.trim(),
+            schedule = schedule,
+            executionMode = executionMode,
+            targetSessionId = selectedSessionId.takeIf { it.isNotBlank() },
+            precise = precise,
+        )
+        name = ""
+        prompt = ""
+        formMessage = null
+    }
+
+    ClawPage(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .testTag("tasksScreen"),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                ClawScreenHeader(
+                    iconRes = R.drawable.ic_nav_tasks,
+                    title = "Create Task",
+                    subtitle = "Schedule a one-off, interval, or cron automation.",
+                    titleTestTag = "tasksHeading",
+                    iconBackground = ClawGreenMuted,
+                )
+            }
+            if (state.actionMessage != null) {
+                item {
+                    SchedulerCard(
+                        title = "Task action",
+                        body = state.actionMessage.orEmpty(),
                     )
-                    Button(
-                        onClick = { context.startActivity(buildNotificationSettingsIntent(context)) },
+                }
+            }
+            if (formMessage != null) {
+                item {
+                    SchedulerCard(
+                        title = "Create task",
+                        body = formMessage.orEmpty(),
+                    )
+                }
+            }
+            item {
+                ClawCard {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text("Open notification settings")
+                        Text("Task name", style = MaterialTheme.typography.titleSmall, color = ClawInk)
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("taskNameField"),
+                            placeholder = { Text("Task name") },
+                            singleLine = true,
+                        )
+                        Text("Prompt", style = MaterialTheme.typography.titleSmall, color = ClawInk)
+                        OutlinedTextField(
+                            value = prompt,
+                            onValueChange = { prompt = it },
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("taskPromptField"),
+                            minLines = 4,
+                            placeholder = { Text("Prompt") },
+                        )
+                        Text("Schedule kind", style = MaterialTheme.typography.titleSmall, color = ClawInk)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            TaskScheduleKindUi.entries.forEach { kind ->
+                                ClawChoicePill(
+                                    text = kind.name,
+                                    selected = scheduleKind == kind,
+                                    onClick = { scheduleKind = kind },
+                                    modifier = Modifier.widthIn(min = 104.dp),
+                                )
+                            }
+                        }
+                        when (scheduleKind) {
+                            TaskScheduleKindUi.Once -> {
+                                OutlinedTextField(
+                                    value = onceAt,
+                                    onValueChange = { onceAt = it },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .testTag("taskOnceAtField"),
+                                    label = { Text("Run at (ISO-8601 UTC)") },
+                                    singleLine = true,
+                                )
+                            }
+
+                            TaskScheduleKindUi.Interval -> {
+                                OutlinedTextField(
+                                    value = intervalMinutes,
+                                    onValueChange = { intervalMinutes = it },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .testTag("taskIntervalMinutesField"),
+                                    label = { Text("Repeat every minutes") },
+                                    singleLine = true,
+                                )
+                            }
+
+                            TaskScheduleKindUi.Cron -> {
+                                OutlinedTextField(
+                                    value = cronExpression,
+                                    onValueChange = { cronExpression = it },
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .testTag("taskCronExpressionField"),
+                                    label = { Text("Cron expression") },
+                                    singleLine = true,
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
-        item {
-            SchedulerCard(
-                title = "Next @daily preview",
-                body = state.nextDailyPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
-            )
-        }
-        item {
-            SchedulerCard(
-                title = "Next 9am weekday cron preview",
-                body = state.nextWeekdayPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
-            )
-        }
-        if (state.actionMessage != null) {
             item {
-                SchedulerCard(
-                    title = "Task action",
-                    body = state.actionMessage.orEmpty(),
-                )
-            }
-        }
-        if (formMessage != null) {
-            item {
-                SchedulerCard(
-                    title = "Create task",
-                    body = formMessage.orEmpty(),
-                )
-            }
-        }
-        item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("Create Task", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("taskNameField"),
-                        label = { Text("Task name") },
-                    )
-                    OutlinedTextField(
-                        value = prompt,
-                        onValueChange = { prompt = it },
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("taskPromptField"),
-                        minLines = 3,
-                        label = { Text("Prompt") },
-                    )
-                    Text("Schedule kind", style = MaterialTheme.typography.labelMedium)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(
-                            items = TaskScheduleKindUi.entries.toList(),
-                            key = { it.name },
-                        ) { kind ->
-                            FilterChip(
-                                selected = scheduleKind == kind,
-                                onClick = { scheduleKind = kind },
-                                label = { Text(kind.name) },
-                            )
+                ClawCard {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Text("Execution mode", style = MaterialTheme.typography.titleSmall, color = ClawInk)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            TaskExecutionMode.values().forEach { mode ->
+                                ClawChoicePill(
+                                    text = mode.name,
+                                    selected = executionMode == mode,
+                                    onClick = { executionMode = mode },
+                                )
+                            }
                         }
-                    }
-                    when (scheduleKind) {
-                        TaskScheduleKindUi.Once -> {
-                            OutlinedTextField(
-                                value = onceAt,
-                                onValueChange = { onceAt = it },
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .testTag("taskOnceAtField"),
-                                label = { Text("Run at (ISO-8601 UTC)") },
-                            )
-                        }
-                        TaskScheduleKindUi.Interval -> {
-                            OutlinedTextField(
-                                value = intervalMinutes,
-                                onValueChange = { intervalMinutes = it },
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .testTag("taskIntervalMinutesField"),
-                                label = { Text("Repeat every minutes") },
-                            )
-                        }
-                        TaskScheduleKindUi.Cron -> {
-                            OutlinedTextField(
-                                value = cronExpression,
-                                onValueChange = { cronExpression = it },
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .testTag("taskCronExpressionField"),
-                                label = { Text("Cron expression") },
-                            )
-                        }
-                    }
-                    Text("Execution mode", style = MaterialTheme.typography.labelMedium)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(
-                            items = TaskExecutionMode.values().toList(),
-                            key = { it.name },
-                        ) { mode ->
-                            FilterChip(
-                                selected = executionMode == mode,
-                                onClick = { executionMode = mode },
-                                label = { Text(mode.name) },
-                            )
-                        }
-                    }
-                    Text("Target session", style = MaterialTheme.typography.labelMedium)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item {
-                            FilterChip(
+                        Text("Target session", style = MaterialTheme.typography.titleSmall, color = ClawInk)
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            ClawChoicePill(
+                                text = "Main session",
                                 selected = selectedSessionId.isBlank(),
                                 onClick = { selectedSessionId = "" },
-                                label = { Text("Main session") },
                             )
-                        }
-                        items(state.sessions, key = { it.id }) { session ->
-                            FilterChip(
-                                selected = selectedSessionId == session.id,
-                                onClick = { selectedSessionId = session.id },
-                                label = { Text(session.title) },
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = if (precise) "Precise exact-alarm eligible" else "Approximate WorkManager",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Switch(
-                            modifier =
-                                Modifier.semantics {
-                                    stateDescription =
-                                        if (precise) {
-                                            "Precise scheduling enabled"
-                                        } else {
-                                            "Approximate scheduling enabled"
-                                        }
-                                },
-                            checked = precise,
-                            onCheckedChange = { precise = it },
-                        )
-                    }
-                    if (precise) {
-                        val creationWarnings = state.diagnostics.preciseSchedulingWarnings()
-                        if (creationWarnings.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SchedulerCard(
-                                    title = "Precise reminder warning",
-                                    body = creationWarnings.joinToString("\n"),
+                            state.sessions.forEach { session ->
+                                ClawChoicePill(
+                                    text = session.title,
+                                    selected = selectedSessionId == session.id,
+                                    onClick = { selectedSessionId = session.id },
                                 )
-                                if (state.diagnostics.supportsExactAlarms &&
-                                    !state.diagnostics.exactAlarmGranted ||
-                                    state.diagnostics.preciseReminderVisibilityWarning != null
-                                ) {
-                                    ExactAlarmActionRow(
-                                        diagnostics = state.diagnostics,
-                                        context = context,
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = if (precise) "Precise exact-alarm eligible" else "Approximate WorkManager",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = ClawInk,
+                            )
+                            Switch(
+                                modifier =
+                                    Modifier.semantics {
+                                        stateDescription =
+                                            if (precise) {
+                                                "Precise scheduling enabled"
+                                            } else {
+                                                "Approximate scheduling enabled"
+                                            }
+                                    },
+                                checked = precise,
+                                onCheckedChange = { precise = it },
+                            )
+                        }
+                        if (precise) {
+                            val creationWarnings = state.diagnostics.preciseSchedulingWarnings()
+                            if (creationWarnings.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SchedulerCard(
+                                        title = "Precise reminder warning",
+                                        body = creationWarnings.joinToString("\n"),
                                     )
+                                    if (state.diagnostics.supportsExactAlarms &&
+                                        !state.diagnostics.exactAlarmGranted ||
+                                        state.diagnostics.preciseReminderVisibilityWarning != null
+                                    ) {
+                                        ExactAlarmActionRow(
+                                            diagnostics = state.diagnostics,
+                                            context = context,
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                    Button(
-                        modifier = Modifier.testTag("createTaskButton"),
-                        onClick = {
-                            val minimumMinutes = state.capabilities.minimumBackgroundInterval.toMinutes()
-                            val schedule =
-                                runCatching {
-                                    when (scheduleKind) {
-                                        TaskScheduleKindUi.Once -> {
-                                            val scheduledAt = Instant.parse(onceAt.trim())
-                                            require(scheduledAt.isAfter(Instant.now())) {
-                                                "Once tasks must be scheduled in the future."
-                                            }
-                                            TaskSchedule.Once(scheduledAt)
-                                        }
-                                        TaskScheduleKindUi.Interval -> {
-                                            val minutes = intervalMinutes.trim().toLong()
-                                            require(minutes >= minimumMinutes) {
-                                                "Intervals must be at least $minimumMinutes minutes."
-                                            }
-                                            TaskSchedule.Interval(
-                                                anchorAt = Instant.now(),
-                                                repeatEvery = Duration.ofMinutes(minutes),
-                                            )
-                                        }
-                                        TaskScheduleKindUi.Cron ->
-                                            TaskSchedule.Cron(
-                                                expression = CronExpression.parse(cronExpression.trim()),
-                                                zoneId = ZoneId.systemDefault(),
-                                            )
-                                    }
-                                }.getOrElse { error ->
-                                    formMessage = error.message ?: "Invalid task schedule."
-                                    return@Button
-                                }
-
-                            if (name.trim().isBlank() || prompt.trim().isBlank()) {
-                                formMessage = "Task name and prompt are required."
-                                return@Button
-                            }
-
-                            viewModel.createTask(
-                                name = name.trim(),
-                                prompt = prompt.trim(),
-                                schedule = schedule,
-                                executionMode = executionMode,
-                                targetSessionId = selectedSessionId.takeIf { it.isNotBlank() },
-                                precise = precise,
-                            )
-                            name = ""
-                            prompt = ""
-                            formMessage = null
-                        },
-                    ) {
-                        Text("Create task")
+                        ClawPrimaryButton(
+                            text = "Create task",
+                            onClick = createTaskFromForm,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("createTaskButton"),
+                        )
                     }
                 }
             }
-        }
-        if (state.tasks.isEmpty()) {
+            if (state.tasks.isEmpty()) {
+                item {
+                    ClawCard {
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ClawIconBadge(
+                                iconRes = R.drawable.ic_nav_tasks,
+                                background = Color(0xFFF0F2F6),
+                                iconColor = ClawInk,
+                            )
+                            Column {
+                                Text("Saved tasks", style = MaterialTheme.typography.titleMedium, color = ClawInk)
+                                Text("No tasks yet.", style = MaterialTheme.typography.bodyMedium, color = ClawInkMuted)
+                            }
+                        }
+                    }
+                }
+            } else {
+                items(state.tasks, key = { it.id }) { task ->
+                    val decision = task.schedulingDecision(state.diagnostics)
+                    TaskCard(
+                        task = task,
+                        decision = decision,
+                        preciseWarnings = task.userVisiblePreciseWarnings(state.diagnostics),
+                        restrictedBucket = state.diagnostics.isRestrictedBucket,
+                        diagnostics = state.diagnostics,
+                        recentRuns = state.recentRunsByTaskId[task.id].orEmpty(),
+                        runUsageSummaryByRunId = state.runUsageSummaryByRunId,
+                        onToggleEnabled = { viewModel.toggleEnabled(task.id) },
+                        onRunNow = { viewModel.runNow(task.id) },
+                        onDelete = { viewModel.deleteTask(task.id) },
+                        context = context,
+                    )
+                }
+            }
             item {
-                SchedulerCard(
-                    title = "Saved tasks",
-                    body = "No tasks yet.",
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ClawActionPill(
+                        text = "Refresh diagnostics",
+                        onClick = viewModel::refreshDiagnostics,
+                        selected = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ClawActionPill(
+                        text = "Clear status",
+                        onClick = viewModel::clearActionMessage,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            item {
+                ClawInfoCard(
+                    title = "Next @daily preview",
+                    body = state.nextDailyPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
+                    iconRes = R.drawable.ic_nav_tasks,
+                    badge = if (state.nextDailyPreview != null) "Live" else null,
                 )
             }
-        } else {
-            items(state.tasks, key = { it.id }) { task ->
-                val decision = task.schedulingDecision(state.diagnostics)
-                TaskCard(
-                    task = task,
-                    decision = decision,
-                    preciseWarnings = task.userVisiblePreciseWarnings(state.diagnostics),
-                    restrictedBucket = state.diagnostics.isRestrictedBucket,
-                    diagnostics = state.diagnostics,
-                    recentRuns = state.recentRunsByTaskId[task.id].orEmpty(),
-                    runUsageSummaryByRunId = state.runUsageSummaryByRunId,
-                    onToggleEnabled = { viewModel.toggleEnabled(task.id) },
-                    onRunNow = { viewModel.runNow(task.id) },
-                    onDelete = { viewModel.deleteTask(task.id) },
-                    context = context,
+            item {
+                ClawInfoCard(
+                    title = "Supported kinds",
+                    body = state.capabilities.supportedKinds.joinToString(),
+                    iconRes = R.drawable.ic_plus_circle,
+                )
+            }
+            item {
+                ClawInfoCard(
+                    title = "Minimum background interval",
+                    body = "${state.capabilities.minimumBackgroundInterval.toMinutes()} minutes",
+                    iconRes = R.drawable.ic_nav_health,
+                )
+            }
+            item {
+                SchedulerCard(
+                    title = "Exact alarm status",
+                    body =
+                        buildString {
+                            append("Supported: ").append(state.diagnostics.supportsExactAlarms)
+                            append("\nGranted: ").append(state.diagnostics.exactAlarmGranted)
+                            append("\nNotification permission: ").append(
+                                if (state.diagnostics.notificationVisibility.runtimePermissionRequired) {
+                                    if (state.diagnostics.notificationVisibility.runtimePermissionGranted) {
+                                        "granted"
+                                    } else {
+                                        "denied"
+                                    }
+                                } else {
+                                    "not required"
+                                },
+                            )
+                            append("\nApp notifications enabled: ").append(state.diagnostics.notificationVisibility.appNotificationsEnabled)
+                            append("\nStandby bucket: ").append(state.diagnostics.standbyBucket?.label ?: "Unavailable")
+                            if (state.diagnostics.isRestrictedBucket) {
+                                append("\nApp is in restricted bucket; background work may be delayed.")
+                            }
+                            state.diagnostics.preciseReminderVisibilityWarning?.let { warning ->
+                                append("\n").append(warning)
+                            }
+                        },
+                    iconRes = R.drawable.ic_nav_health,
+                )
+            }
+            item {
+                ClawInfoCard(
+                    title = "Task notifications",
+                    body = "Scheduled task results and failures use separate Android notification channels so success noise can be muted without hiding failures.",
+                    iconRes = R.drawable.ic_nav_tasks,
+                    actionLabel = "Open notification settings",
+                    onAction = { context.startActivity(buildNotificationSettingsIntent(context)) },
+                )
+            }
+            item {
+                ClawInfoCard(
+                    title = "Next 9am weekday cron preview",
+                    body = state.nextWeekdayPreview?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "Unavailable",
+                    iconRes = R.drawable.ic_nav_tasks,
                 )
             }
         }
@@ -435,7 +498,7 @@ private fun TaskCard(
 ) {
     val latestRun = recentRuns.firstOrNull()
     val latestRunUsageSummary = latestRun?.let { runUsageSummaryByRunId[it.id] }
-    Card(
+    ClawCard(
         modifier =
             Modifier
                 .fillMaxWidth()
@@ -445,8 +508,17 @@ private fun TaskCard(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(task.name, style = MaterialTheme.typography.titleMedium)
-            Text(task.prompt, style = MaterialTheme.typography.bodyMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(task.name, style = MaterialTheme.typography.titleMedium, color = ClawInk)
+                    Text(task.prompt, style = MaterialTheme.typography.bodyMedium, color = ClawInkMuted)
+                }
+                ClawStatusDot(active = task.enabled)
+            }
             TaskFactRow(
                 label = "Execution",
                 value =
@@ -568,30 +640,28 @@ private fun TaskCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(
+                ClawActionPill(
+                    text = if (task.enabled) "Disable" else "Enable",
                     onClick = onToggleEnabled,
                     modifier = Modifier.weight(1f),
-                ) {
-                    Text(if (task.enabled) "Disable" else "Enable")
-                }
-                Button(
+                )
+                ClawActionPill(
+                    text = "Run now",
                     onClick = onRunNow,
                     modifier =
                         Modifier
                             .weight(1f)
                             .testTag("runTaskNow-${task.id}"),
-                ) {
-                    Text("Run now")
-                }
-                Button(
+                    selected = true,
+                )
+                ClawActionPill(
+                    text = "Delete",
                     onClick = onDelete,
                     modifier =
                         Modifier
                             .weight(1f)
                             .testTag("deleteTask-${task.id}"),
-                ) {
-                    Text("Delete")
-                }
+                )
             }
             if (recentRuns.size > 1) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -655,28 +725,20 @@ private fun TaskFactRow(
     label: String,
     value: String,
 ) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Text(value, style = MaterialTheme.typography.bodySmall)
-    }
+    ClawFactRow(label = label, value = value)
 }
 
 @Composable
 private fun SchedulerCard(
     title: String,
     body: String,
+    iconRes: Int? = null,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(body, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
+    ClawInfoCard(
+        title = title,
+        body = body,
+        iconRes = iconRes,
+    )
 }
 
 @Composable

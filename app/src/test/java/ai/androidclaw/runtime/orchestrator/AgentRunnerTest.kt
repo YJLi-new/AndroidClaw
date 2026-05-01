@@ -244,6 +244,90 @@ class AgentRunnerTest {
         }
 
     @Test
+    fun `compact slash command without text generates local summary and stores boundary`() =
+        runTest {
+            messageRepository.addMessage(sessionId, ai.androidclaw.data.model.MessageRole.User, "We are improving compact behavior.")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId,
+                    ai.androidclaw.data.model.MessageRole.Assistant,
+                    "Next step is to hide older turns without deleting them.",
+                )
+            val testClock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC)
+            val schedulerCoordinator =
+                SchedulerCoordinator(
+                    application = application,
+                    clock = testClock,
+                    taskRepository = taskRepository,
+                    eventLogRepository = eventLogRepository,
+                )
+            val toolRegistry =
+                createBuiltInToolRegistry(
+                    application = application,
+                    settingsDataStore = settingsDataStore,
+                    sessionRepository = sessionRepository,
+                    taskRepository = taskRepository,
+                    schedulerCoordinator = schedulerCoordinator,
+                    bundledSkillsProvider = { emptyList() },
+                    eventLogRepository = eventLogRepository,
+                    clock = testClock,
+                )
+            val skillManager =
+                buildSkillManager(
+                    toolRegistry = toolRegistry,
+                    skills =
+                        listOf(
+                            skillSnapshot(
+                                id = "compact",
+                                name = "compact",
+                                commandDispatch = SkillCommandDispatch.Tool,
+                                commandTool = "sessions.compact",
+                            ),
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider = failOnGenerateProvider(),
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = skillManager,
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                    loadSessionSummary = { id -> sessionRepository.getSession(id)?.summaryText },
+                    loadSessionCompactionBoundary = { id -> sessionRepository.getSession(id)?.compactedUntilMessageId },
+                )
+
+            val result =
+                runner.runInteractiveTurn(
+                    AgentTurnRequest(
+                        sessionId = sessionId,
+                        userMessage = "/compact",
+                    ),
+                )
+
+            val storedSession = sessionRepository.getSession(sessionId)
+            assertTrue(result.assistantMessage.contains("Compacted this session"))
+            val storedBoundaryId = storedSession?.compactedUntilMessageId
+            assertNotNull(storedBoundaryId)
+            assertTrue(storedBoundaryId != boundary.id)
+            val storedBoundaryMessage =
+                messageRepository
+                    .getMessagesByIds(listOf(storedBoundaryId.orEmpty()))
+                    .values
+                    .single()
+            assertEquals(ai.androidclaw.data.model.MessageRole.ToolCall, storedBoundaryMessage.role)
+            assertTrue(storedBoundaryMessage.content.startsWith("Tool request: sessions.compact"))
+            assertTrue(!storedBoundaryMessage.content.contains("improving compact behavior"))
+            assertTrue(storedSession?.summaryText.orEmpty().contains("Recent transcript:"))
+            assertTrue(storedSession?.summaryText.orEmpty().contains("improving compact behavior"))
+            assertTrue(storedSession?.summaryText.orEmpty().contains("hide older turns"))
+        }
+
+    @Test
     fun `blocked slash skill returns eligibility reason instead of falling through to provider`() =
         runTest {
             val toolRegistry =
@@ -361,6 +445,78 @@ class AgentRunnerTest {
                         message.content.contains("Tool result:")
                 },
             )
+        }
+
+    @Test
+    fun `provider turn uses compacted summary and excludes hidden boundary history`() =
+        runTest {
+            messageRepository.addMessage(sessionId, ai.androidclaw.data.model.MessageRole.User, "old setup should be hidden")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId,
+                    ai.androidclaw.data.model.MessageRole.Assistant,
+                    "old answer should be hidden",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = sessionId,
+                summaryText = "Older turns covered compact setup.",
+                compactedUntilMessageId = boundary.id,
+            )
+            messageRepository.addMessage(sessionId, ai.androidclaw.data.model.MessageRole.User, "/compact")
+            messageRepository.addMessage(
+                sessionId,
+                ai.androidclaw.data.model.MessageRole.ToolCall,
+                "Tool request: sessions.compact {\"summary\":\"old setup should be hidden in compact payload\"}",
+            )
+            messageRepository.addMessage(
+                sessionId,
+                ai.androidclaw.data.model.MessageRole.ToolResult,
+                "Tool result: Compacted this session summary and hid older messages.",
+            )
+            messageRepository.addMessage(
+                sessionId,
+                ai.androidclaw.data.model.MessageRole.Assistant,
+                "Compacted this session summary and hid older messages.\n\nActive skills: compact",
+            )
+            var capturedRequest: ModelRequest? = null
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        capturedRequest = request
+                                        return ModelResponse(text = "Reply after compact")
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(ToolRegistry(emptyList()), skills = emptyList()),
+                    toolRegistry = ToolRegistry(emptyList()),
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                    loadSessionSummary = { id -> sessionRepository.getSession(id)?.summaryText },
+                    loadSessionCompactionBoundary = { id -> sessionRepository.getSession(id)?.compactedUntilMessageId },
+                )
+
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "continue after compact",
+                ),
+            )
+
+            val historyText = capturedRequest?.messageHistory?.joinToString("\n") { it.content }.orEmpty()
+            assertTrue(historyText.contains("Session summary: Older turns covered compact setup."))
+            assertTrue(historyText.contains("continue after compact"))
+            assertTrue(!historyText.contains("old setup should be hidden"))
+            assertTrue(!historyText.contains("old answer should be hidden"))
+            assertTrue(!historyText.contains("old setup should be hidden in compact payload"))
+            assertTrue(!historyText.contains("Tool result: Compacted this session"))
         }
 
     @Test

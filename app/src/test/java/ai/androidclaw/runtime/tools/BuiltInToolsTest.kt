@@ -118,14 +118,17 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("command", "Goal: finish /compact. Next: validate and push.")
+                            put("compactedUntilMessageId", "message-boundary")
                         },
                 )
 
             assertTrue(result.success)
-            assertEquals("Compacted this session with an explicit summary.", result.summary)
+            assertEquals("Compacted this session summary and hid older messages.", result.summary)
             assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
             assertEquals("Goal: finish /compact. Next: validate and push.", result.payload["summaryText"]?.jsonPrimitive?.content)
-            assertEquals("Goal: finish /compact. Next: validate and push.", sessionRepository.getSession(session.id)?.summaryText)
+            val storedSession = sessionRepository.getSession(session.id)
+            assertEquals("Goal: finish /compact. Next: validate and push.", storedSession?.summaryText)
+            assertEquals("message-boundary", storedSession?.compactedUntilMessageId)
         }
 
     @Test
@@ -140,11 +143,32 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("command", "   ")
+                            put("compactedUntilMessageId", "message-boundary")
                         },
                 )
 
             assertFalse(result.success)
             assertEquals("MISSING_SUMMARY", result.errorCode)
+            assertEquals(null, sessionRepository.getSession(session.id)?.summaryText)
+        }
+
+    @Test
+    fun `sessions compact requires a compaction boundary`() =
+        runTest {
+            val session = sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compact", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "Summary text without a source boundary.")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("EMPTY_COMPACT_SOURCE", result.errorCode)
             assertEquals(null, sessionRepository.getSession(session.id)?.summaryText)
         }
 

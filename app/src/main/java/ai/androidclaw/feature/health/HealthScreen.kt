@@ -1,6 +1,10 @@
 package ai.androidclaw.feature.health
 
-import ai.androidclaw.ui.components.ScreenHeader
+import ai.androidclaw.R
+import ai.androidclaw.ui.components.ClawActionPill
+import ai.androidclaw.ui.components.ClawInfoCard
+import ai.androidclaw.ui.components.ClawPage
+import ai.androidclaw.ui.components.ClawScreenHeader
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -8,17 +12,11 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,158 +69,127 @@ fun HealthScreen(viewModel: HealthViewModel) {
         viewModel.refreshDiagnostics()
     }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ScreenHeader(
-            title = "Health",
-            subtitle = "Inspect provider, scheduler, and recent runtime diagnostics in one place.",
-            titleTestTag = "healthHeading",
-        )
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    ClawPage(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             item {
-                Button(onClick = viewModel::refreshDiagnostics) {
-                    Text("Refresh diagnostics")
-                }
+                ClawScreenHeader(
+                    iconRes = R.drawable.ic_nav_health,
+                    title = "Health",
+                    subtitle = "Inspect provider, scheduler, and recent runtime diagnostics.",
+                    titleTestTag = "healthHeading",
+                )
             }
             item {
-                Button(
-                    onClick = {
-                        clipboardManager.setText(AnnotatedString(buildDiagnosticsReport(state)))
-                        diagnosticsNotice = "Diagnostics copied to clipboard."
-                    },
-                ) {
-                    Text("Copy diagnostics")
-                }
-            }
-            item {
-                Button(
-                    onClick = {
-                        val payload = buildDiagnosticsExportPayload(state)
-                        pendingExport = payload
-                        exportLauncher.launch(createDiagnosticsExportIntent(payload))
-                    },
-                ) {
-                    Text("Export diagnostics")
-                }
-            }
-            item {
-                Button(
-                    onClick = {
-                        val payload = buildDiagnosticsExportPayload(state)
-                        runCatching {
-                            val uri = writeDiagnosticsShareFile(context, payload)
-                            launchDiagnosticsShareFile(context, payload, uri)
-                        }.onSuccess {
-                            diagnosticsNotice = "Opening share sheet."
-                        }.onFailure { error ->
-                            diagnosticsNotice = "Failed to share diagnostics: ${error.message ?: "unknown error"}."
-                        }
-                    },
-                ) {
-                    Text("Share diagnostics")
-                }
-            }
-        }
-        diagnosticsNotice?.let { notice ->
-            HealthCard(
-                title = "Diagnostics",
-                body = notice,
-            )
-        }
-        HealthCard(
-            title = "Provider",
-            body =
-                buildString {
-                    append("Active provider: ").append(state.providerId)
-                    append("\nNetwork: ").append(state.networkSummary)
-                    append("\nStatus: ").append(state.providerStatus)
-                    state.lastProviderIssue?.let { issue ->
-                        append("\nLast issue: ").append(issue)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        ClawActionPill(
+                            text = "Refresh diagnostics",
+                            onClick = viewModel::refreshDiagnostics,
+                            selected = true,
+                        )
                     }
-                },
-        )
-        HealthCard(
-            title = "Scheduler",
-            body =
-                buildString {
-                    append("Kinds: ").append(state.supportedKinds.joinToString())
-                    append("\nExact alarms supported: ").append(state.schedulerDiagnostics.supportsExactAlarms)
-                    append("\nExact alarm granted: ").append(state.schedulerDiagnostics.exactAlarmGranted)
-                    append(
-                        "\nNotification permission: ",
-                    ).append(
-                        if (state.schedulerDiagnostics.notificationVisibility.runtimePermissionRequired) {
-                            if (state.schedulerDiagnostics.notificationVisibility.runtimePermissionGranted) {
-                                "granted"
-                            } else {
-                                "denied"
-                            }
-                        } else {
-                            "not required"
+                    item {
+                        ClawActionPill(
+                            text = "Copy diagnostics",
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(buildDiagnosticsReport(state)))
+                                diagnosticsNotice = "Diagnostics copied to clipboard."
+                            },
+                        )
+                    }
+                    item {
+                        ClawActionPill(
+                            text = "Export",
+                            onClick = {
+                                val payload = buildDiagnosticsExportPayload(state)
+                                pendingExport = payload
+                                exportLauncher.launch(createDiagnosticsExportIntent(payload))
+                            },
+                        )
+                    }
+                    item {
+                        ClawActionPill(
+                            text = "Share",
+                            onClick = {
+                                val payload = buildDiagnosticsExportPayload(state)
+                                runCatching {
+                                    val uri = writeDiagnosticsShareFile(context, payload)
+                                    launchDiagnosticsShareFile(context, payload, uri)
+                                }.onSuccess {
+                                    diagnosticsNotice = "Opening share sheet."
+                                }.onFailure { error ->
+                                    diagnosticsNotice = "Failed to share diagnostics: ${error.message ?: "unknown error"}."
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+            diagnosticsNotice?.let { notice ->
+                item {
+                    HealthCard(
+                        title = "Diagnostics",
+                        body = notice,
+                        iconRes = R.drawable.ic_nav_health,
+                    )
+                }
+            }
+            item { ProviderHealthCard(state) }
+            item { SchedulerHealthCard(state) }
+            item {
+                HealthCard(
+                    title = "Automation diagnostics",
+                    body =
+                        buildString {
+                            append(
+                                "Last scheduler wake: ${
+                                    state.lastSchedulerWake?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "None"
+                                }",
+                            )
+                            append("\nLast automation result: ").append(state.lastAutomationResult ?: "None")
+                            append("\nLast worker stop reason: ").append(state.lastWorkerStopReason ?: "None")
                         },
-                    )
-                    append(
-                        "\nApp notifications enabled: ",
-                    ).append(state.schedulerDiagnostics.notificationVisibility.appNotificationsEnabled)
-                    append(
-                        "\nStandby bucket: ${
-                            state.schedulerDiagnostics.standbyBucket?.label ?: "Unavailable"
-                        }",
-                    )
-                    if (state.schedulerDiagnostics.isRestrictedBucket) {
-                        append("\nApp is in restricted bucket; background work may be throttled.")
-                    }
-                    state.schedulerDiagnostics.preciseReminderVisibilityWarning?.let { warning ->
-                        append("\n").append(warning)
-                    }
-                },
-        )
-        HealthCard(
-            title = "Automation diagnostics",
-            body =
-                buildString {
-                    append(
-                        "Last scheduler wake: ${
-                            state.lastSchedulerWake?.let(DateTimeFormatter.ISO_INSTANT::format) ?: "None"
-                        }",
-                    )
-                    append("\nLast automation result: ").append(state.lastAutomationResult ?: "None")
-                    append("\nLast worker stop reason: ").append(state.lastWorkerStopReason ?: "None")
-                },
-        )
-        HealthCard(
-            title = "Tool registry",
-            body = state.tools.joinToString(),
-        )
-        state.lastCrashSummary?.let { crashSummary ->
-            HealthCard(
-                title = "Last crash",
-                body =
-                    buildString {
-                        append(crashSummary)
-                        state.lastCrashStackTrace?.takeIf { it.isNotBlank() }?.let { stackTrace ->
-                            append("\n\n").append(stackTrace)
-                        }
-                    },
-            )
-            Button(onClick = viewModel::clearCrashNotice) {
-                Text("Clear crash notice")
+                    iconRes = R.drawable.ic_nav_skills,
+                )
             }
-        }
-        HealthCard(
-            title = "Bug reports",
-            body = state.bugReportInstructions,
-        )
-        if (state.recentEvents.isNotEmpty()) {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            item {
+                HealthCard(
+                    title = "Tool registry (${state.tools.size} tools)",
+                    body = state.tools.joinToString(),
+                    iconRes = R.drawable.ic_plus_circle,
+                )
+            }
+            state.lastCrashSummary?.let { crashSummary ->
+                item {
+                    HealthCard(
+                        title = "Last crash",
+                        body =
+                            buildString {
+                                append(crashSummary)
+                                state.lastCrashStackTrace?.takeIf { it.isNotBlank() }?.let { stackTrace ->
+                                    append("\n\n").append(stackTrace)
+                                }
+                            },
+                        iconRes = R.drawable.ic_nav_health,
+                        actionLabel = "Clear crash notice",
+                        onAction = viewModel::clearCrashNotice,
+                    )
+                }
+            }
+            item {
+                HealthCard(
+                    title = "Bug reports",
+                    body = state.bugReportInstructions,
+                    iconRes = R.drawable.ic_nav_chat,
+                )
+            }
+            if (state.recentEvents.isNotEmpty()) {
                 items(state.recentEvents, key = { it.id }) { event ->
                     HealthCard(
                         title = "${event.category} ${event.level}",
@@ -244,16 +211,75 @@ fun HealthScreen(viewModel: HealthViewModel) {
 private fun HealthCard(
     title: String,
     body: String,
+    iconRes: Int? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(body, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
+    ClawInfoCard(
+        title = title,
+        body = body,
+        iconRes = iconRes,
+        actionLabel = actionLabel,
+        onAction = onAction,
+    )
+}
+
+@Composable
+private fun ProviderHealthCard(state: HealthUiState) {
+    ClawInfoCard(
+        title = "Provider",
+        body =
+            buildString {
+                append("Active provider: ").append(state.providerId)
+                append("\nNetwork: ").append(state.networkSummary)
+                append("\nStatus: ").append(state.providerStatus)
+                state.lastProviderIssue?.let { issue ->
+                    append("\nLast issue: ").append(issue)
+                }
+            },
+        iconRes = R.drawable.ic_nav_settings,
+    )
+}
+
+@Composable
+private fun SchedulerHealthCard(state: HealthUiState) {
+    ClawInfoCard(
+        title = "Scheduler",
+        body =
+            buildString {
+                append("Kinds: ").append(state.supportedKinds.joinToString())
+                append("\nExact alarms supported: ").append(state.schedulerDiagnostics.supportsExactAlarms)
+                append("\nExact alarm granted: ").append(state.schedulerDiagnostics.exactAlarmGranted)
+                append(
+                    "\nNotification permission: ",
+                ).append(
+                    if (state.schedulerDiagnostics.notificationVisibility.runtimePermissionRequired) {
+                        if (state.schedulerDiagnostics.notificationVisibility.runtimePermissionGranted) {
+                            "granted"
+                        } else {
+                            "denied"
+                        }
+                    } else {
+                        "not required"
+                    },
+                )
+                append(
+                    "\nApp notifications enabled: ",
+                ).append(state.schedulerDiagnostics.notificationVisibility.appNotificationsEnabled)
+                append(
+                    "\nStandby bucket: ${
+                        state.schedulerDiagnostics.standbyBucket?.label ?: "Unavailable"
+                    }",
+                )
+                if (state.schedulerDiagnostics.isRestrictedBucket) {
+                    append("\nApp is in restricted bucket; background work may be throttled.")
+                }
+                state.schedulerDiagnostics.preciseReminderVisibilityWarning?.let { warning ->
+                    append("\n").append(warning)
+                }
+            },
+        iconRes = R.drawable.ic_nav_tasks,
+    )
 }
 
 private fun createDiagnosticsExportIntent(payload: HealthDiagnosticsExportPayload): Intent =

@@ -359,6 +359,85 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `compacted session hides older messages and does not reveal them in chat`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            val oldUser = messageRepository.addMessage(mainSession.id, MessageRole.User, "old setup")
+            val boundary = messageRepository.addMessage(mainSession.id, MessageRole.Assistant, "old answer")
+            messageRepository.addMessage(mainSession.id, MessageRole.User, "new question")
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = mainSession.id,
+                summaryText = "Old setup was answered.",
+                compactedUntilMessageId = boundary.id,
+            )
+
+            viewModel.state.test {
+                val compacted =
+                    awaitState {
+                        it.currentSessionId == mainSession.id &&
+                            it.compactedHiddenMessageCount == 2 &&
+                            it.messages.map { message -> message.text } == listOf("new question")
+                    }
+
+                assertEquals("Old setup was answered.", compacted.sessionSummary)
+                assertTrue(compacted.canCompactCurrentSession)
+
+                viewModel.toggleCompactedHistory()
+
+                val stillHidden = viewModel.state.value
+
+                assertTrue(!stillHidden.showCompactedHistory)
+                assertTrue(stillHidden.messages.none { message -> message.id == oldUser.id })
+                assertTrue(stillHidden.messages.none { message -> message.id == boundary.id })
+                assertEquals(listOf("new question"), stillHidden.messages.map { it.text })
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `compacted session hides compact command plumbing by default`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            messageRepository.addMessage(mainSession.id, MessageRole.User, "old setup should be hidden")
+            val compactToolCall =
+                messageRepository.addMessage(
+                    mainSession.id,
+                    MessageRole.ToolCall,
+                    "Tool request: sessions.compact {summary stored in session summary}",
+                )
+            messageRepository.addMessage(
+                mainSession.id,
+                MessageRole.ToolResult,
+                "Tool result: Compacted this session summary and hid older messages.",
+            )
+            messageRepository.addMessage(
+                mainSession.id,
+                MessageRole.Assistant,
+                "Compacted this session summary and hid older messages.\n\nActive skills: compact",
+            )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = mainSession.id,
+                summaryText = "Old setup was answered.",
+                compactedUntilMessageId = compactToolCall.id,
+            )
+
+            viewModel.state.test {
+                val compacted =
+                    awaitState {
+                        it.currentSessionId == mainSession.id &&
+                            it.compactedHiddenMessageCount == 2 &&
+                            it.messages.isEmpty()
+                    }
+
+                assertEquals("Old setup was answered.", compacted.sessionSummary)
+                assertTrue(!compacted.canCompactCurrentSession)
+                assertTrue(compacted.messages.none { message -> message.text.contains("old setup should be hidden") })
+                assertTrue(compacted.messages.none { message -> message.text.contains("sessions.compact") })
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
     fun `search opens matching session message and highlights it`() =
         runTest {
             val otherSession = sessionRepository.createSession("Project Alpha")
@@ -463,6 +542,8 @@ class ChatViewModelTest {
                     toolRegistry = toolRegistry,
                     sessionLaneCoordinator = SessionLaneCoordinator(),
                     promptAssembler = PromptAssembler(),
+                    loadSessionSummary = { id -> sessionRepository.getSession(id)?.summaryText },
+                    loadSessionCompactionBoundary = { id -> sessionRepository.getSession(id)?.compactedUntilMessageId },
                 ),
             skillManager = skillManager,
             settingsDataStore = settingsDataStore,

@@ -205,6 +205,7 @@ class AppContainer(
             promptAssembler = promptAssembler,
             sessionSummaryCoordinator = sessionSummaryCoordinator,
             loadSessionSummary = { sessionId -> sessionRepository.getSession(sessionId)?.summaryText },
+            loadSessionCompactionBoundary = { sessionId -> sessionRepository.getSession(sessionId)?.compactedUntilMessageId },
             networkStatusProvider = networkStatusProvider,
         )
 

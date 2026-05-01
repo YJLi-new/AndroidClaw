@@ -140,16 +140,20 @@ internal fun createBuiltInToolRegistry(
                                 ToolDescriptor(
                                     name = "sessions.compact",
                                     aliases = listOf("session.compact"),
-                                    description = "Store an explicit compacted summary for the active chat session.",
+                                    description = "Store a compacted summary and mark older active-session messages as summarized.",
                                     arguments =
                                         listOf(
                                             ToolArgumentSpec(
                                                 name = "summary",
-                                                description = "Explicit compacted summary text to store.",
+                                                description = "Compacted summary text to store.",
                                             ),
                                             ToolArgumentSpec(
                                                 name = "command",
                                                 description = "Raw slash command text used as the summary fallback.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "compactedUntilMessageId",
+                                                description = "Last message id included in the compacted summary.",
                                             ),
                                         ),
                                 ),
@@ -162,6 +166,18 @@ internal fun createBuiltInToolRegistry(
                                     payload =
                                         buildJsonObject {
                                             put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val compactedUntilMessageId = arguments.optionalText("compactedUntilMessageId")
+                            if (compactedUntilMessageId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No earlier messages are available to compact.",
+                                    errorCode = "EMPTY_COMPACT_SOURCE",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "EMPTY_COMPACT_SOURCE")
+                                            put("sessionId", sessionId)
                                         },
                                 )
                             }
@@ -180,15 +196,20 @@ internal fun createBuiltInToolRegistry(
                                 )
                             }
                             val boundedSummary = compactedSummary.take(COMPACT_SUMMARY_MAX_CHARS)
-                            sessionRepository.updateSummary(sessionId, boundedSummary)
+                            sessionRepository.updateSummaryAndCompactionBoundary(
+                                id = sessionId,
+                                summaryText = boundedSummary,
+                                compactedUntilMessageId = compactedUntilMessageId,
+                            )
                             ToolExecutionResult.success(
-                                summary = "Compacted this session with an explicit summary.",
+                                summary = "Compacted this session summary and hid older messages.",
                                 payload =
                                     buildJsonObject {
                                         put("sessionId", sessionId)
                                         put("summaryText", boundedSummary)
                                         put("summaryLength", boundedSummary.length)
                                         put("truncated", compactedSummary.length > COMPACT_SUMMARY_MAX_CHARS)
+                                        put("compactedUntilMessageId", compactedUntilMessageId)
                                     },
                             )
                         },

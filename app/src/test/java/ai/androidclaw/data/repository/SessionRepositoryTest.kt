@@ -78,4 +78,21 @@ class SessionRepositoryTest {
             assertEquals(listOf(alpha.id), results.map { it.sessionId })
             assertEquals("Alpha plan", results.single().sessionTitle)
         }
+
+    @Test
+    fun `summary updates preserve and set compaction boundary`() =
+        runTest {
+            val created = repository.createSession(title = "Compact me")
+
+            repository.updateSummaryAndCompactionBoundary(
+                id = created.id,
+                summaryText = "Initial compact summary.",
+                compactedUntilMessageId = "message-1",
+            )
+            repository.updateSummary(created.id, "Background refreshed summary.")
+
+            val stored = repository.getSession(created.id)
+            assertEquals("Background refreshed summary.", stored?.summaryText)
+            assertEquals("message-1", stored?.compactedUntilMessageId)
+        }
 }

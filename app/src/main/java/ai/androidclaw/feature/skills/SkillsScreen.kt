@@ -1,22 +1,35 @@
 package ai.androidclaw.feature.skills
 
+import ai.androidclaw.R
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillResolutionState
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
-import ai.androidclaw.ui.components.ScreenHeader
+import ai.androidclaw.ui.components.ClawActionPill
+import ai.androidclaw.ui.components.ClawCard
+import ai.androidclaw.ui.components.ClawFactRow
+import ai.androidclaw.ui.components.ClawGreen
+import ai.androidclaw.ui.components.ClawGreenMuted
+import ai.androidclaw.ui.components.ClawInk
+import ai.androidclaw.ui.components.ClawInkMuted
+import ai.androidclaw.ui.components.ClawPage
+import ai.androidclaw.ui.components.ClawScreenHeader
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -29,7 +42,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -52,70 +67,75 @@ fun SkillsScreen(viewModel: SkillsViewModel) {
         viewModel.refresh()
     }
 
-    Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ScreenHeader(
-            title = "Skills",
-            subtitle = "Manage bundled, local, and workspace SKILL.md capabilities available to the runtime.",
-            titleTestTag = "skillsHeading",
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ClawPage(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Button(
-                onClick = viewModel::refresh,
-                enabled = !state.isImporting,
+            ClawScreenHeader(
+                iconRes = R.drawable.ic_nav_skills,
+                title = "Skills",
+                subtitle = "Manage bundled, local, and workspace SKILL.md capabilities.",
+                titleTestTag = "skillsHeading",
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Refresh")
+                ClawActionPill(
+                    text = "Refresh",
+                    onClick = viewModel::refresh,
+                    enabled = !state.isImporting,
+                    selected = true,
+                    modifier = Modifier.weight(1f),
+                )
+                ClawActionPill(
+                    text = if (state.isImporting) "Importing..." else "Import zip",
+                    onClick = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed")) },
+                    enabled = !state.isImporting,
+                    modifier = Modifier.weight(1f),
+                )
             }
-            Button(
-                onClick = { importLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed")) },
-                enabled = !state.isImporting,
-            ) {
-                Text(if (state.isImporting) "Importing..." else "Import zip")
-            }
-        }
-        state.statusMessage?.let { message ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(message, style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = viewModel::clearStatusMessage) {
-                        Text("Dismiss")
+            state.statusMessage?.let { message ->
+                ClawCard(containerColor = ClawGreenMuted) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(message, style = MaterialTheme.typography.bodyMedium)
+                        Button(onClick = viewModel::clearStatusMessage) {
+                            Text("Dismiss")
+                        }
                     }
                 }
             }
-        }
-        if (state.loading && state.skills.isEmpty()) {
-            Text("Loading bundled and local SKILL.md files...")
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(state.skills, key = { it.id }) { skill ->
-                SkillCard(
-                    skill = skill,
-                    onToggle = { enabled ->
-                        viewModel.toggleSkill(
-                            skillId = skill.id,
-                            enabled = enabled,
-                        )
-                    },
-                    onConfigure =
-                        if (skill.hasConfigSurface()) {
-                            { viewModel.openConfiguration(skill) }
-                        } else {
-                            null
+            if (state.loading && state.skills.isEmpty()) {
+                Text("Loading bundled and local SKILL.md files...")
+            }
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(state.skills, key = { it.id }) { skill ->
+                    SkillCard(
+                        skill = skill,
+                        onToggle = { enabled ->
+                            viewModel.toggleSkill(
+                                skillId = skill.id,
+                                enabled = enabled,
+                            )
                         },
-                )
+                        onConfigure =
+                            if (skill.hasConfigSurface()) {
+                                { viewModel.openConfiguration(skill) }
+                            } else {
+                                null
+                            },
+                    )
+                }
             }
         }
     }
@@ -140,23 +160,39 @@ private fun SkillCard(
     onToggle: (Boolean) -> Unit,
     onConfigure: (() -> Unit)?,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    ClawCard {
         Column(
             modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top,
             ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(ClawGreenMuted),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = skill.displayName.take(1).uppercase(),
+                        color = ClawGreen,
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(skill.displayName, style = MaterialTheme.typography.titleMedium)
+                    Text(skill.displayName, style = MaterialTheme.typography.titleMedium, color = ClawInk)
                     Text(
                         text = "Source: ${skill.sourceLabel()}",
                         style = MaterialTheme.typography.labelMedium,
+                        color = ClawGreen,
                     )
                     if (skill.resolutionState == SkillResolutionState.Shadowed) {
                         Text(
@@ -177,6 +213,7 @@ private fun SkillCard(
             Text(
                 skill.frontmatter?.description ?: skill.parseError.orEmpty(),
                 style = MaterialTheme.typography.bodyMedium,
+                color = ClawInkMuted,
             )
             EligibilitySummary(skill = skill)
             skill.statusSummary(label = "Secrets", statuses = skill.secretStatuses)?.let { summary ->
@@ -186,10 +223,7 @@ private fun SkillCard(
                 Text(summary, style = MaterialTheme.typography.bodySmall)
             }
             skill.frontmatter?.commandTool?.let { commandTool ->
-                Text(
-                    text = "Dispatch tool: $commandTool",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                ClawFactRow(label = "Dispatch tool", value = commandTool)
             }
             if (skill.skillKey != skill.displayName) {
                 Text(
@@ -221,11 +255,13 @@ private fun EligibilitySummary(skill: SkillSnapshot) {
     Text(
         text = eligibilityText,
         style = MaterialTheme.typography.labelMedium,
+        color = ClawInk,
     )
     if (skill.eligibility.reasons.isNotEmpty()) {
         Text(
             text = skill.eligibility.reasons.joinToString(separator = "\n"),
             style = MaterialTheme.typography.bodySmall,
+            color = ClawInkMuted,
         )
     }
 }

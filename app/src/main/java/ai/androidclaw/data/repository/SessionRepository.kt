@@ -30,6 +30,7 @@ class SessionRepository(
                 updatedAt = now.toEpochMilli(),
                 archivedAt = null,
                 summaryText = null,
+                compactedUntilMessageId = null,
             )
         dao.insert(entity)
         return entity.toDomain()
@@ -83,6 +84,21 @@ class SessionRepository(
         )
     }
 
+    suspend fun updateSummaryAndCompactionBoundary(
+        id: String,
+        summaryText: String,
+        compactedUntilMessageId: String,
+    ) {
+        val existing = dao.getById(id) ?: return
+        dao.update(
+            existing.copy(
+                summaryText = summaryText,
+                compactedUntilMessageId = compactedUntilMessageId,
+                updatedAt = Instant.now().toEpochMilli(),
+            ),
+        )
+    }
+
     suspend fun searchSessions(
         query: String,
         limit: Int,
@@ -104,4 +120,5 @@ private fun SessionEntity.toDomain(): Session =
         updatedAt = Instant.ofEpochMilli(updatedAt),
         archived = archivedAt != null,
         summaryText = summaryText,
+        compactedUntilMessageId = compactedUntilMessageId,
     )

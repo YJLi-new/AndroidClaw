@@ -26,7 +26,7 @@ import androidx.room.RoomDatabase
         SkillRecordEntity::class,
         EventLogEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AndroidClawDatabase : RoomDatabase() {

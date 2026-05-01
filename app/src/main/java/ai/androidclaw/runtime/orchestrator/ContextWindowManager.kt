@@ -26,6 +26,7 @@ class ContextWindowManager(
         systemPrompt: String,
         persistedHistory: List<ModelMessage>,
         summaryText: String? = null,
+        forceSummary: Boolean = false,
     ): ContextWindowSelection {
         if (persistedHistory.isEmpty()) {
             val reservedUnits = estimateTextUnits(systemPrompt)
@@ -77,7 +78,7 @@ class ContextWindowManager(
         val truncated = selectedOrderedIndices.size < persistedHistory.size
         val selectedMessages = selectedOrderedIndices.map(persistedHistory::get).toMutableList()
         var summaryInserted = false
-        if (truncated && !summaryText.isNullOrBlank()) {
+        if ((truncated || forceSummary) && !summaryText.isNullOrBlank()) {
             val summaryMessage =
                 ModelMessage(
                     role = ModelMessageRole.System,
