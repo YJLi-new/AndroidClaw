@@ -36,8 +36,14 @@ jobs:
       - name: Ktlint validation
         run: ./scripts/run_ktlint.sh
 
-      - name: Fast validation
-        run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+      - name: Assemble debug
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:assembleDebug
+
+      - name: Unit tests
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:testDebugUnitTest
+
+      - name: Lint debug
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:lintDebug
 
       - name: Upload fast reports
         uses: actions/upload-artifact@v4
@@ -72,7 +78,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Packaging validation
-        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest :app:assembleQa :app:assembleRelease :app:bundleRelease
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:assembleDebugAndroidTest :app:assembleQa :app:assembleRelease :app:bundleRelease
 
       - name: Upload packaging outputs
         uses: actions/upload-artifact@v4
