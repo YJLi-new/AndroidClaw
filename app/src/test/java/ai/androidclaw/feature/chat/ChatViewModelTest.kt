@@ -30,6 +30,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
+import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -44,6 +45,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -563,11 +565,13 @@ private fun buildSkillManager(
 
 private suspend fun ReceiveTurbine<ChatUiState>.awaitState(
     predicate: (ChatUiState) -> Boolean,
-): ChatUiState {
-    while (true) {
-        val item = awaitItem()
-        if (predicate(item)) {
-            return item
+): ChatUiState =
+    withTurbineTimeout(20.seconds) {
+        while (true) {
+            val item = awaitItem()
+            if (predicate(item)) {
+                return@withTurbineTimeout item
+            }
         }
+        error("unreachable")
     }
-}
