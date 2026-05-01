@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -49,6 +50,18 @@ class SessionRepositoryTest {
             assertTrue(first.isMain)
             assertFalse(first.archived)
             assertEquals(listOf(first.id), emitted.await().map { it.id })
+        }
+
+    @Test
+    fun `get or create main session serializes concurrent callers`() =
+        runTest {
+            val sessions =
+                (1..20)
+                    .map { async { repository.getOrCreateMainSession() } }
+                    .awaitAll()
+
+            assertEquals(1, sessions.map { it.id }.toSet().size)
+            assertEquals(1, repository.observeSessions().first().count { it.isMain })
         }
 
     @Test

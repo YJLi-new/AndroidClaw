@@ -5,12 +5,16 @@ import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.model.Session
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.util.UUID
 
 class SessionRepository(
     private val dao: SessionDao,
 ) {
+    private val mainSessionMutex = Mutex()
+
     data class SearchResult(
         val sessionId: String,
         val sessionTitle: String,
@@ -37,8 +41,10 @@ class SessionRepository(
     }
 
     suspend fun getOrCreateMainSession(): Session =
-        dao.getMainSession()?.toDomain()
-            ?: createSession(title = "Main session", isMain = true)
+        mainSessionMutex.withLock {
+            dao.getMainSession()?.toDomain()
+                ?: createSession(title = "Main session", isMain = true)
+        }
 
     suspend fun getSession(id: String): Session? = dao.getById(id)?.toDomain()
 
