@@ -17,6 +17,7 @@ import androidx.work.Configuration
 import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
+import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -29,6 +30,7 @@ import org.junit.runner.RunWith
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -185,11 +187,13 @@ class TasksViewModelTest {
 
 private suspend fun ReceiveTurbine<TasksUiState>.awaitState(
     predicate: (TasksUiState) -> Boolean,
-): TasksUiState {
-    while (true) {
-        val item = awaitItem()
-        if (predicate(item)) {
-            return item
+): TasksUiState =
+    withTurbineTimeout(20.seconds) {
+        while (true) {
+            val item = awaitItem()
+            if (predicate(item)) {
+                return@withTurbineTimeout item
+            }
         }
+        error("unreachable")
     }
-}
