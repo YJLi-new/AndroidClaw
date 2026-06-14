@@ -54,10 +54,15 @@ object LocalMemoryExtractor {
         buildList {
             val cleanedUserMessage = cleanup(userMessage)
             explicitRememberFact(cleanedUserMessage)?.let(::add)
+            chineseExplicitRememberFact(cleanedUserMessage)?.let(::add)
             addAll(preferenceFacts(cleanedUserMessage))
+            addAll(chinesePreferenceFacts(cleanedUserMessage))
             identityFact(cleanedUserMessage)?.let(::add)
+            chineseIdentityFact(cleanedUserMessage)?.let(::add)
             locationFact(cleanedUserMessage)?.let(::add)
+            chineseLocationFact(cleanedUserMessage)?.let(::add)
             workplaceFact(cleanedUserMessage)?.let(::add)
+            chineseWorkplaceFact(cleanedUserMessage)?.let(::add)
             addAll(assistantActionFacts(assistantMessage))
         }.map { it.take(MAX_FACT_CHARS).trim() }
             .filter { it.length >= MIN_FACT_CHARS }
@@ -71,6 +76,17 @@ object LocalMemoryExtractor {
         return "User said to remember: ${match.groupValues[1].trimSentence()}"
     }
 
+    private fun chineseExplicitRememberFact(text: String): String? {
+        val match =
+            Regex(
+                pattern = """(?:请|麻烦|帮我|帮忙)?\s*记住(?:一下)?(?:这个|这件事)?[：:，,\s]*([^。！？.!?]{2,240})""",
+            ).find(text) ?: return null
+        if (text.hasChineseRememberNegationBefore(match.range.first)) {
+            return null
+        }
+        return "User said to remember: ${match.groupValues[1].trimSentence()}"
+    }
+
     private fun preferenceFacts(text: String): List<String> =
         Regex(
             pattern = """(?i)\b(?:i|we)\s+(prefer|like|love|use|want|need)\s+([^.!?]{3,160})""",
@@ -80,10 +96,35 @@ object LocalMemoryExtractor {
                 "$subject ${match.groupValues[1].lowercase()}s ${match.groupValues[2].trimSentence()}"
             }.toList()
 
+    private fun chinesePreferenceFacts(text: String): List<String> =
+        Regex(
+            pattern = """(我|我们)\s*(喜欢|偏好|使用|常用|需要|想要|希望)\s*([^。！？.!?]{2,160})""",
+        ).findAll(text)
+            .map { match ->
+                val subject = if (match.groupValues[1] == "我们") "User's team" else "User"
+                val verb =
+                    when (match.groupValues[2]) {
+                        "喜欢" -> "likes"
+                        "偏好" -> "prefers"
+                        "使用", "常用" -> "uses"
+                        "需要" -> "needs"
+                        else -> "wants"
+                    }
+                "$subject $verb ${match.groupValues[3].trimSentence()}"
+            }.toList()
+
     private fun identityFact(text: String): String? {
         val match =
             Regex(
                 pattern = """(?i)\bmy name is\s+([^.!?,]{2,80})""",
+            ).find(text) ?: return null
+        return "User's name is ${match.groupValues[1].trimSentence()}"
+    }
+
+    private fun chineseIdentityFact(text: String): String? {
+        val match =
+            Regex(
+                pattern = """(?:我叫|我的名字是)\s*([^，,。！？.!?]{1,80})""",
             ).find(text) ?: return null
         return "User's name is ${match.groupValues[1].trimSentence()}"
     }
@@ -96,10 +137,26 @@ object LocalMemoryExtractor {
         return "User lives in ${match.groupValues[1].trimSentence()}"
     }
 
+    private fun chineseLocationFact(text: String): String? {
+        val match =
+            Regex(
+                pattern = """我住在\s*([^，,。！？.!?]{2,120})""",
+            ).find(text) ?: return null
+        return "User lives in ${match.groupValues[1].trimSentence()}"
+    }
+
     private fun workplaceFact(text: String): String? {
         val match =
             Regex(
                 pattern = """(?i)\bi work (?:at|for|with)\s+([^.!?]{2,120})""",
+            ).find(text) ?: return null
+        return "User works with ${match.groupValues[1].trimSentence()}"
+    }
+
+    private fun chineseWorkplaceFact(text: String): String? {
+        val match =
+            Regex(
+                pattern = """我在\s*([^，,。！？.!?]{2,120}?)(?:工作|上班)""",
             ).find(text) ?: return null
         return "User works with ${match.groupValues[1].trimSentence()}"
     }
@@ -120,7 +177,12 @@ object LocalMemoryExtractor {
             .replace(Regex("\\s+"), " ")
             .trim()
 
-    private fun String.trimSentence(): String = trim().trimEnd('.', '!', '?', ',', ';', ':').trim()
+    private fun String.trimSentence(): String = trim().trimEnd('.', '!', '?', ',', ';', ':', '。', '！', '？', '，', '；', '：').trim()
+
+    private fun String.hasChineseRememberNegationBefore(matchStart: Int): Boolean =
+        take(matchStart)
+            .takeLast(8)
+            .contains(Regex("""(?:不要|别|不用)\s*$"""))
 
     private const val MIN_FACT_CHARS = 10
     private const val MAX_FACT_CHARS = 240
