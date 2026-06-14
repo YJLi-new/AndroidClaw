@@ -611,6 +611,49 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory delete works while memory is disabled`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val directMemory =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User wants one disabled memory deleted."),
+                )
+            settingsDataStore.setMemoryEnabled(false)
+
+            val directDelete =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.delete"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", directMemory.id)
+                        },
+                )
+
+            assertTrue(directDelete.success)
+            assertEquals("true", directDelete.payload["deleted"]?.jsonPrimitive?.content)
+            assertEquals(0, memoryRepository.countActive(ownerUserId))
+
+            val commandMemory =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User wants slash delete to work too."),
+                )
+            val commandDelete =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "delete ${commandMemory.id}")
+                        },
+                )
+
+            assertTrue(commandDelete.success)
+            assertEquals("true", commandDelete.payload["deleted"]?.jsonPrimitive?.content)
+            assertEquals(0, memoryRepository.countActive(ownerUserId))
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()

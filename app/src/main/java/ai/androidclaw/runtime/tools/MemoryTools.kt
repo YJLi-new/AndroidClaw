@@ -168,9 +168,6 @@ internal fun memoryToolEntries(
                 ),
         ) { _, arguments ->
             val settings = settingsDataStore.memorySettingsSnapshot()
-            if (!settings.enabled) {
-                return@Entry memoryDisabledResult()
-            }
             val id = arguments.optionalText("id")
             if (id.isNullOrBlank()) {
                 return@Entry ToolExecutionResult.failure(
@@ -275,7 +272,7 @@ private suspend fun executeMemoryCommand(
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
     val settings = settingsDataStore.memorySettingsSnapshot()
-    if (!settings.enabled && verb != "clear") {
+    if (!settings.enabled && verb != "delete" && verb != "clear") {
         return memoryDisabledResult()
     }
     return when (verb) {
