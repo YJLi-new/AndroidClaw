@@ -76,7 +76,7 @@ class AppContainer(
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
     val skillRepository = SkillRepository(database.skillRecordDao())
     val eventLogRepository = EventLogRepository(database.eventLogDao())
-    val memoryRepository = MemoryRepository(database.memoryItemDao())
+    val memoryRepository = MemoryRepository(database.memoryItemDao(), clock = clock)
     val memoryCoordinator = MemoryCoordinator(settingsDataStore, memoryRepository)
     val sessionLaneCoordinator = SessionLaneCoordinator()
     val promptAssembler = PromptAssembler()

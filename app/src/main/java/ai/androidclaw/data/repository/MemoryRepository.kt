@@ -8,12 +8,14 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.time.Clock
 import java.time.Instant
 import java.util.UUID
 
 class MemoryRepository(
     private val dao: MemoryItemDao,
     private val json: Json = Json { ignoreUnknownKeys = true },
+    private val clock: Clock = Clock.systemUTC(),
 ) {
     suspend fun remember(
         ownerUserId: String,
@@ -34,7 +36,7 @@ class MemoryRepository(
             return existing.toDomain(json)
         }
 
-        val now = Instant.now().toEpochMilli()
+        val now = clock.millis()
         val entity =
             MemoryItemEntity(
                 id = UUID.randomUUID().toString(),
@@ -107,7 +109,7 @@ class MemoryRepository(
         return dao.softDelete(
             ownerUserId = ownerUserId,
             id = id,
-            deletedAt = Instant.now().toEpochMilli(),
+            deletedAt = clock.millis(),
         ) > 0
     }
 
@@ -117,7 +119,7 @@ class MemoryRepository(
         }
         return dao.softDeleteAll(
             ownerUserId = ownerUserId,
-            deletedAt = Instant.now().toEpochMilli(),
+            deletedAt = clock.millis(),
         )
     }
 

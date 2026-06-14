@@ -12,16 +12,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 
 @RunWith(AndroidJUnit4::class)
 class MemoryRepositoryTest {
+    private val testClock = Clock.fixed(Instant.parse("2026-06-15T12:00:00Z"), ZoneOffset.UTC)
     private lateinit var database: AndroidClawDatabase
     private lateinit var repository: MemoryRepository
 
     @Before
     fun setUp() {
         database = buildTestDatabase(ApplicationProvider.getApplicationContext())
-        repository = MemoryRepository(database.memoryItemDao())
+        repository = MemoryRepository(database.memoryItemDao(), clock = testClock)
     }
 
     @After
@@ -53,6 +57,8 @@ class MemoryRepositoryTest {
             assertEquals(listOf(first?.id), matches.map { it.id })
             assertEquals("session-1", matches.single().sourceSessionId)
             assertEquals(listOf("user-message"), matches.single().sourceMessageIds)
+            assertEquals(testClock.instant(), matches.single().createdAt)
+            assertEquals(testClock.instant(), matches.single().updatedAt)
         }
 
     @Test
