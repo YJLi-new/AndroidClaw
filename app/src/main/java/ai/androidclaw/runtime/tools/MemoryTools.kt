@@ -405,7 +405,7 @@ private suspend fun memoryStatusResult(
         payload =
             buildJsonObject {
                 put("enabled", settings.enabled)
-                put("installUserId", settings.installUserId)
+                put("scope", "local-device")
                 put("memoryCount", count)
             },
     )

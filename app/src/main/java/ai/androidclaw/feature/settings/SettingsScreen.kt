@@ -202,7 +202,7 @@ private fun MemoryCard(
                 )
                 SettingsStatusLine(
                     label = "Scope",
-                    value = installUserId.ifBlank { "Pending" },
+                    value = if (installUserId.isBlank()) "Pending" else "Local device only",
                     valueIsGood = installUserId.isNotBlank(),
                     modifier = Modifier.testTag("memoryInstallUserIdText"),
                 )

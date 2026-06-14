@@ -556,6 +556,24 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory status reports scope without exposing local install identifier`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.status"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals("true", result.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals("local-device", result.payload["scope"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.containsKey("installUserId"))
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()
