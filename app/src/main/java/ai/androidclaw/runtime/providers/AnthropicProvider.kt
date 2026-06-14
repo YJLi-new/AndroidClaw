@@ -304,10 +304,7 @@ class AnthropicProvider(
         statusCode: Int,
         rawBody: String,
     ): ModelProviderException {
-        val parsedMessage =
-            runCatching {
-                json.decodeFromString(AnthropicErrorEnvelope.serializer(), rawBody).error?.message
-            }.getOrNull().orEmpty()
+        val parsedMessage = json.extractAnthropicErrorMessage(rawBody)
 
         return when (statusCode) {
             401, 403 ->
@@ -320,7 +317,12 @@ class AnthropicProvider(
             else ->
                 ModelProviderException(
                     kind = ModelProviderFailureKind.Server,
-                    userMessage = "Provider request failed with HTTP $statusCode.",
+                    userMessage =
+                        if (statusCode == 400 && parsedMessage.isNotBlank()) {
+                            "Provider rejected the request: $parsedMessage"
+                        } else {
+                            "Provider request failed with HTTP $statusCode."
+                        },
                     details = parsedMessage.ifBlank { rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS) },
                 )
         }
@@ -331,6 +333,15 @@ class AnthropicProvider(
         const val DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS = 2048
     }
 }
+
+private fun Json.extractAnthropicErrorMessage(rawBody: String): String =
+    runCatching {
+        decodeFromString(AnthropicErrorEnvelope.serializer(), rawBody).error?.message
+    }.getOrNull()
+        .orEmpty()
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
 @Serializable
 private data class AnthropicMessagesRequest(
