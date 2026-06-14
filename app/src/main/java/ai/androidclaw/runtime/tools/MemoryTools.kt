@@ -301,7 +301,17 @@ private suspend fun executeMemoryCommand(
             }
         }
 
-        "search" ->
+        "search" -> {
+            if (rest.isBlank()) {
+                return ToolExecutionResult.failure(
+                    summary = "Provide a memory search query after /memory search.",
+                    errorCode = "MISSING_MEMORY_QUERY",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "MISSING_MEMORY_QUERY")
+                        },
+                )
+            }
             memoryListResult(
                 memories =
                     memoryRepository.search(
@@ -312,6 +322,7 @@ private suspend fun executeMemoryCommand(
                 emptySummary = "No matching memories found.",
                 nonEmptySummary = "Found matching memories.",
             )
+        }
 
         "list" ->
             memoryListResult(
@@ -325,6 +336,16 @@ private suspend fun executeMemoryCommand(
             )
 
         "delete" -> {
+            if (rest.isBlank()) {
+                return ToolExecutionResult.failure(
+                    summary = "Provide a memory id after /memory delete.",
+                    errorCode = "MISSING_MEMORY_ID",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "MISSING_MEMORY_ID")
+                        },
+                )
+            }
             val deleted = memoryRepository.delete(settings.installUserId, rest)
             if (deleted) {
                 ToolExecutionResult.success(

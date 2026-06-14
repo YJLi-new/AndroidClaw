@@ -701,6 +701,35 @@ class BuiltInToolsTest {
             assertEquals("1", cleared.payload["deletedCount"]?.jsonPrimitive?.content)
         }
 
+    @Test
+    fun `memory command validates required search and delete operands`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+
+            val rejectedSearch =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "search")
+                        },
+                )
+            val rejectedDelete =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "delete")
+                        },
+                )
+
+            assertFalse(rejectedSearch.success)
+            assertEquals("MISSING_MEMORY_QUERY", rejectedSearch.errorCode)
+            assertFalse(rejectedDelete.success)
+            assertEquals("MISSING_MEMORY_ID", rejectedDelete.errorCode)
+        }
+
     private fun buildRegistry(
         bundledSkills: List<ai.androidclaw.runtime.skills.SkillSnapshot> = emptyList(),
     ): ToolRegistry =
