@@ -56,6 +56,27 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `search retrieves CJK memories with compact script terms`() =
+        runTest {
+            val memory =
+                repository.remember(
+                    ownerUserId = "install-user",
+                    text = "用户喜欢绿色发送按钮。",
+                    sourceSessionId = "session-cn",
+                )
+            repository.remember(
+                ownerUserId = "install-user",
+                text = "用户住在上海。",
+            )
+
+            val matches = repository.search("install-user", "绿色按钮", limit = 5)
+
+            assertEquals(listOf(memory?.id), matches.map { it.id })
+            assertEquals("用户喜欢绿色发送按钮。", matches.single().text)
+            assertEquals("session-cn", matches.single().sourceSessionId)
+        }
+
+    @Test
     fun `delete and clear hide active memories`() =
         runTest {
             val first = repository.remember("install-user", "User likes green buttons.")

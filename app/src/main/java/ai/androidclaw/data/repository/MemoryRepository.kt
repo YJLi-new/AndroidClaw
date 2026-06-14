@@ -155,8 +155,8 @@ private fun scoreMemory(
     val memoryTerms = tokenize(entity.text)
     queryTerms.forEach { term ->
         if (term in memoryTerms) {
-            score += 3
-        } else if (normalizedText.contains(term)) {
+            score += if (term.length == 1) 1 else 3
+        } else if (term.length > 1 && normalizedText.contains(term)) {
             score += 1
         }
     }
@@ -174,13 +174,47 @@ internal fun normalizeMemoryText(text: String): String =
 
 private fun normalizeForDuplicate(text: String): String = normalizeMemoryText(text).lowercase()
 
-private fun tokenize(text: String): Set<String> =
-    text
-        .lowercase()
-        .split(Regex("[^a-z0-9_]+"))
-        .map(String::trim)
-        .filter { it.length >= 2 }
-        .toSet()
+private fun tokenize(text: String): Set<String> {
+    val normalizedText = normalizeMemoryText(text).lowercase()
+    if (normalizedText.isBlank()) {
+        return emptySet()
+    }
+
+    val tokens = linkedSetOf<String>()
+    searchTokenRegex.findAll(normalizedText).forEach { match ->
+        val rawToken = match.value.trim('_')
+        if (rawToken.isBlank()) {
+            return@forEach
+        }
+        if (rawToken.any(Char::isCompactScriptSearchChar)) {
+            val compactChars = rawToken.filter(Char::isCompactScriptSearchChar)
+            compactChars.forEach { tokens += it.toString() }
+            compactChars.windowed(size = 2).forEach { tokens += it }
+            rawToken
+                .split(Regex("[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}]+"))
+                .map(String::trim)
+                .filter { it.length >= 2 }
+                .forEach { tokens += it }
+        } else if (rawToken.length >= 2) {
+            tokens += rawToken
+        }
+    }
+    return tokens
+}
+
+private val searchTokenRegex = Regex("[\\p{L}\\p{N}_]+")
+
+private fun Char.isCompactScriptSearchChar(): Boolean {
+    val block = Character.UnicodeBlock.of(this)
+    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+        block == Character.UnicodeBlock.HIRAGANA ||
+        block == Character.UnicodeBlock.KATAKANA ||
+        block == Character.UnicodeBlock.HANGUL_SYLLABLES ||
+        block == Character.UnicodeBlock.HANGUL_JAMO ||
+        block == Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO
+}
 
 private fun MemoryItemEntity.toDomain(json: Json): MemoryItem =
     MemoryItem(
