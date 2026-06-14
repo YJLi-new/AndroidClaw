@@ -61,7 +61,7 @@ AndroidClaw already ships a usable local-first runtime:
 - SSE streaming with safe batch fallback on compatible providers and Responses streaming for OpenAI Codex
 - Visible streamed assistant output, cancel, retry, and clearer failure states
 - Budgeted context assembly via `ContextWindowManager` — no more naive fixed-count slicing
-- Optional local-only Memory injects relevant English/Chinese cross-session facts into future turns and exposes `/memory` tools with Unicode/CJK-aware search
+- Optional local-only Memory injects relevant English/Chinese cross-session facts into future turns as untrusted context and exposes `/memory` tools with Unicode/CJK-aware search
 - Per-provider saved base URL, model ID, timeout, encrypted API key storage, and encrypted OpenAI Codex OAuth credentials in Settings
 
 **Skills & Tools**
