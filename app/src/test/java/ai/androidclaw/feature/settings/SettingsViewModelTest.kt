@@ -679,7 +679,7 @@ class SettingsViewModelTest {
     fun `memory toggle and clear update settings state`() =
         runTest {
             val viewModel = buildViewModel()
-            val initial = waitForState(viewModel) { it.memoryInstallUserId.isNotBlank() }
+            val initial = waitForState(viewModel) { it.activeProviderId == "fake" }
 
             assertFalse(initial.memoryEnabled)
 

@@ -179,12 +179,17 @@ class SettingsDataStoreTest {
         }
 
     @Test
-    fun `memory settings default disabled and preserve stable install user id`() =
+    fun `memory settings create stable install user id only after enabling memory`() =
         runTest {
             val initial = settingsDataStore.memorySettingsSnapshot()
 
             assertEquals(false, initial.enabled)
-            assertEquals(true, initial.installUserId.isNotBlank())
+
+            settingsDataStore.setMemoryEnabled(false)
+            val stillDisabled = settingsDataStore.memorySettingsSnapshot()
+
+            assertEquals(false, stillDisabled.enabled)
+            assertEquals(initial.installUserId, stillDisabled.installUserId)
 
             settingsDataStore.setMemoryEnabled(true)
             val enabled = settingsDataStore.memorySettingsSnapshot()
@@ -192,8 +197,11 @@ class SettingsDataStoreTest {
             val disabled = settingsDataStore.memorySettingsSnapshot()
 
             assertEquals(true, enabled.enabled)
+            assertEquals(true, enabled.installUserId.isNotBlank())
             assertEquals(false, disabled.enabled)
-            assertEquals(initial.installUserId, enabled.installUserId)
-            assertEquals(initial.installUserId, disabled.installUserId)
+            if (initial.installUserId.isNotBlank()) {
+                assertEquals(initial.installUserId, enabled.installUserId)
+            }
+            assertEquals(enabled.installUserId, disabled.installUserId)
         }
 }

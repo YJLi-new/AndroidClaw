@@ -114,7 +114,7 @@ class SettingsDataStore(
     suspend fun setMemoryEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { preferences ->
             preferences[memoryEnabledKey] = enabled
-            if (preferences[memoryInstallUserIdKey].isNullOrBlank()) {
+            if (enabled && preferences[memoryInstallUserIdKey].isNullOrBlank()) {
                 preferences[memoryInstallUserIdKey] = UUID.randomUUID().toString()
             }
         }
@@ -127,6 +127,12 @@ class SettingsDataStore(
             return MemorySettingsSnapshot(
                 enabled = preferences[memoryEnabledKey] ?: false,
                 installUserId = existingUserId,
+            )
+        }
+        if (preferences[memoryEnabledKey] != true) {
+            return MemorySettingsSnapshot(
+                enabled = false,
+                installUserId = "",
             )
         }
 

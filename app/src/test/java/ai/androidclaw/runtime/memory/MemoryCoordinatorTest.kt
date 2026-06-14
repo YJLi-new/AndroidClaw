@@ -44,8 +44,10 @@ class MemoryCoordinatorTest {
     @Test
     fun `disabled memory does not retrieve or capture`() =
         runTest {
+            settingsDataStore.setMemoryEnabled(true)
             val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
             memoryRepository.remember(ownerUserId, "User prefers green send buttons.")
+            settingsDataStore.setMemoryEnabled(false)
 
             assertEquals(emptyList<String>(), coordinator.loadRelevantMemoryTexts("green buttons"))
 
