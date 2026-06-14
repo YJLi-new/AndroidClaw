@@ -67,6 +67,13 @@ fun SettingsScreen(
                 themePreference = state.themePreference,
                 onSelectTheme = viewModel::selectThemePreference,
             )
+            MemoryCard(
+                enabled = state.memoryEnabled,
+                memoryCount = state.memoryStoredCount,
+                installUserId = state.memoryInstallUserId,
+                onSetEnabled = viewModel::setMemoryEnabled,
+                onClearMemory = viewModel::clearMemory,
+            )
             ProviderCard(
                 state = state,
                 onOpenSetupGuide = onOpenSetupGuide,
@@ -135,6 +142,71 @@ private fun AppearanceCard(
                 color = ClawInkMuted,
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+@Composable
+private fun MemoryCard(
+    enabled: Boolean,
+    memoryCount: Int,
+    installUserId: String,
+    onSetEnabled: (Boolean) -> Unit,
+    onClearMemory: () -> Unit,
+) {
+    ClawCard {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            SettingsSectionHeader(
+                iconRes = R.drawable.ic_nav_skills,
+                title = "Memory",
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ClawActionPill(
+                    text = "On",
+                    selected = enabled,
+                    onClick = { onSetEnabled(true) },
+                    modifier = Modifier.testTag("memoryEnableButton"),
+                )
+                ClawActionPill(
+                    text = "Off",
+                    selected = !enabled,
+                    onClick = { onSetEnabled(false) },
+                    modifier = Modifier.testTag("memoryDisableButton"),
+                )
+                ClawChoicePill(
+                    text = "Clear memory",
+                    selected = false,
+                    onClick = onClearMemory,
+                    enabled = memoryCount > 0,
+                    modifier = Modifier.testTag("memoryClearButton"),
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingsStatusLine(
+                    label = "Status",
+                    value = if (enabled) "Enabled" else "Disabled",
+                    valueIsGood = enabled,
+                    modifier = Modifier.testTag("memoryStatusText"),
+                )
+                SettingsStatusLine(
+                    label = "Stored",
+                    value = memoryCount.toString(),
+                    valueIsGood = memoryCount > 0,
+                    modifier = Modifier.testTag("memoryCountText"),
+                )
+                SettingsStatusLine(
+                    label = "Scope",
+                    value = installUserId.ifBlank { "Pending" },
+                    valueIsGood = installUserId.isNotBlank(),
+                    modifier = Modifier.testTag("memoryInstallUserIdText"),
+                )
+            }
         }
     }
 }

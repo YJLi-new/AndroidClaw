@@ -41,6 +41,7 @@ AndroidClaw already ships a usable local-first runtime:
 - streaming assistant output with cancel / retry
 - typed tool calling with persisted tool-call and tool-result turns
 - bundled, local, and workspace skills with precedence and enable / disable
+- optional local cross-session Memory that can be enabled or disabled in Settings
 - scheduled automations with `once`, `interval`, `cron`, exact-alarm degradation, and task-run history
 - a public GitHub Pages project site and installable release artifacts
 
@@ -60,12 +61,14 @@ AndroidClaw already ships a usable local-first runtime:
 - SSE streaming with safe batch fallback on compatible providers and Responses streaming for OpenAI Codex
 - Visible streamed assistant output, cancel, retry, and clearer failure states
 - Budgeted context assembly via `ContextWindowManager` — no more naive fixed-count slicing
+- Optional local-only Memory injects relevant cross-session facts into future turns and exposes `/memory` tools
 - Per-provider saved base URL, model ID, timeout, encrypted API key storage, and encrypted OpenAI Codex OAuth credentials in Settings
 
 **Skills & Tools**
 - Bundled, local, and workspace `SKILL.md` skill loading
 - Skill import, enable/disable, precedence ordering, and slash invocation
 - Typed tools with a persisted tool-call runtime loop
+- Memory tools: `memory.status`, `memory.remember`, `memory.search`, `memory.list`, `memory.delete`, `memory.clear`
 
 **Automation & Scheduling**
 - `once` / `interval` / `cron` task scheduling

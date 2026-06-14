@@ -7,8 +7,10 @@ import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.NonCancellable
@@ -232,7 +234,7 @@ class TaskExecutionWorker(
             if (isStopped) {
                 val stopReasonLabel =
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        workStopReasonLabel(stopReason)
+                        currentStopReasonLabel()
                     } else {
                         "unavailable_pre_s"
                     }
@@ -257,6 +259,10 @@ class TaskExecutionWorker(
         }
         return Result.success()
     }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    @SuppressLint("NewApi") // Caller gates this helper with SDK_INT >= S.
+    private fun currentStopReasonLabel(): String = workStopReasonLabel(stopReason)
 
     private suspend fun updateTaskStateAfterSuccess(
         task: ai.androidclaw.data.model.Task,

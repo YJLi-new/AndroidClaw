@@ -30,6 +30,7 @@ class PromptAssembler(
         runMode: ModelRunMode,
         sessionSummary: String? = null,
         forceSessionSummary: Boolean = false,
+        crossSessionMemories: List<String> = emptyList(),
     ): PromptAssembly {
         val systemPrompt = buildSystemPrompt(selectedSkills, toolDescriptors, runMode)
         val contextSelection =
@@ -39,9 +40,15 @@ class PromptAssembler(
                 summaryText = sessionSummary,
                 forceSummary = forceSessionSummary,
             )
+        val memoryMessage = crossSessionMemories.toMemoryContextMessage()
         return PromptAssembly(
             systemPrompt = systemPrompt,
-            messageHistory = contextSelection.messageHistory,
+            messageHistory =
+                if (memoryMessage == null) {
+                    contextSelection.messageHistory
+                } else {
+                    listOf(memoryMessage) + contextSelection.messageHistory
+                },
             truncated = contextSelection.truncated,
             summaryInserted = contextSelection.summaryInserted,
             diagnostics = contextSelection.diagnostics,
@@ -50,6 +57,7 @@ class PromptAssembler(
 }
 
 private val toolCallJson = Json { ignoreUnknownKeys = true }
+private const val MAX_MEMORY_CONTEXT_ITEMS = 5
 
 private fun buildSystemPrompt(
     selectedSkills: List<SkillSnapshot>,
@@ -93,6 +101,27 @@ private fun buildSystemPrompt(
             }
         }
     }.trim()
+
+private fun List<String>.toMemoryContextMessage(): ModelMessage? {
+    val memories =
+        map { it.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(MAX_MEMORY_CONTEXT_ITEMS)
+    if (memories.isEmpty()) {
+        return null
+    }
+    return ModelMessage(
+        role = ModelMessageRole.System,
+        content =
+            buildString {
+                appendLine("Relevant cross-session memories:")
+                memories.forEach { memory ->
+                    appendLine("- $memory")
+                }
+            }.trim(),
+    )
+}
 
 private fun ChatMessage.toModelMessage(): ModelMessage? =
     when (role) {

@@ -7,6 +7,7 @@ import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -44,6 +45,7 @@ class BuiltInToolsTest {
     private lateinit var database: AndroidClawDatabase
     private lateinit var sessionRepository: SessionRepository
     private lateinit var taskRepository: TaskRepository
+    private lateinit var memoryRepository: MemoryRepository
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var eventLogRepository: EventLogRepository
     private lateinit var schedulerCoordinator: SchedulerCoordinator
@@ -59,6 +61,7 @@ class BuiltInToolsTest {
             database = buildTestDatabase(application)
             sessionRepository = SessionRepository(database.sessionDao())
             taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
+            memoryRepository = MemoryRepository(database.memoryItemDao())
             settingsDataStore = SettingsDataStore(application)
             eventLogRepository = EventLogRepository(database.eventLogDao())
             schedulerCoordinator =
@@ -69,12 +72,15 @@ class BuiltInToolsTest {
                     eventLogRepository = eventLogRepository,
                 )
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            settingsDataStore.setMemoryEnabled(false)
         }
 
     @After
     fun tearDown() =
         runTest {
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            settingsDataStore.setMemoryEnabled(false)
+            memoryRepository.clear(settingsDataStore.memorySettingsSnapshot().installUserId)
             database.close()
         }
 
@@ -501,6 +507,102 @@ class BuiltInToolsTest {
             assertTrue(tools.any { it.jsonObject["name"]?.jsonPrimitive?.content == "tasks.create" })
         }
 
+    @Test
+    fun `memory tools respect disabled state and store searchable manual memories`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val disabled =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.remember"),
+                    arguments =
+                        buildJsonObject {
+                            put("text", "User prefers compact UI.")
+                        },
+                )
+
+            assertFalse(disabled.success)
+            assertEquals("MEMORY_DISABLED", disabled.errorCode)
+
+            settingsDataStore.setMemoryEnabled(true)
+            val remembered =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.remember", sessionId = "session-1"),
+                    arguments =
+                        buildJsonObject {
+                            put("text", "User prefers compact UI.")
+                        },
+                )
+            val searched =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "compact UI")
+                        },
+                )
+
+            assertTrue(remembered.success)
+            assertTrue(searched.success)
+            assertEquals("1", searched.payload["memoryCount"]?.jsonPrimitive?.content)
+            val memory =
+                searched.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("User prefers compact UI.", memory.getValue("text").jsonPrimitive.content)
+            assertEquals("session-1", memory.getValue("sourceSessionId").jsonPrimitive.content)
+        }
+
+    @Test
+    fun `memory command dispatch supports remember list and clear confirmation`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+
+            val remembered =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "remember User uses Android Studio.")
+                        },
+                )
+            val listed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "list")
+                        },
+                )
+            val rejectedClear =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "clear")
+                        },
+                )
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "clear CONFIRM")
+                        },
+                )
+
+            assertTrue(remembered.success)
+            assertTrue(listed.success)
+            assertEquals("1", listed.payload["memoryCount"]?.jsonPrimitive?.content)
+            assertFalse(rejectedClear.success)
+            assertEquals("MISSING_CLEAR_CONFIRMATION", rejectedClear.errorCode)
+            assertTrue(cleared.success)
+            assertEquals("1", cleared.payload["deletedCount"]?.jsonPrimitive?.content)
+        }
+
     private fun buildRegistry(
         bundledSkills: List<ai.androidclaw.runtime.skills.SkillSnapshot> = emptyList(),
     ): ToolRegistry =
@@ -511,6 +613,7 @@ class BuiltInToolsTest {
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { bundledSkills },
+            memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
             clock = testClock,
         )

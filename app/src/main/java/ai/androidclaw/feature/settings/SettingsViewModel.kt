@@ -9,6 +9,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelProviderException
@@ -57,6 +58,9 @@ data class SettingsUiState(
     val statusMessage: String? = null,
     val buildPosture: String = "",
     val themePreference: ThemePreference = ThemePreference.System,
+    val memoryEnabled: Boolean = false,
+    val memoryStoredCount: Int = 0,
+    val memoryInstallUserId: String = "",
 )
 
 class SettingsViewModel(
@@ -65,6 +69,7 @@ class SettingsViewModel(
     private val providerSecretStore: ProviderSecretStore,
     private val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     private val networkStatusProvider: NetworkStatusProvider,
+    private val memoryRepository: MemoryRepository,
 ) : ViewModel() {
     private val mutableState =
         MutableStateFlow(
@@ -152,6 +157,49 @@ class SettingsViewModel(
                 it.copy(
                     themePreference = themePreference,
                     statusMessage = "Theme preference saved.",
+                )
+            }
+        }
+    }
+
+    fun setMemoryEnabled(enabled: Boolean) {
+        val mutationVersion = nextMutationVersion()
+        viewModelScope.launch {
+            settingsDataStore.setMemoryEnabled(enabled)
+            val memorySettings = settingsDataStore.memorySettingsSnapshot()
+            val memoryCount = memoryRepository.countActive(memorySettings.installUserId)
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
+            }
+            mutableState.update {
+                it.copy(
+                    memoryEnabled = memorySettings.enabled,
+                    memoryInstallUserId = memorySettings.installUserId,
+                    memoryStoredCount = memoryCount,
+                    statusMessage =
+                        if (memorySettings.enabled) {
+                            "Memory enabled."
+                        } else {
+                            "Memory disabled."
+                        },
+                )
+            }
+        }
+    }
+
+    fun clearMemory() {
+        val mutationVersion = nextMutationVersion()
+        viewModelScope.launch {
+            val memorySettings = settingsDataStore.memorySettingsSnapshot()
+            val deletedCount = memoryRepository.clear(memorySettings.installUserId)
+            if (!isCurrentMutation(mutationVersion)) {
+                return@launch
+            }
+            mutableState.update {
+                it.copy(
+                    memoryStoredCount = 0,
+                    memoryInstallUserId = memorySettings.installUserId,
+                    statusMessage = "Cleared $deletedCount memory item(s).",
                 )
             }
         }
@@ -455,14 +503,10 @@ class SettingsViewModel(
                 if (!isCurrentMutation(mutationVersion)) {
                     return@launch
                 }
-                mutableState.update {
-                    it.copy(
-                        isValidatingConnection = false,
-                        lastValidationSucceeded = true,
-                        configured = true,
-                        statusMessage = "Connection test succeeded.",
-                    )
-                }
+                refresh(
+                    statusMessage = "Connection test succeeded.",
+                    lastValidationSucceeded = true,
+                )
             } catch (error: ModelProviderException) {
                 if (!isCurrentMutation(mutationVersion)) {
                     return@launch
@@ -498,7 +542,10 @@ class SettingsViewModel(
         return host == "localhost" || host == "127.0.0.1"
     }
 
-    private fun refresh(statusMessage: String? = null) {
+    private fun refresh(
+        statusMessage: String? = null,
+        lastValidationSucceeded: Boolean = false,
+    ) {
         viewModelScope.launch {
             val refreshVersion = stateMutationVersion
             val settings = settingsDataStore.settings.first()
@@ -509,6 +556,8 @@ class SettingsViewModel(
             val oAuthCredential = providerSecretStore.readOAuthCredential(providerType)
             val recoveredApiKey = providerSecretStore.consumeRecoveryNotice(providerType)
             val networkStatus = networkStatusProvider.currentStatus()
+            val memorySettings = settingsDataStore.memorySettingsSnapshot()
+            val memoryCount = memoryRepository.countActive(memorySettings.installUserId)
             if (!isCurrentMutation(refreshVersion)) {
                 return@launch
             }
@@ -545,7 +594,7 @@ class SettingsViewModel(
                             hasOAuthCredential = oAuthCredential != null,
                         ),
                     isValidatingConnection = false,
-                    lastValidationSucceeded = false,
+                    lastValidationSucceeded = lastValidationSucceeded,
                     statusMessage =
                         resolveStatusMessage(
                             explicit = statusMessage,
@@ -555,6 +604,9 @@ class SettingsViewModel(
                         ),
                     buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider, API-key providers, native Claude, and OpenAI Codex device OAuth.",
                     themePreference = themePreference,
+                    memoryEnabled = memorySettings.enabled,
+                    memoryStoredCount = memoryCount,
+                    memoryInstallUserId = memorySettings.installUserId,
                 )
         }
     }
@@ -711,6 +763,7 @@ class SettingsViewModel(
                     providerSecretStore = dependencies.providerSecretStore,
                     openAiCodexOAuthClient = dependencies.openAiCodexOAuthClient,
                     networkStatusProvider = dependencies.networkStatusProvider,
+                    memoryRepository = dependencies.memoryRepository,
                 )
             }
     }

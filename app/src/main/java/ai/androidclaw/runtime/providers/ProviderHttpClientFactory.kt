@@ -42,14 +42,17 @@ fun createProviderBaseHttpClient(): OkHttpClient =
 
 private fun providerIdentityInterceptor(): Interceptor =
     Interceptor { chain ->
+        val incomingRequest = chain.request()
+        val requestBuilder = incomingRequest.newBuilder()
+        if (incomingRequest.header("User-Agent").isNullOrBlank()) {
+            requestBuilder.header(
+                "User-Agent",
+                "AndroidClaw/${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})",
+            )
+        }
         val request =
-            chain
-                .request()
-                .newBuilder()
-                .header(
-                    "User-Agent",
-                    "AndroidClaw/${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})",
-                ).header("X-AndroidClaw-Version", BuildConfig.VERSION_NAME)
+            requestBuilder
+                .header("X-AndroidClaw-Version", BuildConfig.VERSION_NAME)
                 .build()
         chain.proceed(request)
     }

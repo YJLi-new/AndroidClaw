@@ -5,6 +5,7 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelProvider
@@ -74,6 +75,7 @@ class AgentRunner(
     private val sessionLaneCoordinator: SessionLaneCoordinator,
     private val promptAssembler: PromptAssembler,
     private val sessionSummaryCoordinator: SessionSummaryCoordinator? = null,
+    private val memoryCoordinator: MemoryCoordinator? = null,
     private val loadSessionSummary: suspend (String) -> String? = { null },
     private val loadSessionCompactionBoundary: suspend (String) -> String? = { null },
     private val networkStatusProvider: NetworkStatusProvider? = null,
@@ -183,14 +185,17 @@ class AgentRunner(
             } else {
                 null
             }
-        if (persistUserMessage) {
-            messageRepository.addMessage(
-                sessionId = sessionId,
-                role = MessageRole.User,
-                content = normalizedUserMessage,
-                taskRunId = taskRunId,
-            )
-        }
+        val persistedUserMessage =
+            if (persistUserMessage) {
+                messageRepository.addMessage(
+                    sessionId = sessionId,
+                    role = MessageRole.User,
+                    content = normalizedUserMessage,
+                    taskRunId = taskRunId,
+                )
+            } else {
+                null
+            }
         try {
             if (slashCommand != null) {
                 val slashSkill = skillManager.findSlashSkill(slashCommand.name, availableSkills)
@@ -292,6 +297,10 @@ class AgentRunner(
                     ).asReversed()
             val sessionSummary = loadSessionSummary(sessionId)
             val compactionBoundary = loadSessionCompactionBoundary(sessionId)
+            val crossSessionMemories =
+                memoryCoordinator
+                    ?.loadRelevantMemoryTexts(normalizedUserMessage)
+                    .orEmpty()
             val promptAssembly =
                 promptAssembler.assemble(
                     persistedMessages = persistedMessages.afterBoundary(compactionBoundary).withoutCompactControlMessages(),
@@ -300,6 +309,7 @@ class AgentRunner(
                     runMode = runMode,
                     sessionSummary = sessionSummary,
                     forceSessionSummary = !sessionSummary.isNullOrBlank() && compactionBoundary != null,
+                    crossSessionMemories = crossSessionMemories,
                 )
             var messageHistory = promptAssembly.messageHistory
             var providerRequestId: String? = null
@@ -341,6 +351,8 @@ class AgentRunner(
                         providerModelId = response.modelId,
                         providerUsage = response.usage,
                         taskRunId = taskRunId,
+                        sourceUserMessage = normalizedUserMessage,
+                        sourceMessageIds = listOfNotNull(persistedUserMessage?.id),
                     )
                 }
 
@@ -697,6 +709,8 @@ class AgentRunner(
         taskRunId: String?,
         exitReason: AgentTurnExitReason = AgentTurnExitReason.Completed,
         triggerSummaryRefresh: Boolean = true,
+        sourceUserMessage: String? = null,
+        sourceMessageIds: List<String> = emptyList(),
     ): AgentTurnResult {
         val persistedText = assistantText.withActiveSkills(selectedSkills)
         val providerMeta =
@@ -718,6 +732,16 @@ class AgentRunner(
             )
         if (triggerSummaryRefresh) {
             sessionSummaryCoordinator?.onTurnCompleted(sessionId)
+        }
+        if (exitReason == AgentTurnExitReason.Completed && !sourceUserMessage.isNullOrBlank()) {
+            runCatching {
+                memoryCoordinator?.captureTurn(
+                    sessionId = sessionId,
+                    userMessage = sourceUserMessage,
+                    assistantMessage = assistantText,
+                    sourceMessageIds = (sourceMessageIds + assistantMessage.id).distinct(),
+                )
+            }
         }
         return AgentTurnResult(
             assistantMessage = persistedText,

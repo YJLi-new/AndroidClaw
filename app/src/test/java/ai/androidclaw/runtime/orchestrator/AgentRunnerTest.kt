@@ -8,9 +8,11 @@ import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
@@ -84,6 +86,7 @@ class AgentRunnerTest {
     private lateinit var sessionRepository: SessionRepository
     private lateinit var eventLogRepository: EventLogRepository
     private lateinit var taskRepository: TaskRepository
+    private lateinit var memoryRepository: MemoryRepository
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var sessionId: String
 
@@ -96,8 +99,10 @@ class AgentRunnerTest {
             sessionRepository = SessionRepository(database.sessionDao())
             eventLogRepository = EventLogRepository(database.eventLogDao())
             taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
+            memoryRepository = MemoryRepository(database.memoryItemDao())
             settingsDataStore = SettingsDataStore(application)
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            settingsDataStore.setMemoryEnabled(false)
             sessionId = sessionRepository.createSession("Test session").id
         }
 
@@ -105,6 +110,8 @@ class AgentRunnerTest {
     fun tearDown() =
         runTest {
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            settingsDataStore.setMemoryEnabled(false)
+            memoryRepository.clear(settingsDataStore.memorySettingsSnapshot().installUserId)
             database.close()
         }
 
@@ -517,6 +524,53 @@ class AgentRunnerTest {
             assertTrue(!historyText.contains("old answer should be hidden"))
             assertTrue(!historyText.contains("old setup should be hidden in compact payload"))
             assertTrue(!historyText.contains("Tool result: Compacted this session"))
+        }
+
+    @Test
+    fun `provider turn injects relevant cross session memories`() =
+        runTest {
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(ownerUserId, "User prefers compact Kotlin UI.")
+            var capturedRequest: ModelRequest? = null
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        capturedRequest = request
+                                        return ModelResponse(text = "Use compact Kotlin UI.")
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(ToolRegistry(emptyList()), skills = emptyList()),
+                    toolRegistry = ToolRegistry(emptyList()),
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                    memoryCoordinator = MemoryCoordinator(settingsDataStore, memoryRepository),
+                )
+
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "What Kotlin UI do I prefer?",
+                ),
+            )
+
+            val memoryContext =
+                capturedRequest
+                    ?.messageHistory
+                    ?.firstOrNull()
+                    ?.content
+                    .orEmpty()
+            assertTrue(memoryContext.contains("Relevant cross-session memories:"))
+            assertTrue(memoryContext.contains("User prefers compact Kotlin UI."))
         }
 
     @Test

@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.system.exitProcess
 
 class AndroidClawApplication :
@@ -16,19 +17,31 @@ class AndroidClawApplication :
         AppContainer(this)
     }
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val startupMaintenanceStarted = AtomicBoolean(false)
 
     override val workManagerConfiguration: Configuration
         get() =
-            Configuration
-                .Builder()
-                .setWorkerFactory(container.workerFactory)
-                .build()
+            container.let { appContainer ->
+                ensureStartupMaintenanceStarted(appContainer)
+                Configuration
+                    .Builder()
+                    .setWorkerFactory(appContainer.workerFactory)
+                    .build()
+            }
 
     override fun onCreate() {
         super.onCreate()
-        val appContainer = container
-        installCrashMarkerHandler(appContainer.crashMarkerStore)
-        // Use an application-scoped coroutine for one-shot startup hydration without leaking work to GlobalScope.
+        installCrashMarkerHandler(CrashMarkerStore(this))
+    }
+
+    fun ensureStartupMaintenanceStarted() {
+        ensureStartupMaintenanceStarted(container)
+    }
+
+    private fun ensureStartupMaintenanceStarted(appContainer: AppContainer) {
+        if (!startupMaintenanceStarted.compareAndSet(false, true)) {
+            return
+        }
         applicationScope.launch {
             appContainer.startupMaintenance.run()
         }

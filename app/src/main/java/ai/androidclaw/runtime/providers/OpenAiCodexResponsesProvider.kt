@@ -172,6 +172,8 @@ class OpenAiCodexResponsesProvider(
             put("model", endpointSettings.modelId)
             put("stream", true)
             put("store", false)
+            put("tool_choice", "auto")
+            put("parallel_tool_calls", false)
             request.systemPrompt
                 .takeIf { it.isNotBlank() }
                 ?.let { put("instructions", it) }
@@ -179,25 +181,22 @@ class OpenAiCodexResponsesProvider(
             request.sessionId
                 .takeIf { it.isNotBlank() }
                 ?.let { put("prompt_cache_key", it) }
-            request.toolDescriptors
-                .takeIf { it.isNotEmpty() }
-                ?.let { descriptors ->
-                    put(
-                        "tools",
-                        buildJsonArray {
-                            descriptors.forEach { descriptor ->
-                                add(
-                                    buildJsonObject {
-                                        put("type", "function")
-                                        put("name", functionNames.toProviderName(descriptor.name))
-                                        put("description", descriptor.description)
-                                        put("parameters", descriptor.inputSchema)
-                                    },
-                                )
-                            }
-                        },
-                    )
-                }
+            put(
+                "tools",
+                buildJsonArray {
+                    request.toolDescriptors.forEach { descriptor ->
+                        add(
+                            buildJsonObject {
+                                put("type", "function")
+                                put("name", functionNames.toProviderName(descriptor.name))
+                                put("description", descriptor.description)
+                                put("strict", false)
+                                put("parameters", descriptor.inputSchema)
+                            },
+                        )
+                    }
+                },
+            )
         }
 
     private fun buildResponsesInput(
@@ -322,7 +321,8 @@ class OpenAiCodexResponsesProvider(
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
             .header("OpenAI-Beta", "responses=experimental")
-            .header("originator", "pi")
+            .header("originator", CODEX_ORIGINATOR)
+            .header("User-Agent", CODEX_USER_AGENT)
             .apply {
                 val accountId =
                     credential.chatGptAccountId
@@ -359,14 +359,7 @@ class OpenAiCodexResponsesProvider(
         statusCode: Int,
         rawBody: String,
     ): ModelProviderException {
-        val errorMessage =
-            runCatching {
-                json
-                    .parseToJsonElement(rawBody)
-                    .jsonObject["error"]
-                    ?.jsonObject
-                    ?.stringValue("message")
-            }.getOrNull().orEmpty()
+        val errorMessage = json.extractCodexErrorMessage(rawBody)
 
         return when (statusCode) {
             401, 403 ->
@@ -379,7 +372,12 @@ class OpenAiCodexResponsesProvider(
             else ->
                 ModelProviderException(
                     kind = ModelProviderFailureKind.Server,
-                    userMessage = "OpenAI Codex request failed with HTTP $statusCode.",
+                    userMessage =
+                        if (statusCode == 400 && errorMessage.isNotBlank()) {
+                            "OpenAI Codex rejected the request: $errorMessage"
+                        } else {
+                            "OpenAI Codex request failed with HTTP $statusCode."
+                        },
                     details = errorMessage.ifBlank { rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS) },
                 )
         }
@@ -394,8 +392,24 @@ class OpenAiCodexResponsesProvider(
 
     private companion object {
         const val TOKEN_REFRESH_SKEW_MILLIS = 60_000L
+        const val CODEX_ORIGINATOR = "codex_cli_rs"
+        const val CODEX_USER_AGENT = "codex_cli_rs/0.0.0 (AndroidClaw Android)"
     }
 }
+
+private fun Json.extractCodexErrorMessage(rawBody: String): String =
+    runCatching {
+        val root = parseToJsonElement(rawBody).jsonObject
+        root["error"]
+            ?.jsonObjectOrNull()
+            ?.stringValue("message")
+            ?: root.stringValue("detail")
+            ?: root.stringValue("message")
+    }.getOrNull()
+        .orEmpty()
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
 private class OpenAiCodexResponsesAccumulator(
     private val json: Json,

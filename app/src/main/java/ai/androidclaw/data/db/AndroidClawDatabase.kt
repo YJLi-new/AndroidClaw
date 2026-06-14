@@ -1,12 +1,14 @@
 package ai.androidclaw.data.db
 
 import ai.androidclaw.data.db.dao.EventLogDao
+import ai.androidclaw.data.db.dao.MemoryItemDao
 import ai.androidclaw.data.db.dao.MessageDao
 import ai.androidclaw.data.db.dao.SessionDao
 import ai.androidclaw.data.db.dao.SkillRecordDao
 import ai.androidclaw.data.db.dao.TaskDao
 import ai.androidclaw.data.db.dao.TaskRunDao
 import ai.androidclaw.data.db.entity.EventLogEntity
+import ai.androidclaw.data.db.entity.MemoryItemEntity
 import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.db.entity.SkillRecordEntity
@@ -25,8 +27,9 @@ import androidx.room.RoomDatabase
         TaskRunEntity::class,
         SkillRecordEntity::class,
         EventLogEntity::class,
+        MemoryItemEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AndroidClawDatabase : RoomDatabase() {
@@ -41,6 +44,8 @@ abstract class AndroidClawDatabase : RoomDatabase() {
     abstract fun skillRecordDao(): SkillRecordDao
 
     abstract fun eventLogDao(): EventLogDao
+
+    abstract fun memoryItemDao(): MemoryItemDao
 
     companion object {
         fun build(context: Context): AndroidClawDatabase =

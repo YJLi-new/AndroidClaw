@@ -3,6 +3,7 @@ package ai.androidclaw.runtime.tools
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -30,6 +31,7 @@ internal fun createBuiltInToolRegistry(
     taskRepository: TaskRepository,
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
+    memoryRepository: MemoryRepository? = null,
     eventLogRepository: EventLogRepository? = null,
     clock: Clock = Clock.systemDefaultZone(),
 ): ToolRegistry {
@@ -95,6 +97,14 @@ internal fun createBuiltInToolRegistry(
                             )
                         },
                     )
+                    memoryRepository?.let { repository ->
+                        addAll(
+                            memoryToolEntries(
+                                settingsDataStore = settingsDataStore,
+                                memoryRepository = repository,
+                            ),
+                        )
+                    }
                     add(
                         ToolRegistry.Entry(
                             descriptor =
@@ -847,6 +857,11 @@ private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): S
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
 }
+
+private fun kotlinx.serialization.json.JsonObject.optionalInt(
+    field: String,
+    defaultValue: Int,
+): Int = optionalText(field)?.toIntOrNull() ?: defaultValue
 
 internal fun notificationToolAvailability(application: Application): ToolAvailability {
     if (

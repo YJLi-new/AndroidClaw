@@ -9,10 +9,12 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
@@ -74,6 +76,8 @@ class AppContainer(
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
     val skillRepository = SkillRepository(database.skillRecordDao())
     val eventLogRepository = EventLogRepository(database.eventLogDao())
+    val memoryRepository = MemoryRepository(database.memoryItemDao())
+    val memoryCoordinator = MemoryCoordinator(settingsDataStore, memoryRepository)
     val sessionLaneCoordinator = SessionLaneCoordinator()
     val promptAssembler = PromptAssembler()
     private val skillParser = SkillParser()
@@ -100,6 +104,7 @@ class AppContainer(
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { skillManagerRef.refreshSkills() },
+            memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
             clock = clock,
         )
@@ -204,6 +209,7 @@ class AppContainer(
             sessionLaneCoordinator = sessionLaneCoordinator,
             promptAssembler = promptAssembler,
             sessionSummaryCoordinator = sessionSummaryCoordinator,
+            memoryCoordinator = memoryCoordinator,
             loadSessionSummary = { sessionId -> sessionRepository.getSession(sessionId)?.summaryText },
             loadSessionCompactionBoundary = { sessionId -> sessionRepository.getSession(sessionId)?.compactedUntilMessageId },
             networkStatusProvider = networkStatusProvider,
@@ -260,6 +266,7 @@ class AppContainer(
                 providerSecretStore = providerSecretStore,
                 openAiCodexOAuthClient = openAiCodexOAuthClient,
                 networkStatusProvider = networkStatusProvider,
+                memoryRepository = memoryRepository,
             )
 
     val onboardingDependencies: OnboardingDependencies

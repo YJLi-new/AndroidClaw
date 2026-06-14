@@ -4,6 +4,7 @@ import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
@@ -41,6 +42,7 @@ data class SettingsDependencies(
     val providerSecretStore: ProviderSecretStore,
     val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     val networkStatusProvider: NetworkStatusProvider,
+    val memoryRepository: MemoryRepository,
 )
 
 data class OnboardingDependencies(

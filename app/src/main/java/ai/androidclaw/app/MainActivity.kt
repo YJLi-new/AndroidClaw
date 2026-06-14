@@ -8,7 +8,9 @@ import androidx.activity.compose.setContent
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val container = (application as AndroidClawApplication).container
+        val app = application as AndroidClawApplication
+        val container = app.container
+        app.ensureStartupMaintenanceStarted()
         setContent {
             AndroidClawApp(container = container)
         }

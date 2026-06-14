@@ -116,9 +116,19 @@ class OpenAiCodexResponsesProviderTest {
             assertEquals("Bearer access-token", recordedRequest.getHeader("Authorization"))
             assertEquals("acct-123", recordedRequest.getHeader("chatgpt-account-id"))
             assertEquals("responses=experimental", recordedRequest.getHeader("OpenAI-Beta"))
-            assertEquals("pi", recordedRequest.getHeader("originator"))
+            assertEquals("codex_cli_rs", recordedRequest.getHeader("originator"))
+            assertTrue(recordedRequest.getHeader("User-Agent").orEmpty().startsWith("codex_cli_rs/"))
             assertEquals("req-123", recordedRequest.getHeader("X-Request-Id"))
             assertEquals("gpt-5.5", payload.getValue("model").jsonPrimitive.content)
+            assertEquals("auto", payload.getValue("tool_choice").jsonPrimitive.content)
+            assertEquals(
+                false,
+                payload
+                    .getValue("parallel_tool_calls")
+                    .jsonPrimitive.content
+                    .toBoolean(),
+            )
+            assertEquals(0, payload.getValue("tools").jsonArray.size)
             assertEquals("system prompt", payload.getValue("instructions").jsonPrimitive.content)
             assertEquals(
                 "user",
@@ -183,6 +193,14 @@ class OpenAiCodexResponsesProviderTest {
                     .single()
                     .jsonObject
                     .getValue("name")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                tools
+                    .single()
+                    .jsonObject
+                    .getValue("strict")
                     .jsonPrimitive.content,
             )
         }
@@ -270,6 +288,35 @@ class OpenAiCodexResponsesProviderTest {
             assertEquals("JSON OK", response.text)
             assertEquals("resp-json", response.providerRequestId)
             assertEquals(5, response.usage?.totalTokens)
+        }
+
+    @Test
+    fun `http 400 surfaces codex rejection detail`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "error": {
+                            "type": "invalid_request_error",
+                            "message": "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account."
+                          }
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val error =
+                runCatching {
+                    buildProvider().generate(buildRequest())
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            assertTrue(error!!.message.orEmpty().contains("gpt-5.3-codex-spark"))
+            assertTrue(error.message.orEmpty().contains("rejected the request"))
         }
 
     private fun buildProvider(): OpenAiCodexResponsesProvider =

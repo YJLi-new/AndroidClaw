@@ -135,6 +135,36 @@ class PromptAssemblerTest {
         )
     }
 
+    @Test
+    fun `assemble prepends relevant cross session memories as system context`() {
+        val assembly =
+            assembler.assemble(
+                persistedMessages =
+                    listOf(
+                        message(role = MessageRole.User, content = "What UI do I prefer?"),
+                    ),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+                crossSessionMemories = listOf("User prefers compact Kotlin UI."),
+            )
+
+        assertEquals(ModelMessageRole.System, assembly.messageHistory.first().role)
+        assertTrue(
+            assembly.messageHistory
+                .first()
+                .content
+                .contains("Relevant cross-session memories:"),
+        )
+        assertTrue(
+            assembly.messageHistory
+                .first()
+                .content
+                .contains("User prefers compact Kotlin UI."),
+        )
+        assertEquals(ModelMessageRole.User, assembly.messageHistory[1].role)
+    }
+
     private fun sampleSkill(): SkillSnapshot =
         SkillSnapshot(
             id = "skill-1",

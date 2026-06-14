@@ -111,6 +111,33 @@ class AndroidClawDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate3To4_addsLocalMemoryTable() {
+        helper.createDatabase(MEMORY_TEST_DB, 3).apply {
+            close()
+        }
+
+        helper
+            .runMigrationsAndValidate(
+                MEMORY_TEST_DB,
+                4,
+                true,
+                AndroidClawDatabaseMigrations.MIGRATION_3_4,
+            ).apply {
+                assertRowCount(this, "memory_items", 0)
+                query(
+                    """
+                    SELECT id, ownerUserId, text, sourceSessionId, sourceMessageIdsJson,
+                           sourceType, createdAt, updatedAt, deletedAt
+                    FROM memory_items
+                    """.trimIndent(),
+                ).useCursor { cursor ->
+                    assertEquals(9, cursor.columnCount)
+                }
+                close()
+            }
+    }
+
+    @Test
     fun migrate1To2_preservesMeaningfulRuntimeDataAcrossTables() {
         helper.createDatabase(RUNTIME_TEST_DB, 1).apply {
             execSQL(
@@ -377,6 +404,7 @@ class AndroidClawDatabaseMigrationTest {
     companion object {
         private const val SKILL_TEST_DB = "androidclaw-migration-skill-test"
         private const val COMPACT_TEST_DB = "androidclaw-migration-compact-test"
+        private const val MEMORY_TEST_DB = "androidclaw-migration-memory-test"
         private const val RUNTIME_TEST_DB = "androidclaw-migration-runtime-test"
     }
 }

@@ -114,8 +114,49 @@ class SettingsDataStoreTest {
         assertEquals("openai-codex", ProviderType.OpenAiCodex.providerId)
         assertEquals(ProviderAuthMode.OpenAiCodexDeviceCode, ProviderType.OpenAiCodex.authMode)
         assertEquals("https://chatgpt.com/backend-api/codex", defaults.baseUrl)
-        assertEquals("gpt-5.3-codex-spark", defaults.modelId)
+        assertEquals("gpt-5.4", defaults.modelId)
     }
+
+    @Test
+    fun `legacy openai codex spark default migrates to supported default model`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCodex,
+                        ProviderEndpointSettings(
+                            baseUrl = ProviderType.OpenAiCodex.defaultBaseUrl,
+                            modelId = OPENAI_CODEX_LEGACY_DEFAULT_MODEL_ID,
+                            timeoutSeconds = 60,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCodex),
+            )
+
+            val stored = settingsDataStore.settings.first()
+
+            assertEquals(ProviderType.OpenAiCodex, stored.providerType)
+            assertEquals(OPENAI_CODEX_DEFAULT_MODEL_ID, stored.endpointSettings(ProviderType.OpenAiCodex).modelId)
+        }
+
+    @Test
+    fun `blank openai codex model falls back to supported default model`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCodex,
+                        ProviderEndpointSettings(
+                            baseUrl = ProviderType.OpenAiCodex.defaultBaseUrl,
+                            modelId = "  ",
+                            timeoutSeconds = 60,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCodex),
+            )
+
+            val stored = settingsDataStore.settings.first()
+
+            assertEquals(OPENAI_CODEX_DEFAULT_MODEL_ID, stored.endpointSettings(ProviderType.OpenAiCodex).modelId)
+        }
 
     @Test
     fun `deepseek has openai compatible defaults`() {
@@ -135,5 +176,24 @@ class SettingsDataStoreTest {
 
             assertEquals(ThemePreference.Dark, settingsDataStore.themePreference.first())
             assertEquals(ProviderType.Fake, settingsDataStore.settings.first().providerType)
+        }
+
+    @Test
+    fun `memory settings default disabled and preserve stable install user id`() =
+        runTest {
+            val initial = settingsDataStore.memorySettingsSnapshot()
+
+            assertEquals(false, initial.enabled)
+            assertEquals(true, initial.installUserId.isNotBlank())
+
+            settingsDataStore.setMemoryEnabled(true)
+            val enabled = settingsDataStore.memorySettingsSnapshot()
+            settingsDataStore.setMemoryEnabled(false)
+            val disabled = settingsDataStore.memorySettingsSnapshot()
+
+            assertEquals(true, enabled.enabled)
+            assertEquals(false, disabled.enabled)
+            assertEquals(initial.installUserId, enabled.installUserId)
+            assertEquals(initial.installUserId, disabled.installUserId)
         }
 }

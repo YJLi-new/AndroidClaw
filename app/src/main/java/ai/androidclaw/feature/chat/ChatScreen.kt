@@ -6,6 +6,7 @@ import ai.androidclaw.ui.components.ClawBlueSoft
 import ai.androidclaw.ui.components.ClawCard
 import ai.androidclaw.ui.components.ClawCardBackground
 import ai.androidclaw.ui.components.ClawGreen
+import ai.androidclaw.ui.components.ClawGreenMuted
 import ai.androidclaw.ui.components.ClawInk
 import ai.androidclaw.ui.components.ClawInkMuted
 import ai.androidclaw.ui.components.ClawMintSoft
@@ -461,6 +462,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     enabled = canSendDraft,
                     accentColor = ClawGreen,
                     accentContentColor = Color.White,
+                    disabledContainerColor = ClawGreenMuted,
+                    disabledIconColor = ClawGreen,
                 )
                 ComposerIconButton(
                     iconRes = R.drawable.ic_plus_circle,
@@ -609,17 +612,19 @@ private fun ComposerIconButton(
     selected: Boolean = false,
     accentColor: Color = ClawInk,
     accentContentColor: Color = Color.White,
+    disabledContainerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    disabledIconColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onClick: () -> Unit,
 ) {
     val containerColor =
         when {
-            !enabled -> MaterialTheme.colorScheme.surfaceVariant
+            !enabled -> disabledContainerColor
             selected -> MaterialTheme.colorScheme.primaryContainer
             else -> accentColor
         }
     val iconColor =
         when {
-            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+            !enabled -> disabledIconColor
             selected -> MaterialTheme.colorScheme.onPrimaryContainer
             else -> accentContentColor
         }

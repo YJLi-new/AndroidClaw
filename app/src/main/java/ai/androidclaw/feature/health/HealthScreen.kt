@@ -6,30 +6,33 @@ import ai.androidclaw.ui.components.ClawInfoCard
 import ai.androidclaw.ui.components.ClawPage
 import ai.androidclaw.ui.components.ClawScreenHeader
 import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import java.io.File
 import java.time.format.DateTimeFormatter
 
@@ -37,7 +40,8 @@ import java.time.format.DateTimeFormatter
 fun HealthScreen(viewModel: HealthViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val coroutineScope = rememberCoroutineScope()
     var diagnosticsNotice by remember { mutableStateOf<String?>(null) }
     var pendingExport by remember { mutableStateOf<HealthDiagnosticsExportPayload?>(null) }
     val exportLauncher =
@@ -86,49 +90,53 @@ fun HealthScreen(viewModel: HealthViewModel) {
                 )
             }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        ClawActionPill(
-                            text = "Refresh diagnostics",
-                            onClick = viewModel::refreshDiagnostics,
-                            selected = true,
-                        )
-                    }
-                    item {
-                        ClawActionPill(
-                            text = "Copy diagnostics",
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(buildDiagnosticsReport(state)))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ClawActionPill(
+                        text = "Refresh diagnostics",
+                        onClick = viewModel::refreshDiagnostics,
+                        selected = true,
+                    )
+                    ClawActionPill(
+                        text = "Copy diagnostics",
+                        onClick = {
+                            coroutineScope.launch {
+                                clipboard.setClipEntry(
+                                    ClipEntry(
+                                        ClipData.newPlainText(
+                                            "AndroidClaw diagnostics",
+                                            buildDiagnosticsReport(state),
+                                        ),
+                                    ),
+                                )
                                 diagnosticsNotice = "Diagnostics copied to clipboard."
-                            },
-                        )
-                    }
-                    item {
-                        ClawActionPill(
-                            text = "Export",
-                            onClick = {
-                                val payload = buildDiagnosticsExportPayload(state)
-                                pendingExport = payload
-                                exportLauncher.launch(createDiagnosticsExportIntent(payload))
-                            },
-                        )
-                    }
-                    item {
-                        ClawActionPill(
-                            text = "Share",
-                            onClick = {
-                                val payload = buildDiagnosticsExportPayload(state)
-                                runCatching {
-                                    val uri = writeDiagnosticsShareFile(context, payload)
-                                    launchDiagnosticsShareFile(context, payload, uri)
-                                }.onSuccess {
-                                    diagnosticsNotice = "Opening share sheet."
-                                }.onFailure { error ->
-                                    diagnosticsNotice = "Failed to share diagnostics: ${error.message ?: "unknown error"}."
-                                }
-                            },
-                        )
-                    }
+                            }
+                        },
+                    )
+                    ClawActionPill(
+                        text = "Export",
+                        onClick = {
+                            val payload = buildDiagnosticsExportPayload(state)
+                            pendingExport = payload
+                            exportLauncher.launch(createDiagnosticsExportIntent(payload))
+                        },
+                    )
+                    ClawActionPill(
+                        text = "Share",
+                        onClick = {
+                            val payload = buildDiagnosticsExportPayload(state)
+                            runCatching {
+                                val uri = writeDiagnosticsShareFile(context, payload)
+                                launchDiagnosticsShareFile(context, payload, uri)
+                            }.onSuccess {
+                                diagnosticsNotice = "Opening share sheet."
+                            }.onFailure { error ->
+                                diagnosticsNotice = "Failed to share diagnostics: ${error.message ?: "unknown error"}."
+                            }
+                        },
+                    )
                 }
             }
             diagnosticsNotice?.let { notice ->

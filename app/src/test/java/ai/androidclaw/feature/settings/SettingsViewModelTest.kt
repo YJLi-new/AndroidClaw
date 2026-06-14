@@ -1,14 +1,19 @@
 package ai.androidclaw.feature.settings
 
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.data.db.AndroidClawDatabase
+import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
+import ai.androidclaw.runtime.providers.OpenAiCodexResponsesProvider
 import ai.androidclaw.runtime.providers.OpenAiCompatibleProvider
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.createProviderBaseHttpClient
@@ -35,6 +40,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -44,6 +52,8 @@ class SettingsViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private lateinit var settingsDataStore: SettingsDataStore
+    private lateinit var database: AndroidClawDatabase
+    private lateinit var memoryRepository: MemoryRepository
     private lateinit var secretStore: InMemoryProviderSecretStore
     private var currentNetworkStatus =
         NetworkStatusSnapshot(
@@ -67,6 +77,8 @@ class SettingsViewModelTest {
         runTest {
             val application = ApplicationProvider.getApplicationContext<android.app.Application>()
             settingsDataStore = SettingsDataStore(application)
+            database = buildTestDatabase(application)
+            memoryRepository = MemoryRepository(database.memoryItemDao())
             secretStore = InMemoryProviderSecretStore()
             oAuthClient = FakeOpenAiCodexOAuthClient()
             currentNetworkStatus =
@@ -78,12 +90,16 @@ class SettingsViewModelTest {
                 )
             networkStatusFlow.value = currentNetworkStatus
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            settingsDataStore.setMemoryEnabled(false)
         }
 
     @After
     fun tearDown() =
         runTest {
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
+            settingsDataStore.setMemoryEnabled(false)
+            memoryRepository.clear(settingsDataStore.memorySettingsSnapshot().installUserId)
+            database.close()
             secretStore.clear()
         }
 
@@ -329,6 +345,96 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `validateConnection refreshes displayed openai codex oauth credential`() =
+        runTest {
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "text/event-stream")
+                    .setBody(
+                        listOf(
+                            """{"type":"response.created","response":{"id":"resp-settings","model":"gpt-5.4"}}""",
+                            """{"type":"response.output_item.added","item":{"type":"message","id":"msg-1"}}""",
+                            """{"type":"response.output_text.delta","delta":"OK"}""",
+                            """{"type":"response.completed","response":{"id":"resp-settings","model":"gpt-5.4","status":"completed"}}""",
+                        ).joinToString(separator = "\n\n", postfix = "\n\n") { "data: $it" },
+                    ),
+            )
+            server.start()
+
+            try {
+                settingsDataStore.saveProviderSettings(
+                    ProviderSettingsSnapshot()
+                        .withEndpointSettings(
+                            ProviderType.OpenAiCodex,
+                            ProviderEndpointSettings(
+                                baseUrl = server.url("/backend-api/codex/").toString().removeSuffix("/"),
+                                modelId = "gpt-5.4",
+                                timeoutSeconds = 30,
+                            ),
+                        ).copy(providerType = ProviderType.OpenAiCodex),
+                )
+                secretStore.writeOAuthCredential(
+                    ProviderType.OpenAiCodex,
+                    ProviderOAuthCredential(
+                        provider = ProviderType.OpenAiCodex.providerId,
+                        accessToken = "expired-access",
+                        refreshToken = "refresh-token",
+                        expiresAtEpochMillis = 0,
+                        email = "old@example.test",
+                    ),
+                )
+                oAuthClient =
+                    FakeOpenAiCodexOAuthClient(
+                        refreshedCredential =
+                            ProviderOAuthCredential(
+                                provider = ProviderType.OpenAiCodex.providerId,
+                                accessToken = "fresh-access",
+                                refreshToken = "fresh-refresh",
+                                expiresAtEpochMillis = 1_800_000_000_000,
+                                email = "fresh@example.test",
+                                profileName = "fresh@example.test",
+                                chatGptAccountId = "acct-fresh",
+                            ),
+                    )
+                val providerRegistry =
+                    buildTestProviderRegistry(
+                        openAiCodexProvider =
+                            OpenAiCodexResponsesProvider(
+                                settingsDataStore = settingsDataStore,
+                                providerSecretStore = secretStore,
+                                oAuthClient = oAuthClient,
+                                baseHttpClient = createProviderBaseHttpClient(),
+                                json = json,
+                                clock =
+                                    Clock.fixed(
+                                        Instant.parse("2026-04-27T00:00:00Z"),
+                                        ZoneOffset.UTC,
+                                    ),
+                            ),
+                    )
+                val viewModel = buildViewModel(providerRegistry)
+                waitForState(viewModel) { it.providerType == ProviderType.OpenAiCodex && it.hasOAuthCredential }
+
+                viewModel.validateConnection()
+
+                val state =
+                    waitForState(viewModel) {
+                        it.lastValidationSucceeded &&
+                            it.oAuthProfileLabel == "fresh@example.test"
+                    }
+                val request = server.takeRequest(5, TimeUnit.SECONDS)
+
+                assertEquals("Connection test succeeded.", state.statusMessage)
+                assertEquals("Expires 2027-01-15T08:00:00Z", state.oAuthExpiresAtText)
+                assertEquals("Bearer fresh-access", request!!.getHeader("Authorization"))
+                assertEquals("fresh-access", secretStore.readOAuthCredential(ProviderType.OpenAiCodex)?.accessToken)
+            } finally {
+                server.shutdown()
+            }
+        }
+
+    @Test
     fun `provider recovery notice is surfaced when encrypted api key cannot be restored`() =
         runTest {
             settingsDataStore.saveProviderSettings(
@@ -569,6 +675,31 @@ class SettingsViewModelTest {
             assertEquals(ThemePreference.Dark, settingsDataStore.themePreference.first())
         }
 
+    @Test
+    fun `memory toggle and clear update settings state`() =
+        runTest {
+            val viewModel = buildViewModel()
+            val initial = waitForState(viewModel) { it.memoryInstallUserId.isNotBlank() }
+
+            assertFalse(initial.memoryEnabled)
+
+            viewModel.setMemoryEnabled(true)
+            val enabled = waitForState(viewModel) { it.memoryEnabled && it.statusMessage == "Memory enabled." }
+            memoryRepository.remember(enabled.memoryInstallUserId, "User prefers compact layouts.")
+
+            viewModel.clearMemory()
+            val cleared = waitForState(viewModel) { it.statusMessage?.startsWith("Cleared") == true }
+
+            assertEquals(enabled.memoryInstallUserId, cleared.memoryInstallUserId)
+            assertEquals(0, cleared.memoryStoredCount)
+            assertEquals(0, memoryRepository.countActive(enabled.memoryInstallUserId))
+
+            viewModel.setMemoryEnabled(false)
+            val disabled = waitForState(viewModel) { !it.memoryEnabled && it.statusMessage == "Memory disabled." }
+
+            assertFalse(disabled.memoryEnabled)
+        }
+
     private fun buildViewModel(
         providerRegistry: ProviderRegistry = buildTestProviderRegistry(),
     ): SettingsViewModel =
@@ -578,6 +709,7 @@ class SettingsViewModelTest {
             providerSecretStore = secretStore,
             openAiCodexOAuthClient = oAuthClient,
             networkStatusProvider = networkStatusProvider,
+            memoryRepository = memoryRepository,
         )
 
     private fun TestScope.waitForState(
