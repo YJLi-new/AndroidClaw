@@ -602,6 +602,38 @@ class OpenAiCompatibleProviderTest {
         }
 
     @Test
+    fun `http 400 surfaces provider rejection detail`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCompatible,
+                        ai.androidclaw.data.ProviderEndpointSettings(
+                            baseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                            modelId = "gpt-test",
+                            timeoutSeconds = 5,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":{"message":"model gpt-test is not available\nfor this endpoint"}}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("model gpt-test is not available for this endpoint"))
+            assertTrue(!error.userMessage.contains("\n"))
+        }
+
+    @Test
     fun `malformed json is mapped to response failure`() =
         runTest {
             server.enqueue(

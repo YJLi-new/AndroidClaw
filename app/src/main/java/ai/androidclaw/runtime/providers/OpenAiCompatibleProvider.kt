@@ -336,10 +336,7 @@ class OpenAiCompatibleProvider(
         statusCode: Int,
         rawBody: String,
     ): ModelProviderException {
-        val errorMessage =
-            runCatching {
-                json.decodeFromString(OpenAiErrorEnvelope.serializer(), rawBody).error?.message
-            }.getOrNull().orEmpty()
+        val errorMessage = json.extractOpenAiErrorMessage(rawBody)
 
         return when (statusCode) {
             401, 403 ->
@@ -352,7 +349,12 @@ class OpenAiCompatibleProvider(
             else ->
                 ModelProviderException(
                     kind = ModelProviderFailureKind.Server,
-                    userMessage = "Provider request failed with HTTP $statusCode.",
+                    userMessage =
+                        if (statusCode == 400 && errorMessage.isNotBlank()) {
+                            "Provider rejected the request: $errorMessage"
+                        } else {
+                            "Provider request failed with HTTP $statusCode."
+                        },
                     details = errorMessage.ifBlank { rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS) },
                 )
         }
@@ -363,6 +365,15 @@ class OpenAiCompatibleProvider(
         val STREAMING_MAYBE_UNSUPPORTED_STATUS_CODES = setOf(400, 415, 422)
     }
 }
+
+private fun Json.extractOpenAiErrorMessage(rawBody: String): String =
+    runCatching {
+        decodeFromString(OpenAiErrorEnvelope.serializer(), rawBody).error?.message
+    }.getOrNull()
+        .orEmpty()
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
 @Serializable
 private data class OpenAiChatCompletionsRequest(
