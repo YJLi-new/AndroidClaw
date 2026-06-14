@@ -128,4 +128,21 @@ class MemoryCoordinatorTest {
         assertTrue(facts.any { it == "User lives in 上海" })
         assertTrue(facts.any { it == "User works with AndroidClaw项目" })
     }
+
+    @Test
+    fun `extractor respects explicit memory opt out phrases`() {
+        val englishFacts =
+            LocalMemoryExtractor.extractFacts(
+                userMessage = "Do not remember that I prefer green buttons. My name is Alex.",
+                assistantMessage = "Created the task.",
+            )
+        val chineseFacts =
+            LocalMemoryExtractor.extractFacts(
+                userMessage = "不要记住：我喜欢绿色发送按钮。我叫李雷。",
+                assistantMessage = "Updated the task.",
+            )
+
+        assertEquals(emptyList<String>(), englishFacts)
+        assertEquals(emptyList<String>(), chineseFacts)
+    }
 }

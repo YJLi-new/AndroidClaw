@@ -53,6 +53,9 @@ object LocalMemoryExtractor {
     ): List<String> =
         buildList {
             val cleanedUserMessage = cleanup(userMessage)
+            if (cleanedUserMessage.hasMemoryCaptureOptOut()) {
+                return@buildList
+            }
             explicitRememberFact(cleanedUserMessage)?.let(::add)
             chineseExplicitRememberFact(cleanedUserMessage)?.let(::add)
             addAll(preferenceFacts(cleanedUserMessage))
@@ -178,6 +181,18 @@ object LocalMemoryExtractor {
             .trim()
 
     private fun String.trimSentence(): String = trim().trimEnd('.', '!', '?', ',', ';', ':', '。', '！', '？', '，', '；', '：').trim()
+
+    private fun String.hasMemoryCaptureOptOut(): Boolean =
+        contains(
+            Regex(
+                pattern = """(?i)\b(?:do\s+not|don't|dont|never)\s+(?:remember|save|store|record|memorize)\b""",
+            ),
+        ) ||
+            contains(
+                Regex(
+                    pattern = """(?:不要|别|不用|无需)\s*(?:记住|保存|存储|记录)""",
+                ),
+            )
 
     private fun String.hasChineseRememberNegationBefore(matchStart: Int): Boolean =
         take(matchStart)
