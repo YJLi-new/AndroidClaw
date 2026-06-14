@@ -220,9 +220,6 @@ internal fun memoryToolEntries(
                 ),
         ) { _, arguments ->
             val settings = settingsDataStore.memorySettingsSnapshot()
-            if (!settings.enabled) {
-                return@Entry memoryDisabledResult()
-            }
             if (arguments.optionalText("confirm") != "CONFIRM") {
                 return@Entry ToolExecutionResult.failure(
                     summary = "Pass confirm=CONFIRM to clear all memories.",
@@ -278,7 +275,7 @@ private suspend fun executeMemoryCommand(
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
     val settings = settingsDataStore.memorySettingsSnapshot()
-    if (!settings.enabled) {
+    if (!settings.enabled && verb != "clear") {
         return memoryDisabledResult()
     }
     return when (verb) {

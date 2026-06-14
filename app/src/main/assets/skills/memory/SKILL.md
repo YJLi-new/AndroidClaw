@@ -20,4 +20,4 @@ Use `/memory list` to list recent memories.
 
 Use `/memory delete <id>` to delete one memory.
 
-Use `/memory clear CONFIRM` to clear all local memories.
+Use `/memory clear CONFIRM` to clear all local memories, even when Memory capture is off.

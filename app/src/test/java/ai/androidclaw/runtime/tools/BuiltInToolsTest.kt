@@ -574,6 +574,43 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory clear works while memory is disabled`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(ownerUserId, "User wants stored memory cleared.")
+            settingsDataStore.setMemoryEnabled(false)
+
+            val directClear =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(directClear.success)
+            assertEquals("1", directClear.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertEquals(0, memoryRepository.countActive(ownerUserId))
+
+            memoryRepository.remember(ownerUserId, "User wants slash clear to work too.")
+            val commandClear =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "clear CONFIRM")
+                        },
+                )
+
+            assertTrue(commandClear.success)
+            assertEquals("1", commandClear.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertEquals(0, memoryRepository.countActive(ownerUserId))
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()
