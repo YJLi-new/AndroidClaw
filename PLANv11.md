@@ -155,3 +155,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   corrupted persisted rows. Unknown stored categories now surface as `System`
   and unknown levels as `Warn` instead of crashing health/log observation, with
   repository coverage preserving message/details visibility.
+- 2026-06-16: Bounded event-log message and detail text at repository write and
+  read boundaries. Oversized provider/tool diagnostics are truncated before
+  persistence, and legacy oversized rows are clipped before reaching health UI
+  flows, preserving the lightweight bounded-log requirement.

@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
 
+internal const val EVENT_LOG_MESSAGE_MAX_CHARS = 1_000
+internal const val EVENT_LOG_DETAILS_MAX_CHARS = 4_000
+
 class EventLogRepository(
     private val dao: EventLogDao,
 ) {
@@ -25,8 +28,8 @@ class EventLogRepository(
                 timestamp = Instant.now().toEpochMilli(),
                 category = category.toStorage(),
                 level = level.toStorage(),
-                message = message,
-                detailsJson = details,
+                message = message.toBoundedLogText(EVENT_LOG_MESSAGE_MAX_CHARS),
+                detailsJson = details?.toBoundedLogText(EVENT_LOG_DETAILS_MAX_CHARS),
             ),
         )
     }
@@ -47,8 +50,8 @@ private fun EventLogEntity.toDomain(): EventLogEntry =
         timestamp = Instant.ofEpochMilli(timestamp),
         category = category.toEventCategory(),
         level = level.toEventLevel(),
-        message = message,
-        details = detailsJson,
+        message = message.toBoundedLogText(EVENT_LOG_MESSAGE_MAX_CHARS),
+        details = detailsJson?.toBoundedLogText(EVENT_LOG_DETAILS_MAX_CHARS),
     )
 
 private fun EventCategory.toStorage(): String =
@@ -86,3 +89,14 @@ private fun String.toEventLevel(): EventLevel =
         "error" -> EventLevel.Error
         else -> EventLevel.Warn
     }
+
+private fun String.toBoundedLogText(maxChars: Int): String {
+    require(maxChars > TRUNCATED_SUFFIX.length) { "maxChars must leave room for the truncation suffix." }
+    return if (length <= maxChars) {
+        this
+    } else {
+        take(maxChars - TRUNCATED_SUFFIX.length) + TRUNCATED_SUFFIX
+    }
+}
+
+private const val TRUNCATED_SUFFIX = "…[truncated]"

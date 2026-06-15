@@ -97,4 +97,55 @@ class EventLogRepositoryTest {
             assertEquals("Forward-compatible event", event.message)
             assertEquals("{\"raw\":true}", event.details)
         }
+
+    @Test
+    fun `log bounds oversized message and details before persistence`() =
+        runTest {
+            val oversizedMessage = "m".repeat(EVENT_LOG_MESSAGE_MAX_CHARS + 50)
+            val oversizedDetails = "d".repeat(EVENT_LOG_DETAILS_MAX_CHARS + 50)
+
+            repository.log(
+                category = EventCategory.Tool,
+                level = EventLevel.Warn,
+                message = oversizedMessage,
+                details = oversizedDetails,
+            )
+
+            val raw =
+                database
+                    .eventLogDao()
+                    .getRecent(limit = 1)
+                    .first()
+                    .single()
+            val event = repository.observeRecent(limit = 1).first().single()
+
+            assertEquals(EVENT_LOG_MESSAGE_MAX_CHARS, raw.message.length)
+            assertEquals(EVENT_LOG_DETAILS_MAX_CHARS, raw.detailsJson?.length)
+            assertEquals(raw.message, event.message)
+            assertEquals(raw.detailsJson, event.details)
+            assertTrue(event.message.endsWith("…[truncated]"))
+            assertTrue(event.details?.endsWith("…[truncated]") == true)
+        }
+
+    @Test
+    fun `observeRecent bounds oversized legacy event rows`() =
+        runTest {
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "legacy-large-event",
+                    timestamp = 10L,
+                    category = "system",
+                    level = "info",
+                    message = "m".repeat(EVENT_LOG_MESSAGE_MAX_CHARS + 50),
+                    detailsJson = "d".repeat(EVENT_LOG_DETAILS_MAX_CHARS + 50),
+                ),
+            )
+
+            val event = repository.observeRecent(limit = 1).first().single()
+
+            assertEquals(EVENT_LOG_MESSAGE_MAX_CHARS, event.message.length)
+            assertEquals(EVENT_LOG_DETAILS_MAX_CHARS, event.details?.length)
+            assertTrue(event.message.endsWith("…[truncated]"))
+            assertTrue(event.details?.endsWith("…[truncated]") == true)
+        }
 }
