@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -336,6 +337,36 @@ class OpenAiCompatibleProviderTest {
         }
 
     @Test
+    fun `batch response text is bounded before returning`() =
+        runTest {
+            val oversizedText = "x".repeat(MAX_PROVIDER_ASSISTANT_TEXT_CHARS) + "TEXT_TAIL"
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "id": "resp-large-text",
+                          "choices": [
+                            {
+                              "message": {
+                                "role": "assistant",
+                                "content": "$oversizedText"
+                              }
+                            }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val response = buildProvider().generate(buildRequest())
+
+            assertEquals(MAX_PROVIDER_ASSISTANT_TEXT_CHARS, response.text.length)
+            assertFalse(response.text.contains("TEXT_TAIL"))
+        }
+
+    @Test
     fun `streamGenerate emits text deltas and final response for sse text streams`() =
         runTest {
             server.enqueue(
@@ -434,6 +465,32 @@ class OpenAiCompatibleProviderTest {
                     .getValue("scope")
                     .jsonPrimitive.content,
             )
+        }
+
+    @Test
+    fun `streamed oversized tool arguments fail before accumulation`() =
+        runTest {
+            val oversizedArguments = "a".repeat(MAX_PROVIDER_TOOL_ARGUMENT_CHARS + 1)
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "text/event-stream")
+                    .setBody(
+                        """
+                        data: {"id":"resp-huge-args","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"health.status","arguments":"$oversizedArguments"}}]}}]}
+
+                        data: [DONE]
+
+                        """.trimIndent(),
+                    ),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().streamGenerate(buildRequest()).toList()
+                }
+
+            assertEquals(ModelProviderFailureKind.Response, error.kind)
+            assertEquals("Provider returned oversized tool arguments.", error.userMessage)
         }
 
     @Test

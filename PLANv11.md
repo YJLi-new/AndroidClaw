@@ -339,3 +339,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   reasons, arguments, and custom input-schema JSON before provider requests,
   while ToolRegistry rejects oversized identity metadata so tool names and
   argument keys remain executable rather than silently truncated.
+- 2026-06-16: Bounded provider response accumulation. OpenAI-compatible,
+  Anthropic, and OpenAI Codex response parsers now cap returned assistant text,
+  tool call ids/names, tool-call count, and tool-argument payload size before
+  streaming deltas or parsed responses can inflate runtime memory ahead of
+  repository persistence bounds.

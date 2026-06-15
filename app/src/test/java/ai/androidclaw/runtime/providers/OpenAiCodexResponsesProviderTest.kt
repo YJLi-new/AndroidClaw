@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -236,6 +237,51 @@ class OpenAiCodexResponsesProviderTest {
 
             assertTrue(events.any { it == ModelStreamEvent.TextDelta("OK") })
             assertTrue(events.last() is ModelStreamEvent.Completed)
+        }
+
+    @Test
+    fun `codex response text is bounded before returning`() =
+        runTest {
+            val oversizedText = "x".repeat(MAX_PROVIDER_ASSISTANT_TEXT_CHARS) + "TEXT_TAIL"
+            server.enqueue(
+                eventStreamResponse(
+                    listOf(
+                        """{"type":"response.created","response":{"id":"resp-large","model":"gpt-5.5"}}""",
+                        """{"type":"response.output_text.delta","delta":"$oversizedText"}""",
+                        """{"type":"response.completed","response":{"id":"resp-large","model":"gpt-5.5","status":"completed"}}""",
+                    ),
+                ),
+            )
+
+            val response = buildProvider().generate(buildRequest())
+
+            assertEquals(MAX_PROVIDER_ASSISTANT_TEXT_CHARS, response.text.length)
+            assertFalse(response.text.contains("TEXT_TAIL"))
+        }
+
+    @Test
+    fun `codex streamed oversized tool arguments fail before accumulation`() =
+        runTest {
+            val oversizedArguments = "a".repeat(MAX_PROVIDER_TOOL_ARGUMENT_CHARS + 1)
+            server.enqueue(
+                eventStreamResponse(
+                    listOf(
+                        """{"type":"response.created","response":{"id":"resp-huge-args","model":"gpt-5.5"}}""",
+                        """{"type":"response.output_item.added","item":{"type":"function_call","id":"fc-1","call_id":"call-1","name":"health_status","arguments":""}}""",
+                        """{"type":"response.function_call_arguments.delta","delta":"$oversizedArguments"}""",
+                    ),
+                ),
+            )
+
+            val error =
+                runCatching {
+                    buildProvider().streamGenerate(buildRequest()).toList()
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val providerError = error as ModelProviderException
+            assertEquals(ModelProviderFailureKind.Response, providerError.kind)
+            assertEquals("OpenAI Codex returned oversized tool arguments.", providerError.userMessage)
         }
 
     @Test

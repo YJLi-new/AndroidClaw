@@ -258,22 +258,28 @@ class AnthropicProvider(
                 .filter { it.type == "text" }
                 .joinToString(separator = "") { it.text.orEmpty() }
                 .trim()
+                .toBoundedProviderAssistantText()
         val toolCalls =
             parsed.content
                 .filter { it.type == "tool_use" }
+                .requireProviderToolCallLimit(providerName = "Provider")
                 .map { block ->
+                    val id =
+                        block.id ?: throw ModelProviderException(
+                            kind = ModelProviderFailureKind.Response,
+                            userMessage = "Provider returned a tool call without an id.",
+                        )
+                    val name =
+                        block.name ?: throw ModelProviderException(
+                            kind = ModelProviderFailureKind.Response,
+                            userMessage = "Provider returned a tool call without a name.",
+                        )
                     ProviderToolCall(
-                        id =
-                            block.id ?: throw ModelProviderException(
-                                kind = ModelProviderFailureKind.Response,
-                                userMessage = "Provider returned a tool call without an id.",
-                            ),
-                        name =
-                            block.name ?: throw ModelProviderException(
-                                kind = ModelProviderFailureKind.Response,
-                                userMessage = "Provider returned a tool call without a name.",
-                            ),
-                        argumentsJson = block.input ?: buildJsonObject {},
+                        id = id.toBoundedProviderToolCallId(),
+                        name = name.toBoundedProviderToolCallName(),
+                        argumentsJson =
+                            (block.input ?: buildJsonObject {})
+                                .requireProviderToolArgumentsWithinLimit(providerName = "Provider"),
                     )
                 }
 
@@ -483,19 +489,28 @@ private class AnthropicStreamAccumulator(
                 when (envelope.contentBlock?.type) {
                     "tool_use" -> {
                         val index = envelope.index ?: 0
+                        requireProviderToolCallCapacity(
+                            currentSize = toolCalls.size,
+                            isNewToolCall = !toolCalls.containsKey(index),
+                            providerName = "Provider",
+                        )
                         val accumulator = toolCalls.getOrPut(index) { ToolCallAccumulator() }
                         buildList {
                             envelope.contentBlock.id
                                 ?.takeIf { it.isNotEmpty() }
                                 ?.let { idPart ->
-                                    accumulator.id.append(idPart)
-                                    add(ModelStreamEvent.ToolCallDelta(index = index, idPart = idPart))
+                                    val boundedIdPart = accumulator.id.appendBoundedProviderToolCallId(idPart)
+                                    if (boundedIdPart.isNotEmpty()) {
+                                        add(ModelStreamEvent.ToolCallDelta(index = index, idPart = boundedIdPart))
+                                    }
                                 }
                             envelope.contentBlock.name
                                 ?.takeIf { it.isNotEmpty() }
                                 ?.let { namePart ->
-                                    accumulator.name.append(namePart)
-                                    add(ModelStreamEvent.ToolCallDelta(index = index, namePart = namePart))
+                                    val boundedNamePart = accumulator.name.appendBoundedProviderToolCallName(namePart)
+                                    if (boundedNamePart.isNotEmpty()) {
+                                        add(ModelStreamEvent.ToolCallDelta(index = index, namePart = boundedNamePart))
+                                    }
                                 }
                         }
                     }
@@ -511,19 +526,31 @@ private class AnthropicStreamAccumulator(
                         if (textPart.isBlank()) {
                             emptyList()
                         } else {
-                            assistantText.append(textPart)
-                            listOf(ModelStreamEvent.TextDelta(textPart))
+                            val boundedTextPart = assistantText.appendBoundedProviderAssistantText(textPart)
+                            if (boundedTextPart.isEmpty()) {
+                                emptyList()
+                            } else {
+                                listOf(ModelStreamEvent.TextDelta(boundedTextPart))
+                            }
                         }
                     }
 
                     "input_json_delta" -> {
                         val index = envelope.index ?: 0
+                        requireProviderToolCallCapacity(
+                            currentSize = toolCalls.size,
+                            isNewToolCall = !toolCalls.containsKey(index),
+                            providerName = "Provider",
+                        )
                         val accumulator = toolCalls.getOrPut(index) { ToolCallAccumulator() }
                         val argumentsPart = envelope.delta.partialJson.orEmpty()
                         if (argumentsPart.isBlank()) {
                             emptyList()
                         } else {
-                            accumulator.arguments.append(argumentsPart)
+                            accumulator.arguments.appendProviderToolArguments(
+                                text = argumentsPart,
+                                providerName = "Provider",
+                            )
                             listOf(ModelStreamEvent.ToolCallDelta(index = index, argumentsPart = argumentsPart))
                         }
                     }
@@ -570,7 +597,11 @@ private class AnthropicStreamAccumulator(
                     argumentsJson = parseToolArguments(accumulator.arguments.toString()),
                 )
             }
-        val assistantMessage = assistantText.toString().trim()
+        val assistantMessage =
+            assistantText
+                .toString()
+                .trim()
+                .toBoundedProviderAssistantText()
         if (assistantMessage.isBlank() && resolvedToolCalls.isEmpty()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
@@ -619,19 +650,21 @@ private class AnthropicStreamAccumulator(
     }
 
     private fun parseToolArguments(arguments: String): JsonObject =
-        try {
-            if (arguments.isBlank()) {
-                buildJsonObject {}
-            } else {
-                json.parseToJsonElement(arguments).jsonObject
+        arguments.requireProviderToolArgumentsWithinLimit(providerName = "Provider").let { boundedArguments ->
+            try {
+                if (boundedArguments.isBlank()) {
+                    buildJsonObject {}
+                } else {
+                    json.parseToJsonElement(boundedArguments).jsonObject
+                }
+            } catch (error: Exception) {
+                throw ModelProviderException(
+                    kind = ModelProviderFailureKind.Response,
+                    userMessage = "Provider returned malformed tool arguments.",
+                    details = boundedArguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+                    cause = error,
+                )
             }
-        } catch (error: Exception) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
-                userMessage = "Provider returned malformed tool arguments.",
-                details = arguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
-                cause = error,
-            )
         }
 
     private data class ToolCallAccumulator(

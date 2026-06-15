@@ -484,23 +484,22 @@ private class OpenAiCodexResponsesAccumulator(
         }
         val resolvedToolCalls =
             toolCalls.values.map { accumulator ->
+                val name =
+                    accumulator.name.takeIf { it.isNotBlank() } ?: throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "OpenAI Codex returned a tool call without a name.",
+                    )
                 ProviderToolCall(
                     id =
                         ResponsesToolCallId(
                             callId = accumulator.callId.ifBlank { accumulator.itemId },
                             itemId = accumulator.itemId.takeIf { it.isNotBlank() },
                         ).storageId(),
-                    name =
-                        functionNames.toAndroidName(
-                            accumulator.name.takeIf { it.isNotBlank() } ?: throw ModelProviderException(
-                                kind = ModelProviderFailureKind.Response,
-                                userMessage = "OpenAI Codex returned a tool call without a name.",
-                            ),
-                        ),
-                    argumentsJson = parseToolArguments(accumulator.arguments),
+                    name = functionNames.toAndroidName(name).toBoundedProviderToolCallName(),
+                    argumentsJson = parseToolArguments(accumulator.arguments.toString()),
                 )
             }
-        val assistantMessage = assistantText.toString()
+        val assistantMessage = assistantText.toString().toBoundedProviderAssistantText()
         if (assistantMessage.isBlank() && resolvedToolCalls.isEmpty()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
@@ -532,10 +531,15 @@ private class OpenAiCodexResponsesAccumulator(
         return when (item.stringValue("type")) {
             "message" -> emptyList()
             "function_call" -> {
-                val callId = item.stringValue("call_id").orEmpty()
-                val itemId = item.stringValue("id").orEmpty()
+                val callId = item.stringValue("call_id").orEmpty().toBoundedProviderToolCallId()
+                val itemId = item.stringValue("id").orEmpty().toBoundedProviderToolCallId()
                 val key = toolCallKey(callId, itemId)
                 currentToolCallKey = key
+                requireProviderToolCallCapacity(
+                    currentSize = toolCalls.size,
+                    isNewToolCall = !toolCalls.containsKey(key),
+                    providerName = "OpenAI Codex",
+                )
                 val accumulator =
                     toolCalls.getOrPut(key) {
                         ToolCallAccumulator(
@@ -543,13 +547,23 @@ private class OpenAiCodexResponsesAccumulator(
                             itemId = itemId,
                         )
                     }
-                item.stringValue("name")?.let { accumulator.name = it }
-                item.stringValue("arguments")?.let { accumulator.arguments = it }
+                item.stringValue("name")?.let { accumulator.name = it.toBoundedProviderToolCallName() }
+                item.stringValue("arguments")?.let {
+                    accumulator.arguments.clear()
+                    accumulator.arguments.appendProviderToolArguments(
+                        text = it,
+                        providerName = "OpenAI Codex",
+                    )
+                }
                 listOf(
                     ModelStreamEvent.ToolCallDelta(
                         index = toolCalls.keys.indexOf(key),
                         idPart = ResponsesToolCallId(callId, itemId.takeIf { it.isNotBlank() }).storageId(),
-                        namePart = accumulator.name.takeIf { it.isNotBlank() }?.let(functionNames::toAndroidName),
+                        namePart =
+                            accumulator.name
+                                .takeIf { it.isNotBlank() }
+                                ?.let(functionNames::toAndroidName)
+                                ?.toBoundedProviderToolCallName(),
                     ),
                 )
             }
@@ -560,15 +574,21 @@ private class OpenAiCodexResponsesAccumulator(
 
     private fun applyTextDelta(event: JsonObject): List<ModelStreamEvent> {
         val delta = event.stringValue("delta") ?: return emptyList()
-        assistantText.append(delta)
-        return listOf(ModelStreamEvent.TextDelta(delta))
+        val boundedDelta = assistantText.appendBoundedProviderAssistantText(delta)
+        if (boundedDelta.isEmpty()) {
+            return emptyList()
+        }
+        return listOf(ModelStreamEvent.TextDelta(boundedDelta))
     }
 
     private fun applyToolArgumentsDelta(event: JsonObject): List<ModelStreamEvent> {
         val key = currentToolCallKey ?: return emptyList()
         val delta = event.stringValue("delta") ?: return emptyList()
         val accumulator = toolCalls[key] ?: return emptyList()
-        accumulator.arguments += delta
+        accumulator.arguments.appendProviderToolArguments(
+            text = delta,
+            providerName = "OpenAI Codex",
+        )
         return listOf(
             ModelStreamEvent.ToolCallDelta(
                 index = toolCalls.keys.indexOf(key),
@@ -582,15 +602,20 @@ private class OpenAiCodexResponsesAccumulator(
         return when (item.stringValue("type")) {
             "message" -> {
                 if (assistantText.isBlank()) {
-                    assistantText.append(extractOutputText(item["content"]?.jsonArrayOrNull()))
+                    assistantText.appendBoundedProviderAssistantText(extractOutputText(item["content"]?.jsonArrayOrNull()))
                 }
                 emptyList()
             }
 
             "function_call" -> {
-                val callId = item.stringValue("call_id").orEmpty()
-                val itemId = item.stringValue("id").orEmpty()
+                val callId = item.stringValue("call_id").orEmpty().toBoundedProviderToolCallId()
+                val itemId = item.stringValue("id").orEmpty().toBoundedProviderToolCallId()
                 val key = toolCallKey(callId, itemId)
+                requireProviderToolCallCapacity(
+                    currentSize = toolCalls.size,
+                    isNewToolCall = !toolCalls.containsKey(key),
+                    providerName = "OpenAI Codex",
+                )
                 val accumulator =
                     toolCalls.getOrPut(key) {
                         ToolCallAccumulator(
@@ -598,8 +623,14 @@ private class OpenAiCodexResponsesAccumulator(
                             itemId = itemId,
                         )
                     }
-                item.stringValue("name")?.let { accumulator.name = it }
-                item.stringValue("arguments")?.let { accumulator.arguments = it }
+                item.stringValue("name")?.let { accumulator.name = it.toBoundedProviderToolCallName() }
+                item.stringValue("arguments")?.let {
+                    accumulator.arguments.clear()
+                    accumulator.arguments.appendProviderToolArguments(
+                        text = it,
+                        providerName = "OpenAI Codex",
+                    )
+                }
                 currentToolCallKey = null
                 emptyList()
             }
@@ -633,19 +664,21 @@ private class OpenAiCodexResponsesAccumulator(
     }
 
     private fun parseToolArguments(arguments: String): JsonObject =
-        try {
-            if (arguments.isBlank()) {
-                buildJsonObject {}
-            } else {
-                json.parseToJsonElement(arguments).jsonObject
+        arguments.requireProviderToolArgumentsWithinLimit(providerName = "OpenAI Codex").let { boundedArguments ->
+            try {
+                if (boundedArguments.isBlank()) {
+                    buildJsonObject {}
+                } else {
+                    json.parseToJsonElement(boundedArguments).jsonObject
+                }
+            } catch (error: Exception) {
+                throw ModelProviderException(
+                    kind = ModelProviderFailureKind.Response,
+                    userMessage = "OpenAI Codex returned malformed tool arguments.",
+                    details = boundedArguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+                    cause = error,
+                )
             }
-        } catch (error: Exception) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
-                userMessage = "OpenAI Codex returned malformed tool arguments.",
-                details = arguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
-                cause = error,
-            )
         }
 
     private fun toolCallKey(
@@ -657,7 +690,7 @@ private class OpenAiCodexResponsesAccumulator(
         val callId: String,
         val itemId: String,
         var name: String = "",
-        var arguments: String = "",
+        val arguments: StringBuilder = StringBuilder(),
     )
 }
 
@@ -807,6 +840,7 @@ private fun parseOpenAiCodexResponseObject(
                     else -> null
                 }
             }.joinToString("")
+            .toBoundedProviderAssistantText()
     val toolCalls =
         output
             .mapNotNull { item ->
@@ -820,17 +854,17 @@ private fun parseOpenAiCodexResponseObject(
                 ProviderToolCall(
                     id =
                         ResponsesToolCallId(
-                            callId = callId.ifBlank { itemId },
-                            itemId = itemId.takeIf { it.isNotBlank() },
+                            callId = callId.ifBlank { itemId }.toBoundedProviderToolCallId(),
+                            itemId = itemId.takeIf { it.isNotBlank() }?.toBoundedProviderToolCallId(),
                         ).storageId(),
-                    name = functionNames.toAndroidName(name),
+                    name = functionNames.toAndroidName(name).toBoundedProviderToolCallName(),
                     argumentsJson =
                         parseOpenAiCodexToolArguments(
                             json = json,
                             arguments = block.stringValue("arguments").orEmpty(),
                         ),
                 )
-            }
+            }.requireProviderToolCallLimit(providerName = "OpenAI Codex")
     if (text.isBlank() && toolCalls.isEmpty()) {
         return null
     }
@@ -853,23 +887,38 @@ private fun parseOpenAiCodexToolArguments(
     json: Json,
     arguments: String,
 ): JsonObject =
-    if (arguments.isBlank()) {
-        buildJsonObject {}
-    } else {
-        json.parseToJsonElement(arguments).jsonObject
+    arguments.requireProviderToolArgumentsWithinLimit(providerName = "OpenAI Codex").let { boundedArguments ->
+        try {
+            if (boundedArguments.isBlank()) {
+                buildJsonObject {}
+            } else {
+                json.parseToJsonElement(boundedArguments).jsonObject
+            }
+        } catch (error: Exception) {
+            throw ModelProviderException(
+                kind = ModelProviderFailureKind.Response,
+                userMessage = "OpenAI Codex returned malformed tool arguments.",
+                details = boundedArguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+                cause = error,
+            )
+        }
     }
 
 private fun extractOutputText(content: JsonArray?): String =
-    content
-        .orEmpty()
-        .mapNotNull { item ->
-            val block = item.jsonObjectOrNull() ?: return@mapNotNull null
-            when (block.stringValue("type")) {
-                "output_text" -> block.stringValue("text")
-                "refusal" -> block.stringValue("refusal")
-                else -> null
+    buildString {
+        content.orEmpty().forEach { item ->
+            val block = item.jsonObjectOrNull() ?: return@forEach
+            val text =
+                when (block.stringValue("type")) {
+                    "output_text" -> block.stringValue("text")
+                    "refusal" -> block.stringValue("refusal")
+                    else -> null
+                }
+            if (text != null) {
+                appendBoundedProviderAssistantText(text)
             }
-        }.joinToString("")
+        }
+    }
 
 private fun mapResponsesStopReason(status: String?): String =
     when (status) {

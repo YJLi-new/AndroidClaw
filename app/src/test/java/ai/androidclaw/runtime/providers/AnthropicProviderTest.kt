@@ -23,6 +23,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -129,6 +130,33 @@ class AnthropicProviderTest {
         }
 
     @Test
+    fun `batch response text is bounded before returning`() =
+        runTest {
+            val oversizedText = "x".repeat(MAX_PROVIDER_ASSISTANT_TEXT_CHARS) + "TEXT_TAIL"
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "id": "msg_large",
+                          "model": "claude-sonnet-4-5",
+                          "content": [
+                            { "type": "text", "text": "$oversizedText" }
+                          ],
+                          "stop_reason": "end_turn"
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val response = buildProvider().generate(buildRequest())
+
+            assertEquals(MAX_PROVIDER_ASSISTANT_TEXT_CHARS, response.text.length)
+            assertFalse(response.text.contains("TEXT_TAIL"))
+        }
+
+    @Test
     fun `streaming aggregates text and tool deltas into final response`() =
         runTest {
             server.enqueue(
@@ -184,6 +212,37 @@ class AnthropicProviderTest {
             assertEquals(11, completed.response.usage?.inputTokens)
             assertEquals(5, completed.response.usage?.outputTokens)
             assertEquals(16, completed.response.usage?.totalTokens)
+        }
+
+    @Test
+    fun `streamed oversized tool arguments fail before accumulation`() =
+        runTest {
+            val oversizedArguments = "a".repeat(MAX_PROVIDER_TOOL_ARGUMENT_CHARS + 1)
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "text/event-stream")
+                    .setBody(
+                        """
+                        event: message_start
+                        data: {"type":"message_start","message":{"id":"msg_stream","model":"claude-sonnet-4-5"}}
+
+                        event: content_block_start
+                        data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_stream","name":"health.status"}}
+
+                        event: content_block_delta
+                        data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"$oversizedArguments"}}
+
+                        """.trimIndent(),
+                    ),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().streamGenerate(buildRequest()).toList()
+                }
+
+            assertEquals(ModelProviderFailureKind.Response, error.kind)
+            assertEquals("Provider returned oversized tool arguments.", error.userMessage)
         }
 
     @Test

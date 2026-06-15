@@ -259,9 +259,11 @@ class OpenAiCompatibleProvider(
             choice.message.content
                 ?.trim()
                 .orEmpty()
+                .toBoundedProviderAssistantText()
         val toolCalls =
             choice.message.toolCalls
                 .orEmpty()
+                .requireProviderToolCallLimit(providerName = "Provider")
                 .map(::toProviderToolCall)
         if (toolCalls.isNotEmpty()) {
             return ModelResponse(
@@ -291,24 +293,25 @@ class OpenAiCompatibleProvider(
     }
 
     private fun toProviderToolCall(toolCall: OpenAiToolCall): ProviderToolCall {
+        val arguments = toolCall.function.arguments.requireProviderToolArgumentsWithinLimit(providerName = "Provider")
         val parsedArguments =
             try {
-                if (toolCall.function.arguments.isBlank()) {
+                if (arguments.isBlank()) {
                     buildJsonObject {}
                 } else {
-                    json.parseToJsonElement(toolCall.function.arguments).jsonObject
+                    json.parseToJsonElement(arguments).jsonObject
                 }
             } catch (error: Exception) {
                 throw ModelProviderException(
                     kind = ModelProviderFailureKind.Response,
                     userMessage = "Provider returned malformed tool arguments.",
-                    details = toolCall.function.arguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+                    details = arguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
                     cause = error,
                 )
             }
         return ProviderToolCall(
-            id = toolCall.id,
-            name = toolCall.function.name,
+            id = toolCall.id.toBoundedProviderToolCallId(),
+            name = toolCall.function.name.toBoundedProviderToolCallName(),
             argumentsJson = parsedArguments,
         )
     }
@@ -531,29 +534,43 @@ private class OpenAiStreamAccumulator(
                 choice.delta.content
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { contentPart ->
-                        assistantText.append(contentPart)
-                        add(ModelStreamEvent.TextDelta(contentPart))
+                        val boundedContentPart = assistantText.appendBoundedProviderAssistantText(contentPart)
+                        if (boundedContentPart.isNotEmpty()) {
+                            add(ModelStreamEvent.TextDelta(boundedContentPart))
+                        }
                     }
                 choice.delta.toolCalls.orEmpty().forEach { toolCallDelta ->
+                    requireProviderToolCallCapacity(
+                        currentSize = toolCalls.size,
+                        isNewToolCall = !toolCalls.containsKey(toolCallDelta.index),
+                        providerName = "Provider",
+                    )
                     val accumulator = toolCalls.getOrPut(toolCallDelta.index) { ToolCallAccumulator() }
                     toolCallDelta.id
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { idPart ->
-                            accumulator.id.append(idPart)
-                            add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, idPart = idPart))
+                            val boundedIdPart = accumulator.id.appendBoundedProviderToolCallId(idPart)
+                            if (boundedIdPart.isNotEmpty()) {
+                                add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, idPart = boundedIdPart))
+                            }
                         }
                     toolCallDelta.function
                         ?.name
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { namePart ->
-                            accumulator.name.append(namePart)
-                            add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, namePart = namePart))
+                            val boundedNamePart = accumulator.name.appendBoundedProviderToolCallName(namePart)
+                            if (boundedNamePart.isNotEmpty()) {
+                                add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, namePart = boundedNamePart))
+                            }
                         }
                     toolCallDelta.function
                         ?.arguments
                         ?.takeIf { it.isNotEmpty() }
                         ?.let { argumentsPart ->
-                            accumulator.arguments.append(argumentsPart)
+                            accumulator.arguments.appendProviderToolArguments(
+                                text = argumentsPart,
+                                providerName = "Provider",
+                            )
                             add(ModelStreamEvent.ToolCallDelta(index = toolCallDelta.index, argumentsPart = argumentsPart))
                         }
                 }
@@ -585,7 +602,7 @@ private class OpenAiStreamAccumulator(
                     argumentsJson = parseToolArguments(accumulator.arguments.toString()),
                 )
             }
-        val assistantMessage = assistantText.toString()
+        val assistantMessage = assistantText.toString().toBoundedProviderAssistantText()
         if (assistantMessage.isBlank() && resolvedToolCalls.isEmpty()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Response,
@@ -614,19 +631,21 @@ private class OpenAiStreamAccumulator(
     fun canCompleteWithoutTerminalSignal(): Boolean = sawChunk && !finishReason.isNullOrBlank()
 
     private fun parseToolArguments(arguments: String): JsonObject =
-        try {
-            if (arguments.isBlank()) {
-                buildJsonObject {}
-            } else {
-                json.parseToJsonElement(arguments).jsonObject
+        arguments.requireProviderToolArgumentsWithinLimit(providerName = "Provider").let { boundedArguments ->
+            try {
+                if (boundedArguments.isBlank()) {
+                    buildJsonObject {}
+                } else {
+                    json.parseToJsonElement(boundedArguments).jsonObject
+                }
+            } catch (error: Exception) {
+                throw ModelProviderException(
+                    kind = ModelProviderFailureKind.Response,
+                    userMessage = "Provider returned malformed tool arguments.",
+                    details = boundedArguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+                    cause = error,
+                )
             }
-        } catch (error: Exception) {
-            throw ModelProviderException(
-                kind = ModelProviderFailureKind.Response,
-                userMessage = "Provider returned malformed tool arguments.",
-                details = arguments.take(MAX_PROVIDER_ERROR_BODY_CHARS),
-                cause = error,
-            )
         }
 
     private data class ToolCallAccumulator(
