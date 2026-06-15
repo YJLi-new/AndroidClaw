@@ -247,3 +247,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   now trim, cap, and drop blank boundary ids, legacy reads apply the same bound,
   and boundary maintenance queries no longer surface rows whose persisted
   boundary normalizes to null.
+- 2026-06-16: Bounded crash marker diagnostics. Crash thread names,
+  exception types, messages, and stack traces now normalize on write and again
+  on legacy reads, with blank legacy text falling back to safe display values so
+  health diagnostics exports cannot be inflated by untrusted crash payloads.
