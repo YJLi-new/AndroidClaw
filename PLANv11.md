@@ -181,3 +181,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   boundaries. Oversized automation failure messages and result summaries now
   truncate before persistence, while legacy oversized run rows are clipped before
   reaching task history UI and tool payloads.
+- 2026-06-16: Hardened memory repository boundaries. Memory text and source
+  message ids are now bounded before persistence and again on legacy reads,
+  non-positive search/list limits return empty results, and blank owners expose
+  no active-memory data or observed count.

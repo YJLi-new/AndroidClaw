@@ -4,6 +4,7 @@ import ai.androidclaw.data.db.dao.MemoryItemDao
 import ai.androidclaw.data.db.entity.MemoryItemEntity
 import ai.androidclaw.data.model.MemoryItem
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -41,9 +42,9 @@ class MemoryRepository(
             MemoryItemEntity(
                 id = UUID.randomUUID().toString(),
                 ownerUserId = ownerUserId,
-                text = normalizedText.take(MAX_MEMORY_TEXT_CHARS),
+                text = normalizedText.toBoundedMemoryText(),
                 sourceSessionId = sourceSessionId?.takeIf { it.isNotBlank() },
-                sourceMessageIdsJson = json.encodeToString(sourceMessageIds.filter(String::isNotBlank).distinct()),
+                sourceMessageIdsJson = json.encodeToString(sourceMessageIds.toBoundedSourceMessageIds()),
                 sourceType = sourceType.ifBlank { SOURCE_TYPE_MANUAL },
                 createdAt = now,
                 updatedAt = now,
@@ -58,9 +59,9 @@ class MemoryRepository(
         query: String,
         limit: Int = DEFAULT_SEARCH_LIMIT,
     ): List<MemoryItem> {
-        val boundedLimit = limit.coerceIn(1, MAX_SEARCH_LIMIT)
+        val boundedLimit = limit.coerceIn(0, MAX_SEARCH_LIMIT)
         val queryTerms = tokenize(query)
-        if (ownerUserId.isBlank() || queryTerms.isEmpty()) {
+        if (ownerUserId.isBlank() || queryTerms.isEmpty() || boundedLimit == 0) {
             return emptyList()
         }
         val normalizedQuery = normalizeForDuplicate(query)
@@ -83,12 +84,17 @@ class MemoryRepository(
     suspend fun listRecent(
         ownerUserId: String,
         limit: Int = DEFAULT_LIST_LIMIT,
-    ): List<MemoryItem> =
-        dao
+    ): List<MemoryItem> {
+        val boundedLimit = limit.coerceIn(0, MAX_LIST_LIMIT)
+        if (ownerUserId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
             .getActiveByOwner(
                 ownerUserId = ownerUserId,
-                limit = limit.coerceIn(1, MAX_LIST_LIMIT),
+                limit = boundedLimit,
             ).map { it.toDomain(json) }
+    }
 
     suspend fun countActive(ownerUserId: String): Int =
         if (ownerUserId.isBlank()) {
@@ -97,7 +103,12 @@ class MemoryRepository(
             dao.countActive(ownerUserId)
         }
 
-    fun observeActiveCount(ownerUserId: String): Flow<Int> = dao.observeActiveCount(ownerUserId)
+    fun observeActiveCount(ownerUserId: String): Flow<Int> =
+        if (ownerUserId.isBlank()) {
+            flowOf(0)
+        } else {
+            dao.observeActiveCount(ownerUserId)
+        }
 
     suspend fun delete(
         ownerUserId: String,
@@ -131,6 +142,8 @@ class MemoryRepository(
         const val MAX_SEARCH_LIMIT = 10
         const val MAX_LIST_LIMIT = 50
         const val MAX_MEMORY_TEXT_CHARS = 500
+        const val MAX_SOURCE_MESSAGE_IDS = 20
+        const val MAX_SOURCE_MESSAGE_ID_CHARS = 120
         private const val DUPLICATE_SCAN_LIMIT = 1_000
         private const val SEARCH_SCAN_LIMIT = 500
     }
@@ -146,7 +159,8 @@ private fun scoreMemory(
     queryTerms: Set<String>,
     entity: MemoryItemEntity,
 ): Int {
-    val normalizedText = normalizeForDuplicate(entity.text)
+    val boundedText = entity.text.toBoundedMemoryText()
+    val normalizedText = normalizeForDuplicate(boundedText)
     if (normalizedText.isBlank()) {
         return 0
     }
@@ -154,7 +168,7 @@ private fun scoreMemory(
     if (normalizedQuery.length >= 4 && normalizedText.contains(normalizedQuery)) {
         score += 8
     }
-    val memoryTerms = tokenize(entity.text)
+    val memoryTerms = tokenize(boundedText)
     queryTerms.forEach { term ->
         if (term in memoryTerms) {
             score += if (term.length == 1) 1 else 3
@@ -222,7 +236,7 @@ private fun MemoryItemEntity.toDomain(json: Json): MemoryItem =
     MemoryItem(
         id = id,
         ownerUserId = ownerUserId,
-        text = text,
+        text = text.toBoundedMemoryText(),
         sourceSessionId = sourceSessionId,
         sourceMessageIds = decodeSourceMessageIds(json, sourceMessageIdsJson),
         sourceType = sourceType,
@@ -241,4 +255,15 @@ private fun decodeSourceMessageIds(
         emptyList()
     } catch (_: IllegalArgumentException) {
         emptyList()
-    }
+    }.toBoundedSourceMessageIds()
+
+private fun String.toBoundedMemoryText(): String = take(MemoryRepository.MAX_MEMORY_TEXT_CHARS)
+
+private fun List<String>.toBoundedSourceMessageIds(): List<String> =
+    asSequence()
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .map { it.take(MemoryRepository.MAX_SOURCE_MESSAGE_ID_CHARS) }
+        .distinct()
+        .take(MemoryRepository.MAX_SOURCE_MESSAGE_IDS)
+        .toList()
