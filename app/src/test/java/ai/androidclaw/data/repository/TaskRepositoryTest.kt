@@ -4,6 +4,7 @@ import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.db.entity.TaskEntity
+import ai.androidclaw.data.db.entity.TaskRunEntity
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
@@ -302,6 +303,68 @@ class TaskRepositoryTest {
             assertEquals(0, stored?.failureCount)
             assertEquals(0, stored?.maxRetries)
         }
+
+    @Test
+    fun `update run bounds diagnostic text before persistence`() =
+        runTest {
+            val task =
+                repository.createTask(
+                    name = "Diagnostic task",
+                    prompt = "Write bounded run diagnostics",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val run = repository.recordRun(task.id, scheduledAt = Instant.ofEpochMilli(10L))
+            val longError = "e".repeat(TASK_RUN_ERROR_MESSAGE_MAX_CHARS + 25)
+            val longSummary = "s".repeat(TASK_RUN_RESULT_SUMMARY_MAX_CHARS + 25)
+
+            repository.updateRun(
+                run.copy(
+                    status = TaskRunStatus.Failure,
+                    errorMessage = longError,
+                    resultSummary = longSummary,
+                ),
+            )
+            val raw = database.taskRunDao().getLatestByTaskId(task.id)
+            val latest = repository.getLatestRun(task.id)
+
+            assertEquals(longError.take(TASK_RUN_ERROR_MESSAGE_MAX_CHARS), raw?.errorMessage)
+            assertEquals(longSummary.take(TASK_RUN_RESULT_SUMMARY_MAX_CHARS), raw?.resultSummary)
+            assertEquals(longError.take(TASK_RUN_ERROR_MESSAGE_MAX_CHARS), latest?.errorMessage)
+            assertEquals(longSummary.take(TASK_RUN_RESULT_SUMMARY_MAX_CHARS), latest?.resultSummary)
+        }
+
+    @Test
+    fun `run reads bound legacy oversized diagnostic text`() =
+        runTest {
+            val task =
+                repository.createTask(
+                    name = "Legacy diagnostic task",
+                    prompt = "Read bounded run diagnostics",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val longError = "legacy-error".repeat(120)
+            val longSummary = "legacy-summary".repeat(400)
+            database.taskRunDao().insert(
+                taskRunEntity(
+                    id = "legacy-run",
+                    taskId = task.id,
+                    errorMessage = longError,
+                    resultSummary = longSummary,
+                ),
+            )
+
+            val latest = repository.getLatestRun(task.id)
+            val observed = repository.observeRuns(task.id).first()
+
+            assertEquals(longError.take(TASK_RUN_ERROR_MESSAGE_MAX_CHARS), latest?.errorMessage)
+            assertEquals(longSummary.take(TASK_RUN_RESULT_SUMMARY_MAX_CHARS), latest?.resultSummary)
+            assertEquals(longError.take(TASK_RUN_ERROR_MESSAGE_MAX_CHARS), observed.single().errorMessage)
+            assertEquals(longSummary.take(TASK_RUN_RESULT_SUMMARY_MAX_CHARS), observed.single().resultSummary)
+        }
 }
 
 private fun taskEntity(
@@ -340,4 +403,24 @@ private fun invalidTaskEntity(
         scheduleKind = "interval",
         scheduleSpec = scheduleSpec,
         nextRunAt = nextRunAt,
+    )
+
+private fun taskRunEntity(
+    id: String,
+    taskId: String,
+    scheduledAt: Long = 10L,
+    errorMessage: String? = null,
+    resultSummary: String? = null,
+): TaskRunEntity =
+    TaskRunEntity(
+        id = id,
+        taskId = taskId,
+        status = "FAILURE",
+        scheduledAt = scheduledAt,
+        startedAt = scheduledAt,
+        finishedAt = scheduledAt + 1L,
+        errorCode = "LEGACY_ERROR",
+        errorMessage = errorMessage,
+        resultSummary = resultSummary,
+        outputMessageId = null,
     )

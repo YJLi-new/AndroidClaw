@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
 
+internal const val TASK_RUN_ERROR_MESSAGE_MAX_CHARS = 1_000
+internal const val TASK_RUN_RESULT_SUMMARY_MAX_CHARS = 4_000
+
 class TaskRepository(
     private val taskDao: TaskDao,
     private val taskRunDao: TaskRunDao,
@@ -162,8 +165,8 @@ private fun TaskRunEntity.toDomain(): TaskRun =
         startedAt = startedAt?.let(Instant::ofEpochMilli),
         finishedAt = finishedAt?.let(Instant::ofEpochMilli),
         errorCode = errorCode,
-        errorMessage = errorMessage,
-        resultSummary = resultSummary,
+        errorMessage = errorMessage?.toBoundedTaskRunText(TASK_RUN_ERROR_MESSAGE_MAX_CHARS),
+        resultSummary = resultSummary?.toBoundedTaskRunText(TASK_RUN_RESULT_SUMMARY_MAX_CHARS),
         outputMessageId = outputMessageId,
     )
 
@@ -176,10 +179,17 @@ private fun TaskRun.toEntity(): TaskRunEntity =
         startedAt = startedAt?.toEpochMilli(),
         finishedAt = finishedAt?.toEpochMilli(),
         errorCode = errorCode,
-        errorMessage = errorMessage,
-        resultSummary = resultSummary,
+        errorMessage = errorMessage?.toBoundedTaskRunText(TASK_RUN_ERROR_MESSAGE_MAX_CHARS),
+        resultSummary = resultSummary?.toBoundedTaskRunText(TASK_RUN_RESULT_SUMMARY_MAX_CHARS),
         outputMessageId = outputMessageId,
     )
+
+private fun String.toBoundedTaskRunText(maxChars: Int): String =
+    if (length <= maxChars) {
+        this
+    } else {
+        take(maxChars)
+    }
 
 private fun TaskExecutionMode.toStorage(): String =
     when (this) {

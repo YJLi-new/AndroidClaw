@@ -177,3 +177,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   retry/failure counts from direct callers or corrupted persisted rows now clamp
   to zero before storage or domain mapping, keeping task UI and retry planning in
   non-negative automation state.
+- 2026-06-16: Bounded task-run diagnostic text at repository write and read
+  boundaries. Oversized automation failure messages and result summaries now
+  truncate before persistence, while legacy oversized run rows are clipped before
+  reaching task history UI and tool payloads.
