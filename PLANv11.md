@@ -303,3 +303,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   progress/failure text, validation failures, generic exceptions, recovered-key
   notices, and device-code instructions now pass through a shared status cap
   before reaching Settings or onboarding UI state.
+- 2026-06-16: Bounded chat UI error and notice messages. External-action
+  completion/failure text, turn-failure display text, and export/share exception
+  messages now pass through a shared chat UI-message cap before reaching Compose
+  state while event logging still preserves repository-bounded diagnostics.

@@ -189,6 +189,34 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `external action UI messages are bounded before reaching chat state`() =
+        runTest {
+            val oversizedNotice = "n".repeat(CHAT_UI_MESSAGE_MAX_CHARS + 50)
+            val oversizedError = "e".repeat(CHAT_UI_MESSAGE_MAX_CHARS + 75)
+
+            viewModel.state.test {
+                awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+                viewModel.onExternalActionCompleted(oversizedNotice)
+                val noticed = awaitState { it.noticeMessage?.length == CHAT_UI_MESSAGE_MAX_CHARS }
+                assertEquals(oversizedNotice.take(CHAT_UI_MESSAGE_MAX_CHARS), noticed.noticeMessage)
+
+                viewModel.onExternalActionFailed(oversizedError)
+                val failed = awaitState { it.errorMessage?.length == CHAT_UI_MESSAGE_MAX_CHARS }
+                assertEquals(oversizedError.take(CHAT_UI_MESSAGE_MAX_CHARS), failed.errorMessage)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `chat ui messages fall back when blank`() {
+        val oversizedFallback = "f".repeat(CHAT_UI_MESSAGE_MAX_CHARS + 20)
+
+        assertEquals("Fallback", boundedChatUiMessage("", fallback = "Fallback"))
+        assertEquals(oversizedFallback.take(CHAT_UI_MESSAGE_MAX_CHARS), boundedChatUiMessage(null, oversizedFallback))
+    }
+
+    @Test
     fun `provider failures expose retry and retry does not duplicate the user message`() =
         runTest {
             var calls = 0

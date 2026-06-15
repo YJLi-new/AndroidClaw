@@ -99,6 +99,7 @@ internal const val CHAT_DRAFT_TRUNCATED_NOTICE =
 internal const val CHAT_SEARCH_QUERY_MAX_CHARS = SQLITE_LIKE_SEARCH_QUERY_MAX_CHARS
 internal const val CHAT_SEARCH_QUERY_TRUNCATED_NOTICE =
     "Search text truncated by AndroidClaw to keep history search responsive."
+internal const val CHAT_UI_MESSAGE_MAX_CHARS = 1_000
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(
@@ -604,14 +605,13 @@ class ChatViewModel(
     }
 
     fun onExternalActionCompleted(message: String?) {
-        if (!message.isNullOrBlank()) {
-            errorMessage.value = null
-            noticeMessage.value = message
-        }
+        val boundedMessage = message.toBoundedChatUiMessageOrNull() ?: return
+        errorMessage.value = null
+        noticeMessage.value = boundedMessage
     }
 
     fun onExternalActionFailed(message: String) {
-        errorMessage.value = message
+        errorMessage.value = boundedChatUiMessage(message, fallback = "External action failed.")
     }
 
     fun onExportCancelled() {
@@ -698,7 +698,7 @@ class ChatViewModel(
                                 is AgentTurnEvent.TurnFailed -> {
                                     streamingAssistantText.value = ""
                                     activeTurnStage.value = null
-                                    errorMessage.value = event.message
+                                    errorMessage.value = boundedChatUiMessage(event.message, fallback = "Turn failed.")
                                     noticeMessage.value = null
                                     lastFailedUserMessageText = normalizedUserMessage
                                     lastFailedSessionId = sessionId
@@ -931,10 +931,20 @@ private fun buildSearchPreview(
 private const val SEARCH_PREVIEW_WINDOW = 48
 private const val SEARCH_PREVIEW_LIMIT = 120
 
+internal fun boundedChatUiMessage(
+    message: String?,
+    fallback: String,
+): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(CHAT_UI_MESSAGE_MAX_CHARS)
+
+private fun String?.toBoundedChatUiMessageOrNull(): String? =
+    this
+        ?.take(CHAT_UI_MESSAGE_MAX_CHARS)
+        ?.takeIf(String::isNotBlank)
+
 private fun Throwable.userFacingMessage(operation: String): String {
     val details = message?.takeIf { it.isNotBlank() }
     return if (details != null) {
-        "Failed to $operation: $details"
+        boundedChatUiMessage("Failed to $operation: $details", fallback = "Failed to $operation.")
     } else {
         "Failed to $operation."
     }
