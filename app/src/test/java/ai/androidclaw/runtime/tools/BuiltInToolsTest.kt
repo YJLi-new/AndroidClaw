@@ -400,6 +400,54 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks create rejects overflowing retry counts`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Overflowing retry budget")
+                            put("prompt", "This should fail")
+                            put("scheduleKind", "once")
+                            put("atIso", "2026-03-20T08:00:00Z")
+                            put("maxRetries", 4_294_967_296L)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(result.summary.contains("maxRetries"))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+        }
+
+    @Test
+    fun `tasks create rejects interval cadence values that cannot be safely represented`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Unsafe cadence")
+                            put("prompt", "This should fail")
+                            put("scheduleKind", "interval")
+                            put("anchorAtIso", "2026-03-20T08:00:00Z")
+                            put("repeatEveryMinutes", Long.MAX_VALUE)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(result.summary.contains("repeatEveryMinutes"))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+        }
+
+    @Test
     fun `tasks update patches the schedule and prompt`() =
         runTest {
             val created =

@@ -98,3 +98,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   compaction boundaries. Invalid boundaries are cleared while summary text is
   preserved, preventing legacy/corrupted state from pretending old messages are
   hidden when the boundary cannot be applied.
+- 2026-06-15: Hardened task tool numeric parsing so model-provided automation
+  arguments cannot overflow into wrapped retry counts or unsafe interval
+  durations. Oversized `maxRetries` and `repeatEveryMinutes` values now fail as
+  `INVALID_ARGUMENTS` instead of creating surprising tasks or escaping the tool
+  failure path.

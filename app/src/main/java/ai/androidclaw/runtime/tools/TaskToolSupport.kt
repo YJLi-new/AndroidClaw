@@ -401,6 +401,7 @@ private fun parseSchedule(
             require(repeatEveryMinutes >= capabilities.minimumBackgroundInterval.toMinutes()) {
                 "$toolName requires repeatEveryMinutes >= ${capabilities.minimumBackgroundInterval.toMinutes()}."
             }
+            val repeatEvery = durationOfMinutesArgument(repeatEveryMinutes, toolName, "repeatEveryMinutes")
             TaskSchedule.Interval(
                 anchorAt =
                     parseInstantArgument(
@@ -408,7 +409,7 @@ private fun parseSchedule(
                         toolName = toolName,
                         field = "anchorAtIso",
                     ) ?: return null,
-                repeatEvery = Duration.ofMinutes(repeatEveryMinutes),
+                repeatEvery = repeatEvery,
             )
         }
 
@@ -469,8 +470,22 @@ private fun parsePositiveMinutes(
         primitive.longOrNull ?: primitive.contentOrNull?.toLongOrNull()
             ?: throw IllegalArgumentException("$toolName received a non-numeric $field.")
     require(value > 0) { "$toolName requires $field > 0." }
+    require(value <= MAX_SAFE_DURATION_MINUTES) {
+        "$toolName requires $field <= $MAX_SAFE_DURATION_MINUTES."
+    }
     return value
 }
+
+private fun durationOfMinutesArgument(
+    minutes: Long,
+    toolName: String,
+    field: String,
+): Duration =
+    try {
+        Duration.ofMinutes(minutes)
+    } catch (_: ArithmeticException) {
+        throw IllegalArgumentException("$toolName received a $field value that is too large.")
+    }
 
 private fun parseRetryCount(
     element: kotlinx.serialization.json.JsonElement?,
@@ -478,10 +493,11 @@ private fun parseRetryCount(
 ): Int? {
     val primitive = element as? JsonPrimitive ?: return null
     val value =
-        primitive.longOrNull?.toInt() ?: primitive.contentOrNull?.toIntOrNull()
+        primitive.longOrNull ?: primitive.contentOrNull?.toLongOrNull()
             ?: throw IllegalArgumentException("$toolName received a non-numeric maxRetries.")
     require(value >= 0) { "$toolName requires maxRetries >= 0." }
-    return value
+    require(value <= Int.MAX_VALUE) { "$toolName requires maxRetries <= ${Int.MAX_VALUE}." }
+    return value.toInt()
 }
 
 private fun parseBooleanArgument(
@@ -586,3 +602,6 @@ private fun CronExpression.toSpec(): String =
     ).joinToString(" ")
 
 private fun CronField.toSpec(): String = if (isWildcard) "*" else allowed.toList().sorted().joinToString(",")
+
+private const val MILLIS_PER_MINUTE = 60_000L
+private const val MAX_SAFE_DURATION_MINUTES = Long.MAX_VALUE / MILLIS_PER_MINUTE
