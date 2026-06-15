@@ -8,10 +8,20 @@ import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.skills.SkillSourceType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.time.Instant
+
+internal const val SKILL_KEY_MAX_CHARS = 160
+internal const val SKILL_BASE_DIR_MAX_CHARS = 1_000
+internal const val SKILL_DISPLAY_NAME_MAX_CHARS = 160
+internal const val SKILL_DESCRIPTION_MAX_CHARS = 1_000
+internal const val SKILL_INSTRUCTIONS_MAX_CHARS = 20_000
+internal const val SKILL_PARSE_ERROR_MAX_CHARS = 1_000
+internal const val SKILL_ELIGIBILITY_REASON_MAX_CHARS = 1_000
+internal const val SKILL_ELIGIBILITY_REASONS_MAX_COUNT = 20
 
 class SkillRepository(
     private val dao: SkillRecordDao,
@@ -55,43 +65,95 @@ class SkillRepository(
     }
 }
 
-private fun SkillRecord.toEntity(json: Json): SkillRecordEntity =
-    SkillRecordEntity(
+private fun SkillRecord.toEntity(json: Json): SkillRecordEntity {
+    val boundedFrontmatter = frontmatter?.toBoundedSkillFrontmatter()
+    return SkillRecordEntity(
         id = id,
-        skillKey = skillKey,
+        skillKey = skillKey.toBoundedSkillText(SKILL_KEY_MAX_CHARS),
         sourceType = sourceType.toStorage(),
         workspaceSessionId = workspaceSessionId,
-        baseDir = baseDir,
+        baseDir = baseDir.toBoundedSkillText(SKILL_BASE_DIR_MAX_CHARS),
         enabled = enabled,
-        displayName = displayName,
-        description = description,
-        frontmatterJson = frontmatter?.let { json.encodeToString(SkillFrontmatter.serializer(), it) },
-        instructionsMd = instructionsMd,
+        displayName = displayName.toBoundedSkillText(SKILL_DISPLAY_NAME_MAX_CHARS),
+        description = description.toBoundedSkillText(SKILL_DESCRIPTION_MAX_CHARS),
+        frontmatterJson = boundedFrontmatter?.let { json.encodeToString(SkillFrontmatter.serializer(), it) },
+        instructionsMd = instructionsMd.toBoundedSkillText(SKILL_INSTRUCTIONS_MAX_CHARS),
         eligibilityStatus = eligibilityStatus.toStorage(),
-        eligibilityReasons = json.encodeToString(ListSerializer(String.serializer()), eligibilityReasons),
-        parseError = parseError,
+        eligibilityReasons =
+            json.encodeToString(
+                ListSerializer(String.serializer()),
+                eligibilityReasons.toBoundedSkillReasons(),
+            ),
+        parseError = parseError?.toBoundedSkillText(SKILL_PARSE_ERROR_MAX_CHARS),
         importedAt = importedAt?.toEpochMilli(),
         updatedAt = updatedAt.toEpochMilli(),
     )
+}
 
 private fun SkillRecordEntity.toDomain(json: Json): SkillRecord =
     SkillRecord(
         id = id,
-        skillKey = skillKey,
+        skillKey = skillKey.toBoundedSkillText(SKILL_KEY_MAX_CHARS),
         sourceType = sourceType.toSkillSourceType(),
         workspaceSessionId = workspaceSessionId,
-        baseDir = baseDir,
+        baseDir = baseDir.toBoundedSkillText(SKILL_BASE_DIR_MAX_CHARS),
         enabled = enabled,
-        displayName = displayName,
-        description = description,
-        frontmatter = frontmatterJson?.let { json.decodeFromString(SkillFrontmatter.serializer(), it) },
-        instructionsMd = instructionsMd,
+        displayName = displayName.toBoundedSkillText(SKILL_DISPLAY_NAME_MAX_CHARS),
+        description = description.toBoundedSkillText(SKILL_DESCRIPTION_MAX_CHARS),
+        frontmatter = decodeFrontmatter(json, frontmatterJson)?.toBoundedSkillFrontmatter(),
+        instructionsMd = instructionsMd.toBoundedSkillText(SKILL_INSTRUCTIONS_MAX_CHARS),
         eligibilityStatus = eligibilityStatus.toSkillEligibilityStatus(),
-        eligibilityReasons = json.decodeFromString(ListSerializer(String.serializer()), eligibilityReasons),
-        parseError = parseError,
+        eligibilityReasons = decodeEligibilityReasons(json, eligibilityReasons).toBoundedSkillReasons(),
+        parseError = parseError?.toBoundedSkillText(SKILL_PARSE_ERROR_MAX_CHARS),
         importedAt = importedAt?.let(Instant::ofEpochMilli),
         updatedAt = Instant.ofEpochMilli(updatedAt),
     )
+
+private fun decodeFrontmatter(
+    json: Json,
+    rawValue: String?,
+): SkillFrontmatter? {
+    rawValue ?: return null
+    return try {
+        json.decodeFromString(SkillFrontmatter.serializer(), rawValue)
+    } catch (_: SerializationException) {
+        null
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+}
+
+private fun decodeEligibilityReasons(
+    json: Json,
+    rawValue: String,
+): List<String> =
+    try {
+        json.decodeFromString(ListSerializer(String.serializer()), rawValue)
+    } catch (_: SerializationException) {
+        emptyList()
+    } catch (_: IllegalArgumentException) {
+        emptyList()
+    }
+
+private fun SkillFrontmatter.toBoundedSkillFrontmatter(): SkillFrontmatter =
+    copy(
+        name = name.toBoundedSkillText(SKILL_DISPLAY_NAME_MAX_CHARS),
+        description = description.toBoundedSkillText(SKILL_DESCRIPTION_MAX_CHARS),
+        homepage = homepage?.toBoundedSkillText(SKILL_BASE_DIR_MAX_CHARS),
+        commandTool = commandTool?.toBoundedSkillText(SKILL_KEY_MAX_CHARS),
+        commandArgMode = commandArgMode.toBoundedSkillText(SKILL_KEY_MAX_CHARS),
+    )
+
+private fun List<String>.toBoundedSkillReasons(): List<String> =
+    asSequence()
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .map { it.toBoundedSkillText(SKILL_ELIGIBILITY_REASON_MAX_CHARS) }
+        .distinct()
+        .take(SKILL_ELIGIBILITY_REASONS_MAX_COUNT)
+        .toList()
+
+private fun String.toBoundedSkillText(maxChars: Int): String = take(maxChars)
 
 private fun SkillSourceType.toStorage(): String =
     when (this) {

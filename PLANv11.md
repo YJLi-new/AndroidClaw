@@ -185,3 +185,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   message ids are now bounded before persistence and again on legacy reads,
   non-positive search/list limits return empty results, and blank owners expose
   no active-memory data or observed count.
+- 2026-06-16: Hardened skill repository boundaries. Imported skill names,
+  descriptions, markdown instructions, parse errors, base paths, and eligibility
+  reasons are bounded before persistence and on legacy reads, while malformed
+  persisted frontmatter/reason JSON now degrades to null/empty data instead of
+  crashing skill lists.
