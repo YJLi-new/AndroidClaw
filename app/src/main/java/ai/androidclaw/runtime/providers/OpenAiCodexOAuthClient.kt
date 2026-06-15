@@ -310,7 +310,7 @@ class HttpOpenAiCodexOAuthClient(
         rawBody: String,
     ): ModelProviderException {
         val parsed = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
-        val error = parsed?.stringValue("error")
+        val error = parsed?.oauthErrorValue()
         val description = parsed?.stringValue("error_description")
         val providerMessage = parsed?.stringValue("detail") ?: parsed?.stringValue("message")
         val message =
@@ -417,6 +417,23 @@ private fun JsonObject.stringValue(name: String): String? =
         ?.contentOrNull
         ?.trim()
         ?.takeIf { it.isNotBlank() }
+
+private fun JsonObject.oauthErrorValue(): String? {
+    val error = this["error"] ?: return null
+    return when (error) {
+        is JsonPrimitive ->
+            error.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        is JsonObject ->
+            error.stringValue("message")
+                ?: error.stringValue("detail")
+                ?: error.stringValue("description")
+                ?: error.stringValue("code")
+                ?: error.stringValue("type")
+        else -> null
+    }
+}
 
 private fun JsonObject.longValue(name: String): Long? {
     val primitive = this[name]?.jsonPrimitiveOrNull() ?: return null

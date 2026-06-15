@@ -191,6 +191,28 @@ class OpenAiCodexOAuthClientTest {
         }
 
     @Test
+    fun `device code failure surfaces object provider error message`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setBody("""{"error":{"message":"invalid OAuth\nclient"}}"""),
+            )
+
+            val error =
+                runCatching {
+                    buildClient().loginWithDeviceCode(onVerification = {})
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val message = error!!.message.orEmpty()
+            assertTrue(message.contains("OpenAI device code request failed"))
+            assertTrue(message.contains("invalid OAuth client"))
+            assertFalse(message.contains('\n'))
+            assertFalse(message.contains("{"))
+        }
+
+    @Test
     fun `token refresh failure surfaces root level provider detail`() =
         runTest {
             server.enqueue(
@@ -215,6 +237,35 @@ class OpenAiCodexOAuthClientTest {
             val message = error!!.message.orEmpty()
             assertTrue(message.contains("OpenAI token refresh failed"))
             assertTrue(message.contains("refresh token expired sign in again"))
+            assertFalse(message.contains('\n'))
+            assertFalse(message.contains("{"))
+        }
+
+    @Test
+    fun `token refresh failure surfaces object provider error detail`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setBody("""{"error":{"detail":"refresh disabled\nfor account"}}"""),
+            )
+
+            val error =
+                runCatching {
+                    buildClient().refreshCredential(
+                        ProviderOAuthCredential(
+                            provider = ProviderType.OpenAiCodex.providerId,
+                            accessToken = "old-access",
+                            refreshToken = "old-refresh",
+                            expiresAtEpochMillis = clock.millis() - 1,
+                        ),
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val message = error!!.message.orEmpty()
+            assertTrue(message.contains("OpenAI token refresh failed"))
+            assertTrue(message.contains("refresh disabled for account"))
             assertFalse(message.contains('\n'))
             assertFalse(message.contains("{"))
         }
