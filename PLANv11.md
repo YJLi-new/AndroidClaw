@@ -88,3 +88,6 @@ available, or use the repo's Windows AVD scripts for manual QA.
   stores a compaction boundary that exists in the active session. This prevents
   stale or cross-session message ids from producing a summary that claims older
   messages were hidden while the UI cannot actually apply the boundary.
+- 2026-06-15: Added an explicit active-session existence check to
+  `sessions.compact`. The tool now fails with `MISSING_SESSION` instead of
+  reporting success when invoked with a stale/nonexistent session id.

@@ -181,6 +181,17 @@ internal fun createBuiltInToolRegistry(
                                         },
                                 )
                             }
+                            if (sessionRepository.getSession(sessionId) == null) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Active session is no longer available to compact.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                            put("sessionId", sessionId)
+                                        },
+                                )
+                            }
                             val compactedUntilMessageId = arguments.optionalText("compactedUntilMessageId")
                             if (compactedUntilMessageId.isNullOrBlank()) {
                                 return@Entry ToolExecutionResult.failure(

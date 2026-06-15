@@ -194,6 +194,34 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions compact rejects a missing active session`() =
+        runTest {
+            val existingSession = sessionRepository.getOrCreateMainSession()
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = existingSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Boundary from an existing session.",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compact", sessionId = "missing-session"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "Summary text for a missing session.")
+                            put("compactedUntilMessageId", boundary.id)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("MISSING_SESSION", result.errorCode)
+            assertEquals("missing-session", result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals(null, sessionRepository.getSession(existingSession.id)?.summaryText)
+        }
+
+    @Test
     fun `sessions compact rejects a boundary outside the active session`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()
