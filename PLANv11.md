@@ -330,3 +330,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   capability kinds now cap item text and list length before entering
   `HealthUiState`, with omitted-count markers so oversized registries cannot
   inflate the Health screen while diagnostics exports retain their own caps.
+- 2026-06-16: Bounded health UI text fields. Provider status/issues,
+  automation result details, worker stop reasons, crash summaries, and crash
+  stack traces now cap at the Health ViewModel boundary before reaching Compose
+  state, while diagnostics-report formatting keeps its own export-specific caps.

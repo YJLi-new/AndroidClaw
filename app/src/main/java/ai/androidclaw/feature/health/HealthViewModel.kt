@@ -72,20 +72,21 @@ class HealthViewModel(
                 providerEvents
                     .firstOrNull { it.level != EventLevel.Info }
                     ?: providerEvents.firstOrNull()
-            val lastProviderIssueSummary = lastProviderIssue?.let(::formatProviderIssue)
+            val lastProviderIssueSummary = lastProviderIssue?.let(::formatProviderIssue).toBoundedHealthUiFieldOrNull()
+            val crashMarker = crashMarkerStore.read()
             HealthUiState(
-                providerId = providerRegistry.require(settings.providerType).id,
-                networkSummary = networkStatus.summary,
+                providerId = providerRegistry.require(settings.providerType).id.toBoundedHealthUiField(),
+                networkSummary = networkStatus.summary.toBoundedHealthUiField(),
                 providerStatus =
                     buildProviderStatus(
                         providerType = providerType,
                         networkStatus = networkStatus,
                         lastProviderIssue = lastProviderIssueSummary,
-                    ),
+                    ).toBoundedHealthUiField(),
                 lastProviderIssue = lastProviderIssueSummary,
-                lastCrashSummary = crashMarkerStore.read()?.let(::buildCrashSummary),
-                lastCrashStackTrace = crashMarkerStore.read()?.stackTrace,
-                bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
+                lastCrashSummary = crashMarker?.let(::buildCrashSummary).toBoundedHealthUiFieldOrNull(),
+                lastCrashStackTrace = crashMarker?.stackTrace.toBoundedHealthUiStackTraceOrNull(),
+                bugReportInstructions = BUG_REPORT_INSTRUCTIONS.toBoundedHealthUiField(),
                 schedulerDiagnostics = diagnostics,
                 supportedKinds = supportedKinds,
                 tools = staticTools,
@@ -103,12 +104,13 @@ class HealthViewModel(
                                     append(" (").append(details).append(")")
                                 }
                             }
-                        },
+                        }.toBoundedHealthUiDetailsOrNull(),
                 lastWorkerStopReason =
                     schedulerEvents
                         .firstOrNull {
                             it.message.contains("stopped", ignoreCase = true)
-                        }?.details,
+                        }?.details
+                        .toBoundedHealthUiDetailsOrNull(),
                 recentEvents = events,
             )
         }.stateIn(
@@ -116,10 +118,10 @@ class HealthViewModel(
             started = uiSharingStarted,
             initialValue =
                 HealthUiState(
-                    providerId = providerRegistry.defaultProvider.id,
-                    networkSummary = networkStatusProvider.currentStatus().summary,
-                    providerStatus = "FakeProvider is active. It works fully offline.",
-                    bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
+                    providerId = providerRegistry.defaultProvider.id.toBoundedHealthUiField(),
+                    networkSummary = networkStatusProvider.currentStatus().summary.toBoundedHealthUiField(),
+                    providerStatus = "FakeProvider is active. It works fully offline.".toBoundedHealthUiField(),
+                    bugReportInstructions = BUG_REPORT_INSTRUCTIONS.toBoundedHealthUiField(),
                     schedulerDiagnostics = initialDiagnostics,
                     supportedKinds = supportedKinds,
                     tools = staticTools,
@@ -278,6 +280,43 @@ private fun String.toBoundedHealthUiListItem(maxChars: Int): String {
     return normalized.take(prefixLength).trimEnd() + HEALTH_UI_TRUNCATED_SUFFIX
 }
 
+internal fun String.toBoundedHealthUiField(): String =
+    toBoundedHealthUiText(
+        maxChars = HEALTH_UI_FIELD_MAX_CHARS,
+        fallback = "Unavailable",
+    )
+
+private fun String?.toBoundedHealthUiFieldOrNull(): String? = toBoundedHealthUiTextOrNull(maxChars = HEALTH_UI_FIELD_MAX_CHARS)
+
+private fun String?.toBoundedHealthUiDetailsOrNull(): String? = toBoundedHealthUiTextOrNull(maxChars = HEALTH_UI_DETAILS_MAX_CHARS)
+
+private fun String?.toBoundedHealthUiStackTraceOrNull(): String? = toBoundedHealthUiTextOrNull(maxChars = HEALTH_UI_STACKTRACE_MAX_CHARS)
+
+private fun String?.toBoundedHealthUiTextOrNull(maxChars: Int): String? =
+    this
+        ?.toBoundedHealthUiText(
+            maxChars = maxChars,
+            fallback = "",
+        )?.takeIf(String::isNotBlank)
+
+private fun String.toBoundedHealthUiText(
+    maxChars: Int,
+    fallback: String,
+): String {
+    require(maxChars > HEALTH_UI_TRUNCATED_SUFFIX.length) {
+        "Health UI text max must leave room for the truncation suffix."
+    }
+    val normalized = trim().takeIf(String::isNotBlank) ?: fallback
+    if (normalized.length <= maxChars) {
+        return normalized
+    }
+    val prefixLength = maxChars - HEALTH_UI_TRUNCATED_SUFFIX.length
+    return normalized.take(prefixLength).trimEnd() + HEALTH_UI_TRUNCATED_SUFFIX
+}
+
+internal const val HEALTH_UI_FIELD_MAX_CHARS = 1_000
+internal const val HEALTH_UI_DETAILS_MAX_CHARS = 4_000
+internal const val HEALTH_UI_STACKTRACE_MAX_CHARS = 8_000
 internal const val HEALTH_UI_LIST_MAX_ITEMS = 50
 internal const val HEALTH_UI_LIST_ITEM_MAX_CHARS = 160
 private const val HEALTH_UI_TRUNCATED_SUFFIX = "… [truncated]"

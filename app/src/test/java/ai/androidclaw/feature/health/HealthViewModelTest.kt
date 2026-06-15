@@ -276,6 +276,77 @@ class HealthViewModelTest {
     }
 
     @Test
+    fun `health state bounds provider scheduler and crash text before Compose state`() =
+        runTest {
+            val oversizedField = "field-" + "f".repeat(HEALTH_UI_FIELD_MAX_CHARS + 500)
+            val oversizedDetails = "details=" + "d".repeat(HEALTH_UI_DETAILS_MAX_CHARS + 500)
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = oversizedField,
+                details = "kind=StreamInterrupted retryable=false $oversizedDetails",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Scheduler,
+                level = EventLevel.Warn,
+                message = "Task worker stopped.",
+                details = oversizedDetails,
+            )
+            eventLogRepository.log(
+                category = EventCategory.Scheduler,
+                level = EventLevel.Error,
+                message = "Task failed. $oversizedField",
+                details = oversizedDetails,
+            )
+            crashMarkerStore.record(
+                threadName = "main",
+                throwable = IllegalStateException("crash-" + "c".repeat(HEALTH_UI_FIELD_MAX_CHARS + 500)),
+                timestamp = Instant.parse("2026-03-08T01:00:00Z"),
+            )
+            val viewModel =
+                HealthViewModel(
+                    schedulerCoordinator =
+                        SchedulerCoordinator(
+                            application = application,
+                            clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                            taskRepository = taskRepository,
+                            eventLogRepository = eventLogRepository,
+                        ),
+                    toolRegistry = ToolRegistry(emptyList(), eventLogger = { _, _, _ -> }),
+                    providerRegistry = buildTestProviderRegistry(),
+                    networkStatusProvider = buildNetworkStatusProvider(),
+                    settingsDataStore = settingsDataStore,
+                    eventLogRepository = eventLogRepository,
+                    crashMarkerStore = crashMarkerStore,
+                )
+
+            val state =
+                viewModel.state.first {
+                    it.lastProviderIssue != null &&
+                        it.lastAutomationResult != null &&
+                        it.lastWorkerStopReason != null &&
+                        it.lastCrashSummary != null
+                }
+
+            assertEquals(HEALTH_UI_FIELD_MAX_CHARS, state.lastProviderIssue?.length)
+            assertTrue(state.lastProviderIssue?.endsWith("… [truncated]") == true)
+            assertEquals(HEALTH_UI_FIELD_MAX_CHARS, state.providerStatus.length)
+            assertTrue(state.providerStatus.endsWith("… [truncated]"))
+            assertEquals(HEALTH_UI_FIELD_MAX_CHARS, state.lastCrashSummary?.length)
+            assertTrue(state.lastCrashSummary?.endsWith("… [truncated]") == true)
+            assertTrue(state.lastCrashStackTrace.orEmpty().length <= HEALTH_UI_STACKTRACE_MAX_CHARS)
+            assertEquals(HEALTH_UI_DETAILS_MAX_CHARS, state.lastAutomationResult?.length)
+            assertTrue(state.lastAutomationResult?.endsWith("… [truncated]") == true)
+            assertTrue(state.lastWorkerStopReason.orEmpty().length <= HEALTH_UI_DETAILS_MAX_CHARS)
+            assertTrue(state.lastWorkerStopReason?.contains("truncated") == true)
+        }
+
+    @Test
+    fun `health ui fields fall back when blank`() {
+        assertEquals("Unavailable", "   ".toBoundedHealthUiField())
+    }
+
+    @Test
     fun `health state reacts to network status changes`() =
         runTest {
             val viewModel =
