@@ -349,3 +349,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   before persisting tool requests or dispatching tools, so even custom test or
   future providers cannot bypass parser-level bounds and inflate chat/tool
   execution state.
+- 2026-06-16: Bounded AgentRunner tool-use assistant text. Provider text that
+  accompanies tool calls now caps before it is added to the in-memory tool-loop
+  transcript and sent back to the provider, preventing custom or future
+  providers from bypassing parser/repository text bounds during multi-round
+  tool execution.

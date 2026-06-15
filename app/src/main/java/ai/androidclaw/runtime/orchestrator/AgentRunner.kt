@@ -345,11 +345,12 @@ class AgentRunner(
                     } else {
                         withContext(Dispatchers.IO) { provider.generate(request) }
                     }
+                val boundedResponseText = response.text.toBoundedAgentAssistantText()
                 providerRequestId = response.providerRequestId
                 if (response.finishReason != TOOL_USE_FINISH_REASON) {
                     return persistAssistantResponse(
                         sessionId = sessionId,
-                        assistantText = response.text,
+                        assistantText = boundedResponseText,
                         selectedSkills = selectedSkills,
                         providerId = provider.id,
                         providerRequestId = response.providerRequestId,
@@ -396,7 +397,7 @@ class AgentRunner(
                 messageHistory = messageHistory +
                     ModelMessage(
                         role = ModelMessageRole.Assistant,
-                        content = response.text,
+                        content = boundedResponseText,
                         toolCalls = validatedToolCalls,
                     ) +
                     toolResultMessages

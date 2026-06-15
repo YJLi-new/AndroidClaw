@@ -14,6 +14,7 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.memory.MemoryCoordinator
+import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
@@ -457,6 +458,84 @@ class AgentRunnerTest {
                         message.content.contains("Tool result:")
                 },
             )
+        }
+
+    @Test
+    fun `provider tool use text is bounded before next provider request`() =
+        runTest {
+            val oversizedToolUseText = "x".repeat(MESSAGE_CONTENT_MAX_CHARS) + "TOOL_USE_TEXT_TAIL"
+            var providerCalls = 0
+            var secondRequest: ModelRequest? = null
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "health.status",
+                                        description = "Report health",
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = "Health okay",
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        providerCalls += 1
+                                        return if (providerCalls == 1) {
+                                            ModelResponse(
+                                                text = oversizedToolUseText,
+                                                finishReason = "tool_use",
+                                                toolCalls =
+                                                    listOf(
+                                                        ProviderToolCall(
+                                                            id = "call-health",
+                                                            name = "health.status",
+                                                            argumentsJson = buildJsonObject {},
+                                                        ),
+                                                    ),
+                                            )
+                                        } else {
+                                            secondRequest = request
+                                            ModelResponse(text = "Done")
+                                        }
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "Please inspect health",
+                ),
+            )
+
+            val boundedToolUseMessage =
+                checkNotNull(secondRequest)
+                    .messageHistory
+                    .single { it.role == ModelMessageRole.Assistant && it.toolCalls.isNotEmpty() }
+
+            assertEquals(MESSAGE_CONTENT_MAX_CHARS, boundedToolUseMessage.content.length)
+            assertFalse(boundedToolUseMessage.content.contains("TOOL_USE_TEXT_TAIL"))
         }
 
     @Test
