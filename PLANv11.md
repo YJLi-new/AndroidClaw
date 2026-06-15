@@ -169,3 +169,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
 - 2026-06-16: Bounded session search limits. Session title searches now return
   empty results for non-positive limits and cap oversized requests before
   SQLite, aligning session search with bounded message and event-log queries.
+- 2026-06-16: Bounded persisted session titles and summaries at repository write
+  and read boundaries. Titles are capped before persistence/search projection,
+  summaries share the 4,000-character compact-summary budget, and legacy
+  oversized rows are clipped before reaching prompt/export/UI flows.

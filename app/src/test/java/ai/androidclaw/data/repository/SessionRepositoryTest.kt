@@ -2,6 +2,7 @@ package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.db.entity.SessionEntity
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -128,5 +129,68 @@ class SessionRepositoryTest {
             val stored = repository.getSession(created.id)
             assertEquals("Background refreshed summary.", stored?.summaryText)
             assertEquals("message-1", stored?.compactedUntilMessageId)
+        }
+
+    @Test
+    fun `session titles are bounded before persistence and on read`() =
+        runTest {
+            val longTitle = "t".repeat(SESSION_TITLE_MAX_CHARS + 20)
+
+            val created = repository.createSession(title = longTitle)
+            repository.updateTitle(created.id, longTitle + " updated")
+
+            val raw = database.sessionDao().getById(created.id)
+            val stored = repository.getSession(created.id)
+
+            assertEquals(SESSION_TITLE_MAX_CHARS, raw?.title?.length)
+            assertEquals(SESSION_TITLE_MAX_CHARS, stored?.title?.length)
+        }
+
+    @Test
+    fun `session summaries are bounded before persistence and on read`() =
+        runTest {
+            val created = repository.createSession(title = "Summarize me")
+            val longSummary = "s".repeat(SESSION_SUMMARY_MAX_CHARS + 20)
+
+            repository.updateSummaryAndCompactionBoundary(
+                id = created.id,
+                summaryText = longSummary,
+                compactedUntilMessageId = "message-1",
+            )
+
+            val rawWithBoundary = database.sessionDao().getById(created.id)
+            assertEquals(SESSION_SUMMARY_MAX_CHARS, rawWithBoundary?.summaryText?.length)
+
+            repository.updateSummary(created.id, longSummary + " updated")
+            val raw = database.sessionDao().getById(created.id)
+            val stored = repository.getSession(created.id)
+
+            assertEquals(SESSION_SUMMARY_MAX_CHARS, raw?.summaryText?.length)
+            assertEquals(SESSION_SUMMARY_MAX_CHARS, stored?.summaryText?.length)
+            assertEquals("message-1", stored?.compactedUntilMessageId)
+        }
+
+    @Test
+    fun `legacy oversized session rows are bounded on read and search`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "legacy-session",
+                    title = "Legacy ".repeat(SESSION_TITLE_MAX_CHARS),
+                    isMain = false,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    archivedAt = null,
+                    summaryText = "summary ".repeat(SESSION_SUMMARY_MAX_CHARS),
+                    compactedUntilMessageId = null,
+                ),
+            )
+
+            val stored = repository.getSession("legacy-session")
+            val searchResult = repository.searchSessions("Legacy", limit = 1).single()
+
+            assertEquals(SESSION_TITLE_MAX_CHARS, stored?.title?.length)
+            assertEquals(SESSION_SUMMARY_MAX_CHARS, stored?.summaryText?.length)
+            assertEquals(SESSION_TITLE_MAX_CHARS, searchResult.sessionTitle.length)
         }
 }

@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.util.UUID
 
+internal const val SESSION_TITLE_MAX_CHARS = 160
+internal const val SESSION_SUMMARY_MAX_CHARS = 4_000
 internal const val SESSION_SEARCH_MAX_LIMIT = 200
 
 class SessionRepository(
@@ -30,7 +32,7 @@ class SessionRepository(
         val entity =
             SessionEntity(
                 id = UUID.randomUUID().toString(),
-                title = title,
+                title = title.toBoundedSessionText(SESSION_TITLE_MAX_CHARS),
                 isMain = isMain,
                 createdAt = now.toEpochMilli(),
                 updatedAt = now.toEpochMilli(),
@@ -67,7 +69,7 @@ class SessionRepository(
         val existing = dao.getById(id) ?: return
         dao.update(
             existing.copy(
-                title = title,
+                title = title.toBoundedSessionText(SESSION_TITLE_MAX_CHARS),
                 updatedAt = Instant.now().toEpochMilli(),
             ),
         )
@@ -91,7 +93,7 @@ class SessionRepository(
         val existing = dao.getById(id) ?: return
         dao.update(
             existing.copy(
-                summaryText = summaryText,
+                summaryText = summaryText?.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
                 updatedAt = Instant.now().toEpochMilli(),
             ),
         )
@@ -105,7 +107,7 @@ class SessionRepository(
         val existing = dao.getById(id) ?: return
         dao.update(
             existing.copy(
-                summaryText = summaryText,
+                summaryText = summaryText.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
                 compactedUntilMessageId = compactedUntilMessageId,
                 updatedAt = Instant.now().toEpochMilli(),
             ),
@@ -133,20 +135,27 @@ class SessionRepository(
         return dao.searchByTitle(query.trim(), boundedLimit).map { session ->
             SearchResult(
                 sessionId = session.id,
-                sessionTitle = session.title,
+                sessionTitle = session.title.toBoundedSessionText(SESSION_TITLE_MAX_CHARS),
             )
         }
     }
 }
 
+private fun String.toBoundedSessionText(maxChars: Int): String =
+    if (length <= maxChars) {
+        this
+    } else {
+        take(maxChars)
+    }
+
 private fun SessionEntity.toDomain(): Session =
     Session(
         id = id,
-        title = title,
+        title = title.toBoundedSessionText(SESSION_TITLE_MAX_CHARS),
         isMain = isMain,
         createdAt = Instant.ofEpochMilli(createdAt),
         updatedAt = Instant.ofEpochMilli(updatedAt),
         archived = archivedAt != null,
-        summaryText = summaryText,
+        summaryText = summaryText?.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
         compactedUntilMessageId = compactedUntilMessageId,
     )
