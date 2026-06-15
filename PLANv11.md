@@ -255,3 +255,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   and share-as-file paths still preserve the transcript, while Android
   Sharesheet `EXTRA_TEXT` output now caps oversized sessions with a visible
   truncation notice that points users to file export for the complete history.
+- 2026-06-16: Bounded health diagnostics reports. Copied/exported diagnostics
+  now cap arbitrary UI-state fields, tool/kind lists, event counts, and event
+  details at the formatter boundary while including the already-bounded crash
+  stack trace so bug reports stay useful without unbounded payload growth.
