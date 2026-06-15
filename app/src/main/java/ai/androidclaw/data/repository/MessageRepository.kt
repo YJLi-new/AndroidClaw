@@ -12,6 +12,9 @@ import java.util.UUID
 
 internal const val MESSAGE_QUERY_MAX_LIMIT = 500
 internal const val MESSAGE_ID_BATCH_SIZE = 500
+internal const val MESSAGE_CONTENT_MAX_CHARS = 40_000
+internal const val MESSAGE_PROVIDER_META_MAX_CHARS = 4_000
+internal const val MESSAGE_REFERENCE_ID_MAX_CHARS = 256
 
 class MessageRepository(
     private val dao: MessageDao,
@@ -38,11 +41,11 @@ class MessageRepository(
                 id = UUID.randomUUID().toString(),
                 sessionId = sessionId,
                 role = role.toStorage(),
-                content = content,
+                content = content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS),
                 createdAt = Instant.now().toEpochMilli(),
-                providerMeta = providerMeta,
-                toolCallId = toolCallId,
-                taskRunId = taskRunId,
+                providerMeta = providerMeta?.toBoundedMessageText(MESSAGE_PROVIDER_META_MAX_CHARS),
+                toolCallId = toolCallId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
+                taskRunId = taskRunId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
             )
         dao.insert(entity)
         return entity.toDomain()
@@ -104,11 +107,11 @@ private fun MessageEntity.toDomain(): ChatMessage =
         id = id,
         sessionId = sessionId,
         role = role.toMessageRole(),
-        content = content,
+        content = content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS),
         createdAt = Instant.ofEpochMilli(createdAt),
-        providerMeta = providerMeta,
-        toolCallId = toolCallId,
-        taskRunId = taskRunId,
+        providerMeta = providerMeta?.toBoundedMessageText(MESSAGE_PROVIDER_META_MAX_CHARS),
+        toolCallId = toolCallId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
+        taskRunId = taskRunId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
     )
 
 private fun MessageRole.toStorage(): String =
@@ -134,8 +137,10 @@ private fun MessageSearchRow.toSearchResult(): MessageRepository.SearchResult =
     MessageRepository.SearchResult(
         messageId = id,
         sessionId = sessionId,
-        sessionTitle = sessionTitle,
+        sessionTitle = sessionTitle.toBoundedMessageText(SESSION_TITLE_MAX_CHARS),
         role = role.toMessageRole(),
-        content = content,
+        content = content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS),
         createdAt = Instant.ofEpochMilli(createdAt),
     )
+
+private fun String.toBoundedMessageText(maxChars: Int): String = take(maxChars)

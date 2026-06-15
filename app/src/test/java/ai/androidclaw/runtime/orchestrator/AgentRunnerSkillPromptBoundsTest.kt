@@ -21,14 +21,15 @@ class AgentRunnerSkillPromptBoundsTest {
         val longInstructions = "x".repeat(MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS) + "INSTRUCTIONS_TAIL"
 
         val metadata =
-            (1..(MAX_PROMPT_SKILLS + 1)).map { index ->
-                sampleSkill(
-                    id = if (index == 1) longId else "skill-$index",
-                    name = if (index == 1) longName else "skill_$index",
-                    description = if (index == 1) longDescription else "Description $index",
-                    instructions = if (index == 1) longInstructions else "Instructions $index",
-                )
-            }.toBoundedModelSkillMetadata()
+            (1..(MAX_PROMPT_SKILLS + 1))
+                .map { index ->
+                    sampleSkill(
+                        id = if (index == 1) longId else "skill-$index",
+                        name = if (index == 1) longName else "skill_$index",
+                        description = if (index == 1) longDescription else "Description $index",
+                        instructions = if (index == 1) longInstructions else "Instructions $index",
+                    )
+                }.toBoundedModelSkillMetadata()
 
         assertEquals(MAX_PROMPT_SKILLS, metadata.size)
         assertEquals(longId.take(MAX_PROMPT_SKILL_NAME_CHARS), metadata.first().id)

@@ -221,4 +221,101 @@ class MessageRepositoryTest {
             assertEquals(messages.size, byId.size)
             assertEquals(messages.map { it.id }.toSet(), byId.keys)
         }
+
+    @Test
+    fun `add message bounds content metadata and reference ids before persistence`() =
+        runTest {
+            val longContent = "c".repeat(MESSAGE_CONTENT_MAX_CHARS + 25)
+            val longProviderMeta = "m".repeat(MESSAGE_PROVIDER_META_MAX_CHARS + 25)
+            val longToolCallId = "tool-".repeat(MESSAGE_REFERENCE_ID_MAX_CHARS)
+            val longTaskRunId = "run-".repeat(MESSAGE_REFERENCE_ID_MAX_CHARS)
+
+            val created =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.ToolResult,
+                    content = longContent,
+                    providerMeta = longProviderMeta,
+                    toolCallId = longToolCallId,
+                    taskRunId = longTaskRunId,
+                )
+            val raw = database.messageDao().getAllBySessionId("main").single()
+
+            assertEquals(longContent.take(MESSAGE_CONTENT_MAX_CHARS), created.content)
+            assertEquals(longProviderMeta.take(MESSAGE_PROVIDER_META_MAX_CHARS), created.providerMeta)
+            assertEquals(longToolCallId.take(MESSAGE_REFERENCE_ID_MAX_CHARS), created.toolCallId)
+            assertEquals(longTaskRunId.take(MESSAGE_REFERENCE_ID_MAX_CHARS), created.taskRunId)
+            assertEquals(created.content, raw.content)
+            assertEquals(created.providerMeta, raw.providerMeta)
+            assertEquals(created.toolCallId, raw.toolCallId)
+            assertEquals(created.taskRunId, raw.taskRunId)
+        }
+
+    @Test
+    fun `message reads and search bound legacy oversized rows`() =
+        runTest {
+            val longTitle = "Legacy session " + "t".repeat(SESSION_TITLE_MAX_CHARS + 25)
+            val longContent = "Legacy " + "c".repeat(MESSAGE_CONTENT_MAX_CHARS + 25) + "TAIL"
+            val longProviderMeta = "m".repeat(MESSAGE_PROVIDER_META_MAX_CHARS + 25)
+            val longToolCallId = "tool-".repeat(MESSAGE_REFERENCE_ID_MAX_CHARS)
+            val longTaskRunId = "run-".repeat(MESSAGE_REFERENCE_ID_MAX_CHARS)
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "legacy",
+                    title = longTitle,
+                    isMain = false,
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            database.messageDao().insertAll(
+                listOf(
+                    messageEntity(
+                        id = "legacy-message",
+                        sessionId = "legacy",
+                        content = longContent,
+                        providerMeta = longProviderMeta,
+                        toolCallId = longToolCallId,
+                        taskRunId = longTaskRunId,
+                    ),
+                ),
+            )
+
+            val all = repository.getMessages("legacy").single()
+            val observed = repository.observeMessages("legacy").first().single()
+            val recent = repository.getRecentMessages("legacy", limit = 1).single()
+            val byId = requireNotNull(repository.getMessagesByIds(listOf("legacy-message"))["legacy-message"])
+            val search = repository.searchMessages("Legacy", limit = 1).single()
+
+            listOf(all, observed, recent, byId).forEach { message ->
+                assertEquals(longContent.take(MESSAGE_CONTENT_MAX_CHARS), message.content)
+                assertEquals(longProviderMeta.take(MESSAGE_PROVIDER_META_MAX_CHARS), message.providerMeta)
+                assertEquals(longToolCallId.take(MESSAGE_REFERENCE_ID_MAX_CHARS), message.toolCallId)
+                assertEquals(longTaskRunId.take(MESSAGE_REFERENCE_ID_MAX_CHARS), message.taskRunId)
+            }
+            assertEquals(longTitle.take(SESSION_TITLE_MAX_CHARS), search.sessionTitle)
+            assertEquals(longContent.take(MESSAGE_CONTENT_MAX_CHARS), search.content)
+            assertTrue(!search.content.contains("TAIL"))
+        }
 }
+
+private fun messageEntity(
+    id: String,
+    sessionId: String,
+    content: String,
+    providerMeta: String? = null,
+    toolCallId: String? = null,
+    taskRunId: String? = null,
+): MessageEntity =
+    MessageEntity(
+        id = id,
+        sessionId = sessionId,
+        role = "assistant",
+        content = content,
+        createdAt = 1L,
+        providerMeta = providerMeta,
+        toolCallId = toolCallId,
+        taskRunId = taskRunId,
+    )

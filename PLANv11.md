@@ -200,3 +200,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   suffixes now share the prompt caps for skill count and text lengths, preventing
   oversized imported skill names or instructions from bypassing prompt assembly
   bounds.
+- 2026-06-16: Bounded message repository payloads. Chat message content,
+  provider metadata, and tool/task reference ids are now capped before
+  persistence and again on legacy reads/search projections, keeping oversized
+  provider/tool output from inflating UI, exports, prompt history, or search
+  results without bound.
