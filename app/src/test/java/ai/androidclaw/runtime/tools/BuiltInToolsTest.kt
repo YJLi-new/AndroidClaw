@@ -8,6 +8,7 @@ import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
+import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -44,6 +45,7 @@ class BuiltInToolsTest {
     private lateinit var application: android.app.Application
     private lateinit var database: AndroidClawDatabase
     private lateinit var sessionRepository: SessionRepository
+    private lateinit var messageRepository: MessageRepository
     private lateinit var taskRepository: TaskRepository
     private lateinit var memoryRepository: MemoryRepository
     private lateinit var settingsDataStore: SettingsDataStore
@@ -60,6 +62,7 @@ class BuiltInToolsTest {
             )
             database = buildTestDatabase(application)
             sessionRepository = SessionRepository(database.sessionDao())
+            messageRepository = MessageRepository(database.messageDao())
             taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
             memoryRepository = MemoryRepository(database.memoryItemDao())
             settingsDataStore = SettingsDataStore(application)
@@ -116,6 +119,12 @@ class BuiltInToolsTest {
     fun `sessions compact stores explicit summary for active session`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Older messages are covered by this explicit compact summary.",
+                )
             val registry = buildRegistry()
 
             val result =
@@ -124,7 +133,7 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("command", "Goal: finish /compact. Next: validate and push.")
-                            put("compactedUntilMessageId", "message-boundary")
+                            put("compactedUntilMessageId", boundary.id)
                         },
                 )
 
@@ -134,13 +143,19 @@ class BuiltInToolsTest {
             assertEquals("Goal: finish /compact. Next: validate and push.", result.payload["summaryText"]?.jsonPrimitive?.content)
             val storedSession = sessionRepository.getSession(session.id)
             assertEquals("Goal: finish /compact. Next: validate and push.", storedSession?.summaryText)
-            assertEquals("message-boundary", storedSession?.compactedUntilMessageId)
+            assertEquals(boundary.id, storedSession?.compactedUntilMessageId)
         }
 
     @Test
     fun `sessions compact requires explicit summary text`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Boundary message for missing summary validation.",
+                )
             val registry = buildRegistry()
 
             val result =
@@ -149,7 +164,7 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("command", "   ")
-                            put("compactedUntilMessageId", "message-boundary")
+                            put("compactedUntilMessageId", boundary.id)
                         },
                 )
 
@@ -176,6 +191,35 @@ class BuiltInToolsTest {
             assertFalse(result.success)
             assertEquals("EMPTY_COMPACT_SOURCE", result.errorCode)
             assertEquals(null, sessionRepository.getSession(session.id)?.summaryText)
+        }
+
+    @Test
+    fun `sessions compact rejects a boundary outside the active session`() =
+        runTest {
+            val session = sessionRepository.getOrCreateMainSession()
+            val otherSession = sessionRepository.createSession("Other session")
+            val otherBoundary =
+                messageRepository.addMessage(
+                    sessionId = otherSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "This message belongs to another session.",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compact", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "Summary text with a cross-session boundary.")
+                            put("compactedUntilMessageId", otherBoundary.id)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_COMPACT_BOUNDARY", result.errorCode)
+            assertEquals(null, sessionRepository.getSession(session.id)?.summaryText)
+            assertEquals(null, sessionRepository.getSession(session.id)?.compactedUntilMessageId)
         }
 
     @Test
@@ -740,6 +784,7 @@ class BuiltInToolsTest {
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { bundledSkills },
+            messageRepository = messageRepository,
             memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
             clock = testClock,

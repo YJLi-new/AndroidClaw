@@ -84,3 +84,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   servers return without an `error` code. Also ignored local agent-tooling
   artifacts (`.claude/`, `.codex`, `skills/`, `HANDOFF.md`) so future git
   audits show only repo-intended changes.
+- 2026-06-15: Hardened `sessions.compact` boundary validation so the tool only
+  stores a compaction boundary that exists in the active session. This prevents
+  stale or cross-session message ids from producing a summary that claims older
+  messages were hidden while the UI cannot actually apply the boundary.

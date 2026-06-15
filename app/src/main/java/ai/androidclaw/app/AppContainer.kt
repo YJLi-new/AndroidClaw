@@ -104,6 +104,7 @@ class AppContainer(
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { skillManagerRef.refreshSkills() },
+            messageRepository = messageRepository,
             memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
             clock = clock,

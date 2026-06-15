@@ -276,6 +276,7 @@ class AgentRunnerTest {
                     taskRepository = taskRepository,
                     schedulerCoordinator = schedulerCoordinator,
                     bundledSkillsProvider = { emptyList() },
+                    messageRepository = messageRepository,
                     eventLogRepository = eventLogRepository,
                     clock = testClock,
                 )

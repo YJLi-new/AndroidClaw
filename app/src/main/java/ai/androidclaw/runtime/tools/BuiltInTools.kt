@@ -4,6 +4,7 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
+import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
@@ -31,6 +32,7 @@ internal fun createBuiltInToolRegistry(
     taskRepository: TaskRepository,
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
+    messageRepository: MessageRepository? = null,
     memoryRepository: MemoryRepository? = null,
     eventLogRepository: EventLogRepository? = null,
     clock: Clock = Clock.systemDefaultZone(),
@@ -188,6 +190,22 @@ internal fun createBuiltInToolRegistry(
                                         buildJsonObject {
                                             put("errorCode", "EMPTY_COMPACT_SOURCE")
                                             put("sessionId", sessionId)
+                                        },
+                                )
+                            }
+                            val boundaryMessage =
+                                messageRepository
+                                    ?.getMessagesByIds(listOf(compactedUntilMessageId))
+                                    ?.get(compactedUntilMessageId)
+                            if (messageRepository != null && boundaryMessage?.sessionId != sessionId) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Compaction boundary was not found in this session.",
+                                    errorCode = "INVALID_COMPACT_BOUNDARY",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_COMPACT_BOUNDARY")
+                                            put("sessionId", sessionId)
+                                            put("compactedUntilMessageId", compactedUntilMessageId)
                                         },
                                 )
                             }
