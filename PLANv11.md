@@ -159,3 +159,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   read boundaries. Oversized provider/tool diagnostics are truncated before
   persistence, and legacy oversized rows are clipped before reaching health UI
   flows, preserving the lightweight bounded-log requirement.
+- 2026-06-16: Bounded message repository query limits. Recent-message and search
+  queries now return empty results for non-positive limits and cap oversized
+  requests before reaching SQLite, while large `getMessagesByIds` lookups are
+  chunked to avoid oversized `IN` clauses without dropping requested messages.

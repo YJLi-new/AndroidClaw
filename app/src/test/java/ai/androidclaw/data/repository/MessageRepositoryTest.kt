@@ -170,4 +170,55 @@ class MessageRepositoryTest {
             assertEquals("Main session", results.single().sessionTitle)
             assertEquals("Alpha status is green", results.single().content)
         }
+
+    @Test
+    fun `non-positive message query limits return empty results`() =
+        runTest {
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.User,
+                content = "Alpha status is green",
+            )
+
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getRecentMessages("main", limit = 0))
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getRecentMessages("main", limit = -1))
+            assertEquals(emptyList<MessageRepository.SearchResult>(), repository.searchMessages("Alpha", limit = 0))
+            assertEquals(emptyList<MessageRepository.SearchResult>(), repository.searchMessages("Alpha", limit = -1))
+        }
+
+    @Test
+    fun `message query limits are capped at repository boundary`() =
+        runTest {
+            repeat(MESSAGE_QUERY_MAX_LIMIT + 2) { index ->
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.User,
+                    content = "bounded-$index",
+                )
+            }
+
+            val recent = repository.getRecentMessages("main", limit = Int.MAX_VALUE)
+            val search = repository.searchMessages("bounded", limit = Int.MAX_VALUE)
+
+            assertEquals(MESSAGE_QUERY_MAX_LIMIT, recent.size)
+            assertEquals(MESSAGE_QUERY_MAX_LIMIT, search.size)
+        }
+
+    @Test
+    fun `getMessagesByIds batches large id collections without dropping matches`() =
+        runTest {
+            val messages =
+                (0 until MESSAGE_ID_BATCH_SIZE + 2).map { index ->
+                    repository.addMessage(
+                        sessionId = "main",
+                        role = MessageRole.Assistant,
+                        content = "message-$index",
+                    )
+                }
+
+            val byId = repository.getMessagesByIds(messages.map { it.id } + messages.first().id)
+
+            assertEquals(messages.size, byId.size)
+            assertEquals(messages.map { it.id }.toSet(), byId.keys)
+        }
 }

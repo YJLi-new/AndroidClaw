@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
 
+internal const val MESSAGE_QUERY_MAX_LIMIT = 500
+internal const val MESSAGE_ID_BATCH_SIZE = 500
+
 class MessageRepository(
     private val dao: MessageDao,
 ) {
@@ -55,15 +58,25 @@ class MessageRepository(
     suspend fun getRecentMessages(
         sessionId: String,
         limit: Int,
-    ): List<ChatMessage> = dao.getRecentBySessionId(sessionId, limit).map(MessageEntity::toDomain)
+    ): List<ChatMessage> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao.getRecentBySessionId(sessionId, boundedLimit).map(MessageEntity::toDomain)
+    }
 
     suspend fun getMessagesByIds(messageIds: Collection<String>): Map<String, ChatMessage> {
-        if (messageIds.isEmpty()) {
+        val distinctMessageIds = messageIds.distinct()
+        if (distinctMessageIds.isEmpty()) {
             return emptyMap()
         }
-        return dao.getByIds(messageIds.distinct()).associate { entity ->
-            entity.id to entity.toDomain()
-        }
+        return distinctMessageIds
+            .chunked(MESSAGE_ID_BATCH_SIZE)
+            .flatMap { chunk -> dao.getByIds(chunk) }
+            .associate { entity ->
+                entity.id to entity.toDomain()
+            }
     }
 
     suspend fun getMessageCount(sessionId: String): Int = dao.countBySessionId(sessionId)
@@ -71,12 +84,20 @@ class MessageRepository(
     suspend fun searchMessages(
         query: String,
         limit: Int,
-    ): List<SearchResult> = dao.searchByContent(query.trim(), limit).map(MessageSearchRow::toSearchResult)
+    ): List<SearchResult> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao.searchByContent(query.trim(), boundedLimit).map(MessageSearchRow::toSearchResult)
+    }
 
     suspend fun deleteSessionMessages(sessionId: String) {
         dao.deleteBySessionId(sessionId)
     }
 }
+
+private fun Int.toSafeQueryLimit(): Int = coerceIn(0, MESSAGE_QUERY_MAX_LIMIT)
 
 private fun MessageEntity.toDomain(): ChatMessage =
     ChatMessage(
