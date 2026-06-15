@@ -352,6 +352,30 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks create rejects current session alias when context session is stale`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create", sessionId = "missing-session"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Stale current session")
+                            put("prompt", "This should fail")
+                            put("scheduleKind", "once")
+                            put("atIso", "2026-03-20T08:00:00Z")
+                            put("targetSessionAlias", "current")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(result.summary.contains("Current session missing-session was not found"))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+        }
+
+    @Test
     fun `tasks create ignores blank optional target session fields from model output`() =
         runTest {
             val registry = buildRegistry()
@@ -481,6 +505,35 @@ class BuiltInToolsTest {
             val schedule = updated.schedule as? TaskSchedule.Interval ?: error("Expected interval schedule.")
             assertEquals(30, schedule.repeatEvery.toMinutes())
             assertNotNull(updated.nextRunAt)
+        }
+
+    @Test
+    fun `tasks update rejects current session alias when context session is stale`() =
+        runTest {
+            val created =
+                taskRepository.createTask(
+                    name = "Draft task",
+                    prompt = "Old prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.update", sessionId = "missing-session"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", created.id)
+                            put("targetSessionAlias", "current")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(result.summary.contains("Current session missing-session was not found"))
+            assertEquals(null, taskRepository.getTask(created.id)?.targetSessionId)
         }
 
     @Test

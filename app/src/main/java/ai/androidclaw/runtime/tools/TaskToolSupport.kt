@@ -305,13 +305,26 @@ private suspend fun resolveTargetSessionId(
         return when (explicitAlias.lowercase()) {
             "main" -> TaskToolParseResult.Success(sessionRepository.getOrCreateMainSession().id)
             "current" -> {
-                context.sessionId?.let { TaskToolParseResult.Success<String?>(it) } ?: TaskToolParseResult.Failure(
-                    invalidTaskArguments(
-                        toolName = toolName,
-                        summary = "targetSessionAlias=current requires a session-bound tool execution context.",
-                        field = "targetSessionAlias",
-                    ),
-                )
+                val currentSessionId =
+                    context.sessionId?.takeIf(String::isNotBlank)
+                        ?: return TaskToolParseResult.Failure(
+                            invalidTaskArguments(
+                                toolName = toolName,
+                                summary = "targetSessionAlias=current requires a session-bound tool execution context.",
+                                field = "targetSessionAlias",
+                            ),
+                        )
+                val currentSession = sessionRepository.getSession(currentSessionId)
+                if (currentSession == null) {
+                    return TaskToolParseResult.Failure(
+                        invalidTaskArguments(
+                            toolName = toolName,
+                            summary = "Current session $currentSessionId was not found.",
+                            field = "targetSessionAlias",
+                        ),
+                    )
+                }
+                TaskToolParseResult.Success(currentSession.id)
             }
 
             else ->

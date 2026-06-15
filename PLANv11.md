@@ -108,3 +108,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   `INVALID_MEMORY_LIMIT` instead of silently falling back to defaults or relying
   on repository clamping, keeping model-provided memory tool arguments typed and
   bounded at the boundary.
+- 2026-06-15: Hardened task target-session resolution for
+  `targetSessionAlias=current`. Task create/update now verifies the session id
+  from the tool execution context still exists before storing it, preventing
+  stale contexts from creating automations that point at missing sessions while
+  later payload rendering falls back to main.
