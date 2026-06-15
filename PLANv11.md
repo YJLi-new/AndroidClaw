@@ -113,3 +113,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   from the tool execution context still exists before storing it, preventing
   stale contexts from creating automations that point at missing sessions while
   later payload rendering falls back to main.
+- 2026-06-15: Fixed `tasks.update` metadata-only patches so they preserve the
+  existing schedule and next-run timestamp instead of revalidating an unchanged
+  historical schedule. This keeps completed/past once tasks editable for name,
+  prompt, retry, session, and precision metadata without requiring an unrelated
+  reschedule.

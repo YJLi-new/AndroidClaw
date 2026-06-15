@@ -213,20 +213,25 @@ internal suspend fun parseTaskUpdate(
 ): TaskToolParseResult<Task> {
     val name = arguments.optionalString(field = "name", toolName = "tasks.update") ?: existingTask.name
     val prompt = arguments.optionalString(field = "prompt", toolName = "tasks.update") ?: existingTask.prompt
+    val hasSchedulePatch = arguments.hasSchedulePatch()
     val schedule =
-        parseSchedule(
-            arguments = arguments,
-            existingSchedule = existingTask.schedule,
-            capabilities = capabilities,
-            now = now,
-            toolName = "tasks.update",
-        ) ?: return TaskToolParseResult.Failure(
-            invalidTaskArguments(
+        if (hasSchedulePatch) {
+            parseSchedule(
+                arguments = arguments,
+                existingSchedule = existingTask.schedule,
+                capabilities = capabilities,
+                now = now,
                 toolName = "tasks.update",
-                summary = "tasks.update requires a valid schedule patch.",
-                field = "scheduleKind",
-            ),
-        )
+            ) ?: return TaskToolParseResult.Failure(
+                invalidTaskArguments(
+                    toolName = "tasks.update",
+                    summary = "tasks.update requires a valid schedule patch.",
+                    field = "scheduleKind",
+                ),
+            )
+        } else {
+            existingTask.schedule
+        }
     val executionMode =
         parseExecutionMode(arguments["executionMode"], toolName = "tasks.update")
             ?: existingTask.executionMode
@@ -259,7 +264,7 @@ internal suspend fun parseTaskUpdate(
             executionMode = executionMode,
             targetSessionId = targetSessionId,
             precise = precise,
-            nextRunAt = taskNextRun(schedule = schedule, now = now),
+            nextRunAt = if (hasSchedulePatch) taskNextRun(schedule = schedule, now = now) else existingTask.nextRunAt,
             updatedAt = now,
             maxRetries = maxRetries,
         ),
@@ -541,6 +546,11 @@ private fun JsonObject.optionalString(
     return value.ifEmpty { null }
 }
 
+private fun JsonObject.hasSchedulePatch(): Boolean =
+    SCHEDULE_PATCH_FIELDS.any { field ->
+        optionalString(field = field, toolName = "tasks.update") != null
+    }
+
 private fun taskNextRun(
     schedule: TaskSchedule,
     now: Instant,
@@ -618,3 +628,12 @@ private fun CronField.toSpec(): String = if (isWildcard) "*" else allowed.toList
 
 private const val MILLIS_PER_MINUTE = 60_000L
 private const val MAX_SAFE_DURATION_MINUTES = Long.MAX_VALUE / MILLIS_PER_MINUTE
+private val SCHEDULE_PATCH_FIELDS =
+    setOf(
+        "scheduleKind",
+        "atIso",
+        "anchorAtIso",
+        "repeatEveryMinutes",
+        "cronExpression",
+        "timezone",
+    )

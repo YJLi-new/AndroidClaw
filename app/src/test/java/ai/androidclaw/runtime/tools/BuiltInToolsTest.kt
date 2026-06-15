@@ -508,6 +508,37 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks update patches metadata on past once task without revalidating unchanged schedule`() =
+        runTest {
+            val created =
+                taskRepository.createTask(
+                    name = "Past once task",
+                    prompt = "Old prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val originalNextRunAt = created.nextRunAt
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", created.id)
+                            put("prompt", "New prompt")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val updated = taskRepository.getTask(created.id) ?: error("Missing updated task.")
+            assertEquals("New prompt", updated.prompt)
+            assertEquals(created.schedule, updated.schedule)
+            assertEquals(originalNextRunAt, updated.nextRunAt)
+        }
+
+    @Test
     fun `tasks update rejects current session alias when context session is stale`() =
         runTest {
             val created =
