@@ -400,10 +400,12 @@ class OpenAiCodexResponsesProvider(
 private fun Json.extractCodexErrorMessage(rawBody: String): String =
     runCatching {
         val root = parseToJsonElement(rawBody).jsonObject
-        root["error"]
-            ?.jsonObjectOrNull()
-            ?.stringValue("message")
-            ?: root.stringValue("detail")
+        val error = root["error"]
+        when (error) {
+            is JsonObject -> error.stringValue("message")
+            is JsonPrimitive -> error.contentOrNull
+            else -> null
+        } ?: root.stringValue("detail")
             ?: root.stringValue("message")
     }.getOrNull()
         .orEmpty()
