@@ -4,6 +4,7 @@ import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.providers.ModelMessage
@@ -65,6 +66,10 @@ data class AgentTurnResult(
     val providerMeta: String? = null,
     val exitReason: AgentTurnExitReason = AgentTurnExitReason.Completed,
 )
+
+internal const val AGENT_STREAMING_PREVIEW_MAX_CHARS = 20_000
+internal const val AGENT_STREAMING_PREVIEW_TRUNCATED_NOTICE =
+    "\n\n[Live response preview truncated by AndroidClaw. The saved assistant message may contain more text.]"
 
 class AgentRunner(
     private val providerRegistry: ProviderRegistry,
@@ -453,13 +458,36 @@ class AgentRunner(
         onTextDelta: suspend (String) -> Unit,
     ): ai.androidclaw.runtime.providers.ModelResponse {
         val streamedText = StringBuilder()
+        var emittedPreviewTextChars = 0
+        var emittedPreviewTruncationNotice = false
+
+        suspend fun emitBoundedTextDelta(text: String) {
+            if (text.isEmpty() || emittedPreviewTruncationNotice) {
+                return
+            }
+            val previewTextBudget =
+                (AGENT_STREAMING_PREVIEW_MAX_CHARS - AGENT_STREAMING_PREVIEW_TRUNCATED_NOTICE.length)
+                    .coerceAtLeast(0)
+            val remainingTextBudget = previewTextBudget - emittedPreviewTextChars
+            if (remainingTextBudget > 0) {
+                val prefix = text.take(remainingTextBudget)
+                if (prefix.isNotEmpty()) {
+                    onTextDelta(prefix)
+                    emittedPreviewTextChars += prefix.length
+                }
+            }
+            if (text.length > remainingTextBudget) {
+                onTextDelta(AGENT_STREAMING_PREVIEW_TRUNCATED_NOTICE)
+                emittedPreviewTruncationNotice = true
+            }
+        }
         var completedResponse: ai.androidclaw.runtime.providers.ModelResponse? = null
         provider.streamGenerate(request).collect { event ->
             when (event) {
                 is ModelStreamEvent.TextDelta -> {
                     if (event.text.isNotEmpty()) {
-                        streamedText.append(event.text)
-                        onTextDelta(event.text)
+                        streamedText.appendBoundedAgentText(event.text)
+                        emitBoundedTextDelta(event.text)
                     }
                 }
 
@@ -474,7 +502,7 @@ class AgentRunner(
                 userMessage = "Provider stream ended without a final response.",
             )
         if (streamedText.isEmpty() && response.text.isNotBlank() && response.finishReason != TOOL_USE_FINISH_REASON) {
-            onTextDelta(response.text)
+            emitBoundedTextDelta(response.text)
         }
         if (response.text.isNotBlank() || response.toolCalls.isNotEmpty() || streamedText.isEmpty()) {
             return response
@@ -704,7 +732,11 @@ class AgentRunner(
         sourceUserMessage: String? = null,
         sourceMessageIds: List<String> = emptyList(),
     ): AgentTurnResult {
-        val persistedText = assistantText.withActiveSkills(selectedSkills)
+        val boundedAssistantText = assistantText.toBoundedAgentAssistantText()
+        val persistedText =
+            boundedAssistantText
+                .withActiveSkills(selectedSkills)
+                .toBoundedAgentAssistantText()
         val providerMeta =
             providerId?.let { resolvedProviderId ->
                 ProviderMessageMeta(
@@ -730,7 +762,7 @@ class AgentRunner(
                 memoryCoordinator?.captureTurn(
                     sessionId = sessionId,
                     userMessage = sourceUserMessage,
-                    assistantMessage = assistantText,
+                    assistantMessage = boundedAssistantText,
                     sourceMessageIds = (sourceMessageIds + assistantMessage.id).distinct(),
                 )
             }
@@ -942,6 +974,15 @@ internal fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): Strin
 }
 
 private fun String.toAgentSkillText(maxChars: Int): String = take(maxChars)
+
+private fun String.toBoundedAgentAssistantText(): String = take(MESSAGE_CONTENT_MAX_CHARS)
+
+private fun StringBuilder.appendBoundedAgentText(text: String) {
+    val remainingChars = MESSAGE_CONTENT_MAX_CHARS - length
+    if (remainingChars > 0) {
+        append(text.take(remainingChars))
+    }
+}
 
 private fun Throwable.isRetryable(): Boolean =
     this is ModelProviderException &&

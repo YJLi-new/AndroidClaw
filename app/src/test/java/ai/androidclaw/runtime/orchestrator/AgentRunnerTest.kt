@@ -8,6 +8,7 @@ import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
@@ -896,6 +897,101 @@ class AgentRunnerTest {
             assertTrue(completed.result.assistantMessage.contains("Stream fallback reply"))
             val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
             assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.Assistant && it.content.contains("Stream fallback reply") })
+        }
+
+    @Test
+    fun `interactive stream fallback bounds oversized preview delta and assistant result`() =
+        runTest {
+            val oversizedReply = "r".repeat(MESSAGE_CONTENT_MAX_CHARS + 2_000)
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse = ModelResponse(text = oversizedReply)
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(ToolRegistry(emptyList())),
+                    toolRegistry = ToolRegistry(emptyList()),
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            val events =
+                runner
+                    .runInteractiveTurnStream(
+                        AgentTurnRequest(
+                            sessionId = sessionId,
+                            userMessage = "hello oversized fallback stream",
+                        ),
+                    ).toList()
+            val previewDeltas = events.filterIsInstance<AgentTurnEvent.AssistantTextDelta>().map { it.text }
+            val completed = events.last() as AgentTurnEvent.TurnCompleted
+            val storedAssistant =
+                messageRepository
+                    .getRecentMessages(sessionId, limit = 10)
+                    .first { it.role == ai.androidclaw.data.model.MessageRole.Assistant }
+
+            assertEquals(AGENT_STREAMING_PREVIEW_MAX_CHARS, previewDeltas.sumOf(String::length))
+            assertEquals(AGENT_STREAMING_PREVIEW_TRUNCATED_NOTICE, previewDeltas.last())
+            assertTrue(previewDeltas.none { it.length > AGENT_STREAMING_PREVIEW_MAX_CHARS })
+            assertEquals(MESSAGE_CONTENT_MAX_CHARS, completed.result.assistantMessage.length)
+            assertEquals(MESSAGE_CONTENT_MAX_CHARS, storedAssistant.content.length)
+        }
+
+    @Test
+    fun `interactive streamed text accumulation is bounded before persistence`() =
+        runTest {
+            val oversizedStreamDelta = "s".repeat(MESSAGE_CONTENT_MAX_CHARS + 2_000)
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse = ModelResponse(text = "unused")
+
+                                    override fun streamGenerate(request: ModelRequest) =
+                                        flow {
+                                            emit(ModelStreamEvent.TextDelta(oversizedStreamDelta))
+                                            emit(ModelStreamEvent.Completed(ModelResponse(text = "")))
+                                        }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(ToolRegistry(emptyList())),
+                    toolRegistry = ToolRegistry(emptyList()),
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            val events =
+                runner
+                    .runInteractiveTurnStream(
+                        AgentTurnRequest(
+                            sessionId = sessionId,
+                            userMessage = "hello oversized streamed text",
+                        ),
+                    ).toList()
+            val previewDeltas = events.filterIsInstance<AgentTurnEvent.AssistantTextDelta>().map { it.text }
+            val completed = events.last() as AgentTurnEvent.TurnCompleted
+            val storedAssistant =
+                messageRepository
+                    .getRecentMessages(sessionId, limit = 10)
+                    .first { it.role == ai.androidclaw.data.model.MessageRole.Assistant }
+
+            assertEquals(AGENT_STREAMING_PREVIEW_MAX_CHARS, previewDeltas.sumOf(String::length))
+            assertEquals(AGENT_STREAMING_PREVIEW_TRUNCATED_NOTICE, previewDeltas.last())
+            assertEquals(MESSAGE_CONTENT_MAX_CHARS, completed.result.assistantMessage.length)
+            assertEquals(MESSAGE_CONTENT_MAX_CHARS, storedAssistant.content.length)
         }
 
     @Test

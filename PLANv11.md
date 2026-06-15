@@ -263,3 +263,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   now cap the transient Compose preview during a running turn with a visible
   truncation notice, preventing oversized streams from growing UI state before
   the final assistant message reaches repository persistence bounds.
+- 2026-06-16: Bounded AgentRunner streaming text boundaries. Runtime streamed
+  response accumulation, fallback preview deltas, returned assistant messages,
+  and memory-capture inputs now share the message-content cap before repository
+  persistence, while emitted live-preview deltas use the bounded preview notice.
