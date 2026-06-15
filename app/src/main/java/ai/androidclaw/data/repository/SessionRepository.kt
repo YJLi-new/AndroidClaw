@@ -48,6 +48,11 @@ class SessionRepository(
 
     suspend fun getSession(id: String): Session? = dao.getById(id)?.toDomain()
 
+    suspend fun getSessionsWithCompactionBoundary(): List<Session> =
+        dao
+            .getSessionsWithCompactionBoundary()
+            .map(SessionEntity::toDomain)
+
     fun observeSessions(): Flow<List<Session>> =
         dao.getAllSessions().map { sessions ->
             sessions.map(SessionEntity::toDomain)
@@ -100,6 +105,16 @@ class SessionRepository(
             existing.copy(
                 summaryText = summaryText,
                 compactedUntilMessageId = compactedUntilMessageId,
+                updatedAt = Instant.now().toEpochMilli(),
+            ),
+        )
+    }
+
+    suspend fun clearCompactionBoundary(id: String) {
+        val existing = dao.getById(id) ?: return
+        dao.update(
+            existing.copy(
+                compactedUntilMessageId = null,
                 updatedAt = Instant.now().toEpochMilli(),
             ),
         )

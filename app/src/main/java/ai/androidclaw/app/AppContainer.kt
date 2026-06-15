@@ -226,6 +226,8 @@ class AppContainer(
     val startupMaintenance =
         StartupMaintenance(
             clock = clock,
+            sessionRepository = sessionRepository,
+            messageRepository = messageRepository,
             taskRepository = taskRepository,
             eventLogRepository = eventLogRepository,
             ensureMainSession = ::ensureMainSession,

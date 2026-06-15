@@ -94,3 +94,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
 - 2026-06-15: Made `MessageRepository` a required dependency of the built-in
   tool registry so `sessions.compact` boundary validation cannot be accidentally
   disabled by future registry wiring.
+- 2026-06-15: Added startup maintenance repair for stale or cross-session
+  compaction boundaries. Invalid boundaries are cleared while summary text is
+  preserved, preventing legacy/corrupted state from pretending old messages are
+  hidden when the boundary cannot be applied.

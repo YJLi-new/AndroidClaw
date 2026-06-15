@@ -7,6 +7,8 @@ import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.db.entity.TaskRunEntity
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
@@ -30,6 +32,8 @@ import java.time.ZoneOffset
 @RunWith(AndroidJUnit4::class)
 class StartupMaintenanceTest {
     private lateinit var database: AndroidClawDatabase
+    private lateinit var sessionRepository: SessionRepository
+    private lateinit var messageRepository: MessageRepository
     private lateinit var taskRepository: TaskRepository
     private lateinit var eventLogRepository: EventLogRepository
 
@@ -37,6 +41,8 @@ class StartupMaintenanceTest {
     fun setUp() =
         runTest {
             database = buildTestDatabase(ApplicationProvider.getApplicationContext())
+            sessionRepository = SessionRepository(database.sessionDao())
+            messageRepository = MessageRepository(database.messageDao())
             taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
             eventLogRepository = EventLogRepository(database.eventLogDao())
             database.sessionDao().insert(
@@ -147,6 +153,8 @@ class StartupMaintenanceTest {
             val maintenance =
                 StartupMaintenance(
                     clock = Clock.fixed(Instant.parse("2026-03-09T00:00:00Z"), ZoneOffset.UTC),
+                    sessionRepository = sessionRepository,
+                    messageRepository = messageRepository,
                     taskRepository = taskRepository,
                     eventLogRepository = eventLogRepository,
                     ensureMainSession = { ensuredMainSession = true },
@@ -159,6 +167,7 @@ class StartupMaintenanceTest {
             assertEquals(1, rescheduleCalls)
             assertEquals(1, result.trimmedTaskRuns)
             assertEquals(1, result.trimmedEventLogs)
+            assertEquals(0, result.repairedCompactionBoundaries)
             assertNotNull(database.sessionDao().getById("main"))
             assertNotNull(database.sessionDao().getById("archive"))
             assertEquals(1, database.messageDao().countBySessionId("archive"))
@@ -178,6 +187,8 @@ class StartupMaintenanceTest {
             val maintenance =
                 StartupMaintenance(
                     clock = Clock.fixed(Instant.parse("2026-03-09T00:00:00Z"), ZoneOffset.UTC),
+                    sessionRepository = sessionRepository,
+                    messageRepository = messageRepository,
                     taskRepository = taskRepository,
                     eventLogRepository = eventLogRepository,
                     ensureMainSession = {
@@ -204,5 +215,81 @@ class StartupMaintenanceTest {
 
             assertEquals(listOf("ensure", "reschedule"), callOrder)
             assertEquals("restored-main", database.sessionDao().getMainSession()?.id)
+        }
+
+    @Test
+    fun `run clears stale compaction boundaries while preserving summaries`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "compact-invalid",
+                    title = "Invalid compact session",
+                    isMain = false,
+                    createdAt = 20L,
+                    updatedAt = 20L,
+                    archivedAt = null,
+                    summaryText = "Summary should stay.",
+                    compactedUntilMessageId = "missing-boundary",
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "compact-valid",
+                    title = "Valid compact session",
+                    isMain = false,
+                    createdAt = 30L,
+                    updatedAt = 30L,
+                    archivedAt = null,
+                    summaryText = "Valid summary should stay.",
+                    compactedUntilMessageId = "valid-boundary",
+                ),
+            )
+            database.messageDao().insert(
+                MessageEntity(
+                    id = "valid-boundary",
+                    sessionId = "compact-valid",
+                    role = "assistant",
+                    content = "Compaction boundary exists in this session.",
+                    createdAt = 31L,
+                    providerMeta = null,
+                    toolCallId = null,
+                    taskRunId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "compact-cross-session",
+                    title = "Cross compact session",
+                    isMain = false,
+                    createdAt = 40L,
+                    updatedAt = 40L,
+                    archivedAt = null,
+                    summaryText = "Cross-session summary should stay.",
+                    compactedUntilMessageId = "valid-boundary",
+                ),
+            )
+            val maintenance =
+                StartupMaintenance(
+                    clock = Clock.fixed(Instant.parse("2026-03-09T00:00:00Z"), ZoneOffset.UTC),
+                    sessionRepository = sessionRepository,
+                    messageRepository = messageRepository,
+                    taskRepository = taskRepository,
+                    eventLogRepository = eventLogRepository,
+                    ensureMainSession = {},
+                    rescheduleAll = {},
+                )
+
+            val result = maintenance.run()
+
+            val invalidSession = database.sessionDao().getById("compact-invalid")
+            val validSession = database.sessionDao().getById("compact-valid")
+            val crossSession = database.sessionDao().getById("compact-cross-session")
+            assertEquals(2, result.repairedCompactionBoundaries)
+            assertEquals("Summary should stay.", invalidSession?.summaryText)
+            assertEquals(null, invalidSession?.compactedUntilMessageId)
+            assertEquals("Valid summary should stay.", validSession?.summaryText)
+            assertEquals("valid-boundary", validSession?.compactedUntilMessageId)
+            assertEquals("Cross-session summary should stay.", crossSession?.summaryText)
+            assertEquals(null, crossSession?.compactedUntilMessageId)
         }
 }

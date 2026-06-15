@@ -24,6 +24,15 @@ interface SessionDao {
     @Query(
         """
         SELECT * FROM sessions
+        WHERE compactedUntilMessageId IS NOT NULL
+          AND compactedUntilMessageId != ''
+        """,
+    )
+    suspend fun getSessionsWithCompactionBoundary(): List<SessionEntity>
+
+    @Query(
+        """
+        SELECT * FROM sessions
         WHERE archivedAt IS NULL
         ORDER BY updatedAt DESC
         """,
