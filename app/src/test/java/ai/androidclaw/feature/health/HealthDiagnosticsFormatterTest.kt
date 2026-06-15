@@ -86,6 +86,28 @@ class HealthDiagnosticsFormatterTest {
         assertTrue(report.substringAfter("Last crash stack trace:").contains("… [truncated]"))
         assertTrue(report.length < 140_000)
     }
+
+    @Test
+    fun `diagnostics notices are bounded before reaching health screen state`() {
+        val oversized = "x".repeat(HEALTH_DIAGNOSTICS_NOTICE_MAX_CHARS + 50)
+
+        val bounded = boundedHealthDiagnosticsNotice(oversized, fallback = "Diagnostics action failed.")
+
+        assertEquals(HEALTH_DIAGNOSTICS_NOTICE_MAX_CHARS, bounded.length)
+        assertEquals("x".repeat(HEALTH_DIAGNOSTICS_NOTICE_MAX_CHARS), bounded)
+    }
+
+    @Test
+    fun `diagnostics notices fall back when blank`() {
+        assertEquals(
+            "Diagnostics action failed.",
+            boundedHealthDiagnosticsNotice(null, fallback = "Diagnostics action failed."),
+        )
+        assertEquals(
+            "Diagnostics action failed.",
+            boundedHealthDiagnosticsNotice("", fallback = "Diagnostics action failed."),
+        )
+    }
 }
 
 private fun testHealthState(): HealthUiState =

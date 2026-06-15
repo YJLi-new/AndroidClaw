@@ -52,20 +52,36 @@ fun HealthScreen(viewModel: HealthViewModel) {
             pendingExport = null
             if (payload == null) return@rememberLauncherForActivityResult
             if (result.resultCode != Activity.RESULT_OK) {
-                diagnosticsNotice = "Diagnostics export cancelled."
+                diagnosticsNotice =
+                    boundedHealthDiagnosticsNotice(
+                        "Diagnostics export cancelled.",
+                        fallback = "Diagnostics export cancelled.",
+                    )
                 return@rememberLauncherForActivityResult
             }
             val uri = result.data?.data
             if (uri == null) {
-                diagnosticsNotice = "Failed to export diagnostics: no file destination selected."
+                diagnosticsNotice =
+                    boundedHealthDiagnosticsNotice(
+                        "Failed to export diagnostics: no file destination selected.",
+                        fallback = "Failed to export diagnostics.",
+                    )
                 return@rememberLauncherForActivityResult
             }
             runCatching {
                 writeDiagnosticsPayload(context, uri, payload)
             }.onSuccess {
-                diagnosticsNotice = "Saved ${payload.fileName}."
+                diagnosticsNotice =
+                    boundedHealthDiagnosticsNotice(
+                        "Saved ${payload.fileName}.",
+                        fallback = "Saved diagnostics.",
+                    )
             }.onFailure { error ->
-                diagnosticsNotice = "Failed to export diagnostics: ${error.message ?: "unknown error"}."
+                diagnosticsNotice =
+                    boundedHealthDiagnosticsNotice(
+                        "Failed to export diagnostics: ${error.message ?: "unknown error"}.",
+                        fallback = "Failed to export diagnostics.",
+                    )
             }
         }
 
@@ -111,7 +127,11 @@ fun HealthScreen(viewModel: HealthViewModel) {
                                         ),
                                     ),
                                 )
-                                diagnosticsNotice = "Diagnostics copied to clipboard."
+                                diagnosticsNotice =
+                                    boundedHealthDiagnosticsNotice(
+                                        "Diagnostics copied to clipboard.",
+                                        fallback = "Diagnostics copied.",
+                                    )
                             }
                         },
                     )
@@ -131,9 +151,17 @@ fun HealthScreen(viewModel: HealthViewModel) {
                                 val uri = writeDiagnosticsShareFile(context, payload)
                                 launchDiagnosticsShareFile(context, payload, uri)
                             }.onSuccess {
-                                diagnosticsNotice = "Opening share sheet."
+                                diagnosticsNotice =
+                                    boundedHealthDiagnosticsNotice(
+                                        "Opening share sheet.",
+                                        fallback = "Opening share sheet.",
+                                    )
                             }.onFailure { error ->
-                                diagnosticsNotice = "Failed to share diagnostics: ${error.message ?: "unknown error"}."
+                                diagnosticsNotice =
+                                    boundedHealthDiagnosticsNotice(
+                                        "Failed to share diagnostics: ${error.message ?: "unknown error"}.",
+                                        fallback = "Failed to share diagnostics.",
+                                    )
                             }
                         },
                     )

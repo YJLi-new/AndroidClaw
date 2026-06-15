@@ -311,3 +311,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   run-now, not-found, and delete notices now pass through a shared scheduler
   screen action-message cap before reaching Compose state, with deterministic
   coverage for oversized and blank action text.
+- 2026-06-16: Bounded health diagnostics notices. Copy/export/share diagnostics
+  success and failure text now passes through a shared health notice cap before
+  reaching Compose state, preventing oversized platform exception messages from
+  inflating the Health screen.
