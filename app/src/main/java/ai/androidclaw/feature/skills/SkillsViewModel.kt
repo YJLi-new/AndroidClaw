@@ -5,6 +5,7 @@ import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.SKILL_CONFIG_VALUE_MAX_CHARS
 import ai.androidclaw.data.SKILL_SECRET_VALUE_MAX_CHARS
 import ai.androidclaw.runtime.skills.SkillConfigField
+import ai.androidclaw.runtime.skills.SkillImportResult
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
@@ -19,6 +20,9 @@ import kotlinx.coroutines.launch
 
 internal const val SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE =
     "Skill configuration input truncated by AndroidClaw to keep the dialog responsive."
+internal const val SKILL_IMPORT_STATUS_MAX_LISTED_NAMES = 4
+internal const val SKILL_IMPORT_STATUS_NAME_MAX_CHARS = 80
+internal const val SKILL_IMPORT_STATUS_MAX_CHARS = 1_000
 
 private data class BoundedSkillConfigurationInput(
     val value: String,
@@ -350,21 +354,7 @@ class SkillsViewModel(
                 mutableState.update {
                     it.copy(
                         isImporting = false,
-                        statusMessage =
-                            buildString {
-                                append("Imported ${result.importedSkillNames.size} skill")
-                                if (result.importedSkillNames.size != 1) {
-                                    append('s')
-                                }
-                                if (result.importedSkillNames.isNotEmpty()) {
-                                    append(": ")
-                                    append(result.importedSkillNames.joinToString())
-                                }
-                                if (result.replacedSkillNames.isNotEmpty()) {
-                                    append(". Replaced: ")
-                                    append(result.replacedSkillNames.joinToString())
-                                }
-                            },
+                        statusMessage = buildSkillImportStatusMessage(result),
                     )
                 }
                 loadSkills(forceRefresh = true)
@@ -422,6 +412,37 @@ class SkillsViewModel(
                     skillManager = dependencies.skillManager,
                 )
             }
+    }
+}
+
+internal fun buildSkillImportStatusMessage(result: SkillImportResult): String =
+    buildString {
+        append("Imported ${result.importedSkillNames.size} skill")
+        if (result.importedSkillNames.size != 1) {
+            append('s')
+        }
+        appendSkillNameSummary(prefix = ": ", names = result.importedSkillNames)
+        appendSkillNameSummary(prefix = ". Replaced: ", names = result.replacedSkillNames)
+    }.take(SKILL_IMPORT_STATUS_MAX_CHARS)
+
+private fun StringBuilder.appendSkillNameSummary(
+    prefix: String,
+    names: List<String>,
+) {
+    if (names.isEmpty()) {
+        return
+    }
+    append(prefix)
+    append(
+        names
+            .take(SKILL_IMPORT_STATUS_MAX_LISTED_NAMES)
+            .joinToString { name -> name.take(SKILL_IMPORT_STATUS_NAME_MAX_CHARS) },
+    )
+    val omittedCount = names.size - SKILL_IMPORT_STATUS_MAX_LISTED_NAMES
+    if (omittedCount > 0) {
+        append(", +")
+        append(omittedCount)
+        append(" more")
     }
 }
 

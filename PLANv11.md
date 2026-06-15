@@ -291,3 +291,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   The chat screen now caps local session-title edits at the repository title
   budget and displays a truncation notice, closing the remaining unbounded local
   chat text field before title persistence.
+- 2026-06-16: Bounded skill import status summaries. Import completion UI now
+  reports total imported/replaced counts, lists only a small capped sample of
+  skill names, and includes omitted-name counts so large ZIP imports cannot
+  create unbounded status text.

@@ -10,6 +10,7 @@ import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibility
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillFrontmatter
+import ai.androidclaw.runtime.skills.SkillImportResult
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSnapshot
@@ -62,6 +63,34 @@ class SkillsViewModelTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun `skill import status message is bounded and summarizes omitted names`() {
+        val importedNames =
+            (0 until SKILL_IMPORT_STATUS_MAX_LISTED_NAMES + 4).map { index ->
+                "imported-$index-" + "i".repeat(SKILL_IMPORT_STATUS_NAME_MAX_CHARS + 20)
+            }
+        val replacedNames =
+            (0 until SKILL_IMPORT_STATUS_MAX_LISTED_NAMES + 2).map { index ->
+                "replaced-$index-" + "r".repeat(SKILL_IMPORT_STATUS_NAME_MAX_CHARS + 20)
+            }
+
+        val message =
+            buildSkillImportStatusMessage(
+                SkillImportResult(
+                    importedSkillNames = importedNames,
+                    replacedSkillNames = replacedNames,
+                ),
+            )
+
+        assertTrue(message.length <= SKILL_IMPORT_STATUS_MAX_CHARS)
+        assertTrue(message.startsWith("Imported ${importedNames.size} skills: imported-0-"))
+        assertTrue(message.contains("+4 more"))
+        assertTrue(message.contains(". Replaced: replaced-0-"))
+        assertTrue(message.contains("+2 more"))
+        assertFalse(message.contains("imported-${SKILL_IMPORT_STATUS_MAX_LISTED_NAMES}-"))
+        assertFalse(message.contains("replaced-${SKILL_IMPORT_STATUS_MAX_LISTED_NAMES}-"))
     }
 
     @Test
