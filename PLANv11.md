@@ -227,3 +227,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   config paths, and values are now trimmed, bounded, and blank-safe before
   touching DataStore, with deterministic hashed suffixes for oversized
   identifiers and matching in-memory fixture behavior for manager tests.
+- 2026-06-16: Hardened skill secret storage. Skill secret identifiers and values
+  are now trimmed, bounded, blank-safe, and written under delimiter-safe v2
+  encrypted preference keys, while safe legacy keys remain readable for existing
+  installs and test fixtures mirror the production normalization.

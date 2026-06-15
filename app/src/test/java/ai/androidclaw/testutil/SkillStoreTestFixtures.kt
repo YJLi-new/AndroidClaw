@@ -2,10 +2,14 @@ package ai.androidclaw.testutil
 
 import ai.androidclaw.data.SKILL_CONFIG_PATH_MAX_CHARS
 import ai.androidclaw.data.SKILL_CONFIG_SKILL_KEY_MAX_CHARS
+import ai.androidclaw.data.SKILL_SECRET_ENV_NAME_MAX_CHARS
+import ai.androidclaw.data.SKILL_SECRET_SKILL_KEY_MAX_CHARS
 import ai.androidclaw.data.SkillConfigStore
 import ai.androidclaw.data.SkillSecretStore
 import ai.androidclaw.data.toBoundedSkillConfigIdentifier
 import ai.androidclaw.data.toBoundedSkillConfigValue
+import ai.androidclaw.data.toBoundedSkillSecretIdentifier
+import ai.androidclaw.data.toBoundedSkillSecretValue
 
 class InMemorySkillConfigStore(
     initialValues: Map<Pair<String, String>, String> = emptyMap(),
@@ -60,35 +64,53 @@ class InMemorySkillSecretStore(
     initialValues: Map<Pair<String, String>, String> = emptyMap(),
     initialRecoveryNotices: Set<Pair<String, String>> = emptySet(),
 ) : SkillSecretStore {
-    private val values = initialValues.toMutableMap()
-    private val recoveryNotices = initialRecoveryNotices.toMutableSet()
+    private val values =
+        initialValues
+            .mapNotNull { (key, value) ->
+                val normalizedKey = key.toNormalizedSkillSecretKey() ?: return@mapNotNull null
+                val normalizedValue = value.toBoundedSkillSecretValue() ?: return@mapNotNull null
+                normalizedKey to normalizedValue
+            }.toMap()
+            .toMutableMap()
+    private val recoveryNotices =
+        initialRecoveryNotices
+            .mapNotNull { it.toNormalizedSkillSecretKey() }
+            .toMutableSet()
 
     override suspend fun readSecret(
         skillKey: String,
         envName: String,
-    ): String? = values[skillKey to envName]
+    ): String? = values[(skillKey to envName).toNormalizedSkillSecretKey()]
 
     override suspend fun writeSecret(
         skillKey: String,
         envName: String,
         value: String?,
     ) {
-        if (value.isNullOrBlank()) {
-            values.remove(skillKey to envName)
+        val normalizedKey = (skillKey to envName).toNormalizedSkillSecretKey() ?: return
+        val normalizedValue = value.toBoundedSkillSecretValue()
+        if (normalizedValue == null) {
+            values.remove(normalizedKey)
         } else {
-            values[skillKey to envName] = value.trim()
+            values[normalizedKey] = normalizedValue
         }
     }
 
     override suspend fun consumeRecoveryNotice(
         skillKey: String,
         envName: String,
-    ): Boolean = recoveryNotices.remove(skillKey to envName)
+    ): Boolean = recoveryNotices.remove((skillKey to envName).toNormalizedSkillSecretKey())
 
     fun markRecoveryNotice(
         skillKey: String,
         envName: String,
     ) {
-        recoveryNotices += skillKey to envName
+        (skillKey to envName).toNormalizedSkillSecretKey()?.let(recoveryNotices::add)
     }
+}
+
+private fun Pair<String, String>.toNormalizedSkillSecretKey(): Pair<String, String>? {
+    val skillKey = first.toBoundedSkillSecretIdentifier(SKILL_SECRET_SKILL_KEY_MAX_CHARS) ?: return null
+    val envName = second.toBoundedSkillSecretIdentifier(SKILL_SECRET_ENV_NAME_MAX_CHARS) ?: return null
+    return skillKey to envName
 }
