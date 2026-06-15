@@ -6,4 +6,3 @@ internal fun boundedHealthDiagnosticsNotice(
     message: String?,
     fallback: String,
 ): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(HEALTH_DIAGNOSTICS_NOTICE_MAX_CHARS)
-

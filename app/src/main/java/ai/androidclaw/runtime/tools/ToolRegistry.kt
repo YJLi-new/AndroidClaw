@@ -77,6 +77,8 @@ data class ToolExecutionResult(
     }
 }
 
+internal const val TOOL_RESULT_SUMMARY_MAX_CHARS = 4_000
+
 enum class ToolInvocationOrigin {
     Model,
     SlashCommand,
@@ -211,31 +213,35 @@ class ToolRegistry(
             result = null,
         )
         return try {
-            entry.handler(resolvedContext, arguments).also { result ->
-                logToolEvent(
-                    level = if (result.success) EventLevel.Info else EventLevel.Warn,
-                    message =
-                        if (result.success) {
-                            "Tool ${descriptor.name} completed."
-                        } else {
-                            "Tool ${descriptor.name} returned a structured failure."
-                        },
-                    context = resolvedContext,
-                    result = result,
-                )
-            }
+            entry
+                .handler(resolvedContext, arguments)
+                .toBoundedToolExecutionResult(fallbackSummary = "Tool ${descriptor.name} completed.")
+                .also { result ->
+                    logToolEvent(
+                        level = if (result.success) EventLevel.Info else EventLevel.Warn,
+                        message =
+                            if (result.success) {
+                                "Tool ${descriptor.name} completed."
+                            } else {
+                                "Tool ${descriptor.name} returned a structured failure."
+                            },
+                        context = resolvedContext,
+                        result = result,
+                    )
+                }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            val failureMessage = error.message.toBoundedToolResultSummary(fallback = "Tool ${descriptor.name} failed.")
             ToolExecutionResult
                 .failure(
-                    summary = error.message ?: "Tool ${descriptor.name} failed.",
+                    summary = failureMessage,
                     errorCode = "TOOL_EXECUTION_FAILED",
                     payload =
                         buildJsonObject {
                             put("errorCode", "TOOL_EXECUTION_FAILED")
                             put("toolName", descriptor.name)
-                            put("message", error.message ?: "Unknown error")
+                            put("message", failureMessage)
                         },
                 ).also { result ->
                     logToolEvent(
@@ -299,7 +305,7 @@ class ToolRegistry(
                 ToolAvailabilityStatus.DisabledByConfig -> "Tool ${descriptor.name} is disabled by configuration."
             }
         return ToolExecutionResult.failure(
-            summary = summary,
+            summary = summary.toBoundedToolResultSummary(fallback = "Tool ${descriptor.name} is unavailable."),
             errorCode = errorCode,
             payload =
                 buildJsonObject {
@@ -335,6 +341,18 @@ class ToolRegistry(
             }.toString(),
         )
     }
+}
+
+private fun ToolExecutionResult.toBoundedToolExecutionResult(fallbackSummary: String): ToolExecutionResult = copy(summary = summary.toBoundedToolResultSummary(fallback = fallbackSummary))
+
+private fun String?.toBoundedToolResultSummary(fallback: String): String {
+    val normalized = this?.takeIf(String::isNotBlank) ?: fallback
+    if (normalized.length <= TOOL_RESULT_SUMMARY_MAX_CHARS) {
+        return normalized
+    }
+    val suffix = "… [truncated]"
+    val prefixLength = (TOOL_RESULT_SUMMARY_MAX_CHARS - suffix.length).coerceAtLeast(0)
+    return normalized.take(prefixLength).trimEnd() + suffix
 }
 
 private fun List<String>.toStringJsonArray(): JsonArray =

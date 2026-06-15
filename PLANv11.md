@@ -315,3 +315,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   success and failure text now passes through a shared health notice cap before
   reaching Compose state, preventing oversized platform exception messages from
   inflating the Health screen.
+- 2026-06-16: Bounded tool result summaries at the registry boundary. Handler
+  success/failure summaries and thrown exception messages now cap before they
+  become tool-result chat messages, model tool context, or structured exception
+  payloads, keeping typed tools concise even when handlers misbehave.

@@ -66,6 +66,75 @@ class ToolRegistryTest {
         }
 
     @Test
+    fun `tool handler summaries are bounded at registry boundary`() =
+        runTest {
+            val oversizedSummary = "s".repeat(TOOL_RESULT_SUMMARY_MAX_CHARS + 50)
+            val registry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "large.tool",
+                                        description = "Returns an oversized summary",
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = oversizedSummary,
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = testToolContext("large.tool"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals(TOOL_RESULT_SUMMARY_MAX_CHARS, result.summary.length)
+            assertTrue(result.summary.endsWith("… [truncated]"))
+        }
+
+    @Test
+    fun `tool exception messages are bounded in summary and payload`() =
+        runTest {
+            val oversizedMessage = "e".repeat(TOOL_RESULT_SUMMARY_MAX_CHARS + 75)
+            val registry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "huge-error.tool",
+                                        description = "Throws an oversized message",
+                                    ),
+                            ) { _, _ ->
+                                error(oversizedMessage)
+                            },
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = testToolContext("huge-error.tool"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(result.success)
+            assertEquals(TOOL_RESULT_SUMMARY_MAX_CHARS, result.summary.length)
+            assertTrue(result.summary.endsWith("… [truncated]"))
+            assertEquals(
+                result.summary,
+                result.payload["message"]?.jsonPrimitive?.content,
+            )
+        }
+
+    @Test
     fun `alias lookup resolves to canonical descriptor and executes handler`() =
         runTest {
             var executionCount = 0
