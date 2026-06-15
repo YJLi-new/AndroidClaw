@@ -163,3 +163,6 @@ available, or use the repo's Windows AVD scripts for manual QA.
   queries now return empty results for non-positive limits and cap oversized
   requests before reaching SQLite, while large `getMessagesByIds` lookups are
   chunked to avoid oversized `IN` clauses without dropping requested messages.
+- 2026-06-16: Bounded event-log recent-query limits. `observeRecent` now returns
+  an empty flow for non-positive limits and caps oversized limits before hitting
+  SQLite, closing the remaining bounded-log query gap after event text bounding.

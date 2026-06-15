@@ -148,4 +148,39 @@ class EventLogRepositoryTest {
             assertTrue(event.message.endsWith("…[truncated]"))
             assertTrue(event.details?.endsWith("…[truncated]") == true)
         }
+
+    @Test
+    fun `non-positive recent event limits return empty results`() =
+        runTest {
+            repository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "Boot",
+            )
+
+            assertEquals(emptyList<ai.androidclaw.data.model.EventLogEntry>(), repository.observeRecent(limit = 0).first())
+            assertEquals(emptyList<ai.androidclaw.data.model.EventLogEntry>(), repository.observeRecent(limit = -1).first())
+        }
+
+    @Test
+    fun `recent event limits are capped before querying`() =
+        runTest {
+            repeat(EVENT_LOG_QUERY_MAX_LIMIT + 2) { index ->
+                database.eventLogDao().insert(
+                    EventLogEntity(
+                        id = "event-$index",
+                        timestamp = index.toLong(),
+                        category = "system",
+                        level = "info",
+                        message = "event-$index",
+                        detailsJson = null,
+                    ),
+                )
+            }
+
+            val events = repository.observeRecent(limit = Int.MAX_VALUE).first()
+
+            assertEquals(EVENT_LOG_QUERY_MAX_LIMIT, events.size)
+            assertEquals("event-${EVENT_LOG_QUERY_MAX_LIMIT + 1}", events.first().id)
+        }
 }

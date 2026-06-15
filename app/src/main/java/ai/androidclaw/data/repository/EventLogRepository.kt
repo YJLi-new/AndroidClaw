@@ -6,12 +6,14 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
 
 internal const val EVENT_LOG_MESSAGE_MAX_CHARS = 1_000
 internal const val EVENT_LOG_DETAILS_MAX_CHARS = 4_000
+internal const val EVENT_LOG_QUERY_MAX_LIMIT = 500
 
 class EventLogRepository(
     private val dao: EventLogDao,
@@ -34,10 +36,15 @@ class EventLogRepository(
         )
     }
 
-    fun observeRecent(limit: Int = 100): Flow<List<EventLogEntry>> =
-        dao.getRecent(limit).map { events ->
+    fun observeRecent(limit: Int = 100): Flow<List<EventLogEntry>> {
+        val boundedLimit = limit.coerceIn(0, EVENT_LOG_QUERY_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return flowOf(emptyList())
+        }
+        return dao.getRecent(boundedLimit).map { events ->
             events.map(EventLogEntity::toDomain)
         }
+    }
 
     suspend fun trimOlderThan(instant: Instant): Int = dao.deleteOlderThan(instant.toEpochMilli())
 
