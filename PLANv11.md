@@ -359,3 +359,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   `ModelRequest` ids, system prompt text, message-history count/content, and
   transcript tool-call metadata before HTTP serialization, with oversized
   outbound tool arguments rejected before request bodies are built.
+- 2026-06-16: Bounded direct provider tool descriptors. The shared remote
+  provider request sanitizer now also caps direct `ModelRequest.toolDescriptors`
+  count, descriptions, aliases, permissions, argument metadata, and custom input
+  schemas before HTTP serialization, while rejecting blank or oversized tool
+  names so direct provider callers cannot bypass AgentRunner descriptor bounds.

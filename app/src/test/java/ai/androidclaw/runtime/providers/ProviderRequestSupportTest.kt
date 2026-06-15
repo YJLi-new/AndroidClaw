@@ -1,6 +1,11 @@
 package ai.androidclaw.runtime.providers
 
+import ai.androidclaw.runtime.tools.ToolDescriptor
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -27,6 +32,7 @@ class ProviderRequestSupportTest {
             )
 
         val bounded = request.toBoundedProviderRequest(providerName = "Provider")
+        val lastMessage = bounded.messageHistory.last()
 
         assertEquals(MAX_PROVIDER_REQUEST_ID_CHARS, bounded.sessionId.length)
         assertEquals(MAX_PROVIDER_REQUEST_ID_CHARS, bounded.requestId?.length)
@@ -36,8 +42,8 @@ class ProviderRequestSupportTest {
         assertFalse(bounded.systemPrompt.contains("TEXT_TAIL"))
         assertEquals(MAX_PROVIDER_REQUEST_MESSAGES, bounded.messageHistory.size)
         assertFalse(bounded.messageHistory.any { it.content == "message-1" })
-        assertEquals(MAX_PROVIDER_REQUEST_TEXT_CHARS, bounded.messageHistory.last().content.length)
-        assertFalse(bounded.messageHistory.last().content.contains("TEXT_TAIL"))
+        assertEquals(MAX_PROVIDER_REQUEST_TEXT_CHARS, lastMessage.content.length)
+        assertFalse(lastMessage.content.contains("TEXT_TAIL"))
     }
 
     @Test
@@ -70,15 +76,16 @@ class ProviderRequestSupportTest {
                 .toBoundedProviderRequest(providerName = "Provider")
                 .messageHistory
                 .single()
+        val boundedCall = boundedToolMessage.toolCalls.single()
 
         assertEquals(MAX_PROVIDER_TOOL_CALL_ID_CHARS, boundedToolMessage.toolCallId?.length)
         assertEquals(MAX_PROVIDER_TOOL_CALL_NAME_CHARS, boundedToolMessage.toolName?.length)
-        assertEquals(MAX_PROVIDER_TOOL_CALL_ID_CHARS, boundedToolMessage.toolCalls.single().id.length)
-        assertEquals(MAX_PROVIDER_TOOL_CALL_NAME_CHARS, boundedToolMessage.toolCalls.single().name.length)
+        assertEquals(MAX_PROVIDER_TOOL_CALL_ID_CHARS, boundedCall.id.length)
+        assertEquals(MAX_PROVIDER_TOOL_CALL_NAME_CHARS, boundedCall.name.length)
         assertFalse(boundedToolMessage.toolCallId.orEmpty().contains("ID_TAIL"))
         assertFalse(boundedToolMessage.toolName.orEmpty().contains("NAME_TAIL"))
-        assertFalse(boundedToolMessage.toolCalls.single().id.contains("ID_TAIL"))
-        assertFalse(boundedToolMessage.toolCalls.single().name.contains("NAME_TAIL"))
+        assertFalse(boundedCall.id.contains("ID_TAIL"))
+        assertFalse(boundedCall.name.contains("NAME_TAIL"))
     }
 
     @Test
@@ -114,6 +121,96 @@ class ProviderRequestSupportTest {
         assertEquals("Provider request included oversized tool arguments.", (error as ModelProviderException).userMessage)
     }
 
+    @Test
+    fun `provider request bounds tool descriptor metadata before serialization`() {
+        val oversizedDescription = "d".repeat(MAX_PROVIDER_REQUEST_TOOL_DESCRIPTION_CHARS) + "DESCRIPTION_TAIL"
+        val oversizedAlias = "a".repeat(MAX_PROVIDER_REQUEST_TOOL_ALIAS_CHARS) + "ALIAS_TAIL"
+        val oversizedSchemaText = "s".repeat(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_STRING_CHARS) + "SCHEMA_TAIL"
+        val request =
+            buildRequest(
+                toolDescriptors =
+                    (1..(MAX_PROVIDER_REQUEST_TOOLS + 1)).map { index ->
+                        ToolDescriptor(
+                            name = "tool.$index",
+                            description = if (index == 1) oversizedDescription else "Tool $index",
+                            aliases = if (index == 1) listOf(oversizedAlias) else emptyList(),
+                            inputSchema =
+                                buildJsonObject {
+                                    put("type", "object")
+                                    put("description", oversizedSchemaText)
+                                    put(
+                                        "enum",
+                                        buildJsonArray {
+                                            repeat(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_ENTRIES + 1) { enumIndex ->
+                                                add(JsonPrimitive("choice-$enumIndex"))
+                                            }
+                                        },
+                                    )
+                                },
+                        )
+                    },
+            )
+
+        val boundedDescriptors =
+            request
+                .toBoundedProviderRequest(providerName = "Provider")
+                .toolDescriptors
+        val firstDescriptor = boundedDescriptors.first()
+        val firstSchema = firstDescriptor.inputSchema
+        val boundedSchemaDescription =
+            firstSchema
+                .getValue("description")
+                .jsonPrimitive
+                .content
+        val boundedSchemaEnum =
+            firstSchema
+                .getValue("enum")
+                .jsonArray
+
+        assertEquals(MAX_PROVIDER_REQUEST_TOOLS, boundedDescriptors.size)
+        assertFalse(boundedDescriptors.any { it.name == "tool.${MAX_PROVIDER_REQUEST_TOOLS + 1}" })
+        assertEquals(MAX_PROVIDER_REQUEST_TOOL_DESCRIPTION_CHARS, firstDescriptor.description.length)
+        assertFalse(firstDescriptor.description.contains("DESCRIPTION_TAIL"))
+        assertEquals(MAX_PROVIDER_REQUEST_TOOL_ALIAS_CHARS, firstDescriptor.aliases.single().length)
+        assertFalse(firstDescriptor.aliases.single().contains("ALIAS_TAIL"))
+        assertEquals(
+            MAX_PROVIDER_REQUEST_TOOL_SCHEMA_STRING_CHARS,
+            boundedSchemaDescription.length,
+        )
+        assertFalse(boundedSchemaDescription.contains("SCHEMA_TAIL"))
+        assertEquals(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_ENTRIES, boundedSchemaEnum.size)
+        assertFalse(
+            boundedSchemaEnum.any { value ->
+                value.jsonPrimitive.content == "choice-$MAX_PROVIDER_REQUEST_TOOL_SCHEMA_ENTRIES"
+            },
+        )
+    }
+
+    @Test
+    fun `provider request rejects oversized tool descriptor names`() {
+        val request =
+            buildRequest(
+                toolDescriptors =
+                    listOf(
+                        ToolDescriptor(
+                            name = "t".repeat(MAX_PROVIDER_TOOL_CALL_NAME_CHARS + 1),
+                            description = "Oversized tool name",
+                        ),
+                    ),
+            )
+
+        val error =
+            runCatching {
+                request.toBoundedProviderRequest(providerName = "Provider")
+            }.exceptionOrNull()
+
+        assertTrue(error is ModelProviderException)
+        assertEquals(
+            "Provider request included an oversized tool descriptor name.",
+            (error as ModelProviderException).userMessage,
+        )
+    }
+
     private fun buildRequest(
         sessionId: String = "session-1",
         requestId: String? = "request-1",
@@ -125,6 +222,7 @@ class ProviderRequestSupportTest {
                     content = "hello",
                 ),
             ),
+        toolDescriptors: List<ToolDescriptor> = emptyList(),
     ): ModelRequest =
         ModelRequest(
             sessionId = sessionId,
@@ -132,7 +230,7 @@ class ProviderRequestSupportTest {
             messageHistory = messageHistory,
             systemPrompt = systemPrompt,
             enabledSkills = emptyList(),
-            toolDescriptors = emptyList(),
+            toolDescriptors = toolDescriptors,
             runMode = ModelRunMode.Interactive,
         )
 }

@@ -2,11 +2,23 @@ package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.normalizeProviderTimeoutSeconds
+import ai.androidclaw.runtime.tools.TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS
+import ai.androidclaw.runtime.tools.TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS
+import ai.androidclaw.runtime.tools.TOOL_REGISTRY_NAME_MAX_CHARS
+import ai.androidclaw.runtime.tools.TOOL_REGISTRY_PERMISSION_LIST_MAX_ITEMS
+import ai.androidclaw.runtime.tools.ToolDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -25,6 +37,13 @@ internal const val MAX_PROVIDER_ERROR_BODY_CHARS = 500
 internal const val MAX_PROVIDER_REQUEST_MESSAGES = 256
 internal const val MAX_PROVIDER_REQUEST_TEXT_CHARS = 40_000
 internal const val MAX_PROVIDER_REQUEST_ID_CHARS = 256
+internal const val MAX_PROVIDER_REQUEST_TOOLS = 100
+internal const val MAX_PROVIDER_REQUEST_TOOL_DESCRIPTION_CHARS = 500
+internal const val MAX_PROVIDER_REQUEST_TOOL_ALIASES = 10
+internal const val MAX_PROVIDER_REQUEST_TOOL_ALIAS_CHARS = 80
+internal const val MAX_PROVIDER_REQUEST_TOOL_SCHEMA_DEPTH = 8
+internal const val MAX_PROVIDER_REQUEST_TOOL_SCHEMA_ENTRIES = 50
+internal const val MAX_PROVIDER_REQUEST_TOOL_SCHEMA_STRING_CHARS = 1_000
 
 internal data class ResolvedRequestConfig(
     val endpointSettings: ProviderEndpointSettings,
@@ -76,6 +95,10 @@ internal fun ModelRequest.toBoundedProviderRequest(providerName: String): ModelR
             messageHistory
                 .takeLast(MAX_PROVIDER_REQUEST_MESSAGES)
                 .map { message -> message.toBoundedProviderRequestMessage(providerName) },
+        toolDescriptors =
+            toolDescriptors
+                .take(MAX_PROVIDER_REQUEST_TOOLS)
+                .map { descriptor -> descriptor.toBoundedProviderToolDescriptor(providerName) },
     )
 
 private fun ModelMessage.toBoundedProviderRequestMessage(providerName: String): ModelMessage =
@@ -99,6 +122,96 @@ private fun ProviderToolCall.toBoundedProviderRequestToolCall(providerName: Stri
 private fun String.toBoundedProviderRequestText(): String = take(MAX_PROVIDER_REQUEST_TEXT_CHARS)
 
 private fun String.toBoundedProviderRequestId(): String = trim().take(MAX_PROVIDER_REQUEST_ID_CHARS)
+
+private fun ToolDescriptor.toBoundedProviderToolDescriptor(providerName: String): ToolDescriptor {
+    validateProviderToolDescriptorName(providerName)
+    return copy(
+        description = description.take(MAX_PROVIDER_REQUEST_TOOL_DESCRIPTION_CHARS),
+        aliases =
+            aliases
+                .take(MAX_PROVIDER_REQUEST_TOOL_ALIASES)
+                .map { alias -> alias.take(MAX_PROVIDER_REQUEST_TOOL_ALIAS_CHARS) },
+        requiredPermissions =
+            requiredPermissions
+                .take(TOOL_REGISTRY_PERMISSION_LIST_MAX_ITEMS)
+                .map { permission ->
+                    permission.copy(
+                        permission = permission.permission.take(TOOL_REGISTRY_NAME_MAX_CHARS),
+                        displayName = permission.displayName.take(TOOL_REGISTRY_NAME_MAX_CHARS),
+                    )
+                },
+        availability =
+            availability.copy(
+                reason = availability.reason?.take(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_STRING_CHARS),
+            ),
+        arguments =
+            arguments
+                .take(TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS)
+                .map { argument ->
+                    argument.copy(
+                        description = argument.description.take(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_STRING_CHARS),
+                    )
+                },
+        inputSchema = inputSchema.toBoundedProviderToolInputSchema(),
+    )
+}
+
+private fun ToolDescriptor.validateProviderToolDescriptorName(providerName: String) {
+    if (name.isBlank()) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "$providerName request included a tool descriptor without a name.",
+        )
+    }
+    if (name.length > TOOL_REGISTRY_NAME_MAX_CHARS) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "$providerName request included an oversized tool descriptor name.",
+            details = name.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+        )
+    }
+}
+
+private fun JsonObject.toBoundedProviderToolInputSchema(): JsonObject =
+    toBoundedProviderToolSchemaElement(depth = 0) as? JsonObject ?: buildJsonObject {
+        put("type", JsonPrimitive("object"))
+    }
+
+private fun JsonElement.toBoundedProviderToolSchemaElement(depth: Int): JsonElement {
+    if (depth >= MAX_PROVIDER_REQUEST_TOOL_SCHEMA_DEPTH) {
+        return JsonPrimitive("[omitted]")
+    }
+    return when (this) {
+        is JsonObject ->
+            buildJsonObject {
+                entries
+                    .take(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_ENTRIES)
+                    .forEach { (key, value) ->
+                        put(
+                            key.take(TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS),
+                            value.toBoundedProviderToolSchemaElement(depth + 1),
+                        )
+                    }
+            }
+
+        is JsonArray ->
+            buildJsonArray {
+                take(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_ENTRIES).forEach { value ->
+                    add(value.toBoundedProviderToolSchemaElement(depth + 1))
+                }
+            }
+
+        JsonNull -> JsonNull
+        is JsonPrimitive -> toBoundedProviderToolSchemaPrimitive()
+    }
+}
+
+private fun JsonPrimitive.toBoundedProviderToolSchemaPrimitive(): JsonPrimitive =
+    if (isString) {
+        JsonPrimitive(content.take(MAX_PROVIDER_REQUEST_TOOL_SCHEMA_STRING_CHARS))
+    } else {
+        this
+    }
 
 private fun kotlinx.serialization.json.JsonObject.requireProviderRequestToolArgumentsWithinLimit(
     providerName: String,
