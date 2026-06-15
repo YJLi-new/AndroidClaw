@@ -5,6 +5,7 @@ import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.scheduler.CronExpression
 import ai.androidclaw.runtime.scheduler.CronField
+import ai.androidclaw.runtime.scheduler.MAX_SAFE_DURATION_MINUTES
 import ai.androidclaw.runtime.scheduler.NextRunCalculator
 import ai.androidclaw.runtime.scheduler.SchedulerCapabilities
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
@@ -643,8 +644,6 @@ private fun CronExpression.toSpec(): String =
 
 private fun CronField.toSpec(): String = if (isWildcard) "*" else allowed.toList().sorted().joinToString(",")
 
-private const val MILLIS_PER_MINUTE = 60_000L
-private const val MAX_SAFE_DURATION_MINUTES = Long.MAX_VALUE / MILLIS_PER_MINUTE
 private val SCHEDULE_PATCH_FIELDS =
     setOf(
         "scheduleKind",

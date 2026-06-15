@@ -3,9 +3,7 @@ package ai.androidclaw.feature.tasks
 import ai.androidclaw.R
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
-import ai.androidclaw.runtime.scheduler.CronExpression
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
-import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.scheduler.TaskSchedulingDecision
 import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
 import ai.androidclaw.runtime.scheduler.preciseSchedulingWarnings
@@ -57,16 +55,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-
-private enum class TaskScheduleKindUi {
-    Once,
-    Interval,
-    Cron,
-}
 
 @Composable
 fun TasksScreen(viewModel: TasksViewModel) {
@@ -89,34 +80,18 @@ fun TasksScreen(viewModel: TasksViewModel) {
 
     val createTaskFromForm = createTask@{
         val minimumMinutes = state.capabilities.minimumBackgroundInterval.toMinutes()
+        val now = Instant.now()
         val schedule =
             runCatching {
-                when (scheduleKind) {
-                    TaskScheduleKindUi.Once -> {
-                        val scheduledAt = Instant.parse(onceAt.trim())
-                        require(scheduledAt.isAfter(Instant.now())) {
-                            "Once tasks must be scheduled in the future."
-                        }
-                        TaskSchedule.Once(scheduledAt)
-                    }
-
-                    TaskScheduleKindUi.Interval -> {
-                        val minutes = intervalMinutes.trim().toLong()
-                        require(minutes >= minimumMinutes) {
-                            "Intervals must be at least $minimumMinutes minutes."
-                        }
-                        TaskSchedule.Interval(
-                            anchorAt = Instant.now(),
-                            repeatEvery = Duration.ofMinutes(minutes),
-                        )
-                    }
-
-                    TaskScheduleKindUi.Cron ->
-                        TaskSchedule.Cron(
-                            expression = CronExpression.parse(cronExpression.trim()),
-                            zoneId = ZoneId.systemDefault(),
-                        )
-                }
+                parseTaskScheduleFromForm(
+                    scheduleKind = scheduleKind,
+                    onceAt = onceAt,
+                    intervalMinutes = intervalMinutes,
+                    cronExpression = cronExpression,
+                    minimumIntervalMinutes = minimumMinutes,
+                    now = now,
+                    zoneId = ZoneId.systemDefault(),
+                )
             }.getOrElse { error ->
                 formMessage = error.message ?: "Invalid task schedule."
                 return@createTask

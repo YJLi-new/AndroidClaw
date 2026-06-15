@@ -143,3 +143,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   schedule rows. `getTask`, task observation, and due-task queries now skip
   invalid schedule records instead of crashing the task list or scheduler scan,
   with repository tests covering all three read paths.
+- 2026-06-16: Hardened manual task-form schedule parsing. The Compose form now
+  uses a testable parser with stable user-facing errors for invalid once,
+  interval, and cron inputs, shares the safe interval-duration bound with task
+  tools, and rejects cron expressions that produce no next run.
