@@ -203,6 +203,7 @@ class TasksViewModelTest {
                     "anthropic · claude-3-7-sonnet · total 225 tokens",
                     withUsage.runUsageSummaryByRunId[run.id],
                 )
+                cancelAndIgnoreRemainingEvents()
             }
         }
 }

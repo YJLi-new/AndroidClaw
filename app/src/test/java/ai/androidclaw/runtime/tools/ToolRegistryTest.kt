@@ -32,6 +32,44 @@ class ToolRegistryTest {
         }
 
     @Test
+    fun `unknown tool failure bounds requested name before returning or logging`() =
+        runTest {
+            val oversizedName = "missing." + "x".repeat(TOOL_REGISTRY_NAME_MAX_CHARS + 50)
+            val loggedEvents = mutableListOf<Triple<EventLevel, String, String?>>()
+            val registry =
+                ToolRegistry(
+                    tools = emptyList(),
+                    eventLogger = { level, message, details ->
+                        loggedEvents += Triple(level, message, details)
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = testToolContext(oversizedName),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(result.success)
+            val payloadToolName =
+                result.payload["toolName"]
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty()
+            assertEquals(TOOL_REGISTRY_NAME_MAX_CHARS, payloadToolName.length)
+            assertTrue(payloadToolName.endsWith("… [truncated]"))
+            assertFalse(result.summary.contains(oversizedName))
+            assertFalse(loggedEvents.single().second.contains(oversizedName))
+            assertTrue(
+                loggedEvents
+                    .single()
+                    .third
+                    .orEmpty()
+                    .contains("… [truncated]"),
+            )
+        }
+
+    @Test
     fun `tool handler failure is converted into a structured result`() =
         runTest {
             val registry =
@@ -220,6 +258,69 @@ class ToolRegistryTest {
                 result.payload["missingArguments"]?.jsonArray?.map { it.jsonPrimitive.content },
             )
             assertFalse(handlerCalled)
+        }
+
+    @Test
+    fun `missing argument failure bounds provided argument metadata`() =
+        runTest {
+            val oversizedArgumentName = "arg-" + "a".repeat(TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS + 25)
+            val registry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "metadata.tool",
+                                        description = "Checks argument metadata bounds",
+                                        arguments =
+                                            listOf(
+                                                ToolArgumentSpec(
+                                                    name = "title",
+                                                    required = true,
+                                                ),
+                                            ),
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = "should not run",
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+            val arguments =
+                buildJsonObject {
+                    repeat(TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS + 10) { index ->
+                        put("$oversizedArgumentName-$index", "value")
+                    }
+                }
+
+            val result =
+                registry.execute(
+                    context = testToolContext("metadata.tool"),
+                    arguments = arguments,
+                )
+
+            assertFalse(result.success)
+            val providedArguments = result.payload["providedArguments"]?.jsonArray.orEmpty()
+            assertEquals(TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS, providedArguments.size)
+            assertTrue(
+                providedArguments.all { argument ->
+                    argument.jsonPrimitive.content.length == TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS
+                },
+            )
+            assertTrue(
+                providedArguments
+                    .first()
+                    .jsonPrimitive
+                    .content
+                    .endsWith("… [truncated]"),
+            )
+            assertEquals(
+                "10",
+                result.payload["providedArgumentsOmitted"]?.jsonPrimitive?.content,
+            )
         }
 
     @Test
@@ -422,6 +523,54 @@ class ToolRegistryTest {
             assertEquals(EventLevel.Info, loggedEvents[1].first)
             assertTrue(loggedEvents[1].second.contains("completed"))
             assertTrue(loggedEvents[1].third.orEmpty().contains("\"success\":true"))
+        }
+
+    @Test
+    fun `tool event logging bounds context metadata before serialization`() =
+        runTest {
+            val oversizedId = "id-" + "x".repeat(TOOL_REGISTRY_NAME_MAX_CHARS + 100)
+            val loggedEvents = mutableListOf<Triple<EventLevel, String, String?>>()
+            val registry =
+                ToolRegistry(
+                    eventLogger = { level, message, details ->
+                        loggedEvents += Triple(level, message, details)
+                    },
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "bounded.log",
+                                        description = "Checks log metadata bounds",
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = "ok",
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+
+            registry.execute(
+                context =
+                    ToolExecutionContext.internal(
+                        requestedName = "bounded.log",
+                        sessionId = oversizedId,
+                        taskRunId = oversizedId,
+                        requestId = oversizedId,
+                        activeSkillId = oversizedId,
+                    ),
+                arguments = buildJsonObject {},
+            )
+
+            assertEquals(2, loggedEvents.size)
+            loggedEvents.forEach { (_, _, details) ->
+                val serializedDetails = details.orEmpty()
+                assertFalse(serializedDetails.contains(oversizedId))
+                assertTrue(serializedDetails.contains("… [truncated]"))
+                assertTrue(serializedDetails.length < 1_500)
+            }
         }
 }
 

@@ -319,3 +319,10 @@ available, or use the repo's Windows AVD scripts for manual QA.
   success/failure summaries and thrown exception messages now cap before they
   become tool-result chat messages, model tool context, or structured exception
   payloads, keeping typed tools concise even when handlers misbehave.
+- 2026-06-16: Bounded tool registry metadata. Unknown requested tool names,
+  tool log context ids, provided argument-name lists, permission labels, and
+  result error codes now cap before result payload or event-detail serialization,
+  so malformed model tool calls cannot inflate tool failure metadata in memory.
+- 2026-06-16: Stabilized the task usage-summary ViewModel test by explicitly
+  cancelling remaining Turbine emissions after the asserted provider-usage
+  state, preventing valid late state updates from failing the full unit suite.

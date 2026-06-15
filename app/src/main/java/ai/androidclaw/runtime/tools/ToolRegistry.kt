@@ -78,6 +78,9 @@ data class ToolExecutionResult(
 }
 
 internal const val TOOL_RESULT_SUMMARY_MAX_CHARS = 4_000
+internal const val TOOL_REGISTRY_NAME_MAX_CHARS = 256
+internal const val TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS = 256
+internal const val TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS = 50
 
 enum class ToolInvocationOrigin {
     Model,
@@ -163,23 +166,26 @@ class ToolRegistry(
         arguments: JsonObject,
     ): ToolExecutionResult {
         val entry =
-            entriesByName[context.requestedName] ?: return ToolExecutionResult
-                .failure(
-                    summary = "Unknown tool: ${context.requestedName}",
-                    errorCode = "UNKNOWN_TOOL",
-                    payload =
-                        buildJsonObject {
-                            put("errorCode", "UNKNOWN_TOOL")
-                            put("toolName", context.requestedName)
-                        },
-                ).also { result ->
-                    logToolEvent(
-                        level = EventLevel.Warn,
-                        message = "Tool ${context.requestedName} failed before execution.",
-                        context = context,
-                        result = result,
-                    )
-                }
+            entriesByName[context.requestedName] ?: run {
+                val requestedName = context.requestedName.toBoundedToolRegistryName()
+                return ToolExecutionResult
+                    .failure(
+                        summary = "Unknown tool: $requestedName".toBoundedToolResultSummary(fallback = "Unknown tool."),
+                        errorCode = "UNKNOWN_TOOL",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "UNKNOWN_TOOL")
+                                put("toolName", requestedName)
+                            },
+                    ).also { result ->
+                        logToolEvent(
+                            level = EventLevel.Warn,
+                            message = "Tool $requestedName failed before execution.",
+                            context = context,
+                            result = result,
+                        )
+                    }
+            }
         val descriptor = entry.resolvedDescriptor()
         val resolvedContext = context.copy(canonicalName = descriptor.name)
         validateArguments(
@@ -275,10 +281,17 @@ class ToolRegistry(
             errorCode = "INVALID_ARGUMENTS",
             payload =
                 buildJsonObject {
+                    val providedArguments = arguments.keys.sorted()
                     put("errorCode", "INVALID_ARGUMENTS")
-                    put("toolName", descriptor.name)
+                    put("toolName", descriptor.name.toBoundedToolRegistryName())
                     put("missingArguments", missingRequiredArguments.toStringJsonArray())
-                    put("providedArguments", arguments.keys.sorted().toStringJsonArray())
+                    put(
+                        "providedArguments",
+                        providedArguments.toStringJsonArray(maxItems = TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS),
+                    )
+                    if (providedArguments.size > TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS) {
+                        put("providedArgumentsOmitted", providedArguments.size - TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS)
+                    }
                 },
         )
     }
@@ -310,8 +323,8 @@ class ToolRegistry(
             payload =
                 buildJsonObject {
                     put("errorCode", errorCode)
-                    put("requestedName", requestedName)
-                    put("toolName", descriptor.name)
+                    put("requestedName", requestedName.toBoundedToolRegistryName())
+                    put("toolName", descriptor.name.toBoundedToolRegistryName())
                     put("availabilityStatus", availability.status.name)
                     put("requiredPermissions", descriptor.requiredPermissions.toPermissionJsonArray())
                 },
@@ -328,22 +341,26 @@ class ToolRegistry(
             level,
             message,
             buildJsonObject {
-                put("requestedName", context.requestedName)
-                put("canonicalName", context.canonicalName)
+                put("requestedName", context.requestedName.toBoundedToolRegistryName())
+                put("canonicalName", context.canonicalName.toBoundedToolRegistryName())
                 put("origin", context.origin.name)
-                put("sessionId", context.sessionId?.let(::JsonPrimitive) ?: JsonNull)
-                put("taskRunId", context.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                put("sessionId", context.sessionId.toBoundedToolRegistryJsonValue())
+                put("taskRunId", context.taskRunId.toBoundedToolRegistryJsonValue())
                 put("runMode", context.runMode?.name?.let(::JsonPrimitive) ?: JsonNull)
-                put("requestId", context.requestId?.let(::JsonPrimitive) ?: JsonNull)
-                put("activeSkillId", context.activeSkillId?.let(::JsonPrimitive) ?: JsonNull)
+                put("requestId", context.requestId.toBoundedToolRegistryJsonValue())
+                put("activeSkillId", context.activeSkillId.toBoundedToolRegistryJsonValue())
                 put("success", result?.success?.let(::JsonPrimitive) ?: JsonNull)
-                put("errorCode", result?.errorCode?.let(::JsonPrimitive) ?: JsonNull)
+                put("errorCode", result?.errorCode.toBoundedToolRegistryJsonValue())
             }.toString(),
         )
     }
 }
 
-private fun ToolExecutionResult.toBoundedToolExecutionResult(fallbackSummary: String): ToolExecutionResult = copy(summary = summary.toBoundedToolResultSummary(fallback = fallbackSummary))
+private fun ToolExecutionResult.toBoundedToolExecutionResult(fallbackSummary: String): ToolExecutionResult =
+    copy(
+        summary = summary.toBoundedToolResultSummary(fallback = fallbackSummary),
+        errorCode = errorCode?.toBoundedToolRegistryName(),
+    )
 
 private fun String?.toBoundedToolResultSummary(fallback: String): String {
     val normalized = this?.takeIf(String::isNotBlank) ?: fallback
@@ -355,9 +372,45 @@ private fun String?.toBoundedToolResultSummary(fallback: String): String {
     return normalized.take(prefixLength).trimEnd() + suffix
 }
 
-private fun List<String>.toStringJsonArray(): JsonArray =
+private fun String.toBoundedToolRegistryName(): String =
+    toBoundedToolRegistryText(
+        maxChars = TOOL_REGISTRY_NAME_MAX_CHARS,
+        fallback = "unknown",
+    )
+
+private fun String?.toBoundedToolRegistryJsonValue(): kotlinx.serialization.json.JsonElement =
+    this
+        ?.toBoundedToolRegistryText(
+            maxChars = TOOL_REGISTRY_NAME_MAX_CHARS,
+            fallback = "unknown",
+        )?.let(::JsonPrimitive)
+        ?: JsonNull
+
+private fun String.toBoundedToolRegistryText(
+    maxChars: Int,
+    fallback: String,
+): String {
+    val normalized = takeIf(String::isNotBlank) ?: fallback
+    if (normalized.length <= maxChars) {
+        return normalized
+    }
+    val suffix = "… [truncated]"
+    val prefixLength = (maxChars - suffix.length).coerceAtLeast(0)
+    return normalized.take(prefixLength).trimEnd() + suffix
+}
+
+private fun List<String>.toStringJsonArray(maxItems: Int = Int.MAX_VALUE): JsonArray =
     buildJsonArray {
-        forEach { add(JsonPrimitive(it)) }
+        take(maxItems).forEach { value ->
+            add(
+                JsonPrimitive(
+                    value.toBoundedToolRegistryText(
+                        maxChars = TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS,
+                        fallback = "unknown",
+                    ),
+                ),
+            )
+        }
     }
 
 private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject =
@@ -371,7 +424,13 @@ private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject 
                         argument.name,
                         buildJsonObject {
                             put("type", "string")
-                            argument.description.takeIf { it.isNotBlank() }?.let { put("description", it) }
+                            argument
+                                .description
+                                .toBoundedToolRegistryText(
+                                    maxChars = TOOL_RESULT_SUMMARY_MAX_CHARS,
+                                    fallback = "",
+                                ).takeIf { it.isNotBlank() }
+                                ?.let { put("description", it) }
                         },
                     )
                 }
@@ -392,8 +451,8 @@ private fun List<ToolPermissionRequirement>.toPermissionJsonArray(): JsonArray =
         forEach { permission ->
             add(
                 buildJsonObject {
-                    put("permission", permission.permission)
-                    put("displayName", permission.displayName)
+                    put("permission", permission.permission.toBoundedToolRegistryName())
+                    put("displayName", permission.displayName.toBoundedToolRegistryName())
                 },
             )
         }
