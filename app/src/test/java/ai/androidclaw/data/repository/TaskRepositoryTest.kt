@@ -240,6 +240,117 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `create task bounds text fields before persistence`() =
+        runTest {
+            val longName = "n".repeat(TASK_NAME_MAX_CHARS + 20)
+            val longPrompt = "p".repeat(TASK_PROMPT_MAX_CHARS + 20)
+
+            val created =
+                repository.createTask(
+                    name = longName,
+                    prompt = longPrompt,
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val raw = database.taskDao().getById(created.id)
+            val stored = repository.getTask(created.id)
+
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), created.name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), created.prompt)
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), raw?.name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), raw?.prompt)
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), stored?.name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), stored?.prompt)
+        }
+
+    @Test
+    fun `update task bounds text fields before persistence`() =
+        runTest {
+            val longName = "u".repeat(TASK_NAME_MAX_CHARS + 20)
+            val longPrompt = "q".repeat(TASK_PROMPT_MAX_CHARS + 20)
+            val longTargetSessionId = "target-" + "x".repeat(TASK_TARGET_SESSION_ID_MAX_CHARS + 20)
+            val boundedTargetSessionId = longTargetSessionId.take(TASK_TARGET_SESSION_ID_MAX_CHARS)
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = boundedTargetSessionId,
+                    title = "Bounded target",
+                    isMain = false,
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            val created =
+                repository.createTask(
+                    name = "Update bounds",
+                    prompt = "Before update",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+
+            repository.updateTask(
+                created.copy(
+                    name = longName,
+                    prompt = longPrompt,
+                    targetSessionId = longTargetSessionId,
+                ),
+            )
+            val raw = database.taskDao().getById(created.id)
+            val stored = repository.getTask(created.id)
+
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), raw?.name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), raw?.prompt)
+            assertEquals(boundedTargetSessionId, raw?.targetSessionId)
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), stored?.name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), stored?.prompt)
+            assertEquals(boundedTargetSessionId, stored?.targetSessionId)
+        }
+
+    @Test
+    fun `task reads bound legacy oversized text fields`() =
+        runTest {
+            val longName = "legacy-name".repeat(20)
+            val longPrompt = "legacy-prompt".repeat(4_000)
+            val longTargetSessionId = "legacy-target-" + "z".repeat(TASK_TARGET_SESSION_ID_MAX_CHARS + 20)
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = longTargetSessionId,
+                    title = "Legacy oversized target",
+                    isMain = false,
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            database.taskDao().insert(
+                taskEntity(
+                    id = "legacy-oversized-task",
+                    name = longName,
+                    prompt = longPrompt,
+                    targetSessionId = longTargetSessionId,
+                ),
+            )
+
+            val stored = repository.getTask("legacy-oversized-task")
+            val observed = repository.observeTasks().first()
+            val due = repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(2L))
+
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), stored?.name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), stored?.prompt)
+            assertEquals(longTargetSessionId.take(TASK_TARGET_SESSION_ID_MAX_CHARS), stored?.targetSessionId)
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), observed.single().name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), observed.single().prompt)
+            assertEquals(longTargetSessionId.take(TASK_TARGET_SESSION_ID_MAX_CHARS), observed.single().targetSessionId)
+            assertEquals(longName.take(TASK_NAME_MAX_CHARS), due.single().name)
+            assertEquals(longPrompt.take(TASK_PROMPT_MAX_CHARS), due.single().prompt)
+            assertEquals(longTargetSessionId.take(TASK_TARGET_SESSION_ID_MAX_CHARS), due.single().targetSessionId)
+        }
+
+    @Test
     fun `create task clamps negative max retries`() =
         runTest {
             val created =
@@ -369,20 +480,23 @@ class TaskRepositoryTest {
 
 private fun taskEntity(
     id: String,
+    name: String = "Stored task",
+    prompt: String = "This task was inserted directly.",
     scheduleKind: String = "once",
     scheduleSpec: String = """{"kind":"once","atEpochMillis":10}""",
+    targetSessionId: String? = "main",
     nextRunAt: Long? = 1L,
     failureCount: Int = 0,
     maxRetries: Int = 3,
 ): TaskEntity =
     TaskEntity(
         id = id,
-        name = "Stored task",
-        prompt = "This task was inserted directly.",
+        name = name,
+        prompt = prompt,
         scheduleKind = scheduleKind,
         scheduleSpec = scheduleSpec,
         executionMode = "MAIN_SESSION",
-        targetSessionId = "main",
+        targetSessionId = targetSessionId,
         enabled = true,
         precise = false,
         nextRunAt = nextRunAt,

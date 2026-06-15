@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
 
+internal const val TASK_NAME_MAX_CHARS = 160
+internal const val TASK_PROMPT_MAX_CHARS = 40_000
+internal const val TASK_TARGET_SESSION_ID_MAX_CHARS = 256
 internal const val TASK_RUN_ERROR_MESSAGE_MAX_CHARS = 1_000
 internal const val TASK_RUN_RESULT_SUMMARY_MAX_CHARS = 4_000
 
@@ -36,12 +39,12 @@ class TaskRepository(
         val entity =
             TaskEntity(
                 id = UUID.randomUUID().toString(),
-                name = name,
-                prompt = prompt,
+                name = name.toBoundedTaskText(TASK_NAME_MAX_CHARS),
+                prompt = prompt.toBoundedTaskText(TASK_PROMPT_MAX_CHARS),
                 scheduleKind = ScheduleSerializer.kindOf(schedule),
                 scheduleSpec = ScheduleSerializer.toJson(schedule),
                 executionMode = executionMode.toStorage(),
-                targetSessionId = targetSessionId,
+                targetSessionId = targetSessionId?.toBoundedTaskText(TASK_TARGET_SESSION_ID_MAX_CHARS),
                 enabled = true,
                 precise = precise,
                 nextRunAt = schedule.initialNextRun(now)?.toEpochMilli(),
@@ -120,11 +123,11 @@ private fun TaskEntity.toDomainOrNull(): Task? {
 private fun TaskEntity.toDomain(schedule: TaskSchedule): Task =
     Task(
         id = id,
-        name = name,
-        prompt = prompt,
+        name = name.toBoundedTaskText(TASK_NAME_MAX_CHARS),
+        prompt = prompt.toBoundedTaskText(TASK_PROMPT_MAX_CHARS),
         schedule = schedule,
         executionMode = executionMode.toTaskExecutionMode(),
-        targetSessionId = targetSessionId,
+        targetSessionId = targetSessionId?.toBoundedTaskText(TASK_TARGET_SESSION_ID_MAX_CHARS),
         enabled = enabled,
         precise = precise,
         nextRunAt = nextRunAt?.let(Instant::ofEpochMilli),
@@ -138,12 +141,12 @@ private fun TaskEntity.toDomain(schedule: TaskSchedule): Task =
 private fun Task.toEntity(): TaskEntity =
     TaskEntity(
         id = id,
-        name = name,
-        prompt = prompt,
+        name = name.toBoundedTaskText(TASK_NAME_MAX_CHARS),
+        prompt = prompt.toBoundedTaskText(TASK_PROMPT_MAX_CHARS),
         scheduleKind = ScheduleSerializer.kindOf(schedule),
         scheduleSpec = ScheduleSerializer.toJson(schedule),
         executionMode = executionMode.toStorage(),
-        targetSessionId = targetSessionId,
+        targetSessionId = targetSessionId?.toBoundedTaskText(TASK_TARGET_SESSION_ID_MAX_CHARS),
         enabled = enabled,
         precise = precise,
         nextRunAt = nextRunAt?.toEpochMilli(),
@@ -155,6 +158,13 @@ private fun Task.toEntity(): TaskEntity =
     )
 
 private fun Int.toNonNegativeTaskCounter(): Int = coerceAtLeast(0)
+
+private fun String.toBoundedTaskText(maxChars: Int): String =
+    if (length <= maxChars) {
+        this
+    } else {
+        take(maxChars)
+    }
 
 private fun TaskRunEntity.toDomain(): TaskRun =
     TaskRun(

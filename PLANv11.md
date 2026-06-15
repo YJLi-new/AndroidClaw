@@ -213,3 +213,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   bounds provider base URLs and model ids on write/read, while blank remote
   endpoint values fall back to provider defaults so corrupted or imported
   settings cannot reach providers as empty or oversized transport config.
+- 2026-06-16: Bounded task repository text fields. Task names, prompts, and
+  target-session ids now truncate at repository write/read boundaries, including
+  legacy oversized persisted rows, so automation lists, scheduler scans, and
+  task payload routing cannot carry unbounded text from direct callers or
+  corrupted storage.
