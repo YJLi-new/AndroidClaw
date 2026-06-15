@@ -24,11 +24,9 @@ internal fun StringBuilder.appendBoundedProviderAssistantText(text: String): Str
     return boundedText
 }
 
-internal fun StringBuilder.appendBoundedProviderToolCallId(text: String): String =
-    appendBoundedProviderReferenceText(text, maxChars = MAX_PROVIDER_TOOL_CALL_ID_CHARS)
+internal fun StringBuilder.appendBoundedProviderToolCallId(text: String): String = appendBoundedProviderReferenceText(text, maxChars = MAX_PROVIDER_TOOL_CALL_ID_CHARS)
 
-internal fun StringBuilder.appendBoundedProviderToolCallName(text: String): String =
-    appendBoundedProviderReferenceText(text, maxChars = MAX_PROVIDER_TOOL_CALL_NAME_CHARS)
+internal fun StringBuilder.appendBoundedProviderToolCallName(text: String): String = appendBoundedProviderReferenceText(text, maxChars = MAX_PROVIDER_TOOL_CALL_NAME_CHARS)
 
 private fun StringBuilder.appendBoundedProviderReferenceText(
     text: String,

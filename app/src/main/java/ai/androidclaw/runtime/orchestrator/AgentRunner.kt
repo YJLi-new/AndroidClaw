@@ -373,11 +373,12 @@ class AgentRunner(
                         taskRunId = taskRunId,
                     )
                 }
+                val validatedToolCalls = response.toolCalls.validateProviderToolCallsForAgent()
 
                 val toolResultMessages =
                     executeProviderToolCalls(
                         sessionId = sessionId,
-                        toolCalls = response.toolCalls,
+                        toolCalls = validatedToolCalls,
                         runMode = runMode,
                         requestId = response.providerRequestId,
                         taskRunId = taskRunId,
@@ -396,7 +397,7 @@ class AgentRunner(
                     ModelMessage(
                         role = ModelMessageRole.Assistant,
                         content = response.text,
-                        toolCalls = response.toolCalls,
+                        toolCalls = validatedToolCalls,
                     ) +
                     toolResultMessages
 
@@ -976,6 +977,65 @@ internal fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): Strin
 private fun String.toAgentSkillText(maxChars: Int): String = take(maxChars)
 
 private fun String.toBoundedAgentAssistantText(): String = take(MESSAGE_CONTENT_MAX_CHARS)
+
+internal const val AGENT_PROVIDER_TOOL_CALL_MAX_COUNT = 16
+internal const val AGENT_PROVIDER_TOOL_CALL_ID_MAX_CHARS = 256
+internal const val AGENT_PROVIDER_TOOL_CALL_NAME_MAX_CHARS = 256
+internal const val AGENT_PROVIDER_TOOL_ARGUMENT_JSON_MAX_CHARS = 39_000
+
+internal fun List<ProviderToolCall>.validateProviderToolCallsForAgent(): List<ProviderToolCall> {
+    if (size > AGENT_PROVIDER_TOOL_CALL_MAX_COUNT) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "Provider returned too many tool calls.",
+            details = "toolCalls=$size max=$AGENT_PROVIDER_TOOL_CALL_MAX_COUNT",
+        )
+    }
+    return map { toolCall -> toolCall.validateForAgent() }
+}
+
+private fun ProviderToolCall.validateForAgent(): ProviderToolCall {
+    val normalizedId = id.trim()
+    val normalizedName = name.trim()
+    val serializedArguments = argumentsJson.toString()
+    if (normalizedId.isBlank()) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "Provider returned a tool call without an id.",
+        )
+    }
+    if (normalizedId.length > AGENT_PROVIDER_TOOL_CALL_ID_MAX_CHARS) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "Provider returned an oversized tool call id.",
+            details = normalizedId.take(AGENT_PROVIDER_TOOL_CALL_ID_MAX_CHARS),
+        )
+    }
+    if (normalizedName.isBlank()) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "Provider returned a tool call without a name.",
+        )
+    }
+    if (normalizedName.length > AGENT_PROVIDER_TOOL_CALL_NAME_MAX_CHARS) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "Provider returned an oversized tool call name.",
+            details = normalizedName.take(AGENT_PROVIDER_TOOL_CALL_NAME_MAX_CHARS),
+        )
+    }
+    if (serializedArguments.length > AGENT_PROVIDER_TOOL_ARGUMENT_JSON_MAX_CHARS) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "Provider returned oversized tool arguments.",
+            details = serializedArguments.take(500),
+        )
+    }
+    return copy(
+        id = normalizedId,
+        name = normalizedName,
+    )
+}
 
 private fun StringBuilder.appendBoundedAgentText(text: String) {
     val remainingChars = MESSAGE_CONTENT_MAX_CHARS - length

@@ -344,3 +344,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   tool call ids/names, tool-call count, and tool-argument payload size before
   streaming deltas or parsed responses can inflate runtime memory ahead of
   repository persistence bounds.
+- 2026-06-16: Bounded AgentRunner provider tool-call execution. Runtime now
+  revalidates provider tool-call count, ids, names, and serialized arguments
+  before persisting tool requests or dispatching tools, so even custom test or
+  future providers cannot bypass parser-level bounds and inflate chat/tool
+  execution state.

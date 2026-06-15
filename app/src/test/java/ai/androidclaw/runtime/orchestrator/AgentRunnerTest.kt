@@ -1236,6 +1236,158 @@ class AgentRunnerTest {
             assertTrue(result.assistantMessage.contains("Created the task."))
         }
 
+    @Test
+    fun `provider tool call count is validated before execution`() =
+        runTest {
+            var handlerCalled = false
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "health.status",
+                                        description = "Check health",
+                                    ),
+                            ) { _, _ ->
+                                handlerCalled = true
+                                ToolExecutionResult.success(
+                                    summary = "should not run",
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse =
+                                        ModelResponse(
+                                            text = "",
+                                            finishReason = "tool_use",
+                                            toolCalls =
+                                                (1..(AGENT_PROVIDER_TOOL_CALL_MAX_COUNT + 1)).map { index ->
+                                                    ProviderToolCall(
+                                                        id = "call-$index",
+                                                        name = "health.status",
+                                                        argumentsJson = buildJsonObject {},
+                                                    )
+                                                },
+                                        )
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry, skills = emptyList()),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            val error =
+                runCatching {
+                    runner.runInteractiveTurn(
+                        AgentTurnRequest(
+                            sessionId = sessionId,
+                            userMessage = "call too many tools",
+                        ),
+                    )
+                }.exceptionOrNull()
+            val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 20)
+
+            assertTrue(error is ModelProviderException)
+            val providerError = error as ModelProviderException
+            assertEquals(ModelProviderFailureKind.Response, providerError.kind)
+            assertEquals("Provider returned too many tool calls.", providerError.userMessage)
+            assertFalse(handlerCalled)
+            assertTrue(storedMessages.none { it.role == ai.androidclaw.data.model.MessageRole.ToolCall })
+            assertTrue(storedMessages.any { it.content.contains("Provider returned too many tool calls.") })
+        }
+
+    @Test
+    fun `provider tool argument size is validated before persistence and execution`() =
+        runTest {
+            var handlerCalled = false
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "health.status",
+                                        description = "Check health",
+                                    ),
+                            ) { _, _ ->
+                                handlerCalled = true
+                                ToolExecutionResult.success(
+                                    summary = "should not run",
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+            val oversizedArguments =
+                buildJsonObject {
+                    put("payload", "x".repeat(AGENT_PROVIDER_TOOL_ARGUMENT_JSON_MAX_CHARS + 1))
+                }
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse =
+                                        ModelResponse(
+                                            text = "",
+                                            finishReason = "tool_use",
+                                            toolCalls =
+                                                listOf(
+                                                    ProviderToolCall(
+                                                        id = "call-oversized",
+                                                        name = "health.status",
+                                                        argumentsJson = oversizedArguments,
+                                                    ),
+                                                ),
+                                        )
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry, skills = emptyList()),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            val error =
+                runCatching {
+                    runner.runInteractiveTurn(
+                        AgentTurnRequest(
+                            sessionId = sessionId,
+                            userMessage = "call tool with huge args",
+                        ),
+                    )
+                }.exceptionOrNull()
+            val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 20)
+
+            assertTrue(error is ModelProviderException)
+            val providerError = error as ModelProviderException
+            assertEquals(ModelProviderFailureKind.Response, providerError.kind)
+            assertEquals("Provider returned oversized tool arguments.", providerError.userMessage)
+            assertFalse(handlerCalled)
+            assertTrue(storedMessages.none { it.role == ai.androidclaw.data.model.MessageRole.ToolCall })
+            assertTrue(storedMessages.any { it.content.contains("Provider returned oversized tool arguments.") })
+        }
+
     private fun buildSkillManager(
         toolRegistry: ToolRegistry,
         skills: List<SkillSnapshot> =
