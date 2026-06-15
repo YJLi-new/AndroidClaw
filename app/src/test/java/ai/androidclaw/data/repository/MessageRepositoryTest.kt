@@ -187,6 +187,19 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `blank message search queries return empty results`() =
+        runTest {
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.User,
+                content = "Alpha status is green",
+            )
+
+            assertEquals(emptyList<MessageRepository.SearchResult>(), repository.searchMessages("", limit = 10))
+            assertEquals(emptyList<MessageRepository.SearchResult>(), repository.searchMessages("   ", limit = 10))
+        }
+
+    @Test
     fun `message query limits are capped at repository boundary`() =
         runTest {
             repeat(MESSAGE_QUERY_MAX_LIMIT + 2) { index ->

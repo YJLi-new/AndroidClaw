@@ -205,3 +205,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   persistence and again on legacy reads/search projections, keeping oversized
   provider/tool output from inflating UI, exports, prompt history, or search
   results without bound.
+- 2026-06-16: Hardened repository search blank-query boundaries. Session and
+  message searches now return empty results for blank or whitespace-only queries
+  instead of issuing bounded full-table `LIKE %%` scans, matching chat UI
+  behavior and keeping accidental direct calls cheap.

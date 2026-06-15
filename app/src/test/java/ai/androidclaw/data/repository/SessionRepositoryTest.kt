@@ -103,6 +103,15 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `blank session search queries return empty results`() =
+        runTest {
+            repository.createSession("Alpha plan")
+
+            assertEquals(emptyList<SessionRepository.SearchResult>(), repository.searchSessions("", limit = 10))
+            assertEquals(emptyList<SessionRepository.SearchResult>(), repository.searchSessions("   ", limit = 10))
+        }
+
+    @Test
     fun `session search limits are capped at repository boundary`() =
         runTest {
             repeat(SESSION_SEARCH_MAX_LIMIT + 2) { index ->
