@@ -299,3 +299,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   import/load failures, save failures, and saved-configuration notices now pass
   through a shared UI-message cap so thrown exceptions or oversized skill names
   cannot inflate the Skills screen state.
+- 2026-06-16: Bounded provider settings status messages. OpenAI Codex OAuth
+  progress/failure text, validation failures, generic exceptions, recovered-key
+  notices, and device-code instructions now pass through a shared status cap
+  before reaching Settings or onboarding UI state.

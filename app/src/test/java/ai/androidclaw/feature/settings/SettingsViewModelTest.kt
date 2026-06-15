@@ -107,6 +107,16 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `settings status messages are bounded and fall back when blank`() {
+        val oversizedMessage = "m".repeat(SETTINGS_STATUS_MESSAGE_MAX_CHARS + 20)
+        val oversizedFallback = "f".repeat(SETTINGS_STATUS_MESSAGE_MAX_CHARS + 20)
+
+        assertEquals(SETTINGS_STATUS_MESSAGE_MAX_CHARS, boundedSettingsStatusMessage(oversizedMessage, "fallback").length)
+        assertEquals("Fallback", boundedSettingsStatusMessage("", "Fallback"))
+        assertEquals(oversizedFallback.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS), boundedSettingsStatusMessage(null, oversizedFallback))
+    }
+
+    @Test
     fun `fake provider is considered configured`() =
         runTest {
             val viewModel = buildViewModel()

@@ -69,6 +69,7 @@ data class SettingsUiState(
 )
 
 internal const val SETTINGS_TIMEOUT_INPUT_MAX_CHARS = 10
+internal const val SETTINGS_STATUS_MESSAGE_MAX_CHARS = 1_000
 internal const val SETTINGS_INPUT_TRUNCATED_NOTICE =
     "Provider setting text truncated by AndroidClaw to keep settings responsive."
 
@@ -92,6 +93,16 @@ private fun SettingsUiState.nextStatusAfterSettingsInput(wasTruncated: Boolean):
     } else {
         null
     }
+
+internal fun boundedSettingsStatusMessage(
+    message: String?,
+    fallback: String,
+): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
+
+private fun String?.toBoundedSettingsStatusMessageOrNull(): String? =
+    this
+        ?.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
+        ?.takeIf(String::isNotBlank)
 
 class SettingsViewModel(
     private val providerRegistry: ProviderRegistry,
@@ -376,7 +387,9 @@ class SettingsViewModel(
                             onVerification = { prompt -> showOpenAiCodexDeviceCode(prompt) },
                             onProgress = { message ->
                                 mutableState.update {
-                                    it.copy(statusMessage = message)
+                                    it.copy(
+                                        statusMessage = boundedSettingsStatusMessage(message, "OpenAI Codex sign-in in progress."),
+                                    )
                                 }
                             },
                         )
@@ -402,7 +415,7 @@ class SettingsViewModel(
                     mutableState.update {
                         it.copy(
                             isSigningInWithOpenAiCodex = false,
-                            statusMessage = error.message ?: "OpenAI Codex sign-in failed.",
+                            statusMessage = boundedSettingsStatusMessage(error.message, "OpenAI Codex sign-in failed."),
                         )
                     }
                 }
@@ -560,7 +573,7 @@ class SettingsViewModel(
                     it.copy(
                         isValidatingConnection = false,
                         lastValidationSucceeded = false,
-                        statusMessage = error.message ?: "Connection test failed.",
+                        statusMessage = boundedSettingsStatusMessage(error.message, "Connection test failed."),
                     )
                 }
             }
@@ -734,32 +747,40 @@ class SettingsViewModel(
             providerType.requiresRemoteSettings && !networkConnected ->
                 "No active network connection. Remote providers may fail until connectivity returns."
             else -> null
-        }
+        }.toBoundedSettingsStatusMessageOrNull()
 
     private fun validationFailureMessage(error: ModelProviderException): String =
-        when (error.kind) {
-            ModelProviderFailureKind.Configuration -> error.userMessage
-            ModelProviderFailureKind.InvalidEndpoint -> "Provider base URL is invalid. Check the endpoint format."
-            ModelProviderFailureKind.Offline -> error.userMessage
-            ModelProviderFailureKind.Authentication -> error.userMessage.ifBlank { "Authentication failed. Check credentials." }
-            ModelProviderFailureKind.Network ->
-                error.userMessage
-            ModelProviderFailureKind.Timeout ->
-                "Connection test timed out. Check the endpoint and timeout."
-            ModelProviderFailureKind.Server ->
-                error.userMessage.ifBlank { "Provider rejected the request." }
-            ModelProviderFailureKind.StreamInterrupted ->
-                "Provider streaming was interrupted before completion. Retry when the connection is stable."
-            ModelProviderFailureKind.Response ->
-                error.userMessage.ifBlank { "Provider returned an unexpected response." }
-        }
+        boundedSettingsStatusMessage(
+            message =
+                when (error.kind) {
+                    ModelProviderFailureKind.Configuration -> error.userMessage
+                    ModelProviderFailureKind.InvalidEndpoint -> "Provider base URL is invalid. Check the endpoint format."
+                    ModelProviderFailureKind.Offline -> error.userMessage
+                    ModelProviderFailureKind.Authentication -> error.userMessage.ifBlank { "Authentication failed. Check credentials." }
+                    ModelProviderFailureKind.Network ->
+                        error.userMessage
+                    ModelProviderFailureKind.Timeout ->
+                        "Connection test timed out. Check the endpoint and timeout."
+                    ModelProviderFailureKind.Server ->
+                        error.userMessage.ifBlank { "Provider rejected the request." }
+                    ModelProviderFailureKind.StreamInterrupted ->
+                        "Provider streaming was interrupted before completion. Retry when the connection is stable."
+                    ModelProviderFailureKind.Response ->
+                        error.userMessage.ifBlank { "Provider returned an unexpected response." }
+                },
+            fallback = "Connection test failed.",
+        )
 
     private fun openAiCodexSignInFailureMessage(error: ModelProviderException): String =
-        when (error.kind) {
-            ModelProviderFailureKind.Timeout ->
-                error.userMessage.ifBlank { "OpenAI Codex sign-in timed out." }
-            else -> validationFailureMessage(error)
-        }
+        boundedSettingsStatusMessage(
+            message =
+                when (error.kind) {
+                    ModelProviderFailureKind.Timeout ->
+                        error.userMessage.ifBlank { "OpenAI Codex sign-in timed out." }
+                    else -> validationFailureMessage(error)
+                },
+            fallback = "OpenAI Codex sign-in failed.",
+        )
 
     private fun buildConnectionHint(
         providerType: ProviderType,
@@ -782,8 +803,12 @@ class SettingsViewModel(
                 deviceCodeUserCode = prompt.userCode,
                 deviceCodeVerificationUrl = prompt.verificationUrl,
                 statusMessage =
-                    "Enter code ${prompt.userCode} at ${prompt.verificationUrl}. Code expires in " +
-                        "${(prompt.expiresInMillis / 60_000).coerceAtLeast(1)} minutes.",
+                    boundedSettingsStatusMessage(
+                        message =
+                            "Enter code ${prompt.userCode} at ${prompt.verificationUrl}. Code expires in " +
+                                "${(prompt.expiresInMillis / 60_000).coerceAtLeast(1)} minutes.",
+                        fallback = "OpenAI Codex device code is ready.",
+                    ),
             )
         }
     }
