@@ -56,14 +56,17 @@ class TaskRepository(
         taskDao.update(task.toEntity())
     }
 
-    suspend fun getTask(id: String): Task? = taskDao.getById(id)?.toDomain()
+    suspend fun getTask(id: String): Task? = taskDao.getById(id)?.toDomainOrNull()
 
     fun observeTasks(): Flow<List<Task>> =
         taskDao.getAllTasks().map { tasks ->
-            tasks.map(TaskEntity::toDomain)
+            tasks.mapNotNull(TaskEntity::toDomainOrNull)
         }
 
-    suspend fun getEnabledTasksDueBefore(instant: Instant): List<Task> = taskDao.getEnabledTasksDueBefore(instant.toEpochMilli()).map(TaskEntity::toDomain)
+    suspend fun getEnabledTasksDueBefore(instant: Instant): List<Task> =
+        taskDao
+            .getEnabledTasksDueBefore(instant.toEpochMilli())
+            .mapNotNull(TaskEntity::toDomainOrNull)
 
     suspend fun deleteTask(id: String) {
         taskDao.delete(id)
@@ -104,7 +107,16 @@ class TaskRepository(
     suspend fun trimRunsOlderThan(instant: Instant): Int = taskRunDao.deleteOlderThan(instant.toEpochMilli())
 }
 
-private fun TaskEntity.toDomain(): Task =
+private fun TaskEntity.toDomain(): Task = toDomainOrNull() ?: throw IllegalArgumentException("Task $id has an invalid schedule.")
+
+private fun TaskEntity.toDomainOrNull(): Task? =
+    try {
+        toDomainUnchecked()
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+
+private fun TaskEntity.toDomainUnchecked(): Task =
     Task(
         id = id,
         name = name,

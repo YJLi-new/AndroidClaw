@@ -3,6 +3,7 @@ package ai.androidclaw.data.repository
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.SessionEntity
+import ai.androidclaw.data.db.entity.TaskEntity
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -180,4 +182,62 @@ class TaskRepositoryTest {
             val remaining = repository.observeRuns(task.id).first()
             assertEquals(listOf("run-new"), remaining.map { it.id })
         }
+
+    @Test
+    fun `getTask returns null for task with invalid persisted schedule`() =
+        runTest {
+            database.taskDao().insert(invalidTaskEntity(id = "bad-task"))
+
+            assertNull(repository.getTask("bad-task"))
+        }
+
+    @Test
+    fun `observeTasks skips tasks with invalid persisted schedules`() =
+        runTest {
+            val validTask =
+                repository.createTask(
+                    name = "Valid task",
+                    prompt = "Run valid task",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            database.taskDao().insert(invalidTaskEntity(id = "bad-task"))
+
+            val observed = repository.observeTasks().first()
+
+            assertEquals(listOf(validTask.id), observed.map { it.id })
+        }
+
+    @Test
+    fun `due task filtering skips tasks with invalid persisted schedules`() =
+        runTest {
+            database.taskDao().insert(invalidTaskEntity(id = "bad-task", nextRunAt = 1L))
+
+            val due = repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(2L))
+
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), due)
+        }
 }
+
+private fun invalidTaskEntity(
+    id: String,
+    nextRunAt: Long? = 1L,
+): TaskEntity =
+    TaskEntity(
+        id = id,
+        name = "Invalid task",
+        prompt = "This task has corrupted schedule JSON.",
+        scheduleKind = "interval",
+        scheduleSpec = """{"kind":"interval","anchorAtEpochMillis":0,"intervalMillis":0}""",
+        executionMode = "MAIN_SESSION",
+        targetSessionId = "main",
+        enabled = true,
+        precise = false,
+        nextRunAt = nextRunAt,
+        lastRunAt = null,
+        failureCount = 0,
+        maxRetries = 3,
+        createdAt = 1L,
+        updatedAt = 1L,
+    )

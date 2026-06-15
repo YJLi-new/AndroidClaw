@@ -139,3 +139,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   schedule JSON now rejects missing required fields, blank cron zones, and
   zero/negative interval durations with stable errors, while
   `NextRunCalculator` rejects invalid interval durations before division.
+- 2026-06-16: Hardened task repository reads against corrupted persisted
+  schedule rows. `getTask`, task observation, and due-task queries now skip
+  invalid schedule records instead of crashing the task list or scheduler scan,
+  with repository tests covering all three read paths.
