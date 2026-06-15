@@ -58,6 +58,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -68,6 +70,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -573,6 +576,89 @@ class AgentRunnerTest {
                     .orEmpty()
             assertTrue(memoryContext.contains("Relevant cross-session memories:"))
             assertTrue(memoryContext.contains("User prefers compact Kotlin UI."))
+        }
+
+    @Test
+    fun `provider turn bounds tool descriptors before model request`() =
+        runTest {
+            val oversizedDescription = "d".repeat(MAX_PROMPT_TOOL_DESCRIPTION_CHARS) + "DESCRIPTION_TAIL"
+            val oversizedAlias = "a".repeat(MAX_PROMPT_TOOL_ALIAS_CHARS) + "ALIAS_TAIL"
+            val oversizedSchemaText = "s".repeat(MAX_MODEL_TOOL_INPUT_SCHEMA_STRING_CHARS) + "SCHEMA_TAIL"
+            val oversizedSchema =
+                buildJsonObject {
+                    put("type", "object")
+                    put("description", oversizedSchemaText)
+                    put(
+                        "enum",
+                        buildJsonArray {
+                            repeat(MAX_MODEL_TOOL_INPUT_SCHEMA_ENTRIES + 1) { index ->
+                                add(JsonPrimitive("choice-$index"))
+                            }
+                        },
+                    )
+                }
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        (1..(MAX_PROMPT_TOOLS + 1)).map { index ->
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "bounded.tool.%03d".format(index),
+                                        description = if (index == 1) oversizedDescription else "Tool $index",
+                                        aliases = if (index == 1) listOf(oversizedAlias) else emptyList(),
+                                        inputSchema = if (index == 1) oversizedSchema else buildJsonObject { put("type", "object") },
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = "ok",
+                                    payload = buildJsonObject {},
+                                )
+                            }
+                        },
+                )
+            var capturedRequest: ModelRequest? = null
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        capturedRequest = request
+                                        return ModelResponse(text = "Tool descriptor bounds checked.")
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry, skills = emptyList()),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "hello",
+                ),
+            )
+
+            val descriptors = checkNotNull(capturedRequest).toolDescriptors
+            val firstDescriptor = descriptors.first { it.name == "bounded.tool.001" }
+            val firstSchema = firstDescriptor.inputSchema.toString()
+
+            assertEquals(MAX_PROMPT_TOOLS, descriptors.size)
+            assertFalse(descriptors.any { it.name == "bounded.tool.%03d".format(MAX_PROMPT_TOOLS + 1) })
+            assertEquals(MAX_PROMPT_TOOL_DESCRIPTION_CHARS, firstDescriptor.description.length)
+            assertFalse(firstDescriptor.description.contains("DESCRIPTION_TAIL"))
+            assertEquals(MAX_PROMPT_TOOL_ALIAS_CHARS, firstDescriptor.aliases.single().length)
+            assertFalse(firstDescriptor.aliases.single().contains("ALIAS_TAIL"))
+            assertFalse(firstSchema.contains("SCHEMA_TAIL"))
+            assertFalse(firstSchema.contains("choice-$MAX_MODEL_TOOL_INPUT_SCHEMA_ENTRIES"))
         }
 
     @Test

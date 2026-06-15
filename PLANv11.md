@@ -334,3 +334,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   automation result details, worker stop reasons, crash summaries, and crash
   stack traces now cap at the Health ViewModel boundary before reaching Compose
   state, while diagnostics-report formatting keeps its own export-specific caps.
+- 2026-06-16: Bounded provider-facing tool descriptor metadata. AgentRunner now
+  caps tool descriptor count, aliases, descriptions, permissions, availability
+  reasons, arguments, and custom input-schema JSON before provider requests,
+  while ToolRegistry rejects oversized identity metadata so tool names and
+  argument keys remain executable rather than silently truncated.

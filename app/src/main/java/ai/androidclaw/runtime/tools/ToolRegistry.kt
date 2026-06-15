@@ -81,6 +81,8 @@ internal const val TOOL_RESULT_SUMMARY_MAX_CHARS = 4_000
 internal const val TOOL_REGISTRY_NAME_MAX_CHARS = 256
 internal const val TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS = 256
 internal const val TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS = 50
+internal const val TOOL_REGISTRY_ALIAS_LIST_MAX_ITEMS = 50
+internal const val TOOL_REGISTRY_PERMISSION_LIST_MAX_ITEMS = 50
 
 enum class ToolInvocationOrigin {
     Model,
@@ -134,7 +136,10 @@ class ToolRegistry(
         fun resolvedDescriptor(): ToolDescriptor = descriptor.copy(availability = availabilityProvider())
     }
 
-    private val canonicalEntries = tools.sortedBy { it.descriptor.name }
+    private val canonicalEntries =
+        tools
+            .onEach { entry -> entry.descriptor.validateRegistrationDescriptor() }
+            .sortedBy { it.descriptor.name }
     private val entriesByName =
         buildMap {
             canonicalEntries.forEach { entry ->
@@ -457,3 +462,46 @@ private fun List<ToolPermissionRequirement>.toPermissionJsonArray(): JsonArray =
             )
         }
     }
+
+private fun ToolDescriptor.validateRegistrationDescriptor() {
+    require(name.isNotBlank()) { "Tool name must not be blank." }
+    require(name.length <= TOOL_REGISTRY_NAME_MAX_CHARS) {
+        "Tool name must be at most $TOOL_REGISTRY_NAME_MAX_CHARS characters."
+    }
+    require(aliases.size <= TOOL_REGISTRY_ALIAS_LIST_MAX_ITEMS) {
+        "Tool ${name.toBoundedToolRegistryName()} must declare at most $TOOL_REGISTRY_ALIAS_LIST_MAX_ITEMS aliases."
+    }
+    aliases.forEach { alias ->
+        require(alias.isNotBlank()) { "Tool alias must not be blank." }
+        require(alias.length <= TOOL_REGISTRY_NAME_MAX_CHARS) {
+            "Tool alias for ${name.toBoundedToolRegistryName()} must be at most $TOOL_REGISTRY_NAME_MAX_CHARS characters."
+        }
+    }
+    require(arguments.size <= TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS) {
+        "Tool ${name.toBoundedToolRegistryName()} must declare at most $TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS arguments."
+    }
+    arguments.forEach { argument ->
+        require(argument.name.isNotBlank()) {
+            "Tool ${name.toBoundedToolRegistryName()} argument name must not be blank."
+        }
+        require(argument.name.length <= TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS) {
+            "Tool ${name.toBoundedToolRegistryName()} argument name must be at most " +
+                "$TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS characters."
+        }
+    }
+    require(requiredPermissions.size <= TOOL_REGISTRY_PERMISSION_LIST_MAX_ITEMS) {
+        "Tool ${name.toBoundedToolRegistryName()} must declare at most $TOOL_REGISTRY_PERMISSION_LIST_MAX_ITEMS permissions."
+    }
+    requiredPermissions.forEach { permission ->
+        require(permission.permission.isNotBlank()) {
+            "Tool ${name.toBoundedToolRegistryName()} permission must not be blank."
+        }
+        require(permission.permission.length <= TOOL_REGISTRY_NAME_MAX_CHARS) {
+            "Tool ${name.toBoundedToolRegistryName()} permission must be at most $TOOL_REGISTRY_NAME_MAX_CHARS characters."
+        }
+        require(permission.displayName.length <= TOOL_REGISTRY_NAME_MAX_CHARS) {
+            "Tool ${name.toBoundedToolRegistryName()} permission display name must be at most " +
+                "$TOOL_REGISTRY_NAME_MAX_CHARS characters."
+        }
+    }
+}

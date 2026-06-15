@@ -10,6 +10,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -213,6 +214,87 @@ class ToolRegistryTest {
             assertTrue(result.success)
             assertEquals(1, executionCount)
         }
+
+    @Test
+    fun `registry rejects oversized tool identity metadata`() {
+        val nameError =
+            assertThrows(IllegalArgumentException::class.java) {
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testEntry(
+                                ToolDescriptor(
+                                    name = "t".repeat(TOOL_REGISTRY_NAME_MAX_CHARS + 1),
+                                    description = "Oversized name",
+                                ),
+                            ),
+                        ),
+                )
+            }
+        val aliasError =
+            assertThrows(IllegalArgumentException::class.java) {
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testEntry(
+                                ToolDescriptor(
+                                    name = "alias.tool",
+                                    description = "Oversized alias",
+                                    aliases = listOf("a".repeat(TOOL_REGISTRY_NAME_MAX_CHARS + 1)),
+                                ),
+                            ),
+                        ),
+                )
+            }
+
+        assertTrue(nameError.message.orEmpty().contains("Tool name"))
+        assertTrue(aliasError.message.orEmpty().contains("Tool alias"))
+    }
+
+    @Test
+    fun `registry rejects oversized tool argument metadata`() {
+        val argumentListError =
+            assertThrows(IllegalArgumentException::class.java) {
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testEntry(
+                                ToolDescriptor(
+                                    name = "argument-list.tool",
+                                    description = "Too many arguments",
+                                    arguments =
+                                        (1..(TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS + 1)).map { index ->
+                                            ToolArgumentSpec(name = "arg$index")
+                                        },
+                                ),
+                            ),
+                        ),
+                )
+            }
+        val argumentNameError =
+            assertThrows(IllegalArgumentException::class.java) {
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testEntry(
+                                ToolDescriptor(
+                                    name = "argument-name.tool",
+                                    description = "Oversized argument",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "a".repeat(TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS + 1),
+                                            ),
+                                        ),
+                                ),
+                            ),
+                        ),
+                )
+            }
+
+        assertTrue(argumentListError.message.orEmpty().contains("at most $TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS"))
+        assertTrue(argumentNameError.message.orEmpty().contains("argument name"))
+    }
 
     @Test
     fun `missing required arguments returns invalid arguments failure`() =
@@ -573,5 +655,13 @@ class ToolRegistryTest {
             }
         }
 }
+
+private fun testEntry(descriptor: ToolDescriptor): ToolRegistry.Entry =
+    ToolRegistry.Entry(descriptor = descriptor) { _, _ ->
+        ToolExecutionResult.success(
+            summary = "ok",
+            payload = buildJsonObject {},
+        )
+    }
 
 private fun testToolContext(requestedName: String): ToolExecutionContext = ToolExecutionContext.internal(requestedName = requestedName)

@@ -448,7 +448,7 @@ class AgentRunner(
             messageHistory = messageHistory,
             systemPrompt = systemPrompt,
             enabledSkills = selectedSkills.toBoundedModelSkillMetadata(),
-            toolDescriptors = toolDescriptors,
+            toolDescriptors = toolDescriptors.toBoundedModelToolDescriptors(),
             runMode = runMode,
         )
 
