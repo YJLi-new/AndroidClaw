@@ -223,3 +223,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   deterministic bounded path segments, preserving exact safe names while keeping
   unsafe or oversized names inside the intended skill roots. The root `skills/`
   ignore rule is anchored so new runtime skill tests remain trackable.
+- 2026-06-16: Hardened skill configuration storage. Skill config skill keys,
+  config paths, and values are now trimmed, bounded, and blank-safe before
+  touching DataStore, with deterministic hashed suffixes for oversized
+  identifiers and matching in-memory fixture behavior for manager tests.

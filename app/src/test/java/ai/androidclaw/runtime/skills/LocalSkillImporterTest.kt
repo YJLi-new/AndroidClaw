@@ -81,7 +81,11 @@ class LocalSkillImporterTest {
                     sourceName = "safe.zip",
                 )
 
-            val installedDirectories = storage.localSkillsDir.listFiles().orEmpty().filter(File::isDirectory)
+            val installedDirectories =
+                storage.localSkillsDir
+                    .listFiles()
+                    .orEmpty()
+                    .filter(File::isDirectory)
             val installedSkill = File(storage.localSkillsDir, "safe_skill/SKILL.md")
 
             assertEquals(listOf("safe_skill"), firstImport.importedSkillNames)
