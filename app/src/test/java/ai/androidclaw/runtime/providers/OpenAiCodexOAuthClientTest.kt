@@ -168,6 +168,57 @@ class OpenAiCodexOAuthClientTest {
             assertFalse(message.contains('\n'))
         }
 
+    @Test
+    fun `device code failure surfaces root level provider message`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setBody("""{"message":"region blocked\nfor device auth"}"""),
+            )
+
+            val error =
+                runCatching {
+                    buildClient().loginWithDeviceCode(onVerification = {})
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val message = error!!.message.orEmpty()
+            assertTrue(message.contains("OpenAI device code request failed"))
+            assertTrue(message.contains("region blocked for device auth"))
+            assertFalse(message.contains('\n'))
+            assertFalse(message.contains("{"))
+        }
+
+    @Test
+    fun `token refresh failure surfaces root level provider detail`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setBody("""{"detail":"refresh token expired\nsign in again"}"""),
+            )
+
+            val error =
+                runCatching {
+                    buildClient().refreshCredential(
+                        ProviderOAuthCredential(
+                            provider = ProviderType.OpenAiCodex.providerId,
+                            accessToken = "old-access",
+                            refreshToken = "old-refresh",
+                            expiresAtEpochMillis = clock.millis() - 1,
+                        ),
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val message = error!!.message.orEmpty()
+            assertTrue(message.contains("OpenAI token refresh failed"))
+            assertTrue(message.contains("refresh token expired sign in again"))
+            assertFalse(message.contains('\n'))
+            assertFalse(message.contains("{"))
+        }
+
     private fun buildClient(): HttpOpenAiCodexOAuthClient =
         HttpOpenAiCodexOAuthClient(
             httpClient = createProviderBaseHttpClient(),

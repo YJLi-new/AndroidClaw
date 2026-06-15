@@ -312,11 +312,13 @@ class HttpOpenAiCodexOAuthClient(
         val parsed = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
         val error = parsed?.stringValue("error")
         val description = parsed?.stringValue("error_description")
+        val providerMessage = parsed?.stringValue("detail") ?: parsed?.stringValue("message")
         val message =
             when {
                 !error.isNullOrBlank() && !description.isNullOrBlank() ->
                     "$prefix: ${sanitizeOAuthError(error)} (${sanitizeOAuthError(description)})"
                 !error.isNullOrBlank() -> "$prefix: ${sanitizeOAuthError(error)}"
+                !providerMessage.isNullOrBlank() -> "$prefix: ${sanitizeOAuthError(providerMessage)}"
                 rawBody.isNotBlank() -> "$prefix: HTTP $statusCode ${sanitizeOAuthError(rawBody)}"
                 else -> "$prefix: HTTP $statusCode"
             }
@@ -437,8 +439,8 @@ private fun kotlinx.serialization.json.JsonElement.jsonObjectOrNull(): JsonObjec
 
 private fun sanitizeOAuthError(value: String): String =
     value
-        .filter { it >= ' ' && it != '\u007f' }
         .replace(Regex("\\s+"), " ")
+        .filter { it >= ' ' && it != '\u007f' }
         .trim()
         .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
