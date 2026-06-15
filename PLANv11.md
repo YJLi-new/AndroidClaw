@@ -231,3 +231,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   are now trimmed, bounded, blank-safe, and written under delimiter-safe v2
   encrypted preference keys, while safe legacy keys remain readable for existing
   installs and test fixtures mirror the production normalization.
+- 2026-06-16: Hardened provider secret storage. API keys and OpenAI Codex OAuth
+  credentials now trim and cap required/optional fields on write and read,
+  blank required OAuth tokens clear corrupted credentials, and secret recovery
+  notices include both API-key and OAuth encrypted slots.

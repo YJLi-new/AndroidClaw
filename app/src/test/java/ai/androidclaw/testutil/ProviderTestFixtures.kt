@@ -1,8 +1,11 @@
 package ai.androidclaw.testutil
 
+import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
 import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
+import ai.androidclaw.data.toBoundedProviderSecretValue
+import ai.androidclaw.data.toNormalizedProviderOAuthCredential
 import ai.androidclaw.runtime.providers.FakeProvider
 import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelProviderException
@@ -26,8 +29,18 @@ class InMemoryProviderSecretStore(
     initialOAuthCredentials: Map<ProviderType, ProviderOAuthCredential> = emptyMap(),
     initialRecoveryNotices: Set<ProviderType> = emptySet(),
 ) : ProviderSecretStore {
-    private val secrets = initialSecrets.toMutableMap()
-    private val oAuthCredentials = initialOAuthCredentials.toMutableMap()
+    private val secrets =
+        initialSecrets
+            .mapNotNull { (providerType, secret) ->
+                secret.toBoundedProviderSecretValue(PROVIDER_API_KEY_MAX_CHARS)?.let { providerType to it }
+            }.toMap()
+            .toMutableMap()
+    private val oAuthCredentials =
+        initialOAuthCredentials
+            .mapNotNull { (providerType, credential) ->
+                credential.toNormalizedProviderOAuthCredential(providerType)?.let { providerType to it }
+            }.toMap()
+            .toMutableMap()
     private val recoveryNotices = initialRecoveryNotices.toMutableSet()
 
     override suspend fun readApiKey(providerType: ProviderType): String? = secrets[providerType]
@@ -36,10 +49,11 @@ class InMemoryProviderSecretStore(
         providerType: ProviderType,
         apiKey: String?,
     ) {
-        if (apiKey.isNullOrBlank()) {
+        val normalizedApiKey = apiKey.toBoundedProviderSecretValue(PROVIDER_API_KEY_MAX_CHARS)
+        if (normalizedApiKey == null) {
             secrets.remove(providerType)
         } else {
-            secrets[providerType] = apiKey.trim()
+            secrets[providerType] = normalizedApiKey
         }
     }
 
@@ -49,10 +63,11 @@ class InMemoryProviderSecretStore(
         providerType: ProviderType,
         credential: ProviderOAuthCredential?,
     ) {
-        if (credential == null) {
+        val normalizedCredential = credential?.toNormalizedProviderOAuthCredential(providerType)
+        if (normalizedCredential == null) {
             oAuthCredentials.remove(providerType)
         } else {
-            oAuthCredentials[providerType] = credential
+            oAuthCredentials[providerType] = normalizedCredential
         }
     }
 
