@@ -135,3 +135,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   Empty list items, repeated step separators, and non-numeric values now fail
   with stable bounded `IllegalArgumentException` messages instead of raw number
   parser text, and tests cover Sunday `7` normalization plus invalid cron forms.
+- 2026-06-15: Hardened interval schedule persistence and next-run math. Persisted
+  schedule JSON now rejects missing required fields, blank cron zones, and
+  zero/negative interval durations with stable errors, while
+  `NextRunCalculator` rejects invalid interval durations before division.

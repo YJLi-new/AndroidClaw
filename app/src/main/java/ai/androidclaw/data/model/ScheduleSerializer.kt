@@ -5,6 +5,7 @@ import ai.androidclaw.runtime.scheduler.CronField
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.time.DateTimeException
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -45,7 +46,7 @@ object ScheduleSerializer {
                 SerializedSchedule(
                     kind = "interval",
                     anchorAtEpochMillis = anchorAt.toEpochMilli(),
-                    intervalMillis = repeatEvery.toMillis(),
+                    intervalMillis = requirePositiveIntervalMillis(repeatEvery.toMillis()),
                 )
 
             is TaskSchedule.Cron ->
@@ -60,23 +61,58 @@ object ScheduleSerializer {
         when (kind) {
             "once" ->
                 TaskSchedule.Once(
-                    at = Instant.ofEpochMilli(requireNotNull(atEpochMillis)),
+                    at = Instant.ofEpochMilli(requireField(atEpochMillis, "atEpochMillis")),
                 )
 
             "interval" ->
                 TaskSchedule.Interval(
-                    anchorAt = Instant.ofEpochMilli(requireNotNull(anchorAtEpochMillis)),
-                    repeatEvery = Duration.ofMillis(requireNotNull(intervalMillis)),
+                    anchorAt = Instant.ofEpochMilli(requireField(anchorAtEpochMillis, "anchorAtEpochMillis")),
+                    repeatEvery =
+                        Duration.ofMillis(
+                            requirePositiveIntervalMillis(
+                                requireField(intervalMillis, "intervalMillis"),
+                            ),
+                        ),
                 )
 
             "cron" ->
                 TaskSchedule.Cron(
-                    expression = CronExpression.parse(requireNotNull(cronExpr)),
-                    zoneId = ZoneId.of(requireNotNull(zoneId)),
+                    expression = CronExpression.parse(requireField(cronExpr, "cronExpr")),
+                    zoneId = parseZoneId(requireField(zoneId, "zoneId")),
                 )
 
-            else -> error("Unsupported schedule kind: $kind")
+            else -> throw IllegalArgumentException("Unsupported schedule kind: $kind")
         }
+
+    private fun requirePositiveIntervalMillis(intervalMillis: Long): Long {
+        require(intervalMillis > 0L) { "Interval schedule requires a positive intervalMillis." }
+        return intervalMillis
+    }
+
+    private fun <T : Any> requireField(
+        value: T?,
+        name: String,
+    ): T = value ?: throw IllegalArgumentException("Schedule field '$name' is required.")
+
+    private fun parseZoneId(raw: String): ZoneId {
+        require(raw.isNotBlank()) { "Schedule field 'zoneId' cannot be blank." }
+        return try {
+            ZoneId.of(raw)
+        } catch (exception: DateTimeException) {
+            throw IllegalArgumentException("Invalid schedule zoneId: ${raw.toDisplayToken()}.", exception)
+        }
+    }
+
+    private fun String.toDisplayToken(): String {
+        val collapsed = trim().replace(Regex("\\s+"), " ")
+        return if (collapsed.length <= MAX_ERROR_TOKEN_LENGTH) {
+            collapsed
+        } else {
+            collapsed.take(MAX_ERROR_TOKEN_LENGTH) + "…"
+        }
+    }
+
+    private const val MAX_ERROR_TOKEN_LENGTH = 40
 
     private fun CronExpression.toSpec(): String =
         listOf(

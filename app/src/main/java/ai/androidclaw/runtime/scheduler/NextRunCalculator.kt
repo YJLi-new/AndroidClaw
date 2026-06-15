@@ -19,9 +19,10 @@ object NextRunCalculator {
         schedule: TaskSchedule.Interval,
         after: Instant,
     ): Instant {
+        val intervalMillis = schedule.repeatEvery.toMillis()
+        require(intervalMillis > 0L) { "Interval schedule requires a positive repeatEvery duration." }
         if (after.isBefore(schedule.anchorAt)) return schedule.anchorAt
         val elapsedMillis = Duration.between(schedule.anchorAt, after).toMillis()
-        val intervalMillis = schedule.repeatEvery.toMillis()
         val completedIntervals = (elapsedMillis / intervalMillis) + 1
         return schedule.anchorAt.plusMillis(completedIntervals * intervalMillis)
     }

@@ -2,6 +2,7 @@ package ai.androidclaw.runtime.scheduler
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.time.Duration
 import java.time.Instant
@@ -22,6 +23,25 @@ class NextRunCalculatorTest {
             )
 
         assertEquals(Instant.parse("2026-03-08T00:45:00Z"), next)
+    }
+
+    @Test
+    fun `rejects zero interval duration before next run math`() {
+        val anchor = Instant.parse("2026-03-08T00:00:00Z")
+
+        val exception =
+            assertThrows(IllegalArgumentException::class.java) {
+                NextRunCalculator.computeNextRun(
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = anchor,
+                            repeatEvery = Duration.ZERO,
+                        ),
+                    after = Instant.parse("2026-03-08T00:31:00Z"),
+                )
+            }
+
+        assertEquals("Interval schedule requires a positive repeatEvery duration.", exception.message)
     }
 
     @Test
