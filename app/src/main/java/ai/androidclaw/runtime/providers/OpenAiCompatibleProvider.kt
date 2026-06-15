@@ -11,7 +11,9 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -368,12 +370,21 @@ class OpenAiCompatibleProvider(
 
 private fun Json.extractOpenAiErrorMessage(rawBody: String): String =
     runCatching {
-        decodeFromString(OpenAiErrorEnvelope.serializer(), rawBody).error?.message
+        val root = parseToJsonElement(rawBody).jsonObject
+        val error = root["error"]
+        when (error) {
+            is JsonObject -> error.stringValue("message")
+            is JsonPrimitive -> error.contentOrNull
+            else -> null
+        } ?: root.stringValue("detail")
+            ?: root.stringValue("message")
     }.getOrNull()
         .orEmpty()
         .replace(Regex("\\s+"), " ")
         .trim()
         .take(MAX_PROVIDER_ERROR_BODY_CHARS)
+
+private fun JsonObject.stringValue(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
 
 @Serializable
 private data class OpenAiChatCompletionsRequest(

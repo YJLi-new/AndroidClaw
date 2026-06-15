@@ -634,6 +634,70 @@ class OpenAiCompatibleProviderTest {
         }
 
     @Test
+    fun `http 400 surfaces root level provider rejection detail`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCompatible,
+                        ai.androidclaw.data.ProviderEndpointSettings(
+                            baseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                            modelId = "gpt-test",
+                            timeoutSeconds = 5,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"message":"model rejected\nby upstream router"}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("model rejected by upstream router"))
+            assertTrue(!error.userMessage.contains("\n"))
+        }
+
+    @Test
+    fun `http 400 surfaces string provider error detail`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCompatible,
+                        ai.androidclaw.data.ProviderEndpointSettings(
+                            baseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                            modelId = "gpt-test",
+                            timeoutSeconds = 5,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":"invalid request\nfrom provider"}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("invalid request from provider"))
+            assertTrue(!error.userMessage.contains("\n"))
+        }
+
+    @Test
     fun `malformed json is mapped to response failure`() =
         runTest {
             server.enqueue(
