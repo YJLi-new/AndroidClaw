@@ -275,3 +275,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   Pasted or programmatic search text now caps at the same SQLite LIKE query
   budget used by repository search and shows a truncation notice, preventing
   oversized dialog input from bypassing bounded search persistence safeguards.
+- 2026-06-16: Bounded manual task-form text before Compose state growth. Task
+  names and prompts now share repository text budgets in the scheduler screen,
+  schedule text fields use small explicit UI budgets, and truncation notices are
+  cleared without overwriting unrelated validation errors.

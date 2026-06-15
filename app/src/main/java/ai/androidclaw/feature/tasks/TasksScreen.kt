@@ -3,6 +3,8 @@ package ai.androidclaw.feature.tasks
 import ai.androidclaw.R
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
+import ai.androidclaw.data.repository.TASK_NAME_MAX_CHARS
+import ai.androidclaw.data.repository.TASK_PROMPT_MAX_CHARS
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedulingDecision
 import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
@@ -73,6 +75,16 @@ fun TasksScreen(viewModel: TasksViewModel) {
     var executionMode by rememberSaveable { mutableStateOf(TaskExecutionMode.MainSession) }
     var selectedSessionId by rememberSaveable { mutableStateOf("") }
     var formMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val updateBoundedFormInput: (String, Int, (String) -> Unit) -> Unit = { value, maxChars, updateValue ->
+        val boundedInput = boundTaskFormInput(value, maxChars)
+        updateValue(boundedInput.value)
+        formMessage =
+            if (boundedInput.wasTruncated) {
+                TASK_FORM_INPUT_TRUNCATED_MESSAGE
+            } else {
+                formMessage.clearTaskFormTruncationMessage()
+            }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.refreshDiagnostics()
@@ -158,7 +170,9 @@ fun TasksScreen(viewModel: TasksViewModel) {
                         Text("Task name", style = MaterialTheme.typography.titleSmall, color = ClawInk)
                         OutlinedTextField(
                             value = name,
-                            onValueChange = { name = it },
+                            onValueChange = { value ->
+                                updateBoundedFormInput(value, TASK_NAME_MAX_CHARS) { name = it }
+                            },
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
@@ -169,7 +183,9 @@ fun TasksScreen(viewModel: TasksViewModel) {
                         Text("Prompt", style = MaterialTheme.typography.titleSmall, color = ClawInk)
                         OutlinedTextField(
                             value = prompt,
-                            onValueChange = { prompt = it },
+                            onValueChange = { value ->
+                                updateBoundedFormInput(value, TASK_PROMPT_MAX_CHARS) { prompt = it }
+                            },
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
@@ -195,7 +211,9 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             TaskScheduleKindUi.Once -> {
                                 OutlinedTextField(
                                     value = onceAt,
-                                    onValueChange = { onceAt = it },
+                                    onValueChange = { value ->
+                                        updateBoundedFormInput(value, TASK_FORM_ONCE_AT_MAX_CHARS) { onceAt = it }
+                                    },
                                     modifier =
                                         Modifier
                                             .fillMaxWidth()
@@ -208,7 +226,11 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             TaskScheduleKindUi.Interval -> {
                                 OutlinedTextField(
                                     value = intervalMinutes,
-                                    onValueChange = { intervalMinutes = it },
+                                    onValueChange = { value ->
+                                        updateBoundedFormInput(value, TASK_FORM_INTERVAL_MINUTES_MAX_CHARS) {
+                                            intervalMinutes = it
+                                        }
+                                    },
                                     modifier =
                                         Modifier
                                             .fillMaxWidth()
@@ -221,7 +243,11 @@ fun TasksScreen(viewModel: TasksViewModel) {
                             TaskScheduleKindUi.Cron -> {
                                 OutlinedTextField(
                                     value = cronExpression,
-                                    onValueChange = { cronExpression = it },
+                                    onValueChange = { value ->
+                                        updateBoundedFormInput(value, TASK_FORM_CRON_EXPRESSION_MAX_CHARS) {
+                                            cronExpression = it
+                                        }
+                                    },
                                     modifier =
                                         Modifier
                                             .fillMaxWidth()
