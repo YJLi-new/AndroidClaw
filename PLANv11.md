@@ -91,3 +91,6 @@ available, or use the repo's Windows AVD scripts for manual QA.
 - 2026-06-15: Added an explicit active-session existence check to
   `sessions.compact`. The tool now fails with `MISSING_SESSION` instead of
   reporting success when invoked with a stale/nonexistent session id.
+- 2026-06-15: Made `MessageRepository` a required dependency of the built-in
+  tool registry so `sessions.compact` boundary validation cannot be accidentally
+  disabled by future registry wiring.

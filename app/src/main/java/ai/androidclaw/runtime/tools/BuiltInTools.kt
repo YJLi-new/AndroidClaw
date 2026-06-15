@@ -32,7 +32,7 @@ internal fun createBuiltInToolRegistry(
     taskRepository: TaskRepository,
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
-    messageRepository: MessageRepository? = null,
+    messageRepository: MessageRepository,
     memoryRepository: MemoryRepository? = null,
     eventLogRepository: EventLogRepository? = null,
     clock: Clock = Clock.systemDefaultZone(),
@@ -206,9 +206,9 @@ internal fun createBuiltInToolRegistry(
                             }
                             val boundaryMessage =
                                 messageRepository
-                                    ?.getMessagesByIds(listOf(compactedUntilMessageId))
-                                    ?.get(compactedUntilMessageId)
-                            if (messageRepository != null && boundaryMessage?.sessionId != sessionId) {
+                                    .getMessagesByIds(listOf(compactedUntilMessageId))
+                                    .get(compactedUntilMessageId)
+                            if (boundaryMessage?.sessionId != sessionId) {
                                 return@Entry ToolExecutionResult.failure(
                                     summary = "Compaction boundary was not found in this session.",
                                     errorCode = "INVALID_COMPACT_BOUNDARY",
