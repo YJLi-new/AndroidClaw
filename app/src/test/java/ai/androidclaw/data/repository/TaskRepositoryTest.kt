@@ -237,18 +237,86 @@ class TaskRepositoryTest {
                 repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(2L)),
             )
         }
+
+    @Test
+    fun `create task clamps negative max retries`() =
+        runTest {
+            val created =
+                repository.createTask(
+                    name = "No retry task",
+                    prompt = "Do not retry",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                    maxRetries = -5,
+                )
+
+            val raw = database.taskDao().getById(created.id)
+            val stored = repository.getTask(created.id)
+
+            assertEquals(0, created.maxRetries)
+            assertEquals(0, raw?.maxRetries)
+            assertEquals(0, stored?.maxRetries)
+        }
+
+    @Test
+    fun `update task clamps negative retry counters`() =
+        runTest {
+            val created =
+                repository.createTask(
+                    name = "Retry task",
+                    prompt = "Retry safely",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+
+            repository.updateTask(
+                created.copy(
+                    failureCount = -3,
+                    maxRetries = -7,
+                ),
+            )
+            val raw = database.taskDao().getById(created.id)
+            val stored = repository.getTask(created.id)
+
+            assertEquals(0, raw?.failureCount)
+            assertEquals(0, raw?.maxRetries)
+            assertEquals(0, stored?.failureCount)
+            assertEquals(0, stored?.maxRetries)
+        }
+
+    @Test
+    fun `task reads clamp negative persisted retry counters`() =
+        runTest {
+            database.taskDao().insert(
+                taskEntity(
+                    id = "negative-counters-task",
+                    failureCount = -11,
+                    maxRetries = -2,
+                ),
+            )
+
+            val stored = repository.getTask("negative-counters-task")
+
+            assertEquals(0, stored?.failureCount)
+            assertEquals(0, stored?.maxRetries)
+        }
 }
 
-private fun invalidTaskEntity(
+private fun taskEntity(
     id: String,
-    scheduleSpec: String = """{"kind":"interval","anchorAtEpochMillis":0,"intervalMillis":0}""",
+    scheduleKind: String = "once",
+    scheduleSpec: String = """{"kind":"once","atEpochMillis":10}""",
     nextRunAt: Long? = 1L,
+    failureCount: Int = 0,
+    maxRetries: Int = 3,
 ): TaskEntity =
     TaskEntity(
         id = id,
-        name = "Invalid task",
-        prompt = "This task has corrupted schedule JSON.",
-        scheduleKind = "interval",
+        name = "Stored task",
+        prompt = "This task was inserted directly.",
+        scheduleKind = scheduleKind,
         scheduleSpec = scheduleSpec,
         executionMode = "MAIN_SESSION",
         targetSessionId = "main",
@@ -256,8 +324,20 @@ private fun invalidTaskEntity(
         precise = false,
         nextRunAt = nextRunAt,
         lastRunAt = null,
-        failureCount = 0,
-        maxRetries = 3,
+        failureCount = failureCount,
+        maxRetries = maxRetries,
         createdAt = 1L,
         updatedAt = 1L,
+    )
+
+private fun invalidTaskEntity(
+    id: String,
+    scheduleSpec: String = """{"kind":"interval","anchorAtEpochMillis":0,"intervalMillis":0}""",
+    nextRunAt: Long? = 1L,
+): TaskEntity =
+    taskEntity(
+        id = id,
+        scheduleKind = "interval",
+        scheduleSpec = scheduleSpec,
+        nextRunAt = nextRunAt,
     )

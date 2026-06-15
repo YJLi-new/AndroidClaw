@@ -173,3 +173,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   and read boundaries. Titles are capped before persistence/search projection,
   summaries share the 4,000-character compact-summary budget, and legacy
   oversized rows are clipped before reaching prompt/export/UI flows.
+- 2026-06-16: Hardened task retry counters at repository boundaries. Negative
+  retry/failure counts from direct callers or corrupted persisted rows now clamp
+  to zero before storage or domain mapping, keeping task UI and retry planning in
+  non-negative automation state.

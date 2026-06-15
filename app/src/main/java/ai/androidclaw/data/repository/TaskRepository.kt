@@ -44,7 +44,7 @@ class TaskRepository(
                 nextRunAt = schedule.initialNextRun(now)?.toEpochMilli(),
                 lastRunAt = null,
                 failureCount = 0,
-                maxRetries = maxRetries,
+                maxRetries = maxRetries.toNonNegativeTaskCounter(),
                 createdAt = now.toEpochMilli(),
                 updatedAt = now.toEpochMilli(),
             )
@@ -126,8 +126,8 @@ private fun TaskEntity.toDomain(schedule: TaskSchedule): Task =
         precise = precise,
         nextRunAt = nextRunAt?.let(Instant::ofEpochMilli),
         lastRunAt = lastRunAt?.let(Instant::ofEpochMilli),
-        failureCount = failureCount,
-        maxRetries = maxRetries,
+        failureCount = failureCount.toNonNegativeTaskCounter(),
+        maxRetries = maxRetries.toNonNegativeTaskCounter(),
         createdAt = Instant.ofEpochMilli(createdAt),
         updatedAt = Instant.ofEpochMilli(updatedAt),
     )
@@ -145,11 +145,13 @@ private fun Task.toEntity(): TaskEntity =
         precise = precise,
         nextRunAt = nextRunAt?.toEpochMilli(),
         lastRunAt = lastRunAt?.toEpochMilli(),
-        failureCount = failureCount,
-        maxRetries = maxRetries,
+        failureCount = failureCount.toNonNegativeTaskCounter(),
+        maxRetries = maxRetries.toNonNegativeTaskCounter(),
         createdAt = createdAt.toEpochMilli(),
         updatedAt = updatedAt.toEpochMilli(),
     )
+
+private fun Int.toNonNegativeTaskCounter(): Int = coerceAtLeast(0)
 
 private fun TaskRunEntity.toDomain(): TaskRun =
     TaskRun(
