@@ -22,6 +22,9 @@ internal val PROVIDER_JSON_MEDIA_TYPE = "application/json".toMediaType()
 internal const val PROVIDER_EVENT_STREAM_CONTENT_TYPE_PREFIX = "text/event-stream"
 internal const val PROVIDER_SSE_DONE_SENTINEL = "[DONE]"
 internal const val MAX_PROVIDER_ERROR_BODY_CHARS = 500
+internal const val MAX_PROVIDER_REQUEST_MESSAGES = 256
+internal const val MAX_PROVIDER_REQUEST_TEXT_CHARS = 40_000
+internal const val MAX_PROVIDER_REQUEST_ID_CHARS = 256
 
 internal data class ResolvedRequestConfig(
     val endpointSettings: ProviderEndpointSettings,
@@ -62,6 +65,53 @@ internal fun validateRemoteProviderSettings(
             userMessage = "Provider API key is required.",
         )
     }
+}
+
+internal fun ModelRequest.toBoundedProviderRequest(providerName: String): ModelRequest =
+    copy(
+        sessionId = sessionId.toBoundedProviderRequestId(),
+        requestId = requestId?.toBoundedProviderRequestId()?.takeIf { it.isNotBlank() },
+        systemPrompt = systemPrompt.toBoundedProviderRequestText(),
+        messageHistory =
+            messageHistory
+                .takeLast(MAX_PROVIDER_REQUEST_MESSAGES)
+                .map { message -> message.toBoundedProviderRequestMessage(providerName) },
+    )
+
+private fun ModelMessage.toBoundedProviderRequestMessage(providerName: String): ModelMessage =
+    copy(
+        content = content.toBoundedProviderRequestText(),
+        toolCallId = toolCallId?.toBoundedProviderRequestId()?.takeIf { it.isNotBlank() },
+        toolName = toolName?.toBoundedProviderToolCallName()?.takeIf { it.isNotBlank() },
+        toolCalls =
+            toolCalls
+                .requireProviderToolCallLimit(providerName)
+                .map { toolCall -> toolCall.toBoundedProviderRequestToolCall(providerName) },
+    )
+
+private fun ProviderToolCall.toBoundedProviderRequestToolCall(providerName: String): ProviderToolCall =
+    copy(
+        id = id.toBoundedProviderToolCallId(),
+        name = name.toBoundedProviderToolCallName(),
+        argumentsJson = argumentsJson.requireProviderRequestToolArgumentsWithinLimit(providerName),
+    )
+
+private fun String.toBoundedProviderRequestText(): String = take(MAX_PROVIDER_REQUEST_TEXT_CHARS)
+
+private fun String.toBoundedProviderRequestId(): String = trim().take(MAX_PROVIDER_REQUEST_ID_CHARS)
+
+private fun kotlinx.serialization.json.JsonObject.requireProviderRequestToolArgumentsWithinLimit(
+    providerName: String,
+): kotlinx.serialization.json.JsonObject {
+    val serialized = toString()
+    if (serialized.length > MAX_PROVIDER_TOOL_ARGUMENT_CHARS) {
+        throw ModelProviderException(
+            kind = ModelProviderFailureKind.Response,
+            userMessage = "$providerName request included oversized tool arguments.",
+            details = serialized.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+        )
+    }
+    return this
 }
 
 internal fun OkHttpClient.withProviderTimeouts(settings: ProviderEndpointSettings): OkHttpClient {

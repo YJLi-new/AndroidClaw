@@ -38,13 +38,14 @@ class AnthropicProvider(
         )
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
+        val boundedRequest = request.toBoundedProviderRequest(providerName = "Provider")
         val config = resolveConfig()
-        val payload = buildRequestPayload(request, config.endpointSettings, stream = false)
+        val payload = buildRequestPayload(boundedRequest, config.endpointSettings, stream = false)
         val httpRequest =
             buildHttpRequest(
                 url = config.url,
                 apiKey = config.apiKey,
-                requestId = request.requestId,
+                requestId = boundedRequest.requestId,
                 payload = payload,
             )
 
@@ -66,37 +67,39 @@ class AnthropicProvider(
     }
 
     override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> =
-        streamProviderEvents(
-            buildContext = {
-                val config = resolveConfig()
-                val payload = buildRequestPayload(request, config.endpointSettings, stream = true)
-                val httpRequest =
-                    buildHttpRequest(
-                        url = config.url,
-                        apiKey = config.apiKey,
-                        requestId = request.requestId,
-                        payload = payload,
-                    )
-                val accumulator = AnthropicStreamAccumulator(json)
-                ProviderStreamContext(
-                    endpointSettings = config.endpointSettings,
-                    httpClient = config.httpClient,
-                    request = httpRequest,
-                    streamStarted = accumulator::hasSeenEvent,
-                    canCompleteWithoutTerminalSignal = accumulator::canCompleteWithoutTerminalSignal,
-                    buildResponse = accumulator::buildResponse,
-                    handleDataEvent = { data, onEvent, onCompleted ->
-                        handleAnthropicSseData(
-                            data = data,
-                            accumulator = accumulator,
-                            onEvent = onEvent,
-                            onCompleted = onCompleted,
+        request.toBoundedProviderRequest(providerName = "Provider").let { boundedRequest ->
+            streamProviderEvents(
+                buildContext = {
+                    val config = resolveConfig()
+                    val payload = buildRequestPayload(boundedRequest, config.endpointSettings, stream = true)
+                    val httpRequest =
+                        buildHttpRequest(
+                            url = config.url,
+                            apiKey = config.apiKey,
+                            requestId = boundedRequest.requestId,
+                            payload = payload,
                         )
-                    },
-                )
-            },
-            mapHttpFailure = ::mapFailure,
-        )
+                    val accumulator = AnthropicStreamAccumulator(json)
+                    ProviderStreamContext(
+                        endpointSettings = config.endpointSettings,
+                        httpClient = config.httpClient,
+                        request = httpRequest,
+                        streamStarted = accumulator::hasSeenEvent,
+                        canCompleteWithoutTerminalSignal = accumulator::canCompleteWithoutTerminalSignal,
+                        buildResponse = accumulator::buildResponse,
+                        handleDataEvent = { data, onEvent, onCompleted ->
+                            handleAnthropicSseData(
+                                data = data,
+                                accumulator = accumulator,
+                                onEvent = onEvent,
+                                onCompleted = onCompleted,
+                            )
+                        },
+                    )
+                },
+                mapHttpFailure = ::mapFailure,
+            )
+        }
 
     private suspend fun resolveConfig(): ResolvedRequestConfig {
         val settings = settingsDataStore.settings.first()

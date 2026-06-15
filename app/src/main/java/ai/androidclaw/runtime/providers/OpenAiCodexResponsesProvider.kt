@@ -58,13 +58,14 @@ class OpenAiCodexResponsesProvider(
     }
 
     override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> {
-        val functionNames = ProviderFunctionNameMap.from(request.toolDescriptors)
+        val boundedRequest = request.toBoundedProviderRequest(providerName = "OpenAI Codex")
+        val functionNames = ProviderFunctionNameMap.from(boundedRequest.toolDescriptors)
         return streamProviderEvents(
             buildContext = {
                 val config = resolveConfig()
                 val payload =
                     buildResponsesPayload(
-                        request = request,
+                        request = boundedRequest,
                         endpointSettings = config.endpointSettings,
                         functionNames = functionNames,
                     )
@@ -72,7 +73,7 @@ class OpenAiCodexResponsesProvider(
                     buildHttpRequest(
                         url = config.url,
                         credential = config.credential,
-                        requestId = request.requestId,
+                        requestId = boundedRequest.requestId,
                         payload = payload,
                     )
                 val accumulator =

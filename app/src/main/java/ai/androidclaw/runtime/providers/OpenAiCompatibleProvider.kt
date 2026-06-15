@@ -37,18 +37,19 @@ class OpenAiCompatibleProvider(
         )
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
+        val boundedRequest = request.toBoundedProviderRequest(providerName = "Provider")
         val config = resolveConfig()
         val payload =
             OpenAiChatCompletionsRequest(
                 model = config.endpointSettings.modelId,
-                messages = buildMessages(request),
-                tools = buildTools(request),
+                messages = buildMessages(boundedRequest),
+                tools = buildTools(boundedRequest),
             )
         val httpRequest =
             buildHttpRequest(
                 url = config.url,
                 apiKey = config.apiKey,
-                requestId = request.requestId,
+                requestId = boundedRequest.requestId,
                 payload = payload,
             )
 
@@ -70,54 +71,56 @@ class OpenAiCompatibleProvider(
     }
 
     override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> =
-        streamProviderEvents(
-            buildContext = {
-                val config = resolveConfig()
-                val payload =
-                    OpenAiChatCompletionsRequest(
-                        model = config.endpointSettings.modelId,
-                        messages = buildMessages(request),
-                        tools = buildTools(request),
-                        stream = true,
-                        streamOptions = OpenAiStreamOptions(includeUsage = true),
-                    )
-                val httpRequest =
-                    buildHttpRequest(
-                        url = config.url,
-                        apiKey = config.apiKey,
-                        requestId = request.requestId,
-                        payload = payload,
-                    )
-                val accumulator = OpenAiStreamAccumulator(json)
-                ProviderStreamContext(
-                    endpointSettings = config.endpointSettings,
-                    httpClient = config.httpClient,
-                    request = httpRequest,
-                    streamStarted = accumulator::hasSeenChunk,
-                    canCompleteWithoutTerminalSignal = accumulator::canCompleteWithoutTerminalSignal,
-                    buildResponse = accumulator::buildResponse,
-                    handleDataEvent = { data, onEvent, onCompleted ->
-                        handleOpenAiSseData(
-                            data = data,
-                            accumulator = accumulator,
-                            onEvent = onEvent,
-                            onCompleted = onCompleted,
+        request.toBoundedProviderRequest(providerName = "Provider").let { boundedRequest ->
+            streamProviderEvents(
+                buildContext = {
+                    val config = resolveConfig()
+                    val payload =
+                        OpenAiChatCompletionsRequest(
+                            model = config.endpointSettings.modelId,
+                            messages = buildMessages(boundedRequest),
+                            tools = buildTools(boundedRequest),
+                            stream = true,
+                            streamOptions = OpenAiStreamOptions(includeUsage = true),
                         )
-                    },
-                )
-            },
-            mapHttpFailure = ::mapFailure,
-            fallbackForHttpResponse = { statusCode, rawBody ->
-                if (shouldFallbackFromStreaming(statusCode, rawBody)) {
-                    generate(request)
-                } else {
-                    null
-                }
-            },
-            fallbackForNonEventStream = { _, _ ->
-                generate(request)
-            },
-        )
+                    val httpRequest =
+                        buildHttpRequest(
+                            url = config.url,
+                            apiKey = config.apiKey,
+                            requestId = boundedRequest.requestId,
+                            payload = payload,
+                        )
+                    val accumulator = OpenAiStreamAccumulator(json)
+                    ProviderStreamContext(
+                        endpointSettings = config.endpointSettings,
+                        httpClient = config.httpClient,
+                        request = httpRequest,
+                        streamStarted = accumulator::hasSeenChunk,
+                        canCompleteWithoutTerminalSignal = accumulator::canCompleteWithoutTerminalSignal,
+                        buildResponse = accumulator::buildResponse,
+                        handleDataEvent = { data, onEvent, onCompleted ->
+                            handleOpenAiSseData(
+                                data = data,
+                                accumulator = accumulator,
+                                onEvent = onEvent,
+                                onCompleted = onCompleted,
+                            )
+                        },
+                    )
+                },
+                mapHttpFailure = ::mapFailure,
+                fallbackForHttpResponse = { statusCode, rawBody ->
+                    if (shouldFallbackFromStreaming(statusCode, rawBody)) {
+                        generate(boundedRequest)
+                    } else {
+                        null
+                    }
+                },
+                fallbackForNonEventStream = { _, _ ->
+                    generate(boundedRequest)
+                },
+            )
+        }
 
     private suspend fun resolveConfig(): ResolvedRequestConfig {
         val settings = settingsDataStore.settings.first()

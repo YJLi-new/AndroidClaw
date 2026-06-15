@@ -153,6 +153,83 @@ class OpenAiCompatibleProviderTest {
         }
 
     @Test
+    fun `request payload is bounded before serialization`() =
+        runTest {
+            val oversizedRequestId = "req-" + "r".repeat(MAX_PROVIDER_REQUEST_ID_CHARS) + "REQUEST_TAIL"
+            val oversizedText = "t".repeat(MAX_PROVIDER_REQUEST_TEXT_CHARS) + "TEXT_TAIL"
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "id": "resp-bounded-request",
+                          "choices": [
+                            {
+                              "message": {
+                                "role": "assistant",
+                                "content": "Bounded request accepted"
+                              }
+                            }
+                          ]
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            buildProvider().generate(
+                buildRequest(
+                    messageHistory =
+                        (1..(MAX_PROVIDER_REQUEST_MESSAGES + 1)).map { index ->
+                            ModelMessage(
+                                role = ModelMessageRole.User,
+                                content = if (index == MAX_PROVIDER_REQUEST_MESSAGES + 1) oversizedText else "message-$index",
+                            )
+                        },
+                    systemPrompt = oversizedText,
+                    requestId = oversizedRequestId,
+                ),
+            )
+
+            val recordedRequest =
+                server.takeRequest(5, TimeUnit.SECONDS)
+                    ?: error("Expected provider request.")
+            val payload = json.parseToJsonElement(recordedRequest.body.readUtf8()).jsonObject
+            val messages = payload.getValue("messages").jsonArray
+            val firstMessageContent =
+                messages
+                    .first()
+                    .jsonObject
+                    .getValue("content")
+                    .jsonPrimitive
+                    .content
+            val lastMessageContent =
+                messages
+                    .last()
+                    .jsonObject
+                    .getValue("content")
+                    .jsonPrimitive
+                    .content
+
+            assertEquals(MAX_PROVIDER_REQUEST_ID_CHARS, recordedRequest.getHeader("X-Request-Id")?.length)
+            assertFalse(recordedRequest.getHeader("X-Request-Id").orEmpty().contains("REQUEST_TAIL"))
+            assertEquals(MAX_PROVIDER_REQUEST_MESSAGES + 1, messages.size)
+            assertEquals(MAX_PROVIDER_REQUEST_TEXT_CHARS, firstMessageContent.length)
+            assertFalse(firstMessageContent.contains("TEXT_TAIL"))
+            assertFalse(
+                messages.any { message ->
+                    message
+                        .jsonObject
+                        .getValue("content")
+                        .jsonPrimitive
+                        .content == "message-1"
+                },
+            )
+            assertEquals(MAX_PROVIDER_REQUEST_TEXT_CHARS, lastMessageContent.length)
+            assertFalse(lastMessageContent.contains("TEXT_TAIL"))
+        }
+
+    @Test
     fun `tool definitions and transcript tool calls are serialized for openai requests`() =
         runTest {
             server.enqueue(
@@ -1132,12 +1209,14 @@ class OpenAiCompatibleProviderTest {
                 ),
             ),
         toolDescriptors: List<ai.androidclaw.runtime.tools.ToolDescriptor> = emptyList(),
+        systemPrompt: String = "system prompt",
+        requestId: String? = "req-123",
     ): ModelRequest =
         ModelRequest(
             sessionId = "session-1",
-            requestId = "req-123",
+            requestId = requestId,
             messageHistory = messageHistory,
-            systemPrompt = "system prompt",
+            systemPrompt = systemPrompt,
             enabledSkills =
                 listOf(
                     ModelSkillMetadata(

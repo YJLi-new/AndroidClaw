@@ -354,3 +354,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   transcript and sent back to the provider, preventing custom or future
   providers from bypassing parser/repository text bounds during multi-round
   tool execution.
+- 2026-06-16: Bounded remote provider request payloads. OpenAI-compatible,
+  Anthropic, and OpenAI Codex providers now defensively cap direct
+  `ModelRequest` ids, system prompt text, message-history count/content, and
+  transcript tool-call metadata before HTTP serialization, with oversized
+  outbound tool arguments rejected before request bodies are built.
