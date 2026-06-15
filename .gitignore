@@ -10,6 +10,5 @@ keystore.properties
 *.jks
 *.keystore
 *.iml
-PLANv*.md
 app/build/
 app/release/

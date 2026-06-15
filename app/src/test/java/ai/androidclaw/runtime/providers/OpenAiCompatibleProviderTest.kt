@@ -666,6 +666,39 @@ class OpenAiCompatibleProviderTest {
         }
 
     @Test
+    fun `http 400 surfaces object provider rejection detail fallback`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        ProviderType.OpenAiCompatible,
+                        ai.androidclaw.data.ProviderEndpointSettings(
+                            baseUrl = server.url("/v1/").toString().removeSuffix("/"),
+                            modelId = "gpt-test",
+                            timeoutSeconds = 5,
+                        ),
+                    ).copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":{"detail":"router rejected\nthis model"}}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("router rejected this model"))
+            assertTrue(!error.userMessage.contains("\n"))
+            assertTrue(!error.userMessage.contains("{"))
+        }
+
+    @Test
     fun `http 400 surfaces string provider error detail`() =
         runTest {
             settingsDataStore.saveProviderSettings(

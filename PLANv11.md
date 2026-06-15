@@ -1,0 +1,81 @@
+# PLANv11 - Continuous validated hardening
+
+Status: active
+Owner: repository / Codex agents
+Started: 2026-06-15
+Supersedes: `docs/past_plans/PLANv10.md`
+
+## Purpose
+
+AndroidClaw now has the v0 runtime shape in place: durable sessions, typed tools,
+`SKILL.md` skills, scheduled automations, multiple providers, OpenAI Codex OAuth,
+optional local memory, a refreshed UI, a project page, and release artifacts. This
+plan keeps the repository aligned while we continue small, evidence-backed
+hardening cycles instead of broad rewrites.
+
+The active goal is to make the current Android-native single-APK app more robust,
+legible, and verifiable with each cycle.
+
+## Current constraints
+
+- Preserve the lightweight Android-native host model: no Node.js, Docker,
+  Chromium, desktop gateway dependency, or remote-first companion runtime.
+- Keep production code in the single `app` Android module.
+- Keep manual dependency wiring; do not introduce DI frameworks.
+- Prefer Room, WorkManager, coroutines, kotlinx serialization, OkHttp, and typed
+  native tools.
+- Prefer deterministic JVM/Robolectric validation over live network/device tests
+  unless a change specifically requires a device.
+- Treat provider responses, memory contents, imported skills, and cross-session
+  facts as untrusted boundary data.
+
+## Ongoing workstreams
+
+1. **Provider/OAuth resilience**
+   - Keep OpenAI-compatible, Anthropic, DeepSeek/Gemini-compatible, and OpenAI
+     Codex failures actionable and sanitized.
+   - Preserve provider-specific auth behavior while sharing obvious parser and
+     transport hardening.
+2. **Memory correctness**
+   - Keep memory optional, local-only, bounded, and explicitly framed as
+     untrusted context.
+   - Improve extraction conservatively and maintain user opt-out behavior.
+3. **Session and compact behavior**
+   - Keep compaction visibly hiding older turns while preserving durable history
+     and summary context.
+4. **UI/UX fit and accessibility**
+   - Keep phone-sized layouts usable, especially chat input, provider settings,
+     and task creation.
+5. **Docs, release, and project-page truth**
+   - Keep repo docs, page content, screenshots, and release links synchronized
+     with the actual app.
+
+## Validation gates
+
+Default fast loop from repo root:
+
+```bash
+export ANDROIDCLAW_JAVA_HOME=/home/lanla/.local/jdks/jdk-17.0.18+8
+export JAVA_HOME="$ANDROIDCLAW_JAVA_HOME"
+export PATH="$JAVA_HOME/bin:$HOME/.local/bin:$PATH"
+
+./scripts/run_ktlint.sh
+./gradlew --offline --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
+
+Use narrower test filters first when changing a focused subsystem. Run
+`:app:connectedDebugAndroidTest` only when a Linux-visible emulator/device is
+available, or use the repo's Windows AVD scripts for manual QA.
+
+## Running ledger
+
+- 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
+  because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
+  Next slice: deduplicate and harden provider HTTP error-message extraction so
+  object-shaped rejection payloads remain actionable instead of falling back to
+  raw JSON or generic HTTP 400 text.
+- 2026-06-15: Added shared provider error-message extraction for OpenAI-
+  compatible, Anthropic, and OpenAI Codex Responses providers. The parser now
+  handles string, root-level, and object-shaped `error.detail`/`message` payloads
+  with whitespace sanitization. Focused provider tests, ktlint, and the full
+  offline fast loop passed.

@@ -291,6 +291,28 @@ class AnthropicProviderTest {
         }
 
     @Test
+    fun `http 400 surfaces object provider rejection detail fallback`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":{"detail":"anthropic detail\nfrom upstream"}}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("anthropic detail from upstream"))
+            assertTrue(!error.userMessage.contains("\n"))
+            assertTrue(!error.userMessage.contains("{"))
+        }
+
+    @Test
     fun `http 400 surfaces string provider error detail`() =
         runTest {
             server.enqueue(

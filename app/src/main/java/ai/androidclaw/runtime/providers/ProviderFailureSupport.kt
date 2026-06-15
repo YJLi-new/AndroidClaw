@@ -1,6 +1,11 @@
 package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderEndpointSettings
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
@@ -85,3 +90,35 @@ internal fun streamInterruptedFailure(
         details = details,
         cause = cause,
     )
+
+internal fun Json.extractProviderErrorMessage(rawBody: String): String =
+    runCatching {
+        parseToJsonElement(rawBody)
+            .jsonObject
+            .providerErrorMessage()
+    }.getOrNull()
+        .orEmpty()
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .take(MAX_PROVIDER_ERROR_BODY_CHARS)
+
+private fun JsonObject.providerErrorMessage(): String? {
+    val error = this["error"]
+    return when (error) {
+        is JsonObject -> error.firstStringValue("message", "detail", "description", "code", "type")
+        is JsonPrimitive -> error.contentOrNull
+        else -> null
+    } ?: firstStringValue("detail", "message", "error_description", "description")
+}
+
+private fun JsonObject.firstStringValue(vararg keys: String): String? =
+    keys
+        .asSequence()
+        .mapNotNull(::stringValue)
+        .firstOrNull()
+
+private fun JsonObject.stringValue(key: String): String? =
+    (this[key] as? JsonPrimitive)
+        ?.contentOrNull
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }

@@ -340,6 +340,29 @@ class OpenAiCodexResponsesProviderTest {
             assertTrue(!error.message.orEmpty().contains("\n"))
         }
 
+    @Test
+    fun `http 400 surfaces object codex error detail fallback`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":{"detail":"codex detail\nfrom upstream"}}"""),
+            )
+
+            val error =
+                runCatching {
+                    buildProvider().generate(buildRequest())
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val message = error!!.message.orEmpty()
+            assertTrue(message.contains("OpenAI Codex rejected the request"))
+            assertTrue(message.contains("codex detail from upstream"))
+            assertTrue(!message.contains("\n"))
+            assertTrue(!message.contains("{"))
+        }
+
     private fun buildProvider(): OpenAiCodexResponsesProvider =
         OpenAiCodexResponsesProvider(
             settingsDataStore = settingsDataStore,

@@ -359,7 +359,7 @@ class OpenAiCodexResponsesProvider(
         statusCode: Int,
         rawBody: String,
     ): ModelProviderException {
-        val errorMessage = json.extractCodexErrorMessage(rawBody)
+        val errorMessage = json.extractProviderErrorMessage(rawBody)
 
         return when (statusCode) {
             401, 403 ->
@@ -396,22 +396,6 @@ class OpenAiCodexResponsesProvider(
         const val CODEX_USER_AGENT = "codex_cli_rs/0.0.0 (AndroidClaw Android)"
     }
 }
-
-private fun Json.extractCodexErrorMessage(rawBody: String): String =
-    runCatching {
-        val root = parseToJsonElement(rawBody).jsonObject
-        val error = root["error"]
-        when (error) {
-            is JsonObject -> error.stringValue("message")
-            is JsonPrimitive -> error.contentOrNull
-            else -> null
-        } ?: root.stringValue("detail")
-            ?: root.stringValue("message")
-    }.getOrNull()
-        .orEmpty()
-        .replace(Regex("\\s+"), " ")
-        .trim()
-        .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
 private class OpenAiCodexResponsesAccumulator(
     private val json: Json,
