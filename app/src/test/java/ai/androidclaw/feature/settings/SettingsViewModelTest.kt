@@ -167,6 +167,31 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `saving provider settings rejects out of range timeout`() =
+        runTest {
+            val viewModel = buildViewModel()
+
+            viewModel.selectProviderType(ProviderType.Anthropic)
+            waitForState(viewModel) { it.providerType == ProviderType.Anthropic }
+            viewModel.onBaseUrlChanged("https://api.anthropic.com/v1")
+            viewModel.onModelIdChanged("claude-sonnet-4-5")
+            viewModel.onTimeoutChanged("601")
+            viewModel.onApiKeyChanged("sk-ant-test")
+
+            viewModel.save()
+
+            val rejected =
+                waitForState(viewModel) {
+                    it.statusMessage == "Timeout must be an integer between 1 and 600 seconds."
+                }
+            val storedSettings = settingsDataStore.settings.first()
+
+            assertFalse(rejected.lastValidationSucceeded)
+            assertEquals(ProviderType.Fake, storedSettings.providerType)
+            assertEquals(null, secretStore.readApiKey(ProviderType.Anthropic))
+        }
+
+    @Test
     fun `switching providers loads stored config for each provider`() =
         runTest {
             settingsDataStore.saveProviderSettings(

@@ -126,3 +126,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   sessions. Task tools now reject archived explicit/current session targets, and
   runtime execution falls back to main when a previously valid task target has
   since been archived so scheduled output does not disappear into inactive chat.
+- 2026-06-15: Bounded provider timeout settings at the settings boundary and
+  HTTP-client boundary. Corrupt/imported zero or negative timeouts now recover
+  to the safe default, oversized values clamp to the maximum, and the settings UI
+  rejects out-of-range edits instead of letting unsafe transport configuration
+  reach OkHttp.

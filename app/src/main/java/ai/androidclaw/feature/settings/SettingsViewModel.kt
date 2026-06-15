@@ -2,6 +2,8 @@ package ai.androidclaw.feature.settings
 
 import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.app.viewModelFactory
+import ai.androidclaw.data.MAX_PROVIDER_TIMEOUT_SECONDS
+import ai.androidclaw.data.MIN_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderOAuthCredential
@@ -308,9 +310,9 @@ class SettingsViewModel(
         if (snapshot.providerType != ProviderType.OpenAiCodex) {
             return
         }
-        val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
-        if (timeoutSeconds == null || timeoutSeconds <= 0) {
-            mutateState { it.copy(statusMessage = "Timeout must be a positive integer.") }
+        val timeoutSeconds = snapshot.validatedTimeoutSeconds()
+        if (timeoutSeconds == null) {
+            mutateState { it.copy(statusMessage = providerTimeoutValidationMessage()) }
             return
         }
         val networkStatus = networkStatusProvider.currentStatus()
@@ -418,13 +420,13 @@ class SettingsViewModel(
 
     fun save() {
         val snapshot = state.value
-        val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
-        if (snapshot.providerType.requiresRemoteSettings && (timeoutSeconds == null || timeoutSeconds <= 0)) {
-            mutateState { it.copy(statusMessage = "Timeout must be a positive integer.") }
+        val timeoutSeconds = snapshot.validatedTimeoutSeconds()
+        if (snapshot.providerType.requiresRemoteSettings && timeoutSeconds == null) {
+            mutateState { it.copy(statusMessage = providerTimeoutValidationMessage()) }
             return
         }
         val normalizedTimeoutSeconds =
-            timeoutSeconds?.takeIf { it > 0 }
+            timeoutSeconds
                 ?: snapshot.providerType.defaultTimeoutSeconds
         val mutationVersion = nextMutationVersion()
 
@@ -439,13 +441,13 @@ class SettingsViewModel(
 
     fun validateConnection() {
         val snapshot = state.value
-        val timeoutSeconds = snapshot.timeoutSeconds.toIntOrNull()
-        if (snapshot.providerType.requiresRemoteSettings && (timeoutSeconds == null || timeoutSeconds <= 0)) {
+        val timeoutSeconds = snapshot.validatedTimeoutSeconds()
+        if (snapshot.providerType.requiresRemoteSettings && timeoutSeconds == null) {
             mutateState {
                 it.copy(
                     isValidatingConnection = false,
                     lastValidationSucceeded = false,
-                    statusMessage = "Timeout must be a positive integer.",
+                    statusMessage = providerTimeoutValidationMessage(),
                 )
             }
             return
@@ -462,7 +464,7 @@ class SettingsViewModel(
         }
         val networkStatus = networkStatusProvider.currentStatus()
         val normalizedTimeoutSeconds =
-            timeoutSeconds?.takeIf { it > 0 }
+            timeoutSeconds
                 ?: snapshot.providerType.defaultTimeoutSeconds
         val mutationVersion = nextMutationVersion()
 
@@ -768,6 +770,13 @@ class SettingsViewModel(
             }
     }
 }
+
+private fun SettingsUiState.validatedTimeoutSeconds(): Int? =
+    timeoutSeconds
+        .toIntOrNull()
+        ?.takeIf { it in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS }
+
+private fun providerTimeoutValidationMessage(): String = "Timeout must be an integer between $MIN_PROVIDER_TIMEOUT_SECONDS and $MAX_PROVIDER_TIMEOUT_SECONDS seconds."
 
 private fun ProviderOAuthCredential.displayLabel(): String =
     email

@@ -128,7 +128,7 @@ enum class ProviderType(
         ProviderEndpointSettings(
             baseUrl = defaultBaseUrl,
             modelId = defaultModelId,
-            timeoutSeconds = defaultTimeoutSeconds,
+            timeoutSeconds = normalizeProviderTimeoutSeconds(defaultTimeoutSeconds),
         )
 
     companion object {
@@ -158,7 +158,23 @@ data class ProviderSettingsSnapshot(
     fun withEndpointSettings(
         providerType: ProviderType,
         settings: ProviderEndpointSettings,
-    ): ProviderSettingsSnapshot = copy(providerConfigs = providerConfigs + (providerType to settings))
+    ): ProviderSettingsSnapshot {
+        val fallbackTimeoutSeconds =
+            providerType.defaultTimeoutSeconds
+                .takeIf { it > 0 }
+                ?: DEFAULT_PROVIDER_TIMEOUT_SECONDS
+        val normalizedSettings =
+            settings.copy(
+                timeoutSeconds =
+                    normalizeProviderTimeoutSeconds(
+                        timeoutSeconds = settings.timeoutSeconds,
+                        fallbackSeconds = fallbackTimeoutSeconds,
+                    ),
+            )
+        return copy(
+            providerConfigs = providerConfigs + (providerType to normalizedSettings),
+        )
+    }
 
     val openAiBaseUrl: String
         get() = endpointSettings(ProviderType.OpenAiCompatible).baseUrl
@@ -176,6 +192,8 @@ private fun defaultProviderConfigs(): Map<ProviderType, ProviderEndpointSettings
     }
 
 const val DEFAULT_PROVIDER_TIMEOUT_SECONDS: Int = 60
+const val MIN_PROVIDER_TIMEOUT_SECONDS: Int = 1
+const val MAX_PROVIDER_TIMEOUT_SECONDS: Int = 600
 const val OPENAI_DEFAULT_BASE_URL: String = "https://api.openai.com/v1"
 const val OPENAI_CODEX_DEFAULT_BASE_URL: String = "https://chatgpt.com/backend-api/codex"
 const val OPENAI_CODEX_LEGACY_DEFAULT_MODEL_ID: String = "gpt-5.3-codex-spark"
@@ -187,3 +205,15 @@ const val ANTHROPIC_DEFAULT_BASE_URL: String = "https://api.anthropic.com/v1"
 const val GEMINI_OPENAI_DEFAULT_BASE_URL: String = "https://generativelanguage.googleapis.com/v1beta/openai"
 const val DEEPSEEK_DEFAULT_BASE_URL: String = "https://api.deepseek.com"
 const val DEEPSEEK_DEFAULT_MODEL_ID: String = "deepseek-v4-flash"
+
+fun normalizeProviderTimeoutSeconds(
+    timeoutSeconds: Int,
+    fallbackSeconds: Int = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+): Int {
+    val safeFallback = fallbackSeconds.coerceIn(MIN_PROVIDER_TIMEOUT_SECONDS, MAX_PROVIDER_TIMEOUT_SECONDS)
+    return when {
+        timeoutSeconds < MIN_PROVIDER_TIMEOUT_SECONDS -> safeFallback
+        timeoutSeconds > MAX_PROVIDER_TIMEOUT_SECONDS -> MAX_PROVIDER_TIMEOUT_SECONDS
+        else -> timeoutSeconds
+    }
+}

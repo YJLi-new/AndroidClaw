@@ -100,6 +100,45 @@ class SettingsDataStoreTest {
         }
 
     @Test
+    fun `provider timeout settings are normalized to safe bounds`() =
+        runTest {
+            val unsafeSnapshot =
+                ProviderSettingsSnapshot(
+                    providerConfigs =
+                        mapOf(
+                            ProviderType.OpenAiCompatible to
+                                ProviderEndpointSettings(
+                                    baseUrl = "https://example.test/v1",
+                                    modelId = "gpt-test",
+                                    timeoutSeconds = 0,
+                                ),
+                            ProviderType.Anthropic to
+                                ProviderEndpointSettings(
+                                    baseUrl = "https://api.anthropic.com/v1",
+                                    modelId = "claude-sonnet",
+                                    timeoutSeconds = MAX_PROVIDER_TIMEOUT_SECONDS + 1,
+                                ),
+                        ) +
+                            ProviderType.configurableProviders
+                                .filterNot { it == ProviderType.OpenAiCompatible || it == ProviderType.Anthropic }
+                                .associateWith { it.defaultEndpointSettings() },
+                )
+
+            settingsDataStore.saveProviderSettings(unsafeSnapshot)
+
+            val stored = settingsDataStore.settings.first()
+
+            assertEquals(
+                DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+                stored.endpointSettings(ProviderType.OpenAiCompatible).timeoutSeconds,
+            )
+            assertEquals(
+                MAX_PROVIDER_TIMEOUT_SECONDS,
+                stored.endpointSettings(ProviderType.Anthropic).timeoutSeconds,
+            )
+        }
+
+    @Test
     fun `legacy openai storage value maps to openai compatible`() {
         assertEquals(
             ProviderType.OpenAiCompatible,

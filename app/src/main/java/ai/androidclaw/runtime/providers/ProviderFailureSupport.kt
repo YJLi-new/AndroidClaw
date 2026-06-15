@@ -1,6 +1,7 @@
 package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.normalizeProviderTimeoutSeconds
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -33,7 +34,7 @@ internal fun timeoutFailure(
     ModelProviderException(
         kind = ModelProviderFailureKind.Timeout,
         userMessage = "Provider request timed out.",
-        details = "Timed out after ${settings.timeoutSeconds} seconds.",
+        details = "Timed out after ${normalizeProviderTimeoutSeconds(settings.timeoutSeconds)} seconds.",
         cause = error,
     )
 

@@ -1,6 +1,7 @@
 package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.normalizeProviderTimeoutSeconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -63,13 +64,15 @@ internal fun validateRemoteProviderSettings(
     }
 }
 
-internal fun OkHttpClient.withProviderTimeouts(settings: ProviderEndpointSettings): OkHttpClient =
-    newBuilder()
-        .callTimeout(settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-        .connectTimeout(settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-        .readTimeout(settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
-        .writeTimeout(settings.timeoutSeconds.toLong(), TimeUnit.SECONDS)
+internal fun OkHttpClient.withProviderTimeouts(settings: ProviderEndpointSettings): OkHttpClient {
+    val timeoutSeconds = normalizeProviderTimeoutSeconds(settings.timeoutSeconds).toLong()
+    return newBuilder()
+        .callTimeout(timeoutSeconds, TimeUnit.SECONDS)
+        .connectTimeout(timeoutSeconds, TimeUnit.SECONDS)
+        .readTimeout(timeoutSeconds, TimeUnit.SECONDS)
+        .writeTimeout(timeoutSeconds, TimeUnit.SECONDS)
         .build()
+}
 
 internal fun OkHttpClient.withStreamingProviderTimeouts(): OkHttpClient =
     newBuilder()

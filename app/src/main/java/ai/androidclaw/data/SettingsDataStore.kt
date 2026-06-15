@@ -87,13 +87,18 @@ class SettingsDataStore(
             preferences[providerTypeKey] = settings.providerType.storageValue
             ProviderType.configurableProviders.forEach { providerType ->
                 val providerSettings = settings.endpointSettings(providerType)
+                val timeoutSeconds =
+                    normalizeProviderTimeoutSeconds(
+                        timeoutSeconds = providerSettings.timeoutSeconds,
+                        fallbackSeconds = providerType.defaultTimeoutSeconds,
+                    )
                 preferences[baseUrlKey(providerType)] = providerSettings.baseUrl.trim()
                 preferences[modelIdKey(providerType)] = providerSettings.modelId.trim()
-                preferences[timeoutSecondsKey(providerType)] = providerSettings.timeoutSeconds
+                preferences[timeoutSecondsKey(providerType)] = timeoutSeconds
                 if (providerType == ProviderType.OpenAiCompatible) {
                     preferences[legacyOpenAiBaseUrlKey] = providerSettings.baseUrl.trim()
                     preferences[legacyOpenAiModelIdKey] = providerSettings.modelId.trim()
-                    preferences[legacyOpenAiTimeoutSecondsKey] = providerSettings.timeoutSeconds
+                    preferences[legacyOpenAiTimeoutSecondsKey] = timeoutSeconds
                 }
             }
         }
@@ -189,16 +194,22 @@ class SettingsDataStore(
     private fun readTimeoutSeconds(
         preferences: Preferences,
         providerType: ProviderType,
-    ): Int =
-        when (providerType) {
-            ProviderType.OpenAiCompatible -> {
-                preferences[timeoutSecondsKey(providerType)]
-                    ?: preferences[legacyOpenAiTimeoutSecondsKey]
-                    ?: providerType.defaultTimeoutSeconds
-            }
+    ): Int {
+        val storedValue =
+            when (providerType) {
+                ProviderType.OpenAiCompatible -> {
+                    preferences[timeoutSecondsKey(providerType)]
+                        ?: preferences[legacyOpenAiTimeoutSecondsKey]
+                        ?: providerType.defaultTimeoutSeconds
+                }
 
-            else -> preferences[timeoutSecondsKey(providerType)] ?: providerType.defaultTimeoutSeconds
-        }
+                else -> preferences[timeoutSecondsKey(providerType)] ?: providerType.defaultTimeoutSeconds
+            }
+        return normalizeProviderTimeoutSeconds(
+            timeoutSeconds = storedValue,
+            fallbackSeconds = providerType.defaultTimeoutSeconds,
+        )
+    }
 
     private fun baseUrlKey(providerType: ProviderType) = stringPreferencesKey("provider_${providerType.storageValue}_base_url")
 
