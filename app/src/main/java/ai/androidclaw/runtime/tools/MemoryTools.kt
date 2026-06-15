@@ -111,11 +111,23 @@ internal fun memoryToolEntries(
                         },
                 )
             }
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MemoryRepository.DEFAULT_SEARCH_LIMIT,
+                            maxValue = MemoryRepository.MAX_SEARCH_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
             val memories =
                 memoryRepository.search(
                     ownerUserId = settings.installUserId,
                     query = query,
-                    limit = arguments.optionalInt("limit", MemoryRepository.DEFAULT_SEARCH_LIMIT),
+                    limit = limit,
                 )
             memoryListResult(
                 memories = memories,
@@ -141,10 +153,22 @@ internal fun memoryToolEntries(
             if (!settings.enabled) {
                 return@Entry memoryDisabledResult()
             }
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MemoryRepository.DEFAULT_LIST_LIMIT,
+                            maxValue = MemoryRepository.MAX_LIST_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
             val memories =
                 memoryRepository.listRecent(
                     ownerUserId = settings.installUserId,
-                    limit = arguments.optionalInt("limit", MemoryRepository.DEFAULT_LIST_LIMIT),
+                    limit = limit,
                 )
             memoryListResult(
                 memories = memories,
@@ -472,7 +496,58 @@ private fun JsonObject.optionalText(field: String): String? {
     return primitive.contentOrNull?.trim()?.ifBlank { null }
 }
 
-private fun JsonObject.optionalInt(
+private sealed interface MemoryLimitParseResult {
+    data class Success(
+        val value: Int,
+    ) : MemoryLimitParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : MemoryLimitParseResult
+}
+
+private fun JsonObject.parseMemoryLimit(
     field: String,
     defaultValue: Int,
-): Int = optionalText(field)?.toIntOrNull() ?: defaultValue
+    maxValue: Int,
+): MemoryLimitParseResult {
+    val rawValue = optionalText(field) ?: return MemoryLimitParseResult.Success(defaultValue)
+    val parsedValue =
+        rawValue.toLongOrNull()
+            ?: return MemoryLimitParseResult.Failure(
+                invalidMemoryLimitResult(
+                    field = field,
+                    maxValue = maxValue,
+                    rawValue = rawValue,
+                ),
+            )
+    if (parsedValue !in 1L..maxValue.toLong()) {
+        return MemoryLimitParseResult.Failure(
+            invalidMemoryLimitResult(
+                field = field,
+                maxValue = maxValue,
+                rawValue = rawValue,
+            ),
+        )
+    }
+    return MemoryLimitParseResult.Success(parsedValue.toInt())
+}
+
+private fun invalidMemoryLimitResult(
+    field: String,
+    maxValue: Int,
+    rawValue: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Memory $field must be an integer from 1 to $maxValue.",
+        errorCode = "INVALID_MEMORY_LIMIT",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_MEMORY_LIMIT")
+                put("field", field)
+                put("max", maxValue)
+                put("received", rawValue.take(MAX_MEMORY_LIMIT_PAYLOAD_CHARS))
+            },
+    )
+
+private const val MAX_MEMORY_LIMIT_PAYLOAD_CHARS = 80

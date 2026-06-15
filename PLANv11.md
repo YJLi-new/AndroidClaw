@@ -103,3 +103,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   durations. Oversized `maxRetries` and `repeatEveryMinutes` values now fail as
   `INVALID_ARGUMENTS` instead of creating surprising tasks or escaping the tool
   failure path.
+- 2026-06-15: Hardened memory search/list limit parsing. Explicit malformed,
+  non-positive, or over-maximum `limit` values now fail with
+  `INVALID_MEMORY_LIMIT` instead of silently falling back to defaults or relying
+  on repository clamping, keeping model-provided memory tool arguments typed and
+  bounded at the boundary.

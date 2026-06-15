@@ -694,6 +694,48 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory tools reject malformed or out of range limits`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+
+            val malformedSearchLimit =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "compact UI")
+                            put("limit", "abc")
+                        },
+                )
+            val nonPositiveListLimit =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.list"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 0)
+                        },
+                )
+            val oversizedSearchLimit =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "compact UI")
+                            put("limit", MemoryRepository.MAX_SEARCH_LIMIT + 1)
+                        },
+                )
+
+            assertFalse(malformedSearchLimit.success)
+            assertEquals("INVALID_MEMORY_LIMIT", malformedSearchLimit.errorCode)
+            assertEquals("limit", malformedSearchLimit.payload["field"]?.jsonPrimitive?.content)
+            assertFalse(nonPositiveListLimit.success)
+            assertEquals("INVALID_MEMORY_LIMIT", nonPositiveListLimit.errorCode)
+            assertFalse(oversizedSearchLimit.success)
+            assertEquals("INVALID_MEMORY_LIMIT", oversizedSearchLimit.errorCode)
+        }
+
+    @Test
     fun `memory clear works while memory is disabled`() =
         runTest {
             val registry = buildRegistry()
