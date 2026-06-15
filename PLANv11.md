@@ -239,3 +239,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   explicit caps before credential construction, oversized JWT payload segments
   are ignored before decoding, identity fields are bounded before UI display,
   and overflowed `expires_in` values no longer wrap expiry timestamps.
+- 2026-06-16: Hardened repository SQL LIKE searches. Session-title and
+  message-content search now use bounded escaped literal patterns, so `%`, `_`,
+  and backslash queries no longer broaden into accidental wildcard scans while
+  normal active-session search behavior is preserved.

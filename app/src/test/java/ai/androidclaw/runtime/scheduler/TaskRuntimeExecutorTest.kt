@@ -210,9 +210,9 @@ private class ThrowingMessageDao(
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)
 
     override suspend fun searchByContent(
-        query: String,
+        queryPattern: String,
         limit: Int,
-    ): List<MessageSearchRow> = delegate.searchByContent(query, limit)
+    ): List<MessageSearchRow> = delegate.searchByContent(queryPattern, limit)
 
     override suspend fun deleteBySessionId(sessionId: String) {
         delegate.deleteBySessionId(sessionId)

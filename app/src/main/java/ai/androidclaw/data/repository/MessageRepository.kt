@@ -88,12 +88,12 @@ class MessageRepository(
         query: String,
         limit: Int,
     ): List<SearchResult> {
-        val trimmedQuery = query.trim()
+        val queryPattern = query.toSqlLikeContainsPatternOrNull()
         val boundedLimit = limit.toSafeQueryLimit()
-        if (trimmedQuery.isBlank() || boundedLimit == 0) {
+        if (queryPattern == null || boundedLimit == 0) {
             return emptyList()
         }
-        return dao.searchByContent(trimmedQuery, boundedLimit).map(MessageSearchRow::toSearchResult)
+        return dao.searchByContent(queryPattern, boundedLimit).map(MessageSearchRow::toSearchResult)
     }
 
     suspend fun deleteSessionMessages(sessionId: String) {

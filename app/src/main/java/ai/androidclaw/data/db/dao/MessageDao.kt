@@ -68,13 +68,13 @@ interface MessageDao {
         FROM messages
         INNER JOIN sessions ON sessions.id = messages.sessionId
         WHERE sessions.archivedAt IS NULL
-          AND messages.content LIKE '%' || :query || '%'
+          AND messages.content LIKE :queryPattern ESCAPE '\'
         ORDER BY messages.createdAt DESC, messages.rowid DESC
         LIMIT :limit
         """,
     )
     suspend fun searchByContent(
-        query: String,
+        queryPattern: String,
         limit: Int,
     ): List<MessageSearchRow>
 

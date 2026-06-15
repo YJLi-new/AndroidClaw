@@ -128,12 +128,12 @@ class SessionRepository(
         query: String,
         limit: Int,
     ): List<SearchResult> {
-        val trimmedQuery = query.trim()
+        val queryPattern = query.toSqlLikeContainsPatternOrNull()
         val boundedLimit = limit.coerceIn(0, SESSION_SEARCH_MAX_LIMIT)
-        if (trimmedQuery.isBlank() || boundedLimit == 0) {
+        if (queryPattern == null || boundedLimit == 0) {
             return emptyList()
         }
-        return dao.searchByTitle(trimmedQuery, boundedLimit).map { session ->
+        return dao.searchByTitle(queryPattern, boundedLimit).map { session ->
             SearchResult(
                 sessionId = session.id,
                 sessionTitle = session.title.toBoundedSessionText(SESSION_TITLE_MAX_CHARS),

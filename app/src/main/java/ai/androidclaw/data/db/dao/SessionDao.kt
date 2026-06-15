@@ -52,13 +52,13 @@ interface SessionDao {
         """
         SELECT * FROM sessions
         WHERE archivedAt IS NULL
-          AND title LIKE '%' || :query || '%'
+          AND title LIKE :queryPattern ESCAPE '\'
         ORDER BY updatedAt DESC
         LIMIT :limit
         """,
     )
     suspend fun searchByTitle(
-        query: String,
+        queryPattern: String,
         limit: Int,
     ): List<SessionEntity>
 }

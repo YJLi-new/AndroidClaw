@@ -112,6 +112,30 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `session search treats sql wildcard characters as literal text`() =
+        runTest {
+            val literal = repository.createSession("""Path C:\tmp is 100%_ready""")
+            val normal = repository.createSession("Alpha plan")
+
+            assertEquals(listOf(literal.id), repository.searchSessions("%", limit = 10).map { it.sessionId })
+            assertEquals(listOf(literal.id), repository.searchSessions("_", limit = 10).map { it.sessionId })
+            assertEquals(listOf(literal.id), repository.searchSessions("""\""", limit = 10).map { it.sessionId })
+            assertEquals(listOf(literal.id), repository.searchSessions("%_ready", limit = 10).map { it.sessionId })
+            assertEquals(listOf(normal.id), repository.searchSessions("plan", limit = 10).map { it.sessionId })
+        }
+
+    @Test
+    fun `oversized session search query returns empty results`() =
+        runTest {
+            repository.createSession("Alpha plan")
+
+            assertEquals(
+                emptyList<SessionRepository.SearchResult>(),
+                repository.searchSessions("Alpha".repeat(SQLITE_LIKE_SEARCH_QUERY_MAX_CHARS), limit = 10),
+            )
+        }
+
+    @Test
     fun `session search limits are capped at repository boundary`() =
         runTest {
             repeat(SESSION_SEARCH_MAX_LIMIT + 2) { index ->

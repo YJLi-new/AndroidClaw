@@ -200,6 +200,44 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `message search treats sql wildcard characters as literal text`() =
+        runTest {
+            val literal =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.User,
+                    content = """Path C:\tmp is 100%_ready""",
+                )
+            val normal =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.User,
+                    content = "Alpha status is green",
+                )
+
+            assertEquals(listOf(literal.id), repository.searchMessages("%", limit = 10).map { it.messageId })
+            assertEquals(listOf(literal.id), repository.searchMessages("_", limit = 10).map { it.messageId })
+            assertEquals(listOf(literal.id), repository.searchMessages("""\""", limit = 10).map { it.messageId })
+            assertEquals(listOf(literal.id), repository.searchMessages("%_ready", limit = 10).map { it.messageId })
+            assertEquals(listOf(normal.id), repository.searchMessages("status", limit = 10).map { it.messageId })
+        }
+
+    @Test
+    fun `oversized message search query returns empty results`() =
+        runTest {
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.User,
+                content = "Alpha status is green",
+            )
+
+            assertEquals(
+                emptyList<MessageRepository.SearchResult>(),
+                repository.searchMessages("Alpha".repeat(SQLITE_LIKE_SEARCH_QUERY_MAX_CHARS), limit = 10),
+            )
+        }
+
+    @Test
     fun `message query limits are capped at repository boundary`() =
         runTest {
             repeat(MESSAGE_QUERY_MAX_LIMIT + 2) { index ->
