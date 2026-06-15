@@ -243,3 +243,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   message-content search now use bounded escaped literal patterns, so `%`, `_`,
   and backslash queries no longer broaden into accidental wildcard scans while
   normal active-session search behavior is preserved.
+- 2026-06-16: Bounded session compaction boundary ids. Summary compaction writes
+  now trim, cap, and drop blank boundary ids, legacy reads apply the same bound,
+  and boundary maintenance queries no longer surface rows whose persisted
+  boundary normalizes to null.

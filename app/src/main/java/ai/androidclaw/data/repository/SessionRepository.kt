@@ -12,6 +12,7 @@ import java.util.UUID
 
 internal const val SESSION_TITLE_MAX_CHARS = 160
 internal const val SESSION_SUMMARY_MAX_CHARS = 4_000
+internal const val SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS = 256
 internal const val SESSION_SEARCH_MAX_LIMIT = 200
 
 class SessionRepository(
@@ -56,6 +57,7 @@ class SessionRepository(
         dao
             .getSessionsWithCompactionBoundary()
             .map(SessionEntity::toDomain)
+            .filter { session -> session.compactedUntilMessageId != null }
 
     fun observeSessions(): Flow<List<Session>> =
         dao.getAllSessions().map { sessions ->
@@ -108,7 +110,7 @@ class SessionRepository(
         dao.update(
             existing.copy(
                 summaryText = summaryText.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
-                compactedUntilMessageId = compactedUntilMessageId,
+                compactedUntilMessageId = compactedUntilMessageId.toBoundedCompactionBoundaryIdOrNull(),
                 updatedAt = Instant.now().toEpochMilli(),
             ),
         )
@@ -158,5 +160,10 @@ private fun SessionEntity.toDomain(): Session =
         updatedAt = Instant.ofEpochMilli(updatedAt),
         archived = archivedAt != null,
         summaryText = summaryText?.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
-        compactedUntilMessageId = compactedUntilMessageId,
+        compactedUntilMessageId = compactedUntilMessageId?.toBoundedCompactionBoundaryIdOrNull(),
     )
+
+private fun String.toBoundedCompactionBoundaryIdOrNull(): String? =
+    trim()
+        .take(SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS)
+        .takeIf(String::isNotBlank)

@@ -204,8 +204,47 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `compaction boundary ids are bounded before persistence and on read`() =
+        runTest {
+            val created = repository.createSession(title = "Compact me")
+            val longBoundaryId = "boundary-" + "b".repeat(SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS + 20)
+            val expectedBoundaryId = longBoundaryId.take(SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS)
+
+            repository.updateSummaryAndCompactionBoundary(
+                id = created.id,
+                summaryText = "Compact summary.",
+                compactedUntilMessageId = longBoundaryId,
+            )
+
+            val raw = database.sessionDao().getById(created.id)
+            val stored = repository.getSession(created.id)
+            val withBoundary = repository.getSessionsWithCompactionBoundary().single()
+
+            assertEquals(expectedBoundaryId, raw?.compactedUntilMessageId)
+            assertEquals(expectedBoundaryId, stored?.compactedUntilMessageId)
+            assertEquals(expectedBoundaryId, withBoundary.compactedUntilMessageId)
+        }
+
+    @Test
+    fun `blank compaction boundary ids are stored as null and ignored by boundary query`() =
+        runTest {
+            val created = repository.createSession(title = "Blank boundary")
+
+            repository.updateSummaryAndCompactionBoundary(
+                id = created.id,
+                summaryText = "Compact summary.",
+                compactedUntilMessageId = "   ",
+            )
+
+            assertEquals(null, database.sessionDao().getById(created.id)?.compactedUntilMessageId)
+            assertEquals(null, repository.getSession(created.id)?.compactedUntilMessageId)
+            assertEquals(emptyList<ai.androidclaw.data.model.Session>(), repository.getSessionsWithCompactionBoundary())
+        }
+
+    @Test
     fun `legacy oversized session rows are bounded on read and search`() =
         runTest {
+            val longBoundaryId = "legacy-boundary-" + "b".repeat(SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS + 20)
             database.sessionDao().insert(
                 SessionEntity(
                     id = "legacy-session",
@@ -215,15 +254,38 @@ class SessionRepositoryTest {
                     updatedAt = 1L,
                     archivedAt = null,
                     summaryText = "summary ".repeat(SESSION_SUMMARY_MAX_CHARS),
-                    compactedUntilMessageId = null,
+                    compactedUntilMessageId = longBoundaryId,
                 ),
             )
 
             val stored = repository.getSession("legacy-session")
             val searchResult = repository.searchSessions("Legacy", limit = 1).single()
+            val withBoundary = repository.getSessionsWithCompactionBoundary().single()
 
             assertEquals(SESSION_TITLE_MAX_CHARS, stored?.title?.length)
             assertEquals(SESSION_SUMMARY_MAX_CHARS, stored?.summaryText?.length)
+            assertEquals(longBoundaryId.take(SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS), stored?.compactedUntilMessageId)
+            assertEquals(longBoundaryId.take(SESSION_COMPACTION_BOUNDARY_ID_MAX_CHARS), withBoundary.compactedUntilMessageId)
             assertEquals(SESSION_TITLE_MAX_CHARS, searchResult.sessionTitle.length)
+        }
+
+    @Test
+    fun `legacy blank compaction boundary rows are ignored by boundary query`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "blank-legacy-boundary",
+                    title = "Blank legacy boundary",
+                    isMain = false,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                    archivedAt = null,
+                    summaryText = "summary",
+                    compactedUntilMessageId = "   ",
+                ),
+            )
+
+            assertEquals(null, repository.getSession("blank-legacy-boundary")?.compactedUntilMessageId)
+            assertEquals(emptyList<ai.androidclaw.data.model.Session>(), repository.getSessionsWithCompactionBoundary())
         }
 }
