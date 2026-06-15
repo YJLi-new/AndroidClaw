@@ -2,6 +2,8 @@ package ai.androidclaw.feature.skills
 
 import ai.androidclaw.app.SkillsDependencies
 import ai.androidclaw.app.viewModelFactory
+import ai.androidclaw.data.SKILL_CONFIG_VALUE_MAX_CHARS
+import ai.androidclaw.data.SKILL_SECRET_VALUE_MAX_CHARS
 import ai.androidclaw.runtime.skills.SkillConfigField
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSecretField
@@ -14,6 +16,30 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+internal const val SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE =
+    "Skill configuration input truncated by AndroidClaw to keep the dialog responsive."
+
+private data class BoundedSkillConfigurationInput(
+    val value: String,
+    val wasTruncated: Boolean,
+)
+
+private fun String.toBoundedSkillConfigurationInput(maxChars: Int): BoundedSkillConfigurationInput {
+    require(maxChars > 0) { "Skill configuration input max must be positive." }
+    val boundedValue = take(maxChars)
+    return BoundedSkillConfigurationInput(
+        value = boundedValue,
+        wasTruncated = length > boundedValue.length,
+    )
+}
+
+private fun skillConfigurationInputMessage(wasTruncated: Boolean): String? =
+    if (wasTruncated) {
+        SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE
+    } else {
+        null
+    }
 
 data class SkillsUiState(
     val loading: Boolean = true,
@@ -120,14 +146,15 @@ class SkillsViewModel(
         envName: String,
         value: String,
     ) {
+        val boundedInput = value.toBoundedSkillConfigurationInput(SKILL_SECRET_VALUE_MAX_CHARS)
         updateDialog { dialog ->
             dialog.copy(
-                message = null,
+                message = skillConfigurationInputMessage(boundedInput.wasTruncated),
                 secretFields =
                     dialog.secretFields.map { field ->
                         if (field.envName == envName) {
                             field.copy(
-                                draftValue = value,
+                                draftValue = boundedInput.value,
                                 clearRequested = false,
                             )
                         } else {
@@ -161,14 +188,15 @@ class SkillsViewModel(
         path: String,
         value: String,
     ) {
+        val boundedInput = value.toBoundedSkillConfigurationInput(SKILL_CONFIG_VALUE_MAX_CHARS)
         updateDialog { dialog ->
             dialog.copy(
-                message = null,
+                message = skillConfigurationInputMessage(boundedInput.wasTruncated),
                 configFields =
                     dialog.configFields.map { field ->
                         if (field.path == path) {
                             field.copy(
-                                draftValue = value,
+                                draftValue = boundedInput.value,
                                 clearRequested = false,
                             )
                         } else {

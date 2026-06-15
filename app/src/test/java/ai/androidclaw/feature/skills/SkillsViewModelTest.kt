@@ -1,5 +1,7 @@
 package ai.androidclaw.feature.skills
 
+import ai.androidclaw.data.SKILL_CONFIG_VALUE_MAX_CHARS
+import ai.androidclaw.data.SKILL_SECRET_VALUE_MAX_CHARS
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.repository.SkillRepository
@@ -94,6 +96,61 @@ class SkillsViewModelTest {
             assertEquals("calendar.accountId", dialog.configFields.single().path)
             assertEquals("primary", dialog.configFields.single().storedValue)
             assertEquals("primary", dialog.configFields.single().draftValue)
+        }
+
+    @Test
+    fun `configuration drafts are bounded before reaching dialog state`() =
+        runTest {
+            val viewModel =
+                SkillsViewModel(
+                    skillManager =
+                        createSkillManager(
+                            skill = configSkill(),
+                            configStore = InMemorySkillConfigStore(),
+                            secretStore = InMemorySkillSecretStore(),
+                        ),
+                )
+
+            val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
+            viewModel.openConfiguration(loaded.skills.single())
+            waitForState(viewModel) { it.configurationDialog?.loading == false }
+
+            val oversizedSecret = "s".repeat(SKILL_SECRET_VALUE_MAX_CHARS + 20)
+            val oversizedConfig = "c".repeat(SKILL_CONFIG_VALUE_MAX_CHARS + 20)
+
+            viewModel.updateSecretDraft("X_API_KEY", oversizedSecret)
+            var dialog =
+                waitForState(viewModel) {
+                    it.configurationDialog
+                        ?.secretFields
+                        ?.single()
+                        ?.draftValue
+                        ?.length == SKILL_SECRET_VALUE_MAX_CHARS
+                }.configurationDialog!!
+            assertEquals(oversizedSecret.take(SKILL_SECRET_VALUE_MAX_CHARS), dialog.secretFields.single().draftValue)
+            assertEquals(SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE, dialog.message)
+
+            viewModel.updateConfigDraft("calendar.accountId", oversizedConfig)
+            dialog =
+                waitForState(viewModel) {
+                    it.configurationDialog
+                        ?.configFields
+                        ?.single()
+                        ?.draftValue
+                        ?.length == SKILL_CONFIG_VALUE_MAX_CHARS
+                }.configurationDialog!!
+            assertEquals(oversizedConfig.take(SKILL_CONFIG_VALUE_MAX_CHARS), dialog.configFields.single().draftValue)
+            assertEquals(SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE, dialog.message)
+
+            viewModel.updateSecretDraft("X_API_KEY", "short-secret")
+            dialog =
+                waitForState(viewModel) {
+                    it.configurationDialog
+                        ?.secretFields
+                        ?.single()
+                        ?.draftValue == "short-secret"
+                }.configurationDialog!!
+            assertEquals(null, dialog.message)
         }
 
     @Test

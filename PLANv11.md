@@ -283,3 +283,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   Base URLs, model ids, timeout text, and API-key drafts now cap in
   `SettingsViewModel`, protecting both Settings and onboarding provider forms
   before DataStore or secret-store persistence bounds are reached.
+- 2026-06-16: Bounded skill configuration drafts before Compose state growth.
+  Secret and config values entered in the skill configuration dialog now share
+  the existing secret/config store budgets and surface a truncation notice before
+  oversized text can inflate dialog state.
