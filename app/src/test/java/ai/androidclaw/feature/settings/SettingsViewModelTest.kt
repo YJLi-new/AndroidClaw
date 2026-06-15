@@ -1,5 +1,8 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
+import ai.androidclaw.data.PROVIDER_BASE_URL_MAX_CHARS
+import ai.androidclaw.data.PROVIDER_MODEL_ID_MAX_CHARS
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSettingsSnapshot
@@ -164,6 +167,43 @@ class SettingsViewModelTest {
                 "sk-ant-test",
                 secretStore.readApiKey(ProviderType.Anthropic),
             )
+        }
+
+    @Test
+    fun `provider text edits are bounded before reaching settings state`() =
+        runTest {
+            val viewModel = buildViewModel()
+
+            viewModel.selectProviderType(ProviderType.Anthropic)
+            waitForState(viewModel) { it.providerType == ProviderType.Anthropic }
+
+            val oversizedBaseUrl = "https://api.example.test/" + "b".repeat(PROVIDER_BASE_URL_MAX_CHARS + 20)
+            val oversizedModelId = "model-" + "m".repeat(PROVIDER_MODEL_ID_MAX_CHARS + 20)
+            val oversizedTimeout = "9".repeat(SETTINGS_TIMEOUT_INPUT_MAX_CHARS + 20)
+            val oversizedApiKey = "sk-" + "k".repeat(PROVIDER_API_KEY_MAX_CHARS + 20)
+
+            viewModel.onBaseUrlChanged(oversizedBaseUrl)
+            var state = waitForState(viewModel) { it.statusMessage == SETTINGS_INPUT_TRUNCATED_NOTICE }
+            assertEquals(oversizedBaseUrl.take(PROVIDER_BASE_URL_MAX_CHARS), state.baseUrl)
+
+            viewModel.onModelIdChanged(oversizedModelId)
+            state = waitForState(viewModel) { it.modelId.length == PROVIDER_MODEL_ID_MAX_CHARS }
+            assertEquals(oversizedModelId.take(PROVIDER_MODEL_ID_MAX_CHARS), state.modelId)
+            assertEquals(SETTINGS_INPUT_TRUNCATED_NOTICE, state.statusMessage)
+
+            viewModel.onTimeoutChanged(oversizedTimeout)
+            state = waitForState(viewModel) { it.timeoutSeconds.length == SETTINGS_TIMEOUT_INPUT_MAX_CHARS }
+            assertEquals(oversizedTimeout.take(SETTINGS_TIMEOUT_INPUT_MAX_CHARS), state.timeoutSeconds)
+            assertEquals(SETTINGS_INPUT_TRUNCATED_NOTICE, state.statusMessage)
+
+            viewModel.onApiKeyChanged(oversizedApiKey)
+            state = waitForState(viewModel) { it.apiKeyDraft.length == PROVIDER_API_KEY_MAX_CHARS }
+            assertEquals(oversizedApiKey.take(PROVIDER_API_KEY_MAX_CHARS), state.apiKeyDraft)
+            assertEquals(SETTINGS_INPUT_TRUNCATED_NOTICE, state.statusMessage)
+
+            viewModel.onModelIdChanged("claude-sonnet-4-5")
+            state = waitForState(viewModel) { it.modelId == "claude-sonnet-4-5" }
+            assertNull(state.statusMessage)
         }
 
     @Test

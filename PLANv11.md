@@ -279,3 +279,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   names and prompts now share repository text budgets in the scheduler screen,
   schedule text fields use small explicit UI budgets, and truncation notices are
   cleared without overwriting unrelated validation errors.
+- 2026-06-16: Bounded provider settings drafts before Compose state growth.
+  Base URLs, model ids, timeout text, and API-key drafts now cap in
+  `SettingsViewModel`, protecting both Settings and onboarding provider forms
+  before DataStore or secret-store persistence bounds are reached.

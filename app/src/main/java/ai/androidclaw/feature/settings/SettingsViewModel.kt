@@ -4,6 +4,9 @@ import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.MAX_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.MIN_PROVIDER_TIMEOUT_SECONDS
+import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
+import ai.androidclaw.data.PROVIDER_BASE_URL_MAX_CHARS
+import ai.androidclaw.data.PROVIDER_MODEL_ID_MAX_CHARS
 import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderOAuthCredential
@@ -64,6 +67,31 @@ data class SettingsUiState(
     val memoryStoredCount: Int = 0,
     val memoryInstallUserId: String = "",
 )
+
+internal const val SETTINGS_TIMEOUT_INPUT_MAX_CHARS = 10
+internal const val SETTINGS_INPUT_TRUNCATED_NOTICE =
+    "Provider setting text truncated by AndroidClaw to keep settings responsive."
+
+private data class BoundedSettingsInput(
+    val value: String,
+    val wasTruncated: Boolean,
+)
+
+private fun String.toBoundedSettingsInput(maxChars: Int): BoundedSettingsInput {
+    require(maxChars > 0) { "Settings input max must be positive." }
+    val boundedValue = take(maxChars)
+    return BoundedSettingsInput(
+        value = boundedValue,
+        wasTruncated = length > boundedValue.length,
+    )
+}
+
+private fun SettingsUiState.nextStatusAfterSettingsInput(wasTruncated: Boolean): String? =
+    if (wasTruncated) {
+        SETTINGS_INPUT_TRUNCATED_NOTICE
+    } else {
+        null
+    }
 
 class SettingsViewModel(
     private val providerRegistry: ProviderRegistry,
@@ -208,68 +236,72 @@ class SettingsViewModel(
     }
 
     fun onBaseUrlChanged(value: String) {
+        val boundedInput = value.toBoundedSettingsInput(PROVIDER_BASE_URL_MAX_CHARS)
         mutateState {
             it.copy(
-                baseUrl = value,
+                baseUrl = boundedInput.value,
                 configured =
                     isConfigured(
                         providerType = it.providerType,
-                        baseUrl = value,
+                        baseUrl = boundedInput.value,
                         modelId = it.modelId,
                         apiKeyDraft = it.apiKeyDraft,
                         hasStoredApiKey = it.hasStoredApiKey,
                         hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
-                statusMessage = null,
+                statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
             )
         }
     }
 
     fun onModelIdChanged(value: String) {
+        val boundedInput = value.toBoundedSettingsInput(PROVIDER_MODEL_ID_MAX_CHARS)
         mutateState {
             it.copy(
-                modelId = value,
+                modelId = boundedInput.value,
                 configured =
                     isConfigured(
                         providerType = it.providerType,
                         baseUrl = it.baseUrl,
-                        modelId = value,
+                        modelId = boundedInput.value,
                         apiKeyDraft = it.apiKeyDraft,
                         hasStoredApiKey = it.hasStoredApiKey,
                         hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
-                statusMessage = null,
+                statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
             )
         }
     }
 
     fun onTimeoutChanged(value: String) {
+        val boundedInput = value.toBoundedSettingsInput(SETTINGS_TIMEOUT_INPUT_MAX_CHARS)
         mutateState {
             it.copy(
-                timeoutSeconds = value,
+                timeoutSeconds = boundedInput.value,
                 lastValidationSucceeded = false,
-                statusMessage = null,
+                statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
             )
         }
     }
 
     fun onApiKeyChanged(value: String) {
+        val boundedInput = value.toBoundedSettingsInput(PROVIDER_API_KEY_MAX_CHARS)
         mutateState {
             it.copy(
-                apiKeyDraft = value,
+                apiKeyDraft = boundedInput.value,
                 configured =
                     isConfigured(
                         providerType = it.providerType,
                         baseUrl = it.baseUrl,
                         modelId = it.modelId,
-                        apiKeyDraft = value,
+                        apiKeyDraft = boundedInput.value,
                         hasStoredApiKey = it.hasStoredApiKey,
                         hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
-                statusMessage = null,
+                statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
             )
         }
     }
