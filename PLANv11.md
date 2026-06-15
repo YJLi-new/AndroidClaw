@@ -195,3 +195,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   and cross-session memory item text, with explicit omitted-item markers so
   imported skills or caller-provided memories cannot inflate prompt context
   without bound.
+- 2026-06-16: Bounded AgentRunner skill metadata outside the system prompt.
+  Provider-facing `enabledSkills` metadata and persisted "Active skills" message
+  suffixes now share the prompt caps for skill count and text lengths, preventing
+  oversized imported skill names or instructions from bypassing prompt assembly
+  bounds.

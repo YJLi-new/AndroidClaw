@@ -442,15 +442,7 @@ class AgentRunner(
             requestId = UUID.randomUUID().toString(),
             messageHistory = messageHistory,
             systemPrompt = systemPrompt,
-            enabledSkills =
-                selectedSkills.map { skill ->
-                    ModelSkillMetadata(
-                        id = skill.id,
-                        name = skill.displayName,
-                        description = skill.frontmatter?.description.orEmpty(),
-                        instructions = skill.instructionsMd,
-                    )
-                },
+            enabledSkills = selectedSkills.toBoundedModelSkillMetadata(),
             toolDescriptors = toolDescriptors,
             runMode = runMode,
         )
@@ -913,16 +905,43 @@ private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
 private const val COMPACT_SOURCE_MESSAGE_LIMIT = 48
 private val COMPACT_WHITESPACE_REGEX = Regex("\\s+")
 
-private fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String {
+internal fun List<SkillSnapshot>.toBoundedModelSkillMetadata(): List<ModelSkillMetadata> =
+    take(MAX_PROMPT_SKILLS).map { skill ->
+        ModelSkillMetadata(
+            id = skill.id.toAgentSkillText(MAX_PROMPT_SKILL_NAME_CHARS),
+            name = skill.displayName.toAgentSkillText(MAX_PROMPT_SKILL_NAME_CHARS),
+            description =
+                skill.frontmatter
+                    ?.description
+                    .orEmpty()
+                    .toAgentSkillText(MAX_PROMPT_SKILL_DESCRIPTION_CHARS),
+            instructions = skill.instructionsMd.toAgentSkillText(MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS),
+        )
+    }
+
+internal fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String {
     if (selectedSkills.isEmpty()) {
+        return this
+    }
+    val displayedSkillNames =
+        selectedSkills
+            .take(MAX_PROMPT_SKILLS)
+            .map { skill -> skill.displayName.trim().toAgentSkillText(MAX_PROMPT_SKILL_NAME_CHARS) }
+            .filter(String::isNotBlank)
+    if (displayedSkillNames.isEmpty()) {
         return this
     }
     return buildString {
         append(this@withActiveSkills)
         append("\n\nActive skills: ")
-        append(selectedSkills.joinToString { it.displayName })
+        append(displayedSkillNames.joinToString())
+        if (selectedSkills.size > MAX_PROMPT_SKILLS) {
+            append(", +").append(selectedSkills.size - MAX_PROMPT_SKILLS).append(" more")
+        }
     }
 }
+
+private fun String.toAgentSkillText(maxChars: Int): String = take(maxChars)
 
 private fun Throwable.isRetryable(): Boolean =
     this is ModelProviderException &&
