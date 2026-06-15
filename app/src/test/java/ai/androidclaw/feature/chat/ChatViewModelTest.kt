@@ -145,6 +145,28 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `draft input is bounded before it reaches Compose state`() =
+        runTest {
+            val oversizedDraft = "d".repeat(CHAT_DRAFT_MAX_CHARS + 2_000)
+
+            viewModel.state.test {
+                awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+                viewModel.onDraftChanged(oversizedDraft)
+
+                val bounded =
+                    awaitState {
+                        it.draft.length == CHAT_DRAFT_MAX_CHARS &&
+                            it.noticeMessage == CHAT_DRAFT_TRUNCATED_NOTICE
+                    }
+
+                assertEquals(CHAT_DRAFT_MAX_CHARS, bounded.draft.length)
+                assertEquals(CHAT_DRAFT_TRUNCATED_NOTICE, bounded.noticeMessage)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
     fun `provider failures expose retry and retry does not duplicate the user message`() =
         runTest {
             var calls = 0

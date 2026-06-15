@@ -267,3 +267,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   response accumulation, fallback preview deltas, returned assistant messages,
   and memory-capture inputs now share the message-content cap before repository
   persistence, while emitted live-preview deltas use the bounded preview notice.
+- 2026-06-16: Bounded chat draft input before Compose state growth. Pasted or
+  programmatic draft text now caps at the message-content budget and shows a
+  truncation notice, keeping the phone composer responsive before the message
+  reaches runtime and repository persistence bounds.

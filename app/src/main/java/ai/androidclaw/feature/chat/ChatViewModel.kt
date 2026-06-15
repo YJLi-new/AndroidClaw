@@ -10,6 +10,7 @@ import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
@@ -91,6 +92,9 @@ data class ChatUiState(
 internal const val CHAT_STREAMING_ASSISTANT_TEXT_MAX_CHARS = 20_000
 internal const val CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE =
     "\n\n[Live response preview truncated by AndroidClaw. The saved assistant message may contain more text.]"
+internal const val CHAT_DRAFT_MAX_CHARS = MESSAGE_CONTENT_MAX_CHARS
+internal const val CHAT_DRAFT_TRUNCATED_NOTICE =
+    "Draft truncated by AndroidClaw to keep the phone UI responsive."
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(
@@ -328,9 +332,15 @@ class ChatViewModel(
     }
 
     fun onDraftChanged(value: String) {
-        draft.value = value
+        val boundedValue = value.take(CHAT_DRAFT_MAX_CHARS)
+        draft.value = boundedValue
         errorMessage.value = null
-        noticeMessage.value = null
+        noticeMessage.value =
+            if (value.length > boundedValue.length) {
+                CHAT_DRAFT_TRUNCATED_NOTICE
+            } else {
+                null
+            }
     }
 
     fun sendCurrentDraft() {
