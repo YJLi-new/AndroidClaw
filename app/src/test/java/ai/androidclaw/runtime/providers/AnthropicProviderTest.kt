@@ -270,6 +270,48 @@ class AnthropicProviderTest {
         }
 
     @Test
+    fun `http 400 surfaces root level provider rejection detail`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"message":"anthropic rejected\nthis request"}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("anthropic rejected this request"))
+            assertTrue(!error.userMessage.contains("\n"))
+        }
+
+    @Test
+    fun `http 400 surfaces string provider error detail`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setHeader("Content-Type", "application/json")
+                    .setBody("""{"error":"invalid anthropic request\nfrom provider"}"""),
+            )
+
+            val error =
+                assertProviderException {
+                    buildProvider().generate(buildRequest())
+                }
+
+            assertEquals(ModelProviderFailureKind.Server, error.kind)
+            assertTrue(error.userMessage.contains("Provider rejected the request"))
+            assertTrue(error.userMessage.contains("invalid anthropic request from provider"))
+            assertTrue(!error.userMessage.contains("\n"))
+        }
+
+    @Test
     fun `stream ending before message stop maps to stream interrupted`() =
         runTest {
             server.enqueue(
