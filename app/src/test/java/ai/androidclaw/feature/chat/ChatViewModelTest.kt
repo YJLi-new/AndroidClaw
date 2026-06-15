@@ -256,6 +256,56 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `streaming assistant preview is bounded while turn is running`() =
+        runTest {
+            viewModel =
+                buildViewModel(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse = ModelResponse(text = "unused")
+
+                                    override fun streamGenerate(request: ModelRequest) =
+                                        flow {
+                                            emit(
+                                                ModelStreamEvent.TextDelta(
+                                                    "x".repeat(CHAT_STREAMING_ASSISTANT_TEXT_MAX_CHARS + 2_000),
+                                                ),
+                                            )
+                                            emit(ModelStreamEvent.TextDelta("more text that should not grow the preview"))
+                                            awaitCancellation()
+                                        }
+                                },
+                        ),
+                )
+
+            viewModel.state.test {
+                val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+                viewModel.onDraftChanged("hello")
+                viewModel.sendCurrentDraft()
+
+                val streaming =
+                    awaitState { state ->
+                        state.isRunning &&
+                            state.streamingAssistantText.endsWith(CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE)
+                    }
+
+                assertEquals(CHAT_STREAMING_ASSISTANT_TEXT_MAX_CHARS, streaming.streamingAssistantText.length)
+
+                viewModel.cancelActiveTurn()
+                awaitState { state -> !state.isRunning && state.streamingAssistantText.isEmpty() }
+
+                val stored = messageRepository.observeMessages(ready.currentSessionId).first()
+                assertTrue(stored.none { it.role == MessageRole.Assistant })
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
     fun `switching sessions changes the observed message list`() =
         runTest {
             val mainSession = sessionRepository.getOrCreateMainSession()

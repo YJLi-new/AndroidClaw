@@ -88,6 +88,10 @@ data class ChatUiState(
     val providerNotice: String? = null,
 )
 
+internal const val CHAT_STREAMING_ASSISTANT_TEXT_MAX_CHARS = 20_000
+internal const val CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE =
+    "\n\n[Live response preview truncated by AndroidClaw. The saved assistant message may contain more text.]"
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(
     private val sessionRepository: SessionRepository,
@@ -636,7 +640,8 @@ class ChatViewModel(
                         ).collect { event ->
                             when (event) {
                                 is AgentTurnEvent.AssistantTextDelta -> {
-                                    streamingAssistantText.value += event.text
+                                    streamingAssistantText.value =
+                                        streamingAssistantText.value.appendBoundedStreamingAssistantText(event.text)
                                     if (activeTurnStage.value.isNullOrBlank() || activeTurnStage.value == "Waiting for response") {
                                         activeTurnStage.value = "Generating response"
                                     }
@@ -865,6 +870,20 @@ private data class SearchChrome(
     val searchResults: List<ChatSearchResultUi>,
     val highlightedMessageId: String?,
 )
+
+private fun String.appendBoundedStreamingAssistantText(delta: String): String {
+    if (endsWith(CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE)) {
+        return this
+    }
+    val combined = this + delta
+    if (combined.length <= CHAT_STREAMING_ASSISTANT_TEXT_MAX_CHARS) {
+        return combined
+    }
+    val prefixLength =
+        (CHAT_STREAMING_ASSISTANT_TEXT_MAX_CHARS - CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE.length)
+            .coerceAtLeast(0)
+    return combined.take(prefixLength).trimEnd() + CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE
+}
 
 private fun buildSearchPreview(
     content: String,

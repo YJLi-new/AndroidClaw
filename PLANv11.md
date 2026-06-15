@@ -259,3 +259,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   now cap arbitrary UI-state fields, tool/kind lists, event counts, and event
   details at the formatter boundary while including the already-bounded crash
   stack trace so bug reports stay useful without unbounded payload growth.
+- 2026-06-16: Bounded live assistant streaming previews. Provider text deltas
+  now cap the transient Compose preview during a running turn with a visible
+  truncation notice, preventing oversized streams from growing UI state before
+  the final assistant message reaches repository persistence bounds.
