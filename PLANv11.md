@@ -166,3 +166,6 @@ available, or use the repo's Windows AVD scripts for manual QA.
 - 2026-06-16: Bounded event-log recent-query limits. `observeRecent` now returns
   an empty flow for non-positive limits and caps oversized limits before hitting
   SQLite, closing the remaining bounded-log query gap after event text bounding.
+- 2026-06-16: Bounded session search limits. Session title searches now return
+  empty results for non-positive limits and cap oversized requests before
+  SQLite, aligning session search with bounded message and event-log queries.

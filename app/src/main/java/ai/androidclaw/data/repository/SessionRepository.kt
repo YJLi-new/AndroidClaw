@@ -10,6 +10,8 @@ import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.util.UUID
 
+internal const val SESSION_SEARCH_MAX_LIMIT = 200
+
 class SessionRepository(
     private val dao: SessionDao,
 ) {
@@ -123,13 +125,18 @@ class SessionRepository(
     suspend fun searchSessions(
         query: String,
         limit: Int,
-    ): List<SearchResult> =
-        dao.searchByTitle(query.trim(), limit).map { session ->
+    ): List<SearchResult> {
+        val boundedLimit = limit.coerceIn(0, SESSION_SEARCH_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao.searchByTitle(query.trim(), boundedLimit).map { session ->
             SearchResult(
                 sessionId = session.id,
                 sessionTitle = session.title,
             )
         }
+    }
 }
 
 private fun SessionEntity.toDomain(): Session =

@@ -93,6 +93,27 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `non-positive session search limits return empty results`() =
+        runTest {
+            repository.createSession("Alpha plan")
+
+            assertEquals(emptyList<SessionRepository.SearchResult>(), repository.searchSessions("Alpha", limit = 0))
+            assertEquals(emptyList<SessionRepository.SearchResult>(), repository.searchSessions("Alpha", limit = -1))
+        }
+
+    @Test
+    fun `session search limits are capped at repository boundary`() =
+        runTest {
+            repeat(SESSION_SEARCH_MAX_LIMIT + 2) { index ->
+                repository.createSession("Alpha plan $index")
+            }
+
+            val results = repository.searchSessions("Alpha", limit = Int.MAX_VALUE)
+
+            assertEquals(SESSION_SEARCH_MAX_LIMIT, results.size)
+        }
+
+    @Test
     fun `summary updates preserve and set compaction boundary`() =
         runTest {
             val created = repository.createSession(title = "Compact me")
