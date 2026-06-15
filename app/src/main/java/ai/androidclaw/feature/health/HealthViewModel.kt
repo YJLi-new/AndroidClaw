@@ -52,7 +52,8 @@ class HealthViewModel(
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val capabilities = schedulerCoordinator.capabilities()
-    private val staticTools = toolRegistry.descriptors().map { it.name }
+    private val staticTools = toolRegistry.descriptors().map { it.name }.toBoundedHealthUiList()
+    private val supportedKinds = capabilities.supportedKinds.toBoundedHealthUiList()
     private val initialDiagnostics = schedulerCoordinator.diagnostics()
     private val diagnosticsRefreshes = MutableStateFlow(0)
 
@@ -86,7 +87,7 @@ class HealthViewModel(
                 lastCrashStackTrace = crashMarkerStore.read()?.stackTrace,
                 bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
                 schedulerDiagnostics = diagnostics,
-                supportedKinds = capabilities.supportedKinds,
+                supportedKinds = supportedKinds,
                 tools = staticTools,
                 lastSchedulerWake = schedulerEvents.firstOrNull { it.message.contains("started", ignoreCase = true) }?.timestamp,
                 lastAutomationResult =
@@ -120,7 +121,7 @@ class HealthViewModel(
                     providerStatus = "FakeProvider is active. It works fully offline.",
                     bugReportInstructions = BUG_REPORT_INSTRUCTIONS,
                     schedulerDiagnostics = initialDiagnostics,
-                    supportedKinds = capabilities.supportedKinds,
+                    supportedKinds = supportedKinds,
                     tools = staticTools,
                 ),
         )
@@ -239,6 +240,47 @@ private fun buildCrashSummary(marker: ai.androidclaw.app.CrashMarker): String =
         }
         append(" · thread=").append(marker.threadName)
     }
+
+internal fun List<String>.toBoundedHealthUiList(
+    maxItems: Int = HEALTH_UI_LIST_MAX_ITEMS,
+    maxItemChars: Int = HEALTH_UI_LIST_ITEM_MAX_CHARS,
+): List<String> {
+    require(maxItems > 0) { "Health UI list max items must be positive." }
+    require(maxItemChars > HEALTH_UI_TRUNCATED_SUFFIX.length) {
+        "Health UI list item max must leave room for the truncation suffix."
+    }
+    if (isEmpty()) {
+        return emptyList()
+    }
+    val visibleLimit =
+        if (size > maxItems) {
+            maxItems - 1
+        } else {
+            maxItems
+        }.coerceAtLeast(1)
+    val visible =
+        take(visibleLimit)
+            .map { item -> item.toBoundedHealthUiListItem(maxItemChars) }
+    val omitted = size - visible.size
+    return if (omitted > 0) {
+        visible + "(+$omitted omitted)"
+    } else {
+        visible
+    }
+}
+
+private fun String.toBoundedHealthUiListItem(maxChars: Int): String {
+    val normalized = trim().takeIf(String::isNotBlank) ?: "Unavailable"
+    if (normalized.length <= maxChars) {
+        return normalized
+    }
+    val prefixLength = maxChars - HEALTH_UI_TRUNCATED_SUFFIX.length
+    return normalized.take(prefixLength).trimEnd() + HEALTH_UI_TRUNCATED_SUFFIX
+}
+
+internal const val HEALTH_UI_LIST_MAX_ITEMS = 50
+internal const val HEALTH_UI_LIST_ITEM_MAX_CHARS = 160
+private const val HEALTH_UI_TRUNCATED_SUFFIX = "… [truncated]"
 
 private const val BUG_REPORT_INSTRUCTIONS =
     "If AndroidClaw misbehaves, copy diagnostics from this screen and include the exact provider, task, or chat action that failed."

@@ -217,6 +217,65 @@ class HealthViewModelTest {
         }
 
     @Test
+    fun `health state bounds tool list before Compose state`() =
+        runTest {
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        (0 until HEALTH_UI_LIST_MAX_ITEMS + 5).map { index ->
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "tool-$index-" + "x".repeat(HEALTH_UI_LIST_ITEM_MAX_CHARS + 40),
+                                        description = "Tool $index",
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = "ok",
+                                    payload = buildJsonObject {},
+                                )
+                            }
+                        },
+                )
+            val viewModel =
+                HealthViewModel(
+                    schedulerCoordinator =
+                        SchedulerCoordinator(
+                            application = application,
+                            clock = Clock.fixed(Instant.parse("2026-03-08T00:00:00Z"), ZoneOffset.UTC),
+                            taskRepository = taskRepository,
+                            eventLogRepository = eventLogRepository,
+                        ),
+                    toolRegistry = toolRegistry,
+                    providerRegistry = buildTestProviderRegistry(),
+                    networkStatusProvider = buildNetworkStatusProvider(),
+                    settingsDataStore = settingsDataStore,
+                    eventLogRepository = eventLogRepository,
+                    crashMarkerStore = crashMarkerStore,
+                )
+
+            val state = viewModel.state.first { it.providerId == "openai-compatible" }
+
+            assertEquals(HEALTH_UI_LIST_MAX_ITEMS, state.tools.size)
+            assertEquals("(+6 omitted)", state.tools.last())
+            assertEquals(HEALTH_UI_LIST_ITEM_MAX_CHARS, state.tools.first().length)
+            assertTrue(state.tools.first().endsWith("… [truncated]"))
+        }
+
+    @Test
+    fun `health ui lists bound items and include omitted marker`() {
+        val bounded =
+            (0 until HEALTH_UI_LIST_MAX_ITEMS + 3)
+                .map { index -> "kind-$index-" + "k".repeat(HEALTH_UI_LIST_ITEM_MAX_CHARS + 20) }
+                .toBoundedHealthUiList()
+
+        assertEquals(HEALTH_UI_LIST_MAX_ITEMS, bounded.size)
+        assertEquals("(+4 omitted)", bounded.last())
+        assertEquals(HEALTH_UI_LIST_ITEM_MAX_CHARS, bounded.first().length)
+        assertTrue(bounded.first().endsWith("… [truncated]"))
+    }
+
+    @Test
     fun `health state reacts to network status changes`() =
         runTest {
             val viewModel =

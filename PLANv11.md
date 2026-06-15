@@ -326,3 +326,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
 - 2026-06-16: Stabilized the task usage-summary ViewModel test by explicitly
   cancelling remaining Turbine emissions after the asserted provider-usage
   state, preventing valid late state updates from failing the full unit suite.
+- 2026-06-16: Bounded health UI list state. Tool registry names and scheduler
+  capability kinds now cap item text and list length before entering
+  `HealthUiState`, with omitted-count markers so oversized registries cannot
+  inflate the Health screen while diagnostics exports retain their own caps.
