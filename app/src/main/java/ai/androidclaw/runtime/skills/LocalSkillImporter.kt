@@ -61,6 +61,7 @@ class LocalSkillImporter(
                             }
                         ImportedSkill(
                             name = parsed.frontmatter.name,
+                            installDirName = parsed.frontmatter.skillKey().toSkillStorageSegment(fallbackPrefix = "skill"),
                             sourceDir = directory,
                         )
                     }
@@ -69,8 +70,8 @@ class LocalSkillImporter(
                 val replaced = mutableListOf<String>()
                 val imported = mutableListOf<String>()
                 stagedSkills.forEach { importedSkill ->
-                    val existing = File(localRoot, importedSkill.name)
-                    val stage = File(localRoot, ".${importedSkill.name}-${UUID.randomUUID()}")
+                    val existing = File(localRoot, importedSkill.installDirName).requireChildOf(localRoot)
+                    val stage = File(localRoot, ".${importedSkill.installDirName}-${UUID.randomUUID()}").requireChildOf(localRoot)
                     stage.deleteRecursively()
                     importedSkill.sourceDir.copyRecursively(stage, overwrite = true)
                     if (existing.exists()) {
@@ -141,10 +142,23 @@ class LocalSkillImporter(
 
     private data class ImportedSkill(
         val name: String,
+        val installDirName: String,
         val sourceDir: File,
     )
 
     private companion object {
         const val MAX_TOTAL_UNCOMPRESSED_BYTES = 10L * 1024L * 1024L
     }
+}
+
+private fun File.requireChildOf(root: File): File {
+    val canonicalRoot = root.canonicalFile
+    val canonicalFile = canonicalFile
+    check(
+        canonicalFile.path == canonicalRoot.path ||
+            canonicalFile.path.startsWith("${canonicalRoot.path}${File.separator}"),
+    ) {
+        "Skill import path escapes the local skill root: $name"
+    }
+    return this
 }

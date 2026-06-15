@@ -10,7 +10,7 @@ docs/
 HANDOFF.md
 local.properties
 keystore.properties
-skills/
+/skills/
 *.jks
 *.keystore
 *.iml

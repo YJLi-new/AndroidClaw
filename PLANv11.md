@@ -218,3 +218,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   legacy oversized persisted rows, so automation lists, scheduler scans, and
   task payload routing cannot carry unbounded text from direct callers or
   corrupted storage.
+- 2026-06-16: Hardened skill filesystem storage segments. Workspace skill scans
+  and local skill imports now route session ids and imported skill keys through
+  deterministic bounded path segments, preserving exact safe names while keeping
+  unsafe or oversized names inside the intended skill roots. The root `skills/`
+  ignore rule is anchored so new runtime skill tests remain trackable.
