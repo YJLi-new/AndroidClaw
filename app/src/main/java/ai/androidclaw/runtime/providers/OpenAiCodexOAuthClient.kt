@@ -312,14 +312,19 @@ class HttpOpenAiCodexOAuthClient(
         val parsed = runCatching { json.parseToJsonElement(rawBody).jsonObject }.getOrNull()
         val error = parsed?.oauthErrorValue()
         val description = parsed?.stringValue("error_description")
-        val providerMessage = parsed?.stringValue("detail") ?: parsed?.stringValue("message")
+        val parsedProviderMessage = json.extractProviderErrorMessage(rawBody).takeIf { it.isNotBlank() }
+        val providerMessage =
+            parsed?.stringValue("detail")
+                ?: parsed?.stringValue("message")
+                ?: parsed?.stringValue("error_description")?.takeIf { error.isNullOrBlank() }
+                ?: parsedProviderMessage?.takeIf { it != error && it != description }
         val message =
             when {
                 !error.isNullOrBlank() && !description.isNullOrBlank() ->
-                    "$prefix: ${sanitizeOAuthError(error)} (${sanitizeOAuthError(description)})"
-                !error.isNullOrBlank() -> "$prefix: ${sanitizeOAuthError(error)}"
-                !providerMessage.isNullOrBlank() -> "$prefix: ${sanitizeOAuthError(providerMessage)}"
-                rawBody.isNotBlank() -> "$prefix: HTTP $statusCode ${sanitizeOAuthError(rawBody)}"
+                    "$prefix: ${error.sanitizeProviderErrorMessage()} (${description.sanitizeProviderErrorMessage()})"
+                !error.isNullOrBlank() -> "$prefix: ${error.sanitizeProviderErrorMessage()}"
+                !providerMessage.isNullOrBlank() -> "$prefix: ${providerMessage.sanitizeProviderErrorMessage()}"
+                rawBody.isNotBlank() -> "$prefix: HTTP $statusCode ${rawBody.sanitizeProviderErrorMessage()}"
                 else -> "$prefix: HTTP $statusCode"
             }
         val kind =
@@ -453,13 +458,6 @@ private fun JsonPrimitive.longOrNull(): Long? =
 private fun kotlinx.serialization.json.JsonElement.jsonPrimitiveOrNull(): JsonPrimitive? = this as? JsonPrimitive
 
 private fun kotlinx.serialization.json.JsonElement.jsonObjectOrNull(): JsonObject? = this as? JsonObject
-
-private fun sanitizeOAuthError(value: String): String =
-    value
-        .replace(Regex("\\s+"), " ")
-        .filter { it >= ' ' && it != '\u007f' }
-        .trim()
-        .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
 internal const val OPENAI_CODEX_PROVIDER_ID = "openai-codex"
 internal const val OPENAI_AUTH_BASE_URL = "https://auth.openai.com"

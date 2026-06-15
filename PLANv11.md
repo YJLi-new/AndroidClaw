@@ -79,3 +79,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   handles string, root-level, and object-shaped `error.detail`/`message` payloads
   with whitespace sanitization. Focused provider tests, ktlint, and the full
   offline fast loop passed.
+- 2026-06-15: Extended the same sanitization path into OpenAI Codex OAuth error
+  formatting, including bare `error_description` payloads that some OAuth
+  servers return without an `error` code. Also ignored local agent-tooling
+  artifacts (`.claude/`, `.codex`, `skills/`, `HANDOFF.md`) so future git
+  audits show only repo-intended changes.

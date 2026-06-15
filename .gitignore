@@ -1,12 +1,16 @@
 .gradle/
 .idea/
 .kotlin/
+.claude/
+.codex
 AGENTS.md
 build/
 captures/
 docs/
+HANDOFF.md
 local.properties
 keystore.properties
+skills/
 *.jks
 *.keystore
 *.iml

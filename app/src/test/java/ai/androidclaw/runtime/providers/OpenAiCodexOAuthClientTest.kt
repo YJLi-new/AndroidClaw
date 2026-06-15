@@ -191,6 +191,28 @@ class OpenAiCodexOAuthClientTest {
         }
 
     @Test
+    fun `device code failure surfaces bare oauth error description`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(400)
+                    .setBody("""{"error_description":"device auth disabled\nfor tenant"}"""),
+            )
+
+            val error =
+                runCatching {
+                    buildClient().loginWithDeviceCode(onVerification = {})
+                }.exceptionOrNull()
+
+            assertTrue(error is ModelProviderException)
+            val message = error!!.message.orEmpty()
+            assertTrue(message.contains("OpenAI device code request failed"))
+            assertTrue(message.contains("device auth disabled for tenant"))
+            assertFalse(message.contains('\n'))
+            assertFalse(message.contains("{"))
+        }
+
+    @Test
     fun `device code failure surfaces object provider error message`() =
         runTest {
             server.enqueue(

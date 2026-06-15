@@ -98,7 +98,11 @@ internal fun Json.extractProviderErrorMessage(rawBody: String): String =
             .providerErrorMessage()
     }.getOrNull()
         .orEmpty()
-        .replace(Regex("\\s+"), " ")
+        .sanitizeProviderErrorMessage()
+
+internal fun String.sanitizeProviderErrorMessage(): String =
+    replace(Regex("\\s+"), " ")
+        .filter { it >= ' ' && it != '\u007f' }
         .trim()
         .take(MAX_PROVIDER_ERROR_BODY_CHARS)
 
