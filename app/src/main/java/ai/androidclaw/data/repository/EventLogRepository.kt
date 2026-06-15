@@ -76,7 +76,7 @@ private fun String.toEventCategory(): EventCategory =
         "skill" -> EventCategory.Skill
         "system" -> EventCategory.System
         "debug" -> EventCategory.Debug
-        else -> error("Unsupported event category: $this")
+        else -> EventCategory.System
     }
 
 private fun String.toEventLevel(): EventLevel =
@@ -84,5 +84,5 @@ private fun String.toEventLevel(): EventLevel =
         "info" -> EventLevel.Info
         "warn" -> EventLevel.Warn
         "error" -> EventLevel.Error
-        else -> error("Unsupported event level: $this")
+        else -> EventLevel.Warn
     }

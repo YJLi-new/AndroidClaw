@@ -151,3 +151,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   `ScheduleSerializer.fromJsonOrNull` now centralizes invalid/malformed
   schedule JSON handling, and task repository coverage verifies malformed
   persisted schedule blobs are skipped across direct, observed, and due queries.
+- 2026-06-16: Hardened event-log repository mapping for forward-compatible or
+  corrupted persisted rows. Unknown stored categories now surface as `System`
+  and unknown levels as `Warn` instead of crashing health/log observation, with
+  repository coverage preserving message/details visibility.

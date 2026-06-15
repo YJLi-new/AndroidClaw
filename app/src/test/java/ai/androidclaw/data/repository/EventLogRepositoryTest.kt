@@ -75,4 +75,26 @@ class EventLogRepositoryTest {
             assertEquals(1, trimmed)
             assertEquals(1, repository.count())
         }
+
+    @Test
+    fun `unknown persisted event category and level stay observable`() =
+        runTest {
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "unknown-event",
+                    timestamp = 10L,
+                    category = "future-category",
+                    level = "trace",
+                    message = "Forward-compatible event",
+                    detailsJson = "{\"raw\":true}",
+                ),
+            )
+
+            val event = repository.observeRecent(limit = 10).first().single()
+
+            assertEquals(EventCategory.System, event.category)
+            assertEquals(EventLevel.Warn, event.level)
+            assertEquals("Forward-compatible event", event.message)
+            assertEquals("{\"raw\":true}", event.details)
+        }
 }
