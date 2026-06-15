@@ -17,6 +17,13 @@ object ScheduleSerializer {
 
     fun fromJson(raw: String): TaskSchedule = json.decodeFromString(SerializedSchedule.serializer(), raw).toDomain()
 
+    fun fromJsonOrNull(raw: String): TaskSchedule? =
+        try {
+            fromJson(raw)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+
     fun kindOf(schedule: TaskSchedule): String =
         when (schedule) {
             is TaskSchedule.Once -> "once"

@@ -109,19 +109,17 @@ class TaskRepository(
 
 private fun TaskEntity.toDomain(): Task = toDomainOrNull() ?: throw IllegalArgumentException("Task $id has an invalid schedule.")
 
-private fun TaskEntity.toDomainOrNull(): Task? =
-    try {
-        toDomainUnchecked()
-    } catch (_: IllegalArgumentException) {
-        null
-    }
+private fun TaskEntity.toDomainOrNull(): Task? {
+    val schedule = ScheduleSerializer.fromJsonOrNull(scheduleSpec) ?: return null
+    return toDomain(schedule)
+}
 
-private fun TaskEntity.toDomainUnchecked(): Task =
+private fun TaskEntity.toDomain(schedule: TaskSchedule): Task =
     Task(
         id = id,
         name = name,
         prompt = prompt,
-        schedule = ScheduleSerializer.fromJson(scheduleSpec),
+        schedule = schedule,
         executionMode = executionMode.toTaskExecutionMode(),
         targetSessionId = targetSessionId,
         enabled = enabled,

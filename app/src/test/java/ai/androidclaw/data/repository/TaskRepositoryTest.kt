@@ -218,10 +218,30 @@ class TaskRepositoryTest {
 
             assertEquals(emptyList<ai.androidclaw.data.model.Task>(), due)
         }
+
+    @Test
+    fun `task reads skip tasks with malformed persisted schedule json`() =
+        runTest {
+            database.taskDao().insert(
+                invalidTaskEntity(
+                    id = "bad-json-task",
+                    scheduleSpec = """{"kind":"interval","anchorAtEpochMillis":""",
+                    nextRunAt = 1L,
+                ),
+            )
+
+            assertNull(repository.getTask("bad-json-task"))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), repository.observeTasks().first())
+            assertEquals(
+                emptyList<ai.androidclaw.data.model.Task>(),
+                repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(2L)),
+            )
+        }
 }
 
 private fun invalidTaskEntity(
     id: String,
+    scheduleSpec: String = """{"kind":"interval","anchorAtEpochMillis":0,"intervalMillis":0}""",
     nextRunAt: Long? = 1L,
 ): TaskEntity =
     TaskEntity(
@@ -229,7 +249,7 @@ private fun invalidTaskEntity(
         name = "Invalid task",
         prompt = "This task has corrupted schedule JSON.",
         scheduleKind = "interval",
-        scheduleSpec = """{"kind":"interval","anchorAtEpochMillis":0,"intervalMillis":0}""",
+        scheduleSpec = scheduleSpec,
         executionMode = "MAIN_SESSION",
         targetSessionId = "main",
         enabled = true,

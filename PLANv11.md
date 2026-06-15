@@ -147,3 +147,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   uses a testable parser with stable user-facing errors for invalid once,
   interval, and cron inputs, shares the safe interval-duration bound with task
   tools, and rejects cron expressions that produce no next run.
+- 2026-06-16: Made nullable schedule deserialization explicit for task reads.
+  `ScheduleSerializer.fromJsonOrNull` now centralizes invalid/malformed
+  schedule JSON handling, and task repository coverage verifies malformed
+  persisted schedule blobs are skipped across direct, observed, and due queries.

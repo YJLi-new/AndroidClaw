@@ -3,6 +3,7 @@ package ai.androidclaw.data.model
 import ai.androidclaw.runtime.scheduler.CronExpression
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.time.Duration
@@ -17,6 +18,7 @@ class ScheduleSerializerTest {
         val encoded = ScheduleSerializer.toJson(schedule)
 
         assertEquals(schedule, ScheduleSerializer.fromJson(encoded))
+        assertEquals(schedule, ScheduleSerializer.fromJsonOrNull(encoded))
     }
 
     @Test
@@ -74,6 +76,14 @@ class ScheduleSerializerTest {
             }
 
         assertEquals("Interval schedule requires a positive intervalMillis.", exception.message)
+        assertNull(ScheduleSerializer.fromJsonOrNull(raw))
+    }
+
+    @Test
+    fun `nullable schedule decoding returns null for malformed json`() {
+        val raw = """{"kind":"interval","anchorAtEpochMillis":"""
+
+        assertNull(ScheduleSerializer.fromJsonOrNull(raw))
     }
 
     @Test
