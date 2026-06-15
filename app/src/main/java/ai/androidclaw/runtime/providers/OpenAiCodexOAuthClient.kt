@@ -1,5 +1,7 @@
 package ai.androidclaw.runtime.providers
 
+import ai.androidclaw.data.PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS
+import ai.androidclaw.data.PROVIDER_OAUTH_TOKEN_MAX_CHARS
 import ai.androidclaw.data.ProviderOAuthCredential
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -94,14 +96,14 @@ class HttpOpenAiCodexOAuthClient(
                 failurePrefix = "OpenAI token refresh failed",
             )
         val payload = parseJsonObject(responseBody)
-        val access = payload.stringValue("access_token")
+        val access = payload.stringValue("access_token", PROVIDER_OAUTH_TOKEN_MAX_CHARS)
         if (access.isNullOrBlank()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Authentication,
                 userMessage = "OpenAI token refresh succeeded but did not return an access token.",
             )
         }
-        val refresh = payload.stringValue("refresh_token") ?: credential.refreshToken
+        val refresh = payload.stringValue("refresh_token", PROVIDER_OAUTH_TOKEN_MAX_CHARS) ?: credential.refreshToken
         val identity = resolveCodexAuthIdentity(access)
         return credential.copy(
             accessToken = access,
@@ -229,8 +231,8 @@ class HttpOpenAiCodexOAuthClient(
                 failurePrefix = "OpenAI device token exchange failed",
             )
         val payload = parseJsonObject(responseBody)
-        val access = payload.stringValue("access_token")
-        val refresh = payload.stringValue("refresh_token")
+        val access = payload.stringValue("access_token", PROVIDER_OAUTH_TOKEN_MAX_CHARS)
+        val refresh = payload.stringValue("refresh_token", PROVIDER_OAUTH_TOKEN_MAX_CHARS)
         if (access.isNullOrBlank() || refresh.isNullOrBlank()) {
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Authentication,
@@ -300,7 +302,7 @@ class HttpOpenAiCodexOAuthClient(
         payload: JsonObject,
         accessToken: String,
     ): Long =
-        payload.positiveSecondsMillis("expires_in")?.let { clock.millis() + it }
+        payload.positiveSecondsMillis("expires_in")?.let { clock.millis().plusMillisOrMax(it) }
             ?: resolveCodexAccessTokenExpiry(accessToken)
             ?: clock.millis()
 
@@ -377,9 +379,9 @@ fun resolveCodexAccessTokenExpiry(accessToken: String): Long? =
 fun resolveCodexAuthIdentity(accessToken: String): OpenAiCodexAuthIdentity {
     val payload = decodeCodexJwtPayload(accessToken) ?: return OpenAiCodexAuthIdentity()
     val auth = payload["https://api.openai.com/auth"]?.jsonObjectOrNull()
-    val accountId = auth?.stringValue("chatgpt_account_id")
+    val accountId = auth?.stringValue("chatgpt_account_id", PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS)
     val profile = payload["https://api.openai.com/profile"]?.jsonObjectOrNull()
-    val email = profile?.stringValue("email")
+    val email = profile?.stringValue("email", PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS)
     if (!email.isNullOrBlank()) {
         return OpenAiCodexAuthIdentity(
             email = email,
@@ -388,16 +390,16 @@ fun resolveCodexAuthIdentity(accessToken: String): OpenAiCodexAuthIdentity {
         )
     }
     val subject =
-        auth?.stringValue("chatgpt_account_user_id")
-            ?: auth?.stringValue("chatgpt_user_id")
-            ?: auth?.stringValue("user_id")
-            ?: payload.stringValue("sub")
+        auth?.stringValue("chatgpt_account_user_id", PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS)
+            ?: auth?.stringValue("chatgpt_user_id", PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS)
+            ?: auth?.stringValue("user_id", PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS)
+            ?: payload.stringValue("sub", PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS)
     if (subject.isNullOrBlank()) {
         return OpenAiCodexAuthIdentity(chatGptAccountId = accountId)
     }
     val encodedSubject = Base64.getUrlEncoder().withoutPadding().encodeToString(subject.toByteArray())
     return OpenAiCodexAuthIdentity(
-        profileName = "id-$encodedSubject",
+        profileName = "id-$encodedSubject".take(PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS),
         chatGptAccountId = accountId,
     )
 }
@@ -409,6 +411,9 @@ private fun decodeCodexJwtPayload(accessToken: String): JsonObject? {
     if (parts.size != 3) {
         return null
     }
+    if (parts[1].length > OPENAI_CODEX_JWT_PAYLOAD_SEGMENT_MAX_CHARS) {
+        return null
+    }
     return runCatching {
         val normalizedPayload = parts[1].padEnd(parts[1].length + ((4 - parts[1].length % 4) % 4), '=')
         val decoded = Base64.getUrlDecoder().decode(normalizedPayload).decodeToString()
@@ -416,11 +421,15 @@ private fun decodeCodexJwtPayload(accessToken: String): JsonObject? {
     }.getOrNull()
 }
 
-private fun JsonObject.stringValue(name: String): String? =
+private fun JsonObject.stringValue(
+    name: String,
+    maxChars: Int = OPENAI_CODEX_OAUTH_STRING_MAX_CHARS,
+): String? =
     this[name]
         ?.jsonPrimitiveOrNull()
         ?.contentOrNull
         ?.trim()
+        ?.take(maxChars)
         ?.takeIf { it.isNotBlank() }
 
 private fun JsonObject.oauthErrorValue(): String? {
@@ -448,6 +457,7 @@ private fun JsonObject.longValue(name: String): Long? {
 private fun JsonObject.positiveSecondsMillis(name: String): Long? =
     longValue(name)
         ?.takeIf { it > 0 }
+        ?.takeIf { it <= Long.MAX_VALUE / 1000 }
         ?.times(1000)
 
 private fun JsonPrimitive.longOrNull(): Long? =
@@ -466,4 +476,13 @@ internal const val OPENAI_CODEX_DEVICE_CALLBACK_URL = "$OPENAI_AUTH_BASE_URL/dev
 private const val OPENAI_CODEX_DEVICE_CODE_TIMEOUT_MILLIS = 15 * 60 * 1000L
 private const val OPENAI_CODEX_DEVICE_CODE_DEFAULT_INTERVAL_MILLIS = 5 * 1000L
 private const val OPENAI_CODEX_DEVICE_CODE_MIN_INTERVAL_MILLIS = 1000L
+private const val OPENAI_CODEX_OAUTH_STRING_MAX_CHARS = 4_096
+internal const val OPENAI_CODEX_JWT_PAYLOAD_SEGMENT_MAX_CHARS = 24_000
 private val FORM_URLENCODED_MEDIA_TYPE = "application/x-www-form-urlencoded".toMediaType()
+
+private fun Long.plusMillisOrMax(deltaMillis: Long): Long =
+    if (Long.MAX_VALUE - this < deltaMillis) {
+        Long.MAX_VALUE
+    } else {
+        this + deltaMillis
+    }

@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.providers
 
+import ai.androidclaw.data.PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS
 import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderType
 import kotlinx.coroutines.test.runTest
@@ -9,6 +10,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -147,6 +149,64 @@ class OpenAiCodexOAuthClientTest {
             assertTrue(body.contains("grant_type=refresh_token"))
             assertTrue(body.contains("refresh_token=old-refresh"))
         }
+
+    @Test
+    fun `token refresh ignores overflowed expires in instead of overflowing expiry`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "application/json")
+                    .setBody(
+                        """
+                        {
+                          "access_token": "access-token",
+                          "expires_in": ${Long.MAX_VALUE}
+                        }
+                        """.trimIndent(),
+                    ),
+            )
+
+            val refreshed =
+                buildClient().refreshCredential(
+                    ProviderOAuthCredential(
+                        provider = ProviderType.OpenAiCodex.providerId,
+                        accessToken = "old-access",
+                        refreshToken = "old-refresh",
+                        expiresAtEpochMillis = clock.millis() - 1,
+                    ),
+                )
+
+            assertEquals("access-token", refreshed.accessToken)
+            assertEquals("old-refresh", refreshed.refreshToken)
+            assertEquals(clock.millis(), refreshed.expiresAtEpochMillis)
+        }
+
+    @Test
+    fun `jwt identity fields are bounded before surfacing account labels`() {
+        val email = "codex@example.test" + "e".repeat(PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS + 20)
+        val accountId = "acct-" + "a".repeat(PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS + 20)
+
+        val identity =
+            resolveCodexAuthIdentity(
+                fakeJwt(
+                    email = email,
+                    accountId = accountId,
+                    expiresAtEpochSeconds = 1_800_000_000,
+                ),
+            )
+
+        assertEquals(email.take(PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS), identity.email)
+        assertEquals(email.take(PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS), identity.profileName)
+        assertEquals(accountId.take(PROVIDER_OAUTH_PROFILE_FIELD_MAX_CHARS), identity.chatGptAccountId)
+    }
+
+    @Test
+    fun `oversized jwt payload is ignored before decoding`() {
+        val token = "header.${"x".repeat(OPENAI_CODEX_JWT_PAYLOAD_SEGMENT_MAX_CHARS + 1)}.signature"
+
+        assertNull(resolveCodexAccessTokenExpiry(token))
+        assertEquals(OpenAiCodexAuthIdentity(), resolveCodexAuthIdentity(token))
+    }
 
     @Test
     fun `device code failure sanitizes provider error`() =

@@ -235,3 +235,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   credentials now trim and cap required/optional fields on write and read,
   blank required OAuth tokens clear corrupted credentials, and secret recovery
   notices include both API-key and OAuth encrypted slots.
+- 2026-06-16: Hardened OpenAI Codex OAuth parsing. Token response fields now use
+  explicit caps before credential construction, oversized JWT payload segments
+  are ignored before decoding, identity fields are bounded before UI display,
+  and overflowed `expires_in` values no longer wrap expiry timestamps.
