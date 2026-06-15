@@ -287,3 +287,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   Secret and config values entered in the skill configuration dialog now share
   the existing secret/config store budgets and surface a truncation notice before
   oversized text can inflate dialog state.
+- 2026-06-16: Bounded chat session rename drafts before Compose state growth.
+  The chat screen now caps local session-title edits at the repository title
+  budget and displays a truncation notice, closing the remaining unbounded local
+  chat text field before title persistence.

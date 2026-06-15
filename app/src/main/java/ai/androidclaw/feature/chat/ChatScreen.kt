@@ -85,6 +85,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
+    var renameNotice by rememberSaveable(state.currentSessionId) { mutableStateOf<String?>(null) }
     var pendingExport by remember { mutableStateOf<ChatExportPayload?>(null) }
     var showSearchDialog by rememberSaveable { mutableStateOf(false) }
     var showShareDialog by rememberSaveable { mutableStateOf(false) }
@@ -120,6 +121,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
     LaunchedEffect(state.sessionTitle, state.currentSessionId) {
         renameDraft = state.sessionTitle
+        renameNotice = null
     }
 
     LaunchedEffect(state.highlightedMessageId, state.messages) {
@@ -196,7 +198,16 @@ fun ChatScreen(viewModel: ChatViewModel) {
             ) {
                 OutlinedTextField(
                     value = renameDraft,
-                    onValueChange = { renameDraft = it },
+                    onValueChange = { value ->
+                        val boundedInput = boundChatRenameInput(value)
+                        renameDraft = boundedInput.value
+                        renameNotice =
+                            if (boundedInput.wasTruncated) {
+                                CHAT_SESSION_RENAME_TRUNCATED_NOTICE
+                            } else {
+                                null
+                            }
+                    },
                     modifier = Modifier.weight(1f),
                     label = { SingleLineText("Session title") },
                     singleLine = true,
@@ -211,6 +222,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     text = "Archive",
                     onClick = viewModel::archiveCurrentSession,
                     enabled = state.canArchiveCurrentSession && !state.isRunning,
+                )
+            }
+            renameNotice?.let { notice ->
+                Text(
+                    text = notice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ClawInkMuted,
                 )
             }
             state.providerNotice?.let { providerNotice ->
