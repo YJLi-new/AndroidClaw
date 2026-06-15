@@ -271,3 +271,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   programmatic draft text now caps at the message-content budget and shows a
   truncation notice, keeping the phone composer responsive before the message
   reaches runtime and repository persistence bounds.
+- 2026-06-16: Bounded chat history search input before Compose state growth.
+  Pasted or programmatic search text now caps at the same SQLite LIKE query
+  budget used by repository search and shows a truncation notice, preventing
+  oversized dialog input from bypassing bounded search persistence safeguards.

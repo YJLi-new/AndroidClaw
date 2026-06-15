@@ -12,6 +12,7 @@ import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.data.repository.SQLITE_LIKE_SEARCH_QUERY_MAX_CHARS
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.AgentTurnEvent
@@ -95,6 +96,9 @@ internal const val CHAT_STREAMING_ASSISTANT_TEXT_TRUNCATED_NOTICE =
 internal const val CHAT_DRAFT_MAX_CHARS = MESSAGE_CONTENT_MAX_CHARS
 internal const val CHAT_DRAFT_TRUNCATED_NOTICE =
     "Draft truncated by AndroidClaw to keep the phone UI responsive."
+internal const val CHAT_SEARCH_QUERY_MAX_CHARS = SQLITE_LIKE_SEARCH_QUERY_MAX_CHARS
+internal const val CHAT_SEARCH_QUERY_TRUNCATED_NOTICE =
+    "Search text truncated by AndroidClaw to keep history search responsive."
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(
@@ -440,8 +444,18 @@ class ChatViewModel(
     }
 
     fun onSearchQueryChanged(value: String) {
-        searchQuery.value = value
-        if (value.isBlank()) {
+        val boundedValue = value.take(CHAT_SEARCH_QUERY_MAX_CHARS)
+        searchQuery.value = boundedValue
+        if (value.length > boundedValue.length) {
+            searchResults.value = emptyList()
+            highlightedMessageId.value = null
+            noticeMessage.value = CHAT_SEARCH_QUERY_TRUNCATED_NOTICE
+            return
+        }
+        if (noticeMessage.value == CHAT_SEARCH_QUERY_TRUNCATED_NOTICE) {
+            noticeMessage.value = null
+        }
+        if (boundedValue.isBlank()) {
             searchResults.value = emptyList()
             highlightedMessageId.value = null
         }

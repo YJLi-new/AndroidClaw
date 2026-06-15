@@ -167,6 +167,28 @@ class ChatViewModelTest {
         }
 
     @Test
+    fun `search query input is bounded before it reaches Compose state`() =
+        runTest {
+            val oversizedSearchQuery = "q".repeat(CHAT_SEARCH_QUERY_MAX_CHARS + 2_000)
+
+            viewModel.state.test {
+                awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+
+                viewModel.onSearchQueryChanged(oversizedSearchQuery)
+
+                val bounded =
+                    awaitState {
+                        it.searchQuery.length == CHAT_SEARCH_QUERY_MAX_CHARS &&
+                            it.noticeMessage == CHAT_SEARCH_QUERY_TRUNCATED_NOTICE
+                    }
+
+                assertEquals(CHAT_SEARCH_QUERY_MAX_CHARS, bounded.searchQuery.length)
+                assertEquals(CHAT_SEARCH_QUERY_TRUNCATED_NOTICE, bounded.noticeMessage)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
     fun `provider failures expose retry and retry does not duplicate the user message`() =
         runTest {
             var calls = 0
