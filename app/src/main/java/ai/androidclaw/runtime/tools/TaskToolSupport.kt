@@ -54,11 +54,10 @@ internal suspend fun buildTaskPayload(
     diagnostics: SchedulerDiagnostics,
 ): JsonObject {
     val resolvedSession =
-        if (task.targetSessionId != null) {
-            sessionRepository.getSession(task.targetSessionId) ?: sessionRepository.getOrCreateMainSession()
-        } else {
-            sessionRepository.getOrCreateMainSession()
-        }
+        task.targetSessionId
+            ?.let { targetSessionId -> sessionRepository.getSession(targetSessionId) }
+            ?.takeUnless { session -> session.archived }
+            ?: sessionRepository.getOrCreateMainSession()
     val decision = task.schedulingDecision(diagnostics)
     val preciseWarnings = task.userVisiblePreciseWarnings(diagnostics)
     return buildJsonObject {
@@ -303,6 +302,15 @@ private suspend fun resolveTargetSessionId(
                 ),
             )
         }
+        if (targetSession.archived) {
+            return TaskToolParseResult.Failure(
+                invalidTaskArguments(
+                    toolName = toolName,
+                    summary = "Target session $explicitId is archived.",
+                    field = "targetSessionId",
+                ),
+            )
+        }
         return TaskToolParseResult.Success(targetSession.id)
     }
 
@@ -325,6 +333,15 @@ private suspend fun resolveTargetSessionId(
                         invalidTaskArguments(
                             toolName = toolName,
                             summary = "Current session $currentSessionId was not found.",
+                            field = "targetSessionAlias",
+                        ),
+                    )
+                }
+                if (currentSession.archived) {
+                    return TaskToolParseResult.Failure(
+                        invalidTaskArguments(
+                            toolName = toolName,
+                            summary = "Current session $currentSessionId is archived.",
                             field = "targetSessionAlias",
                         ),
                     )

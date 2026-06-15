@@ -124,7 +124,13 @@ class TaskRuntimeExecutor(
         }
     }
 
-    private suspend fun resolveTargetSessionId(task: Task): String = task.targetSessionId ?: sessionRepository.getOrCreateMainSession().id
+    private suspend fun resolveTargetSessionId(task: Task): String {
+        val targetSession =
+            task.targetSessionId
+                ?.let { targetSessionId -> sessionRepository.getSession(targetSessionId) }
+                ?.takeUnless { session -> session.archived }
+        return targetSession?.id ?: sessionRepository.getOrCreateMainSession().id
+    }
 
     private fun buildIsolatedSessionTitle(task: Task): String {
         val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())

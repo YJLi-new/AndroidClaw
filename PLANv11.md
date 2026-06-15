@@ -122,3 +122,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   an explicit show/hide affordance, hidden durable messages can be revealed
   without surfacing compact-command plumbing, and opening a search hit inside a
   compacted range reveals the history so the match can actually be highlighted.
+- 2026-06-15: Hardened automation target-session handling for archived
+  sessions. Task tools now reject archived explicit/current session targets, and
+  runtime execution falls back to main when a previously valid task target has
+  since been archived so scheduled output does not disappear into inactive chat.

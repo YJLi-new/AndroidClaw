@@ -376,6 +376,58 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks create rejects archived explicit target session`() =
+        runTest {
+            val archivedSession = sessionRepository.createSession("Archived target")
+            sessionRepository.archiveSession(archivedSession.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Archived target task")
+                            put("prompt", "This should fail")
+                            put("scheduleKind", "once")
+                            put("atIso", "2026-03-20T08:00:00Z")
+                            put("targetSessionId", archivedSession.id)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(result.summary.contains("is archived"))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+        }
+
+    @Test
+    fun `tasks create rejects current session alias when context session is archived`() =
+        runTest {
+            val archivedSession = sessionRepository.createSession("Archived current")
+            sessionRepository.archiveSession(archivedSession.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create", sessionId = archivedSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Archived current task")
+                            put("prompt", "This should fail")
+                            put("scheduleKind", "once")
+                            put("atIso", "2026-03-20T08:00:00Z")
+                            put("targetSessionAlias", "current")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(result.summary.contains("is archived"))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+        }
+
+    @Test
     fun `tasks create ignores blank optional target session fields from model output`() =
         runTest {
             val registry = buildRegistry()

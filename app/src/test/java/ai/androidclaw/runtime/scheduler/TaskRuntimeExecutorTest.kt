@@ -107,6 +107,50 @@ class TaskRuntimeExecutorTest {
             assertTrue(targetMessages.isEmpty())
         }
 
+    @Test
+    fun `main session execution falls back when target session is archived`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            val archivedTarget = sessionRepository.createSession("Archived delivery target")
+            sessionRepository.archiveSession(archivedTarget.id)
+            val messageRepository = MessageRepository(database.messageDao())
+            val executor =
+                TaskRuntimeExecutor(
+                    sessionRepository = sessionRepository,
+                    messageRepository = messageRepository,
+                    agentRunner = buildAgentRunner(messageRepository),
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                )
+            val task =
+                taskRepository.createTask(
+                    name = "Archived target task",
+                    prompt = "Run against active session",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = archivedTarget.id,
+                )
+
+            val execution =
+                executor.execute(
+                    task = task,
+                    taskRunId = "run-archived-target",
+                )
+
+            val mainMessages = messageRepository.getRecentMessages(mainSession.id, limit = 10)
+            val archivedMessages = messageRepository.getRecentMessages(archivedTarget.id, limit = 10)
+
+            assertTrue(execution.success)
+            assertNotNull(execution.outputMessageId)
+            assertTrue(
+                mainMessages.any { message ->
+                    message.taskRunId == "run-archived-target" &&
+                        message.role == MessageRole.Assistant &&
+                        message.content.contains("Task execution complete.")
+                },
+            )
+            assertTrue(archivedMessages.isEmpty())
+        }
+
     private suspend fun buildAgentRunner(messageRepository: MessageRepository): AgentRunner {
         val settingsDataStore = ai.androidclaw.data.SettingsDataStore(application)
         settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
@@ -117,7 +161,7 @@ class TaskRuntimeExecutorTest {
                         object : ModelProvider {
                             override val id: String = "fake"
 
-                            override suspend fun generate(request: ModelRequest): ModelResponse = ModelResponse(text = "Isolated execution complete.")
+                            override suspend fun generate(request: ModelRequest): ModelResponse = ModelResponse(text = "Task execution complete.")
                         },
                 ),
             settingsDataStore = settingsDataStore,
