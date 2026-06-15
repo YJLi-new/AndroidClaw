@@ -80,6 +80,39 @@ class ChatExportFormatterTest {
             firstMessage.getValue("createdAt").toString().trim('"'),
         )
     }
+
+    @Test
+    fun `share text caps oversized transcript while file export stays complete`() {
+        val oversizedMessage = "chunk-".repeat(CHAT_SHARE_TEXT_MAX_CHARS / 6) + "tail-marker"
+        val session = testSession(summaryText = "Share summary")
+        val messages =
+            listOf(
+                testMessage(
+                    id = "assistant-oversized",
+                    role = MessageRole.Assistant,
+                    content = oversizedMessage,
+                ),
+            )
+
+        val filePayload =
+            ChatExportFormatter.buildExportPayload(
+                session = session,
+                messages = messages,
+                format = ChatExportFormat.Text,
+                exportedAt = Instant.parse("2026-03-17T13:00:00Z"),
+            )
+        val shareText =
+            ChatExportFormatter.buildShareText(
+                session = session,
+                messages = messages,
+                exportedAt = Instant.parse("2026-03-17T13:00:00Z"),
+            )
+
+        assertTrue(filePayload.content.length > CHAT_SHARE_TEXT_MAX_CHARS)
+        assertTrue(filePayload.content.contains("tail-marker"))
+        assertTrue(shareText.length <= CHAT_SHARE_TEXT_MAX_CHARS)
+        assertTrue(shareText.endsWith(CHAT_SHARE_TEXT_TRUNCATED_NOTICE))
+    }
 }
 
 private fun testSession(summaryText: String?): Session =

@@ -594,6 +594,35 @@ class ChatViewModelTest {
             }
         }
 
+    @Test
+    fun `share current session as text emits bounded text payload`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            repeat(3) { index ->
+                messageRepository.addMessage(
+                    sessionId = mainSession.id,
+                    role = MessageRole.Assistant,
+                    content = "share-$index-" + "x".repeat(45_000),
+                )
+            }
+
+            viewModel.state.test {
+                awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
+                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+
+                viewModel.shareCurrentSessionAsText()
+
+                val action = actionDeferred.await()
+                val shared = action as ChatExternalAction.ShareText
+                val sharing = awaitState { it.noticeMessage == "Opening share sheet." }
+
+                assertEquals(mainSession.id, sharing.currentSessionId)
+                assertTrue(shared.text.length <= CHAT_SHARE_TEXT_MAX_CHARS)
+                assertTrue(shared.text.endsWith(CHAT_SHARE_TEXT_TRUNCATED_NOTICE))
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
     private fun buildViewModel(
         providerRegistry: ai.androidclaw.runtime.providers.ProviderRegistry = buildTestProviderRegistry(),
         toolRegistry: ToolRegistry = ToolRegistry(emptyList()),

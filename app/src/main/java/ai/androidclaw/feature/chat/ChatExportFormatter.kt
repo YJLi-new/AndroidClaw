@@ -36,6 +36,10 @@ data class ChatExportPayload(
     val content: String,
 )
 
+internal const val CHAT_SHARE_TEXT_MAX_CHARS = 100_000
+internal const val CHAT_SHARE_TEXT_TRUNCATED_NOTICE =
+    "\n\n[Share text truncated by AndroidClaw. Use Export or Share file for the full transcript.]"
+
 sealed interface ChatExternalAction {
     data class ExportDocument(
         val payload: ChatExportPayload,
@@ -76,6 +80,14 @@ object ChatExportFormatter {
             content = content,
         )
     }
+
+    fun buildShareText(
+        session: Session,
+        messages: List<ChatMessage>,
+        exportedAt: Instant = Instant.now(),
+    ): String =
+        buildTextExport(session, messages, exportedAt)
+            .toBoundedShareText()
 
     private fun buildTextExport(
         session: Session,
@@ -192,6 +204,16 @@ object ChatExportFormatter {
     }
 
     private fun escapeMarkdown(value: String): String = value.replace("`", "\\`")
+
+    private fun String.toBoundedShareText(): String {
+        if (length <= CHAT_SHARE_TEXT_MAX_CHARS) {
+            return this
+        }
+        val prefixLength =
+            (CHAT_SHARE_TEXT_MAX_CHARS - CHAT_SHARE_TEXT_TRUNCATED_NOTICE.length)
+                .coerceAtLeast(0)
+        return take(prefixLength).trimEnd() + CHAT_SHARE_TEXT_TRUNCATED_NOTICE
+    }
 }
 
 private fun MessageRole.displayName(): String =

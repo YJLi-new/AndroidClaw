@@ -8,6 +8,7 @@ import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
@@ -544,14 +545,14 @@ class ChatViewModel(
     fun shareCurrentSessionAsText() {
         if (isRunning.value) return
         viewModelScope.launch {
-            runCatching { buildExportPayload(ChatExportFormat.Text) }
-                .onSuccess { payload ->
+            runCatching { buildShareText() }
+                .onSuccess { shareText ->
                     errorMessage.value = null
                     noticeMessage.value = "Opening share sheet."
                     externalActions.emit(
                         ChatExternalAction.ShareText(
                             subject = state.value.sessionTitle.ifBlank { "AndroidClaw session" },
-                            text = payload.content,
+                            text = shareText,
                         ),
                     )
                 }.onFailure { throwable ->
@@ -754,6 +755,23 @@ class ChatViewModel(
     }
 
     private suspend fun buildExportPayload(format: ChatExportFormat): ChatExportPayload {
+        val (session, messages) = loadExportSource()
+        return ChatExportFormatter.buildExportPayload(
+            session = session,
+            messages = messages,
+            format = format,
+        )
+    }
+
+    private suspend fun buildShareText(): String {
+        val (session, messages) = loadExportSource()
+        return ChatExportFormatter.buildShareText(
+            session = session,
+            messages = messages,
+        )
+    }
+
+    private suspend fun loadExportSource(): Pair<Session, List<ChatMessage>> {
         val sessionId =
             currentSessionId.value.takeIf { it.isNotBlank() }
                 ?: error("No active session to export.")
@@ -761,11 +779,7 @@ class ChatViewModel(
             sessionRepository.getSession(sessionId)
                 ?: error("Session is no longer available.")
         val messages = messageRepository.getMessages(sessionId)
-        return ChatExportFormatter.buildExportPayload(
-            session = session,
-            messages = messages,
-            format = format,
-        )
+        return session to messages
     }
 
     companion object {
