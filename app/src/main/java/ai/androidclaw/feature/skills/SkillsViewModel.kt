@@ -23,6 +23,7 @@ internal const val SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE =
 internal const val SKILL_IMPORT_STATUS_MAX_LISTED_NAMES = 4
 internal const val SKILL_IMPORT_STATUS_NAME_MAX_CHARS = 80
 internal const val SKILL_IMPORT_STATUS_MAX_CHARS = 1_000
+internal const val SKILL_UI_MESSAGE_MAX_CHARS = 1_000
 
 private data class BoundedSkillConfigurationInput(
     val value: String,
@@ -122,7 +123,7 @@ class SkillsViewModel(
                 updateDialog { dialog ->
                     dialog.copy(
                         loading = false,
-                        message = configuration.recoveryMessage,
+                        message = configuration.recoveryMessage.toBoundedSkillUiMessageOrNull(),
                         secretFields = configuration.secretFields.toEditableSecretFields(),
                         configFields = configuration.configFields.toEditableConfigFields(),
                     )
@@ -131,7 +132,7 @@ class SkillsViewModel(
                 updateDialog { dialog ->
                     dialog.copy(
                         loading = false,
-                        message = error.message ?: "Failed to load skill configuration.",
+                        message = boundedSkillUiMessage(error.message, "Failed to load skill configuration."),
                     )
                 }
             }
@@ -282,7 +283,7 @@ class SkillsViewModel(
                     val existingDialog = state.configurationDialog ?: return@update state
                     state.copy(
                         skills = skills,
-                        statusMessage = "Saved configuration for ${existingDialog.displayName}.",
+                        statusMessage = boundedSkillUiMessage("Saved configuration for ${existingDialog.displayName}.", "Saved configuration."),
                         configurationDialog =
                             existingDialog.copy(
                                 loading = false,
@@ -313,7 +314,7 @@ class SkillsViewModel(
                 updateDialog { existingDialog ->
                     existingDialog.copy(
                         saving = false,
-                        message = error.message ?: "Failed to save skill configuration.",
+                        message = boundedSkillUiMessage(error.message, "Failed to save skill configuration."),
                     )
                 }
             }
@@ -362,7 +363,7 @@ class SkillsViewModel(
                 mutableState.update {
                     it.copy(
                         isImporting = false,
-                        statusMessage = error.message ?: "Skill import failed.",
+                        statusMessage = boundedSkillUiMessage(error.message, "Skill import failed."),
                     )
                 }
             }
@@ -389,7 +390,7 @@ class SkillsViewModel(
                 mutableState.update {
                     it.copy(
                         loading = false,
-                        statusMessage = error.message ?: "Failed to load skills.",
+                        statusMessage = boundedSkillUiMessage(error.message, "Failed to load skills."),
                     )
                 }
             }
@@ -414,6 +415,16 @@ class SkillsViewModel(
             }
     }
 }
+
+internal fun boundedSkillUiMessage(
+    message: String?,
+    fallback: String,
+): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(SKILL_UI_MESSAGE_MAX_CHARS)
+
+private fun String?.toBoundedSkillUiMessageOrNull(): String? =
+    this
+        ?.take(SKILL_UI_MESSAGE_MAX_CHARS)
+        ?.takeIf(String::isNotBlank)
 
 internal fun buildSkillImportStatusMessage(result: SkillImportResult): String =
     buildString {

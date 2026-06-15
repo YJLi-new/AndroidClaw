@@ -66,6 +66,16 @@ class SkillsViewModelTest {
     }
 
     @Test
+    fun `skill ui messages are bounded and fall back when blank`() {
+        val oversizedMessage = "m".repeat(SKILL_UI_MESSAGE_MAX_CHARS + 20)
+        val oversizedFallback = "f".repeat(SKILL_UI_MESSAGE_MAX_CHARS + 20)
+
+        assertEquals(SKILL_UI_MESSAGE_MAX_CHARS, boundedSkillUiMessage(oversizedMessage, "fallback").length)
+        assertEquals("Fallback", boundedSkillUiMessage("", "Fallback"))
+        assertEquals(oversizedFallback.take(SKILL_UI_MESSAGE_MAX_CHARS), boundedSkillUiMessage(null, oversizedFallback))
+    }
+
+    @Test
     fun `skill import status message is bounded and summarizes omitted names`() {
         val importedNames =
             (0 until SKILL_IMPORT_STATUS_MAX_LISTED_NAMES + 4).map { index ->

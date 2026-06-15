@@ -295,3 +295,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   reports total imported/replaced counts, lists only a small capped sample of
   skill names, and includes omitted-name counts so large ZIP imports cannot
   create unbounded status text.
+- 2026-06-16: Bounded skill UI status and dialog messages. Skill recovery,
+  import/load failures, save failures, and saved-configuration notices now pass
+  through a shared UI-message cap so thrown exceptions or oversized skill names
+  cannot inflate the Skills screen state.
