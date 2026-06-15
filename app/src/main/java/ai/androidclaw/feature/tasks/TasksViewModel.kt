@@ -56,6 +56,8 @@ data class TasksUiState(
     val actionMessage: String? = null,
 )
 
+internal const val TASK_ACTION_MESSAGE_MAX_CHARS = 1_000
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class TasksViewModel(
     private val taskRepository: TaskRepository,
@@ -189,12 +191,15 @@ class TasksViewModel(
             schedulerCoordinator.scheduleTask(createdTask.id)
             val warnings = createdTask.userVisiblePreciseWarnings(schedulerCoordinator.diagnostics())
             actionMessage.value =
-                buildString {
-                    append("Created task ${createdTask.name}.")
-                    warnings.forEach { warning ->
-                        append(' ').append(warning)
-                    }
-                }
+                boundedTaskActionMessage(
+                    buildString {
+                        append("Created task ${createdTask.name}.")
+                        warnings.forEach { warning ->
+                            append(' ').append(warning)
+                        }
+                    },
+                    fallback = "Created task.",
+                )
         }
     }
 
@@ -209,10 +214,18 @@ class TasksViewModel(
             taskRepository.updateTask(updatedTask)
             if (updatedTask.enabled) {
                 schedulerCoordinator.scheduleTask(updatedTask.id)
-                actionMessage.value = "Enabled ${updatedTask.name}."
+                actionMessage.value =
+                    boundedTaskActionMessage(
+                        "Enabled ${updatedTask.name}.",
+                        fallback = "Enabled task.",
+                    )
             } else {
                 schedulerCoordinator.cancelTask(updatedTask.id)
-                actionMessage.value = "Disabled ${updatedTask.name}."
+                actionMessage.value =
+                    boundedTaskActionMessage(
+                        "Disabled ${updatedTask.name}.",
+                        fallback = "Disabled task.",
+                    )
             }
         }
     }
@@ -220,12 +233,20 @@ class TasksViewModel(
     fun runNow(taskId: String) {
         val task = state.value.tasks.firstOrNull { it.id == taskId }
         if (task == null) {
-            actionMessage.value = "Run now failed: task not found."
+            actionMessage.value =
+                boundedTaskActionMessage(
+                    "Run now failed: task not found.",
+                    fallback = "Run now failed.",
+                )
             return
         }
         viewModelScope.launch {
             schedulerCoordinator.runNow(taskId)
-            actionMessage.value = "Queued run now for ${task.name}."
+            actionMessage.value =
+                boundedTaskActionMessage(
+                    "Queued run now for ${task.name}.",
+                    fallback = "Queued run now.",
+                )
         }
     }
 
@@ -241,7 +262,11 @@ class TasksViewModel(
         viewModelScope.launch {
             schedulerCoordinator.cancelTask(taskId)
             taskRepository.deleteTask(taskId)
-            actionMessage.value = "Deleted $taskName."
+            actionMessage.value =
+                boundedTaskActionMessage(
+                    "Deleted $taskName.",
+                    fallback = "Deleted task.",
+                )
         }
     }
 
@@ -261,6 +286,11 @@ class TasksViewModel(
             }
     }
 }
+
+internal fun boundedTaskActionMessage(
+    message: String?,
+    fallback: String,
+): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(TASK_ACTION_MESSAGE_MAX_CHARS)
 
 internal fun buildRunUsageSummary(providerMeta: ProviderMessageMeta): String? {
     val usage = providerMeta.usage ?: return null

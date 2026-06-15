@@ -135,6 +135,28 @@ class TasksViewModelTest {
         }
 
     @Test
+    fun `task action messages are bounded before reaching UI state`() {
+        val oversized = "x".repeat(TASK_ACTION_MESSAGE_MAX_CHARS + 50)
+
+        val bounded = boundedTaskActionMessage(oversized, fallback = "Task action completed.")
+
+        assertEquals(TASK_ACTION_MESSAGE_MAX_CHARS, bounded.length)
+        assertEquals("x".repeat(TASK_ACTION_MESSAGE_MAX_CHARS), bounded)
+    }
+
+    @Test
+    fun `task action messages fall back when blank`() {
+        assertEquals(
+            "Task action completed.",
+            boundedTaskActionMessage(null, fallback = "Task action completed."),
+        )
+        assertEquals(
+            "Task action completed.",
+            boundedTaskActionMessage("", fallback = "Task action completed."),
+        )
+    }
+
+    @Test
     fun `recent task runs surface provider usage from output messages`() =
         runTest {
             viewModel.state.test {

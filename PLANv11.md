@@ -307,3 +307,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   completion/failure text, turn-failure display text, and export/share exception
   messages now pass through a shared chat UI-message cap before reaching Compose
   state while event logging still preserves repository-bounded diagnostics.
+- 2026-06-16: Bounded task action messages. Task creation, enable/disable,
+  run-now, not-found, and delete notices now pass through a shared scheduler
+  screen action-message cap before reaching Compose state, with deterministic
+  coverage for oversized and blank action text.
