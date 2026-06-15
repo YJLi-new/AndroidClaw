@@ -118,3 +118,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   historical schedule. This keeps completed/past once tasks editable for name,
   prompt, retry, session, and precision metadata without requiring an unrelated
   reschedule.
+- 2026-06-15: Restored compacted-history reveal behavior in chat. The UI now has
+  an explicit show/hide affordance, hidden durable messages can be revealed
+  without surfacing compact-command plumbing, and opening a search hit inside a
+  compacted range reveals the history so the match can actually be highlighted.

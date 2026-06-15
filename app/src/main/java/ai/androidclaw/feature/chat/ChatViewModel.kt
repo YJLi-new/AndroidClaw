@@ -270,17 +270,17 @@ class ChatViewModel(
                     messages
                 }
             val visibleMessages =
-                if (compactedHiddenMessageCount > 0) {
-                    sourceMessagesAfterBoundary.filterNot(ChatMessageUi::isCompactControlMessage)
-                } else {
-                    messages
+                when {
+                    compactedHiddenMessageCount <= 0 -> messages
+                    showCompactedHistoryValue -> messages.filterNot(ChatMessageUi::isCompactControlMessage)
+                    else -> sourceMessagesAfterBoundary.filterNot(ChatMessageUi::isCompactControlMessage)
                 }
             chrome.copy(
                 sessionTitle = currentSession?.title.orEmpty(),
                 sessionSummary = currentSessionSummary,
                 sessionUsageSummary = usageSummary,
                 compactedHiddenMessageCount = compactedHiddenMessageCount,
-                showCompactedHistory = false,
+                showCompactedHistory = compactedHiddenMessageCount > 0 && showCompactedHistoryValue,
                 sessions = sessionItems,
                 messages = visibleMessages,
                 canArchiveCurrentSession = currentSession?.isMain == false,
@@ -490,7 +490,7 @@ class ChatViewModel(
         mutableCurrentSessionId.value = result.sessionId
         highlightedMessageId.value = result.messageId
         if (result.messageId != null) {
-            showCompactedHistory.value = false
+            showCompactedHistory.value = true
         }
         errorMessage.value = null
         noticeMessage.value =
@@ -518,7 +518,12 @@ class ChatViewModel(
     }
 
     fun toggleCompactedHistory() {
-        showCompactedHistory.value = false
+        showCompactedHistory.value =
+            if (state.value.compactedHiddenMessageCount > 0) {
+                !showCompactedHistory.value
+            } else {
+                false
+            }
     }
 
     fun compactCurrentSession() {

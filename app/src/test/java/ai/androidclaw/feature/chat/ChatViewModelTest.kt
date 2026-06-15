@@ -361,7 +361,7 @@ class ChatViewModelTest {
         }
 
     @Test
-    fun `compacted session hides older messages and does not reveal them in chat`() =
+    fun `compacted session hides older messages until user reveals durable history`() =
         runTest {
             val mainSession = sessionRepository.getOrCreateMainSession()
             val oldUser = messageRepository.addMessage(mainSession.id, MessageRole.User, "old setup")
@@ -383,15 +383,30 @@ class ChatViewModelTest {
 
                 assertEquals("Old setup was answered.", compacted.sessionSummary)
                 assertTrue(compacted.canCompactCurrentSession)
+                assertTrue(!compacted.showCompactedHistory)
+                assertTrue(compacted.messages.none { message -> message.id == oldUser.id })
+                assertTrue(compacted.messages.none { message -> message.id == boundary.id })
 
                 viewModel.toggleCompactedHistory()
 
-                val stillHidden = viewModel.state.value
+                val revealed =
+                    awaitState {
+                        it.showCompactedHistory &&
+                            it.messages.map { message -> message.text } == listOf("old setup", "old answer", "new question")
+                    }
 
-                assertTrue(!stillHidden.showCompactedHistory)
-                assertTrue(stillHidden.messages.none { message -> message.id == oldUser.id })
-                assertTrue(stillHidden.messages.none { message -> message.id == boundary.id })
-                assertEquals(listOf("new question"), stillHidden.messages.map { it.text })
+                assertTrue(revealed.messages.any { message -> message.id == oldUser.id })
+                assertTrue(revealed.messages.any { message -> message.id == boundary.id })
+
+                viewModel.toggleCompactedHistory()
+
+                val hiddenAgain =
+                    awaitState {
+                        !it.showCompactedHistory &&
+                            it.messages.map { message -> message.text } == listOf("new question")
+                    }
+
+                assertTrue(hiddenAgain.messages.none { message -> message.id == oldUser.id })
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -435,6 +450,17 @@ class ChatViewModelTest {
                 assertTrue(!compacted.canCompactCurrentSession)
                 assertTrue(compacted.messages.none { message -> message.text.contains("old setup should be hidden") })
                 assertTrue(compacted.messages.none { message -> message.text.contains("sessions.compact") })
+
+                viewModel.toggleCompactedHistory()
+
+                val revealed =
+                    awaitState {
+                        it.showCompactedHistory &&
+                            it.messages.map { message -> message.text } == listOf("old setup should be hidden")
+                    }
+
+                assertTrue(revealed.messages.none { message -> message.text.contains("sessions.compact") })
+                assertTrue(revealed.messages.none { message -> message.text.contains("Compacted this session") })
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -469,6 +495,48 @@ class ChatViewModelTest {
 
                 assertEquals(otherSession.id, opened.currentSessionId)
                 assertEquals(messageHit.messageId, opened.highlightedMessageId)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `search opens compacted hidden message by revealing durable history`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            val oldUser = messageRepository.addMessage(mainSession.id, MessageRole.User, "buried setup detail")
+            val boundary = messageRepository.addMessage(mainSession.id, MessageRole.Assistant, "old answer")
+            messageRepository.addMessage(mainSession.id, MessageRole.User, "new question")
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = mainSession.id,
+                summaryText = "Old setup was answered.",
+                compactedUntilMessageId = boundary.id,
+            )
+
+            viewModel.state.test {
+                awaitState {
+                    it.currentSessionId == mainSession.id &&
+                        it.compactedHiddenMessageCount == 2 &&
+                        it.messages.none { message -> message.id == oldUser.id }
+                }
+
+                viewModel.onSearchQueryChanged("buried")
+                viewModel.runSearch()
+
+                val searchReady = awaitState { it.searchResults.any { result -> result.messageId == oldUser.id } }
+                val messageHit = searchReady.searchResults.first { it.messageId == oldUser.id }
+
+                viewModel.openSearchResult(messageHit)
+
+                val opened =
+                    awaitState {
+                        it.currentSessionId == mainSession.id &&
+                            it.showCompactedHistory &&
+                            it.highlightedMessageId == oldUser.id &&
+                            it.messages.any { message -> message.id == oldUser.id }
+                    }
+
+                assertEquals(oldUser.id, opened.highlightedMessageId)
+                assertTrue(opened.messages.any { message -> message.text == "buried setup detail" })
                 cancelAndIgnoreRemainingEvents()
             }
         }

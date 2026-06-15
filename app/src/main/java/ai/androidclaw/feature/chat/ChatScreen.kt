@@ -328,10 +328,28 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                     )
                                 }
                                 Text(
-                                    text = "${state.compactedHiddenMessageCount} older messages hidden behind this summary.",
+                                    text =
+                                        if (state.showCompactedHistory) {
+                                            "${state.compactedHiddenMessageCount} older messages are shown below for review."
+                                        } else {
+                                            "${state.compactedHiddenMessageCount} older messages hidden behind this summary."
+                                        },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                                TextButton(
+                                    onClick = viewModel::toggleCompactedHistory,
+                                    enabled = !state.isRunning,
+                                ) {
+                                    Text(
+                                        text =
+                                            if (state.showCompactedHistory) {
+                                                "Hide older messages"
+                                            } else {
+                                                "Show older messages"
+                                            },
+                                    )
+                                }
                             }
                         }
                     }
