@@ -139,6 +139,56 @@ class SettingsDataStoreTest {
         }
 
     @Test
+    fun `provider endpoint text is trimmed bounded and blank values fall back to defaults`() =
+        runTest {
+            val longBaseUrl = "https://example.test/" + "a".repeat(PROVIDER_BASE_URL_MAX_CHARS + 25)
+            val longModelId = "model-" + "m".repeat(PROVIDER_MODEL_ID_MAX_CHARS + 25)
+            val snapshot =
+                ProviderSettingsSnapshot(
+                    providerType = ProviderType.OpenAiCompatible,
+                    providerConfigs =
+                        mapOf(
+                            ProviderType.OpenAiCompatible to
+                                ProviderEndpointSettings(
+                                    baseUrl = "  $longBaseUrl  ",
+                                    modelId = "  $longModelId  ",
+                                    timeoutSeconds = 60,
+                                ),
+                            ProviderType.DeepSeek to
+                                ProviderEndpointSettings(
+                                    baseUrl = "   ",
+                                    modelId = "   ",
+                                    timeoutSeconds = 60,
+                                ),
+                        ) +
+                            ProviderType.configurableProviders
+                                .filterNot { it == ProviderType.OpenAiCompatible || it == ProviderType.DeepSeek }
+                                .associateWith { it.defaultEndpointSettings() },
+                )
+
+            settingsDataStore.saveProviderSettings(snapshot)
+
+            val stored = settingsDataStore.settings.first()
+
+            assertEquals(
+                longBaseUrl.take(PROVIDER_BASE_URL_MAX_CHARS),
+                stored.endpointSettings(ProviderType.OpenAiCompatible).baseUrl,
+            )
+            assertEquals(
+                longModelId.take(PROVIDER_MODEL_ID_MAX_CHARS),
+                stored.endpointSettings(ProviderType.OpenAiCompatible).modelId,
+            )
+            assertEquals(
+                ProviderType.DeepSeek.defaultBaseUrl,
+                stored.endpointSettings(ProviderType.DeepSeek).baseUrl,
+            )
+            assertEquals(
+                ProviderType.DeepSeek.defaultModelId,
+                stored.endpointSettings(ProviderType.DeepSeek).modelId,
+            )
+        }
+
+    @Test
     fun `legacy openai storage value maps to openai compatible`() {
         assertEquals(
             ProviderType.OpenAiCompatible,

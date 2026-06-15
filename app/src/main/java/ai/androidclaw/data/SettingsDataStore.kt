@@ -22,6 +22,9 @@ data class MemorySettingsSnapshot(
     val installUserId: String = "",
 )
 
+internal const val PROVIDER_BASE_URL_MAX_CHARS = 2_048
+internal const val PROVIDER_MODEL_ID_MAX_CHARS = 256
+
 class SettingsDataStore(
     private val context: Context,
 ) {
@@ -92,12 +95,14 @@ class SettingsDataStore(
                         timeoutSeconds = providerSettings.timeoutSeconds,
                         fallbackSeconds = providerType.defaultTimeoutSeconds,
                     )
-                preferences[baseUrlKey(providerType)] = providerSettings.baseUrl.trim()
-                preferences[modelIdKey(providerType)] = providerSettings.modelId.trim()
+                val baseUrl = normalizeProviderBaseUrl(providerType, providerSettings.baseUrl)
+                val modelId = normalizeProviderModelId(providerType, providerSettings.modelId)
+                preferences[baseUrlKey(providerType)] = baseUrl
+                preferences[modelIdKey(providerType)] = modelId
                 preferences[timeoutSecondsKey(providerType)] = timeoutSeconds
                 if (providerType == ProviderType.OpenAiCompatible) {
-                    preferences[legacyOpenAiBaseUrlKey] = providerSettings.baseUrl.trim()
-                    preferences[legacyOpenAiModelIdKey] = providerSettings.modelId.trim()
+                    preferences[legacyOpenAiBaseUrlKey] = baseUrl
+                    preferences[legacyOpenAiModelIdKey] = modelId
                     preferences[legacyOpenAiTimeoutSecondsKey] = timeoutSeconds
                 }
             }
@@ -163,6 +168,8 @@ class SettingsDataStore(
             }
 
             else -> preferences[baseUrlKey(providerType)] ?: providerType.defaultBaseUrl
+        }.let { rawValue ->
+            normalizeProviderBaseUrl(providerType, rawValue)
         }
 
     private fun readModelId(
@@ -189,6 +196,8 @@ class SettingsDataStore(
             }
 
             else -> preferences[modelIdKey(providerType)] ?: providerType.defaultModelId
+        }.let { rawValue ->
+            normalizeProviderModelId(providerType, rawValue)
         }
 
     private fun readTimeoutSeconds(
@@ -216,4 +225,31 @@ class SettingsDataStore(
     private fun modelIdKey(providerType: ProviderType) = stringPreferencesKey("provider_${providerType.storageValue}_model_id")
 
     private fun timeoutSecondsKey(providerType: ProviderType) = intPreferencesKey("provider_${providerType.storageValue}_timeout_seconds")
+}
+
+private fun normalizeProviderBaseUrl(
+    providerType: ProviderType,
+    rawValue: String,
+): String =
+    rawValue
+        .trim()
+        .take(PROVIDER_BASE_URL_MAX_CHARS)
+        .takeIf(String::isNotBlank)
+        ?: providerType.defaultBaseUrl
+
+private fun normalizeProviderModelId(
+    providerType: ProviderType,
+    rawValue: String,
+): String {
+    val trimmedValue = rawValue.trim()
+    val migratedValue =
+        if (providerType == ProviderType.OpenAiCodex && trimmedValue == OPENAI_CODEX_LEGACY_DEFAULT_MODEL_ID) {
+            OPENAI_CODEX_DEFAULT_MODEL_ID
+        } else {
+            trimmedValue
+        }
+    return migratedValue
+        .take(PROVIDER_MODEL_ID_MAX_CHARS)
+        .takeIf(String::isNotBlank)
+        ?: providerType.defaultModelId
 }

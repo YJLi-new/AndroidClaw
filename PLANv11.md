@@ -209,3 +209,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   message searches now return empty results for blank or whitespace-only queries
   instead of issuing bounded full-table `LIKE %%` scans, matching chat UI
   behavior and keeping accidental direct calls cheap.
+- 2026-06-16: Hardened provider endpoint settings text. DataStore now trims and
+  bounds provider base URLs and model ids on write/read, while blank remote
+  endpoint values fall back to provider defaults so corrupted or imported
+  settings cannot reach providers as empty or oversized transport config.
