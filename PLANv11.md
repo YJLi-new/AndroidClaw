@@ -131,3 +131,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
   to the safe default, oversized values clamp to the maximum, and the settings UI
   rejects out-of-range edits instead of letting unsafe transport configuration
   reach OkHttp.
+- 2026-06-15: Hardened cron schedule parsing for malformed automation inputs.
+  Empty list items, repeated step separators, and non-numeric values now fail
+  with stable bounded `IllegalArgumentException` messages instead of raw number
+  parser text, and tests cover Sunday `7` normalization plus invalid cron forms.

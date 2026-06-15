@@ -78,9 +78,14 @@ data class CronField(
                 )
             }
 
+            require(normalized.isNotBlank()) { "Cron field cannot be empty." }
+            val parts = normalized.split(',')
+            require(parts.all { it.isNotBlank() }) {
+                "Cron field cannot contain empty list items."
+            }
+
             val values =
-                normalized
-                    .split(',')
+                parts
                     .flatMap { parsePart(it.trim(), minimum, maximum, normalizeSevenToZero) }
                     .toSet()
 
@@ -88,15 +93,44 @@ data class CronField(
             return CronField(allowed = values, isWildcard = false)
         }
 
+        private fun parseNumber(
+            input: String,
+            label: String,
+        ): Int =
+            input.toIntOrNull()
+                ?: throw IllegalArgumentException(
+                    "Invalid cron $label: '${input.toDisplayToken()}'.",
+                )
+
+        private fun String.toDisplayToken(): String {
+            val collapsed = trim().replace(Regex("\\s+"), " ")
+            return if (collapsed.length <= MAX_ERROR_TOKEN_LENGTH) {
+                collapsed
+            } else {
+                collapsed.take(MAX_ERROR_TOKEN_LENGTH) + "…"
+            }
+        }
+
+        private const val MAX_ERROR_TOKEN_LENGTH = 40
+
         private fun parsePart(
             input: String,
             minimum: Int,
             maximum: Int,
             normalizeSevenToZero: Boolean,
         ): List<Int> {
+            val slashCount = input.count { it == '/' }
+            require(slashCount <= 1) { "Cron part cannot contain multiple step separators." }
+
             val slashIndex = input.indexOf('/')
             val base = if (slashIndex == -1) input else input.substring(0, slashIndex)
-            val step = if (slashIndex == -1) 1 else input.substring(slashIndex + 1).toInt()
+            val step =
+                if (slashIndex == -1) {
+                    1
+                } else {
+                    val stepRaw = input.substring(slashIndex + 1)
+                    parseNumber(stepRaw, "step")
+                }
             require(step > 0) { "Step must be > 0." }
 
             val seed =
@@ -104,12 +138,12 @@ data class CronField(
                     base == "*" -> (minimum..maximum).toList()
                     '-' in base -> {
                         val (startRaw, endRaw) = base.split('-', limit = 2)
-                        val start = startRaw.toInt()
-                        val end = endRaw.toInt()
+                        val start = parseNumber(startRaw, "range start")
+                        val end = parseNumber(endRaw, "range end")
                         require(start <= end) { "Range start must be <= end." }
                         (start..end).toList()
                     }
-                    base.isNotBlank() -> listOf(base.toInt())
+                    base.isNotBlank() -> listOf(parseNumber(base, "value"))
                     else -> emptyList()
                 }
 
