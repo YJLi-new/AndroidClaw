@@ -57,7 +57,17 @@ class PromptAssembler(
 }
 
 private val toolCallJson = Json { ignoreUnknownKeys = true }
-private const val MAX_MEMORY_CONTEXT_ITEMS = 5
+internal const val MAX_PROMPT_SKILLS = 20
+internal const val MAX_PROMPT_SKILL_NAME_CHARS = 160
+internal const val MAX_PROMPT_SKILL_DESCRIPTION_CHARS = 1_000
+internal const val MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS = 4_000
+internal const val MAX_PROMPT_TOOLS = 100
+internal const val MAX_PROMPT_TOOL_NAME_CHARS = 120
+internal const val MAX_PROMPT_TOOL_DESCRIPTION_CHARS = 500
+internal const val MAX_PROMPT_TOOL_ALIASES = 10
+internal const val MAX_PROMPT_TOOL_ALIAS_CHARS = 80
+internal const val MAX_MEMORY_CONTEXT_ITEMS = 5
+internal const val MAX_MEMORY_CONTEXT_ITEM_CHARS = 500
 
 private fun buildSystemPrompt(
     selectedSkills: List<SkillSnapshot>,
@@ -71,21 +81,39 @@ private fun buildSystemPrompt(
         if (selectedSkills.isNotEmpty()) {
             appendLine()
             appendLine("Enabled skills:")
-            selectedSkills.forEach { skill ->
-                appendLine("- ${skill.displayName}: ${skill.frontmatter?.description.orEmpty()}")
-                val instructions = skill.instructionsMd.trim()
+            selectedSkills.take(MAX_PROMPT_SKILLS).forEach { skill ->
+                val displayName = skill.displayName.toPromptText(MAX_PROMPT_SKILL_NAME_CHARS)
+                val description =
+                    skill.frontmatter
+                        ?.description
+                        .orEmpty()
+                        .toPromptText(MAX_PROMPT_SKILL_DESCRIPTION_CHARS)
+                appendLine("- $displayName: $description")
+                val instructions = skill.instructionsMd.trim().toPromptText(MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS)
                 if (instructions.isNotBlank()) {
                     appendLine(instructions)
                 }
+            }
+            if (selectedSkills.size > MAX_PROMPT_SKILLS) {
+                appendLine("Additional enabled skills omitted: ${selectedSkills.size - MAX_PROMPT_SKILLS}.")
             }
         }
         if (toolDescriptors.isNotEmpty()) {
             appendLine()
             appendLine("Available tools:")
-            toolDescriptors.forEach { tool ->
-                append("- ${tool.name}: ${tool.description}")
+            toolDescriptors.take(MAX_PROMPT_TOOLS).forEach { tool ->
+                append("- ${tool.name.toPromptText(MAX_PROMPT_TOOL_NAME_CHARS)}: ")
+                append(tool.description.toPromptText(MAX_PROMPT_TOOL_DESCRIPTION_CHARS))
                 if (tool.aliases.isNotEmpty()) {
-                    append(" [aliases: ${tool.aliases.joinToString()}]")
+                    val aliases =
+                        tool.aliases
+                            .take(MAX_PROMPT_TOOL_ALIASES)
+                            .joinToString { alias -> alias.toPromptText(MAX_PROMPT_TOOL_ALIAS_CHARS) }
+                    append(" [aliases: $aliases")
+                    if (tool.aliases.size > MAX_PROMPT_TOOL_ALIASES) {
+                        append(", …")
+                    }
+                    append("]")
                 }
                 if (tool.foregroundRequired) {
                     append(" (foreground required)")
@@ -99,6 +127,9 @@ private fun buildSystemPrompt(
                 }
                 appendLine()
             }
+            if (toolDescriptors.size > MAX_PROMPT_TOOLS) {
+                appendLine("Additional tools omitted: ${toolDescriptors.size - MAX_PROMPT_TOOLS}.")
+            }
         }
     }.trim()
 
@@ -106,6 +137,7 @@ private fun List<String>.toMemoryContextMessage(): ModelMessage? {
     val memories =
         map { it.trim() }
             .filter(String::isNotBlank)
+            .map { it.toPromptText(MAX_MEMORY_CONTEXT_ITEM_CHARS) }
             .distinct()
             .take(MAX_MEMORY_CONTEXT_ITEMS)
     if (memories.isEmpty()) {
@@ -124,6 +156,8 @@ private fun List<String>.toMemoryContextMessage(): ModelMessage? {
             }.trim(),
     )
 }
+
+private fun String.toPromptText(maxChars: Int): String = take(maxChars)
 
 private fun ChatMessage.toModelMessage(): ModelMessage? =
     when (role) {

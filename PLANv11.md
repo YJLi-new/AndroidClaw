@@ -190,3 +190,8 @@ available, or use the repo's Windows AVD scripts for manual QA.
   reasons are bounded before persistence and on legacy reads, while malformed
   persisted frontmatter/reason JSON now degrades to null/empty data instead of
   crashing skill lists.
+- 2026-06-16: Bounded prompt assembly for phone-sized provider requests. System
+  prompts now cap enabled skill count/instructions, tool descriptors/aliases,
+  and cross-session memory item text, with explicit omitted-item markers so
+  imported skills or caller-provided memories cannot inflate prompt context
+  without bound.

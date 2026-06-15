@@ -190,17 +190,98 @@ class PromptAssemblerTest {
         assertEquals(ModelMessageRole.User, assembly.messageHistory[1].role)
     }
 
-    private fun sampleSkill(): SkillSnapshot =
+    @Test
+    fun `system prompt bounds skills tools and long prompt text`() {
+        val longSkillInstructions = "i".repeat(MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS) + "SKILL_TAIL"
+        val longSkillDescription = "d".repeat(MAX_PROMPT_SKILL_DESCRIPTION_CHARS) + "SKILL_DESCRIPTION_TAIL"
+        val longToolDescription = "t".repeat(MAX_PROMPT_TOOL_DESCRIPTION_CHARS) + "TOOL_TAIL"
+        val longAlias = "a".repeat(MAX_PROMPT_TOOL_ALIAS_CHARS) + "ALIAS_TAIL"
+
+        val assembly =
+            assembler.assemble(
+                persistedMessages = emptyList(),
+                selectedSkills =
+                    (1..(MAX_PROMPT_SKILLS + 1)).map { index ->
+                        sampleSkill(
+                            id = "skill-$index",
+                            name = "skill_$index",
+                            description = if (index == 1) longSkillDescription else "Skill $index",
+                            instructions = if (index == 1) longSkillInstructions else "Instructions $index",
+                        )
+                    },
+                toolDescriptors =
+                    (1..(MAX_PROMPT_TOOLS + 1)).map { index ->
+                        ToolDescriptor(
+                            name = "tool.$index",
+                            description = if (index == 1) longToolDescription else "Tool $index",
+                            aliases = if (index == 1) listOf(longAlias) else emptyList(),
+                        )
+                    },
+                runMode = ModelRunMode.Interactive,
+            )
+
+        assertTrue(assembly.systemPrompt.contains("skill_$MAX_PROMPT_SKILLS"))
+        assertTrue(assembly.systemPrompt.contains("Additional enabled skills omitted: 1."))
+        assertTrue(assembly.systemPrompt.contains("tool.$MAX_PROMPT_TOOLS"))
+        assertTrue(assembly.systemPrompt.contains("Additional tools omitted: 1."))
+        assertTrue(assembly.systemPrompt.contains("i".repeat(MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS)))
+        assertTrue(assembly.systemPrompt.contains("d".repeat(MAX_PROMPT_SKILL_DESCRIPTION_CHARS)))
+        assertTrue(assembly.systemPrompt.contains("t".repeat(MAX_PROMPT_TOOL_DESCRIPTION_CHARS)))
+        assertTrue(assembly.systemPrompt.contains("a".repeat(MAX_PROMPT_TOOL_ALIAS_CHARS)))
+        assertTrue(!assembly.systemPrompt.contains("skill_${MAX_PROMPT_SKILLS + 1}"))
+        assertTrue(!assembly.systemPrompt.contains("tool.${MAX_PROMPT_TOOLS + 1}"))
+        assertTrue(!assembly.systemPrompt.contains("SKILL_TAIL"))
+        assertTrue(!assembly.systemPrompt.contains("SKILL_DESCRIPTION_TAIL"))
+        assertTrue(!assembly.systemPrompt.contains("TOOL_TAIL"))
+        assertTrue(!assembly.systemPrompt.contains("ALIAS_TAIL"))
+    }
+
+    @Test
+    fun `cross session memory context bounds text and item count`() {
+        val longMemory = "m".repeat(MAX_MEMORY_CONTEXT_ITEM_CHARS) + "MEMORY_TAIL"
+        val assembly =
+            assembler.assemble(
+                persistedMessages = listOf(message(role = MessageRole.User, content = "Use memory")),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+                crossSessionMemories =
+                    listOf(
+                        " first memory ",
+                        "first memory",
+                        longMemory,
+                        "third memory",
+                        "fourth memory",
+                        "fifth memory",
+                        "sixth memory",
+                    ),
+            )
+
+        val memoryContext = assembly.messageHistory.first().content
+        val memoryLines = memoryContext.lines().filter { it.startsWith("- ") }
+
+        assertEquals(MAX_MEMORY_CONTEXT_ITEMS, memoryLines.size)
+        assertTrue(memoryContext.contains("m".repeat(MAX_MEMORY_CONTEXT_ITEM_CHARS)))
+        assertTrue(!memoryContext.contains("MEMORY_TAIL"))
+        assertTrue(!memoryContext.contains("sixth memory"))
+    }
+
+    private fun sampleSkill(
+        id: String = "skill-1",
+        name: String = "demo_skill",
+        description: String = "Demo skill",
+        instructions: String = "Follow the demo instructions.",
+    ): SkillSnapshot =
         SkillSnapshot(
-            id = "skill-1",
-            skillKey = "demo_skill",
+            id = id,
+            skillKey = name,
             sourceType = SkillSourceType.Bundled,
-            baseDir = "asset://skills/skill-1",
+            baseDir = "asset://skills/$id",
             enabled = true,
             frontmatter =
                 SkillFrontmatter(
-                    name = "demo_skill",
-                    description = "Demo skill",
+                    name = name,
+                    description = description,
                     homepage = null,
                     userInvocable = true,
                     disableModelInvocation = false,
@@ -213,7 +294,7 @@ class PromptAssemblerTest {
                         },
                     unknownFields = emptyMap(),
                 ),
-            instructionsMd = "Follow the demo instructions.",
+            instructionsMd = instructions,
             eligibility = SkillEligibility(SkillEligibilityStatus.Eligible),
         )
 
