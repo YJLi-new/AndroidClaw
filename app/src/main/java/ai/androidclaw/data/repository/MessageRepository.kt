@@ -93,6 +93,23 @@ class MessageRepository(
         return dao.getRecentBySessionId(sessionId, boundedLimit).map(MessageEntity::toDomain)
     }
 
+    suspend fun getRecentMessagesByRole(
+        sessionId: String,
+        role: MessageRole,
+        limit: Int,
+    ): List<ChatMessage> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (sessionId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getRecentBySessionIdAndRole(
+                sessionId = sessionId,
+                role = role.toStorage(),
+                limit = boundedLimit,
+            ).map(MessageEntity::toDomain)
+    }
+
     suspend fun getMessagesByIds(messageIds: Collection<String>): Map<String, ChatMessage> {
         val distinctMessageIds = messageIds.distinct()
         if (distinctMessageIds.isEmpty()) {

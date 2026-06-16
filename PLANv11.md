@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.role` / `message.role` /
+  `chat.role` plus by-role aliases as a Session Contract transcript filter.
+  Agents can now list bounded recent messages for one role within the active or
+  specified session, reusing repository caps and payload snippets with session
+  metadata, while invalid roles fail with typed argument errors. Focused
+  repository/tool tests, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.reference` /
   `message.reference` / `chat.reference` plus reference aliases as a Session
   and Tool Contract provenance lookup. Agents can now list bounded recent chat

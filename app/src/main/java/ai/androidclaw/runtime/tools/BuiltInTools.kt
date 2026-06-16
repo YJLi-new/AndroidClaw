@@ -10,6 +10,7 @@ import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
+import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
@@ -1117,6 +1118,100 @@ internal fun createBuiltInToolRegistry(
                                             buildJsonArray {
                                                 messages.forEach { message ->
                                                     add(message.toMessageReferencePayload(sessionsById[message.sessionId]))
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "messages.role",
+                                    aliases =
+                                        listOf(
+                                            "message.role",
+                                            "chat.role",
+                                            "messages.by_role",
+                                            "message.by_role",
+                                            "chat.by_role",
+                                        ),
+                                    description = "Return recent messages with one role for the active or specified chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "role",
+                                                description = "Message role: user, assistant, tool_call, tool_result, or system.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val role =
+                                arguments.optionalMessageRole("role")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.role requires role=user, assistant, tool_call, tool_result, or system.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "role")
+                                            },
+                                    )
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to inspect.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val limit = arguments.optionalInt("limit", MESSAGE_RECENT_DEFAULT_LIMIT)
+                            val messages =
+                                messageRepository.getRecentMessagesByRole(
+                                    sessionId = sessionId,
+                                    role = role,
+                                    limit = limit,
+                                )
+                            ToolExecutionResult.success(
+                                summary = "Loaded ${messages.size} recent ${role.name} message(s) for \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("archived", session.archived)
+                                        put("role", role.name)
+                                        put("messageCount", messageRepository.getMessageCount(sessionId))
+                                        put("returnedCount", messages.size)
+                                        put("recentFirst", true)
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    add(message.toMessageReferencePayload(session))
                                                 }
                                             },
                                         )
@@ -5475,6 +5570,16 @@ private fun JsonObject.optionalMessageReferenceId(field: String): String? =
     optionalText(field)
         ?.take(MESSAGE_REFERENCE_ID_MAX_CHARS)
         ?.ifBlank { null }
+
+private fun JsonObject.optionalMessageRole(field: String): MessageRole? =
+    when (optionalText(field)?.lowercase()?.replace("-", "_")) {
+        "user" -> MessageRole.User
+        "assistant" -> MessageRole.Assistant
+        "tool_call", "toolcall", "tool" -> MessageRole.ToolCall
+        "tool_result", "toolresult" -> MessageRole.ToolResult
+        "system" -> MessageRole.System
+        else -> null
+    }
 
 private fun JsonObject.parseTaskSnoozeUntil(now: Instant): Instant {
     val untilText = optionalText("untilIso")

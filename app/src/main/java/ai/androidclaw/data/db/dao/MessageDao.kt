@@ -116,6 +116,21 @@ interface MessageDao {
     @Query(
         """
         SELECT * FROM messages
+        WHERE sessionId = :sessionId
+          AND role = :role
+        ORDER BY createdAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getRecentBySessionIdAndRole(
+        sessionId: String,
+        role: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
         WHERE id IN (:messageIds)
         """,
     )

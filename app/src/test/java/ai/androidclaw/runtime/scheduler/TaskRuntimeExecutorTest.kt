@@ -228,6 +228,12 @@ private class ThrowingMessageDao(
         limit: Int,
     ): List<MessageEntity> = delegate.getByTaskRunId(taskRunId, limit)
 
+    override suspend fun getRecentBySessionIdAndRole(
+        sessionId: String,
+        role: String,
+        limit: Int,
+    ): List<MessageEntity> = delegate.getRecentBySessionIdAndRole(sessionId, role, limit)
+
     override suspend fun getByIds(messageIds: List<String>): List<MessageEntity> = delegate.getByIds(messageIds)
 
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)

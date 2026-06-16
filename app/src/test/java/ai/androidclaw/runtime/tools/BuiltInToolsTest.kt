@@ -659,6 +659,70 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages role lists recent messages by role for one session`() =
+        runTest {
+            val session = sessionRepository.createSession("Role transcript")
+            val otherSession = sessionRepository.createSession("Other role transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "First user prompt",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Assistant answer",
+            )
+            val latestUser =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Second user prompt",
+                )
+            messageRepository.addMessage(
+                sessionId = otherSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Other session prompt",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.by_role", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("role", "user")
+                            put("limit", 1)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.role", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("role", "developer")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("User", result.payload["role"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["recentFirst"]?.jsonPrimitive?.content)
+            val message =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(latestUser.id, message.getValue("messageId").jsonPrimitive.content)
+            assertEquals("Second user prompt", message.getValue("contentSnippet").jsonPrimitive.content)
+            assertEquals("Role transcript", message.getValue("sessionTitle").jsonPrimitive.content)
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        }
+
+    @Test
     fun `messages recent returns recent active session messages`() =
         runTest {
             val session = sessionRepository.createSession("Recent transcript")

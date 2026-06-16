@@ -439,6 +439,51 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `role lookup returns bounded recent messages for one session`() =
+        runTest {
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.User,
+                content = "first user",
+            )
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.Assistant,
+                content = "assistant reply",
+            )
+            val secondUser =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.User,
+                    content = "second user",
+                )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "other",
+                    title = "Other session",
+                    isMain = false,
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            repository.addMessage(
+                sessionId = "other",
+                role = MessageRole.User,
+                content = "other user",
+            )
+
+            val matches = repository.getRecentMessagesByRole("main", MessageRole.User, limit = 5)
+            val limitedMatches = repository.getRecentMessagesByRole("main", MessageRole.User, limit = 1)
+
+            assertEquals(listOf("second user", "first user"), matches.map { message -> message.content })
+            assertEquals(listOf(secondUser.id), limitedMatches.map { message -> message.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getRecentMessagesByRole("", MessageRole.User, limit = 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getRecentMessagesByRole("main", MessageRole.User, limit = 0))
+        }
+
+    @Test
     fun `add message bounds content metadata and reference ids before persistence`() =
         runTest {
             val longContent = "c".repeat(MESSAGE_CONTENT_MAX_CHARS + 25)
