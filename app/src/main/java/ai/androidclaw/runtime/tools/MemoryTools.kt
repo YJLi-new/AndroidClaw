@@ -208,6 +208,49 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.update",
+                    aliases = listOf("memories.update"),
+                    description = "Replace one local cross-session memory's text by id.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "id",
+                                required = true,
+                                description = "Memory identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "text",
+                                required = true,
+                                description = "Replacement memory text.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val id = arguments.optionalText("id")
+            if (id.isNullOrBlank()) {
+                return@Entry missingMemoryIdResult("Provide a memory id to update.")
+            }
+            val text = arguments.optionalText("text")
+            if (text.isNullOrBlank()) {
+                return@Entry missingMemoryTextResult("Provide replacement memory text.")
+            }
+            memoryUpdateResult(
+                memory =
+                    memoryRepository.update(
+                        ownerUserId = settings.installUserId,
+                        id = id,
+                        text = text,
+                    ),
+                id = id,
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.delete",
                     description = "Delete one local cross-session memory.",
                     arguments =
@@ -391,6 +434,26 @@ private suspend fun executeMemoryCommand(
             )
         }
 
+        "update" -> {
+            val id = rest.substringBefore(' ').trim()
+            val text = rest.substringAfter(' ', "").trim()
+            if (id.isBlank()) {
+                return missingMemoryIdResult("Provide a memory id after /memory update.")
+            }
+            if (text.isBlank()) {
+                return missingMemoryTextResult("Provide replacement memory text after /memory update <id>.")
+            }
+            memoryUpdateResult(
+                memory =
+                    memoryRepository.update(
+                        ownerUserId = settings.installUserId,
+                        id = id,
+                        text = text,
+                    ),
+                id = id,
+            )
+        }
+
         "delete" -> {
             if (rest.isBlank()) {
                 return missingMemoryIdResult("Provide a memory id after /memory delete.")
@@ -528,6 +591,27 @@ private fun memoryGetResult(
         )
     }
 
+private fun memoryUpdateResult(
+    memory: MemoryItem?,
+    id: String,
+): ToolExecutionResult =
+    if (memory == null) {
+        ToolExecutionResult.failure(
+            summary = "Memory $id was not found.",
+            errorCode = "MEMORY_NOT_FOUND",
+            payload =
+                buildJsonObject {
+                    put("id", id)
+                    put("errorCode", "MEMORY_NOT_FOUND")
+                },
+        )
+    } else {
+        ToolExecutionResult.success(
+            summary = "Updated memory: ${memory.text}",
+            payload = memoryPayload(memory),
+        )
+    }
+
 private fun memoryPayload(memory: MemoryItem): JsonObject =
     buildJsonObject {
         put("id", memory.id)
@@ -553,6 +637,16 @@ private fun missingMemoryIdResult(summary: String): ToolExecutionResult =
         payload =
             buildJsonObject {
                 put("errorCode", "MISSING_MEMORY_ID")
+            },
+    )
+
+private fun missingMemoryTextResult(summary: String): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = summary,
+        errorCode = "MISSING_MEMORY_TEXT",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_TEXT")
             },
     )
 

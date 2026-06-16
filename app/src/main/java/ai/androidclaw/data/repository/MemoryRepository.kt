@@ -110,6 +110,28 @@ class MemoryRepository(
             )?.toDomain(json)
     }
 
+    suspend fun update(
+        ownerUserId: String,
+        id: String,
+        text: String,
+    ): MemoryItem? {
+        val normalizedText = normalizeMemoryText(text)
+        if (ownerUserId.isBlank() || id.isBlank() || normalizedText.isBlank()) {
+            return null
+        }
+        val updated =
+            dao.updateText(
+                ownerUserId = ownerUserId,
+                id = id,
+                text = normalizedText.toBoundedMemoryText(),
+                updatedAt = clock.millis(),
+            )
+        if (updated <= 0) {
+            return null
+        }
+        return get(ownerUserId, id)
+    }
+
     suspend fun countActive(ownerUserId: String): Int =
         if (ownerUserId.isBlank()) {
             0

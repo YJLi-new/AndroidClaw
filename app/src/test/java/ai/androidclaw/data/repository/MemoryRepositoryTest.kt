@@ -105,6 +105,43 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `update replaces active memory text and timestamp`() =
+        runTest {
+            val first =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "User likes green buttons.",
+                        sourceSessionId = "session-1",
+                        sourceMessageIds = listOf("message-1"),
+                    ),
+                )
+            val laterClock = Clock.fixed(Instant.parse("2026-06-15T13:00:00Z"), ZoneOffset.UTC)
+            val laterRepository = MemoryRepository(database.memoryItemDao(), clock = laterClock)
+
+            val updated =
+                laterRepository.update(
+                    ownerUserId = "install-user",
+                    id = first.id,
+                    text = "  User likes blue buttons.  ",
+                )
+
+            assertEquals(first.id, updated?.id)
+            assertEquals("User likes blue buttons.", updated?.text)
+            assertEquals(testClock.instant(), updated?.createdAt)
+            assertEquals(laterClock.instant(), updated?.updatedAt)
+            assertEquals("session-1", updated?.sourceSessionId)
+            assertEquals(listOf("message-1"), updated?.sourceMessageIds)
+            assertEquals(listOf(first.id), laterRepository.search("install-user", "blue", limit = 5).map { it.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), laterRepository.search("install-user", "green", limit = 5))
+            assertEquals(null, laterRepository.update("install-user", "missing-memory", "New text."))
+            assertEquals(null, laterRepository.update("install-user", first.id, "   "))
+
+            assertTrue(laterRepository.delete("install-user", first.id))
+            assertEquals(null, laterRepository.update("install-user", first.id, "Deleted text."))
+        }
+
+    @Test
     fun `remember bounds text and source message ids before persistence`() =
         runTest {
             val longText = "x".repeat(MemoryRepository.MAX_MEMORY_TEXT_CHARS + 25)

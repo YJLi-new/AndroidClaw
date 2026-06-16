@@ -1937,6 +1937,83 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory update replaces exact memory text through tool and command`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val stored =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User prefers green accent colors.",
+                        sourceSessionId = "session-3",
+                    ),
+                )
+
+            val directUpdate =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", stored.id)
+                            put("text", "User prefers purple accent colors.")
+                        },
+                )
+            val commandUpdate =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "update ${stored.id} User prefers blue accent colors.")
+                        },
+                )
+            val missingText =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", stored.id)
+                        },
+                )
+            val commandMissingText =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "update ${stored.id}")
+                        },
+                )
+            val missingMemory =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", "missing-memory")
+                            put("text", "Replacement text.")
+                        },
+                )
+
+            assertTrue(directUpdate.success)
+            assertEquals(stored.id, directUpdate.payload["id"]?.jsonPrimitive?.content)
+            assertEquals("User prefers purple accent colors.", directUpdate.payload["text"]?.jsonPrimitive?.content)
+            assertEquals("session-3", directUpdate.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertFalse(directUpdate.payload.containsKey("ownerUserId"))
+            assertTrue(commandUpdate.success)
+            assertEquals("User prefers blue accent colors.", commandUpdate.payload["text"]?.jsonPrimitive?.content)
+            assertEquals(
+                "User prefers blue accent colors.",
+                requireNotNull(memoryRepository.get(ownerUserId, stored.id)).text,
+            )
+            assertFalse(missingText.success)
+            assertEquals("INVALID_ARGUMENTS", missingText.errorCode)
+            assertFalse(commandMissingText.success)
+            assertEquals("MISSING_MEMORY_TEXT", commandMissingText.errorCode)
+            assertFalse(missingMemory.success)
+            assertEquals("MEMORY_NOT_FOUND", missingMemory.errorCode)
+        }
+
+    @Test
     fun `memory status reports scope without exposing local install identifier`() =
         runTest {
             val registry = buildRegistry()

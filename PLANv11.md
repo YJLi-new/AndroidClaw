@@ -199,6 +199,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
   owner id, and missing/deleted memories return typed `MEMORY_NOT_FOUND`
   failures. Focused memory/tool tests, ktlint, and the full offline fast loop
   passed.
+- 2026-06-16: Added `memory.update` / `memories.update` plus
+  `/memory update <id> <text>` so agents can correct exact local memories after
+  inspecting them. Updates are owner-scoped, only affect active memories,
+  preserve source provenance, normalize/bound replacement text through the
+  repository, refresh `updatedAt`, and return the same non-secret memory payload
+  as `memory.get`. Focused memory/tool tests, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

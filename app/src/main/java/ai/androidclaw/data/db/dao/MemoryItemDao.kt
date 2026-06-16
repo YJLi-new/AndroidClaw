@@ -41,6 +41,23 @@ interface MemoryItemDao {
 
     @Query(
         """
+        UPDATE memory_items
+        SET text = :text,
+            updatedAt = :updatedAt
+        WHERE ownerUserId = :ownerUserId
+          AND id = :id
+          AND deletedAt IS NULL
+        """,
+    )
+    suspend fun updateText(
+        ownerUserId: String,
+        id: String,
+        text: String,
+        updatedAt: Long,
+    ): Int
+
+    @Query(
+        """
         SELECT COUNT(*) FROM memory_items
         WHERE ownerUserId = :ownerUserId
           AND deletedAt IS NULL
