@@ -27,6 +27,20 @@ interface MemoryItemDao {
 
     @Query(
         """
+        SELECT * FROM memory_items
+        WHERE ownerUserId = :ownerUserId
+          AND id = :id
+          AND deletedAt IS NULL
+        LIMIT 1
+        """,
+    )
+    suspend fun getActiveByOwnerAndId(
+        ownerUserId: String,
+        id: String,
+    ): MemoryItemEntity?
+
+    @Query(
+        """
         SELECT COUNT(*) FROM memory_items
         WHERE ownerUserId = :ownerUserId
           AND deletedAt IS NULL

@@ -92,9 +92,12 @@ class MemoryRepositoryTest {
         runTest {
             val first = repository.remember("install-user", "User likes green buttons.")
             repository.remember("install-user", "User uses Android Studio.")
+            val firstId = requireNotNull(first).id
 
-            assertTrue(repository.delete("install-user", requireNotNull(first).id))
-            assertFalse(repository.search("install-user", "green", limit = 5).any { it.id == first.id })
+            assertEquals(first, repository.get("install-user", firstId))
+            assertTrue(repository.delete("install-user", firstId))
+            assertEquals(null, repository.get("install-user", firstId))
+            assertFalse(repository.search("install-user", "green", limit = 5).any { it.id == firstId })
             assertEquals(1, repository.countActive("install-user"))
 
             assertEquals(1, repository.clear("install-user"))

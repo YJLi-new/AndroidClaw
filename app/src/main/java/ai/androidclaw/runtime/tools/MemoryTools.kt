@@ -179,6 +179,35 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.get",
+                    aliases = listOf("memories.get"),
+                    description = "Return one local cross-session memory by id.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "id",
+                                required = true,
+                                description = "Memory identifier.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val id = arguments.optionalText("id")
+            if (id.isNullOrBlank()) {
+                return@Entry missingMemoryIdResult("Provide a memory id to inspect.")
+            }
+            memoryGetResult(
+                memory = memoryRepository.get(settings.installUserId, id),
+                id = id,
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.delete",
                     description = "Delete one local cross-session memory.",
                     arguments =
@@ -194,14 +223,7 @@ internal fun memoryToolEntries(
             val settings = settingsDataStore.memorySettingsSnapshot()
             val id = arguments.optionalText("id")
             if (id.isNullOrBlank()) {
-                return@Entry ToolExecutionResult.failure(
-                    summary = "Provide a memory id to delete.",
-                    errorCode = "MISSING_MEMORY_ID",
-                    payload =
-                        buildJsonObject {
-                            put("errorCode", "MISSING_MEMORY_ID")
-                        },
-                )
+                return@Entry missingMemoryIdResult("Provide a memory id to delete.")
             }
             val deleted = memoryRepository.delete(settings.installUserId, id)
             if (deleted) {
@@ -359,16 +381,19 @@ private suspend fun executeMemoryCommand(
                 nonEmptySummary = "Found stored memories.",
             )
 
+        "get" -> {
+            if (rest.isBlank()) {
+                return missingMemoryIdResult("Provide a memory id after /memory get.")
+            }
+            memoryGetResult(
+                memory = memoryRepository.get(settings.installUserId, rest),
+                id = rest,
+            )
+        }
+
         "delete" -> {
             if (rest.isBlank()) {
-                return ToolExecutionResult.failure(
-                    summary = "Provide a memory id after /memory delete.",
-                    errorCode = "MISSING_MEMORY_ID",
-                    payload =
-                        buildJsonObject {
-                            put("errorCode", "MISSING_MEMORY_ID")
-                        },
-                )
+                return missingMemoryIdResult("Provide a memory id after /memory delete.")
             }
             val deleted = memoryRepository.delete(settings.installUserId, rest)
             if (deleted) {
@@ -482,14 +507,54 @@ private fun memoryListResult(
             },
     )
 
+private fun memoryGetResult(
+    memory: MemoryItem?,
+    id: String,
+): ToolExecutionResult =
+    if (memory == null) {
+        ToolExecutionResult.failure(
+            summary = "Memory $id was not found.",
+            errorCode = "MEMORY_NOT_FOUND",
+            payload =
+                buildJsonObject {
+                    put("id", id)
+                    put("errorCode", "MEMORY_NOT_FOUND")
+                },
+        )
+    } else {
+        ToolExecutionResult.success(
+            summary = "Found memory: ${memory.text}",
+            payload = memoryPayload(memory),
+        )
+    }
+
 private fun memoryPayload(memory: MemoryItem): JsonObject =
     buildJsonObject {
         put("id", memory.id)
         put("text", memory.text)
         memory.sourceSessionId?.let { put("sourceSessionId", it) }
+        if (memory.sourceMessageIds.isNotEmpty()) {
+            put(
+                "sourceMessageIds",
+                buildJsonArray {
+                    memory.sourceMessageIds.forEach { add(JsonPrimitive(it)) }
+                },
+            )
+        }
         put("sourceType", memory.sourceType)
         put("createdAt", memory.createdAt.toString())
+        put("updatedAt", memory.updatedAt.toString())
     }
+
+private fun missingMemoryIdResult(summary: String): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = summary,
+        errorCode = "MISSING_MEMORY_ID",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_ID")
+            },
+    )
 
 private fun JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null

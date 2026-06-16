@@ -96,6 +96,20 @@ class MemoryRepository(
             ).map { it.toDomain(json) }
     }
 
+    suspend fun get(
+        ownerUserId: String,
+        id: String,
+    ): MemoryItem? {
+        if (ownerUserId.isBlank() || id.isBlank()) {
+            return null
+        }
+        return dao
+            .getActiveByOwnerAndId(
+                ownerUserId = ownerUserId,
+                id = id,
+            )?.toDomain(json)
+    }
+
     suspend fun countActive(ownerUserId: String): Int =
         if (ownerUserId.isBlank()) {
             0

@@ -1876,6 +1876,67 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory get returns exact memory without exposing owner identifier`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val stored =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User prefers green accent colors.",
+                        sourceSessionId = "session-2",
+                        sourceMessageIds = listOf("message-1", "message-2"),
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+
+            val directGet =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", stored.id)
+                        },
+                )
+            val commandGet =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "get ${stored.id}")
+                        },
+                )
+            val missingGet =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", "missing-memory")
+                        },
+                )
+
+            assertTrue(directGet.success)
+            assertEquals(stored.id, directGet.payload["id"]?.jsonPrimitive?.content)
+            assertEquals("User prefers green accent colors.", directGet.payload["text"]?.jsonPrimitive?.content)
+            assertEquals("session-2", directGet.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals("automatic", directGet.payload["sourceType"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("message-1", "message-2"),
+                directGet.payload
+                    .getValue("sourceMessageIds")
+                    .jsonArray
+                    .map { it.jsonPrimitive.content },
+            )
+            assertFalse(directGet.payload.containsKey("ownerUserId"))
+            assertTrue(commandGet.success)
+            assertEquals(stored.id, commandGet.payload["id"]?.jsonPrimitive?.content)
+            assertFalse(missingGet.success)
+            assertEquals("MEMORY_NOT_FOUND", missingGet.errorCode)
+        }
+
+    @Test
     fun `memory status reports scope without exposing local install identifier`() =
         runTest {
             val registry = buildRegistry()

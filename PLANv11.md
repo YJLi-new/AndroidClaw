@@ -192,6 +192,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
   configured, selected provider state, OAuth expiry metadata, and not-required
   auth status for local providers without returning secret values. Focused
   `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `memory.get` / `memories.get` plus `/memory get <id>` as
+  exact Memory Contract inspectors for ids returned by search/list tools. The
+  repository now supports owner-scoped active memory lookup, payloads include
+  source message ids and update timestamps without exposing the local install
+  owner id, and missing/deleted memories return typed `MEMORY_NOT_FOUND`
+  failures. Focused memory/tool tests, ktlint, and the full offline fast loop
+  passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
