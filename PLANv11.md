@@ -174,6 +174,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   families, improving provider/OAuth legibility without exposing stored
   credentials. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added `providers.select` / `provider.select` /
+  `providers.use` / `provider.use` so agents can switch the active model
+  provider through the same settings path as the GUI. The tool accepts provider
+  id, storage value, enum name, or display name and returns the selected
+  provider's non-secret metadata. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

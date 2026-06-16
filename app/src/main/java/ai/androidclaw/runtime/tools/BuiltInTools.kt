@@ -1233,6 +1233,59 @@ private fun providerToolEntries(settingsDataStore: SettingsDataStore): List<Tool
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.select",
+                    aliases = listOf("provider.select", "providers.use", "provider.use"),
+                    description = "Select the active model provider by id, storage value, or display name.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "providers.select requires a non-empty providerId.",
+                        errorCode = "INVALID_ARGUMENTS",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "INVALID_ARGUMENTS")
+                                put("toolName", "providers.select")
+                                put("field", "providerId")
+                            },
+                    )
+            val providerType =
+                ProviderType.entries.firstOrNull { providerType ->
+                    providerType.matchesProviderIdentifier(identifier)
+                } ?: return@Entry ToolExecutionResult.failure(
+                    summary = "Provider $identifier was not found.",
+                    errorCode = "PROVIDER_NOT_FOUND",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "PROVIDER_NOT_FOUND")
+                            put("toolName", "providers.select")
+                            put("providerId", identifier)
+                        },
+                )
+            settingsDataStore.setProviderType(providerType)
+            val settings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Selected provider ${providerType.displayName}.",
+                payload =
+                    buildJsonObject {
+                        put("provider", providerType.toProviderPayload(settings))
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.get",
                     aliases = listOf("provider.get"),
                     description = "Return one provider by id, storage value, or display name.",

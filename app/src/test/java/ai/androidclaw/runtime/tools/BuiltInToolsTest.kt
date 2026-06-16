@@ -1326,6 +1326,14 @@ class BuiltInToolsTest {
                             put("providerId", "deepseek")
                         },
                 )
+            val selectedKimi =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.select"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Kimi")
+                        },
+                )
 
             assertTrue(listed.success)
             assertEquals(
@@ -1372,6 +1380,24 @@ class BuiltInToolsTest {
                     .getValue("endpointSettings")
                     .jsonObject
                     .getValue("modelId")
+                    .jsonPrimitive.content,
+            )
+            assertTrue(selectedKimi.success)
+            assertEquals(ProviderType.Kimi, settingsDataStore.settings.first().providerType)
+            assertEquals(
+                "kimi",
+                selectedKimi.payload
+                    .getValue("provider")
+                    .jsonObject
+                    .getValue("providerId")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "true",
+                selectedKimi.payload
+                    .getValue("provider")
+                    .jsonObject
+                    .getValue("selected")
                     .jsonPrimitive.content,
             )
         }
