@@ -186,6 +186,87 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `message context returns bounded same session window in chronological order`() =
+        runTest {
+            val sameTimestamp = Instant.parse("2026-03-12T07:00:00Z").toEpochMilli()
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "other",
+                    title = "Other session",
+                    isMain = false,
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            database.messageDao().insertAll(
+                listOf(
+                    MessageEntity(
+                        id = "msg-a",
+                        sessionId = "main",
+                        role = "user",
+                        content = "a1",
+                        createdAt = sameTimestamp,
+                        providerMeta = null,
+                        toolCallId = null,
+                        taskRunId = null,
+                    ),
+                    MessageEntity(
+                        id = "msg-b",
+                        sessionId = "main",
+                        role = "assistant",
+                        content = "a2",
+                        createdAt = sameTimestamp,
+                        providerMeta = null,
+                        toolCallId = null,
+                        taskRunId = null,
+                    ),
+                    MessageEntity(
+                        id = "msg-c",
+                        sessionId = "main",
+                        role = "user",
+                        content = "b1",
+                        createdAt = sameTimestamp,
+                        providerMeta = null,
+                        toolCallId = null,
+                        taskRunId = null,
+                    ),
+                    MessageEntity(
+                        id = "msg-d",
+                        sessionId = "main",
+                        role = "assistant",
+                        content = "b2",
+                        createdAt = sameTimestamp,
+                        providerMeta = null,
+                        toolCallId = null,
+                        taskRunId = null,
+                    ),
+                    MessageEntity(
+                        id = "msg-other",
+                        sessionId = "other",
+                        role = "assistant",
+                        content = "other",
+                        createdAt = sameTimestamp,
+                        providerMeta = null,
+                        toolCallId = null,
+                        taskRunId = null,
+                    ),
+                ),
+            )
+
+            val context = requireNotNull(repository.getMessageContext("msg-c", beforeLimit = 2, afterLimit = 2))
+            val noBefore = requireNotNull(repository.getMessageContext("msg-c", beforeLimit = 0, afterLimit = 1))
+
+            assertEquals("msg-c", context.anchor.id)
+            assertEquals(listOf("msg-a", "msg-b"), context.before.map { message -> message.id })
+            assertEquals(listOf("msg-d"), context.after.map { message -> message.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), noBefore.before)
+            assertEquals(listOf("msg-d"), noBefore.after.map { message -> message.id })
+            assertEquals(null, repository.getMessageContext("missing", beforeLimit = 2, afterLimit = 2))
+        }
+
+    @Test
     fun `search messages returns active session matches with session titles`() =
         runTest {
             database.sessionDao().insert(

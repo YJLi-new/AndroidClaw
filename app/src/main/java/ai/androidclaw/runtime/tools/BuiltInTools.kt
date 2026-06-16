@@ -6,6 +6,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
@@ -928,6 +929,104 @@ internal fun createBuiltInToolRegistry(
                                         put("hasProviderMeta", message.providerMeta != null)
                                         put("toolCallId", message.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
                                         put("taskRunId", message.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "messages.context",
+                                    aliases = listOf("message.context", "chat.context", "messages.around", "message.around"),
+                                    description = "Return a bounded chronological transcript window around one message id.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messageId",
+                                                required = true,
+                                                description = "Anchor message identifier.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "radius",
+                                                description = "Default number of messages before and after the anchor. Defaults to 3.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "beforeLimit",
+                                                description = "Optional number of messages before the anchor.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "afterLimit",
+                                                description = "Optional number of messages after the anchor.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val messageId =
+                                arguments.optionalText("messageId")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.context requires a non-empty messageId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "messageId")
+                                            },
+                                    )
+                            val radius = arguments.optionalInt("radius", MESSAGE_CONTEXT_DEFAULT_RADIUS)
+                            val beforeLimit = arguments.optionalInt("beforeLimit", radius)
+                            val afterLimit = arguments.optionalInt("afterLimit", radius)
+                            val context =
+                                messageRepository.getMessageContext(
+                                    messageId = messageId,
+                                    beforeLimit = beforeLimit,
+                                    afterLimit = afterLimit,
+                                ) ?: return@Entry ToolExecutionResult.failure(
+                                    summary = "Message $messageId was not found.",
+                                    errorCode = "MISSING_MESSAGE",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_MESSAGE")
+                                            put("messageId", messageId)
+                                        },
+                                )
+                            val session =
+                                sessionRepository.getSession(context.anchor.sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session ${context.anchor.sessionId} for message $messageId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", messageId)
+                                                put("sessionId", context.anchor.sessionId)
+                                            },
+                                    )
+                            val messages =
+                                context.before.map { message -> message.toMessageContextPayload(relativePosition = "before") } +
+                                    context.anchor.toMessageContextPayload(relativePosition = "anchor", anchor = true) +
+                                    context.after.map { message -> message.toMessageContextPayload(relativePosition = "after") }
+                            ToolExecutionResult.success(
+                                summary = "Loaded ${messages.size} message(s) around ${context.anchor.role.name} message from \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("messageId", context.anchor.id)
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("sessionArchived", session.archived)
+                                        put("messageCount", messageRepository.getMessageCount(session.id))
+                                        put("beforeCount", context.before.size)
+                                        put("afterCount", context.after.size)
+                                        put("returnedCount", messages.size)
+                                        put("chronological", true)
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    add(message)
+                                                }
+                                            },
+                                        )
                                     },
                             )
                         },
@@ -4206,6 +4305,7 @@ private const val EVENT_LOG_STATS_MAX_SCAN_LIMIT = 500
 private const val EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS = 500
 private const val EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS = 1_000
 private const val EVENT_LOG_FILTER_MAX_CHARS = 80
+private const val MESSAGE_CONTEXT_DEFAULT_RADIUS = 3
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
@@ -5040,6 +5140,26 @@ private fun String.toMessageSearchSnippet(): String =
     } else {
         take(MESSAGE_SEARCH_SNIPPET_MAX_CHARS)
     }
+
+private fun ChatMessage.toMessageContextPayload(
+    relativePosition: String,
+    anchor: Boolean = false,
+): JsonObject {
+    val contentSnippet = content.toMessageSearchSnippet()
+    return buildJsonObject {
+        put("messageId", id)
+        put("relativePosition", relativePosition)
+        put("anchor", anchor)
+        put("role", role.name)
+        put("contentSnippet", contentSnippet)
+        put("contentLength", content.length)
+        put("contentTruncated", contentSnippet.length < content.length)
+        put("createdAtIso", createdAt.toString())
+        put("hasProviderMeta", providerMeta != null)
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
 
 private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): JsonObject =
     buildJsonObject {

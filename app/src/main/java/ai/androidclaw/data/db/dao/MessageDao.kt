@@ -48,6 +48,48 @@ interface MessageDao {
     @Query(
         """
         SELECT * FROM messages
+        WHERE sessionId = :sessionId
+          AND (
+            createdAt < (SELECT createdAt FROM messages WHERE id = :anchorMessageId LIMIT 1)
+            OR (
+              createdAt = (SELECT createdAt FROM messages WHERE id = :anchorMessageId LIMIT 1)
+              AND rowid < (SELECT rowid FROM messages WHERE id = :anchorMessageId LIMIT 1)
+            )
+          )
+        ORDER BY createdAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getBeforeMessage(
+        sessionId: String,
+        anchorMessageId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
+          AND (
+            createdAt > (SELECT createdAt FROM messages WHERE id = :anchorMessageId LIMIT 1)
+            OR (
+              createdAt = (SELECT createdAt FROM messages WHERE id = :anchorMessageId LIMIT 1)
+              AND rowid > (SELECT rowid FROM messages WHERE id = :anchorMessageId LIMIT 1)
+            )
+          )
+        ORDER BY createdAt ASC, rowid ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getAfterMessage(
+        sessionId: String,
+        anchorMessageId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
         WHERE id IN (:messageIds)
         """,
     )

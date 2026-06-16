@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.context` / `message.context` /
+  `chat.context` plus around aliases as a Session Contract transcript-window
+  tool. Agents can now inspect a bounded chronological message window around an
+  exact message id, including before/anchor/after markers, session metadata,
+  provider/tool reference flags, and repository-capped side limits without
+  loading full histories. Focused repository/tool tests, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `memory.message` / `memories.message` /
   `memory.by_message` / `memories.by_message` plus source-message aliases as a
   Memory Contract provenance inspector. Agents can now list bounded active

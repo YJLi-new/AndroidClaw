@@ -206,6 +206,18 @@ private class ThrowingMessageDao(
         limit: Int,
     ): List<MessageEntity> = delegate.getRecentBySessionId(sessionId, limit)
 
+    override suspend fun getBeforeMessage(
+        sessionId: String,
+        anchorMessageId: String,
+        limit: Int,
+    ): List<MessageEntity> = delegate.getBeforeMessage(sessionId, anchorMessageId, limit)
+
+    override suspend fun getAfterMessage(
+        sessionId: String,
+        anchorMessageId: String,
+        limit: Int,
+    ): List<MessageEntity> = delegate.getAfterMessage(sessionId, anchorMessageId, limit)
+
     override suspend fun getByIds(messageIds: List<String>): List<MessageEntity> = delegate.getByIds(messageIds)
 
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)

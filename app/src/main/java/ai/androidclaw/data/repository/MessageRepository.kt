@@ -16,6 +16,7 @@ internal const val MESSAGE_ID_BATCH_SIZE = 500
 internal const val MESSAGE_CONTENT_MAX_CHARS = 40_000
 internal const val MESSAGE_PROVIDER_META_MAX_CHARS = 4_000
 internal const val MESSAGE_REFERENCE_ID_MAX_CHARS = 256
+internal const val MESSAGE_CONTEXT_MAX_SIDE_LIMIT = 50
 
 class MessageRepository(
     private val dao: MessageDao,
@@ -43,6 +44,12 @@ class MessageRepository(
         val contentCharCount: Long,
         val oldestMessageAt: Instant,
         val newestMessageAt: Instant,
+    )
+
+    data class MessageContext(
+        val anchor: ChatMessage,
+        val before: List<ChatMessage>,
+        val after: List<ChatMessage>,
     )
 
     suspend fun addMessage(
@@ -99,6 +106,44 @@ class MessageRepository(
             }
     }
 
+    suspend fun getMessageContext(
+        messageId: String,
+        beforeLimit: Int,
+        afterLimit: Int,
+    ): MessageContext? {
+        val anchor = getMessagesByIds(listOf(messageId))[messageId] ?: return null
+        val boundedBeforeLimit = beforeLimit.toSafeContextLimit()
+        val boundedAfterLimit = afterLimit.toSafeContextLimit()
+        val before =
+            if (boundedBeforeLimit == 0) {
+                emptyList()
+            } else {
+                dao
+                    .getBeforeMessage(
+                        sessionId = anchor.sessionId,
+                        anchorMessageId = anchor.id,
+                        limit = boundedBeforeLimit,
+                    ).asReversed()
+                    .map(MessageEntity::toDomain)
+            }
+        val after =
+            if (boundedAfterLimit == 0) {
+                emptyList()
+            } else {
+                dao
+                    .getAfterMessage(
+                        sessionId = anchor.sessionId,
+                        anchorMessageId = anchor.id,
+                        limit = boundedAfterLimit,
+                    ).map(MessageEntity::toDomain)
+            }
+        return MessageContext(
+            anchor = anchor,
+            before = before,
+            after = after,
+        )
+    }
+
     suspend fun getMessageCount(sessionId: String): Int = dao.countBySessionId(sessionId)
 
     suspend fun getMessageStats(sessionId: String): SessionMessageStats {
@@ -130,6 +175,8 @@ class MessageRepository(
 }
 
 private fun Int.toSafeQueryLimit(): Int = coerceIn(0, MESSAGE_QUERY_MAX_LIMIT)
+
+private fun Int.toSafeContextLimit(): Int = coerceIn(0, MESSAGE_CONTEXT_MAX_SIDE_LIMIT)
 
 private fun MessageEntity.toDomain(): ChatMessage =
     ChatMessage(

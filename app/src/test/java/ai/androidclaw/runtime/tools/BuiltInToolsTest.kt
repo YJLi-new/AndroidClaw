@@ -482,6 +482,84 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages context returns bounded window around message id`() =
+        runTest {
+            val session = sessionRepository.createSession("Context transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.System,
+                content = "System preface",
+            )
+            val before =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Question before anchor",
+                )
+            val anchor =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Anchor answer",
+                    providerMeta = """{"providerId":"fake"}""",
+                )
+            val after =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                    content = "Tool result after anchor",
+                    toolCallId = "tool-call-2",
+                )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Later answer outside radius",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.context"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", anchor.id)
+                            put("radius", 1)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.context"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", "missing-message")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(anchor.id, result.payload["messageId"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Context transcript", result.payload["sessionTitle"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["beforeCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["afterCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["chronological"]?.jsonPrimitive?.content)
+            val messages =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .map { message -> message.jsonObject }
+            assertEquals(listOf(before.id, anchor.id, after.id), messages.map { message -> message.getValue("messageId").jsonPrimitive.content })
+            assertEquals(listOf("before", "anchor", "after"), messages.map { message -> message.getValue("relativePosition").jsonPrimitive.content })
+            assertEquals(true.toString(), messages[1].getValue("anchor").jsonPrimitive.content)
+            assertEquals("Assistant", messages[1].getValue("role").jsonPrimitive.content)
+            assertEquals("Anchor answer", messages[1].getValue("contentSnippet").jsonPrimitive.content)
+            assertEquals(true.toString(), messages[1].getValue("hasProviderMeta").jsonPrimitive.content)
+            assertEquals("tool-call-2", messages[2].getValue("toolCallId").jsonPrimitive.content)
+            assertFalse(missing.success)
+            assertEquals("MISSING_MESSAGE", missing.errorCode)
+        }
+
+    @Test
     fun `messages recent returns recent active session messages`() =
         runTest {
             val session = sessionRepository.createSession("Recent transcript")
