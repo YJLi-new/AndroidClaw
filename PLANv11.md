@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.validate` /
+  `tool.validate` / `tools.check` / `tool.check` plus dry-run aliases as a
+  Tool Contract invocation preflight helper. Agents can now resolve a target
+  tool, validate candidate arguments, see missing required and unknown provided
+  fields, inspect availability, and confirm whether the invocation would pass
+  registry checks without executing the target tool. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tools.permissions` /
   `tool.permissions` / `tools.permission` / `tool.permission` plus
   by-permission aliases as a Tool Contract Android permission-discovery helper.

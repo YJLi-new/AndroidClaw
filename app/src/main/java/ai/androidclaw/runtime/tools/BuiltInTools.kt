@@ -2969,6 +2969,124 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.validate",
+                    aliases =
+                        listOf(
+                            "tool.validate",
+                            "tools.check",
+                            "tool.check",
+                            "tools.dry_run",
+                            "tool.dry_run",
+                        ),
+                    description = "Dry-run a tool invocation by validating target, arguments, and availability without executing it.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "toolName",
+                                required = false,
+                                description = "Canonical tool name or alias to validate.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "arguments",
+                                description = "JSON object containing candidate arguments for the target tool.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val requestedToolName =
+                arguments.optionalText("toolName")
+                    ?: arguments.optionalText("name")
+                    ?: return@Entry invalidToolDiscoveryArguments(
+                        toolName = "tools.validate",
+                        summary = "tools.validate requires a non-empty toolName.",
+                        field = "toolName",
+                    )
+            val candidateArguments =
+                when (val nestedArguments = arguments["arguments"]) {
+                    null ->
+                        buildJsonObject {
+                            arguments.forEach { (field, value) ->
+                                if (field !in TOOL_VALIDATE_RESERVED_ARGUMENT_FIELDS) {
+                                    put(field, value)
+                                }
+                            }
+                        }
+                    is JsonObject -> nestedArguments
+                    else ->
+                        return@Entry invalidToolDiscoveryArguments(
+                            toolName = "tools.validate",
+                            summary = "tools.validate requires arguments to be a JSON object when provided.",
+                            field = "arguments",
+                        )
+                }
+            val tool =
+                toolRegistryProvider().findDescriptor(requestedToolName)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Tool $requestedToolName was not found.",
+                        errorCode = "TOOL_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TOOL_NOT_FOUND")
+                                put("toolName", requestedToolName)
+                            },
+                    )
+            val declaredArguments = tool.arguments.map { argument -> argument.name }.toSet()
+            val providedArguments = candidateArguments.keys.sorted()
+            val missingRequiredArguments =
+                tool.arguments
+                    .filter { argument -> argument.required && !candidateArguments.hasProvidedToolArgument(argument.name) }
+                    .map { argument -> argument.name }
+            val unknownArguments =
+                providedArguments.filterNot { argumentName -> argumentName in declaredArguments }
+            val validArguments = missingRequiredArguments.isEmpty()
+            val availableNow = tool.availability.status == ToolAvailabilityStatus.Available
+            val readyToExecute = validArguments && availableNow
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        readyToExecute -> "Tool ${tool.name} would pass registry validation and availability checks."
+                        !validArguments -> "Tool ${tool.name} is missing required arguments."
+                        else -> "Tool ${tool.name} is not currently available."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("requestedName", requestedToolName)
+                        put("canonicalName", tool.name)
+                        put("isAlias", requestedToolName != tool.name)
+                        put("validArguments", validArguments)
+                        put("availableNow", availableNow)
+                        put("readyToExecute", readyToExecute)
+                        put("wouldStartExecution", readyToExecute)
+                        put("semanticValidationIncluded", false)
+                        put("availabilityStatus", tool.availability.status.name)
+                        put("availabilityReason", tool.availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+                        put("declaredArgumentCount", tool.arguments.size)
+                        put("requiredArgumentCount", tool.arguments.count { argument -> argument.required })
+                        put("providedArgumentCount", providedArguments.size)
+                        put("providedArguments", providedArguments.toToolStringArrayPayload())
+                        put("missingRequiredArguments", missingRequiredArguments.toToolStringArrayPayload())
+                        put("unknownArguments", unknownArguments.toToolStringArrayPayload())
+                        put(
+                            "argumentRequirements",
+                            buildJsonArray {
+                                tool.arguments.forEach { argument ->
+                                    add(
+                                        buildJsonObject {
+                                            put("name", argument.name)
+                                            put("required", argument.required)
+                                            put("provided", argument.name in candidateArguments)
+                                            put("description", argument.description)
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.arguments",
                     aliases =
                         listOf(
@@ -5376,6 +5494,7 @@ private const val TOOL_PERMISSIONS_MAX_LIMIT = 100
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+private val TOOL_VALIDATE_RESERVED_ARGUMENT_FIELDS = setOf("toolName", "name", "arguments")
 
 private fun ProviderType.matchesProviderIdentifier(identifier: String): Boolean =
     providerId.equals(identifier, ignoreCase = true) ||
@@ -5670,6 +5789,18 @@ private fun invalidToolDiscoveryArguments(
                 put("field", field)
             },
     )
+
+private fun JsonObject.hasProvidedToolArgument(argumentName: String): Boolean {
+    val value = this[argumentName] ?: return false
+    return value !is JsonPrimitive || value.content.isNotBlank()
+}
+
+private fun List<String>.toToolStringArrayPayload(): JsonArray =
+    buildJsonArray {
+        forEach { value ->
+            add(JsonPrimitive(value))
+        }
+    }
 
 private fun List<ToolDescriptor>.toToolStatsPayload(): JsonObject =
     buildJsonObject {

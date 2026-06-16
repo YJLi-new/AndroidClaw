@@ -3457,6 +3457,109 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools validate dry runs target argument and availability checks`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val ready =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.check"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "task.create")
+                            put(
+                                "arguments",
+                                buildJsonObject {
+                                    put("name", "Daily digest")
+                                    put("prompt", "Summarize the day")
+                                    put("scheduleKind", "once")
+                                    put("extra", "ignored by registry")
+                                },
+                            )
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.validate"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "tasks.create")
+                            put(
+                                "arguments",
+                                buildJsonObject {
+                                    put("name", "Incomplete task")
+                                },
+                            )
+                        },
+                )
+            val invalidArguments =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.validate"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "tasks.create")
+                            put("arguments", "not an object")
+                        },
+                )
+            val missingTool =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.validate"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "missing.tool")
+                        },
+                )
+
+            assertTrue(ready.success)
+            assertEquals("task.create", ready.payload["requestedName"]?.jsonPrimitive?.content)
+            assertEquals("tasks.create", ready.payload["canonicalName"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), ready.payload["isAlias"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), ready.payload["validArguments"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), ready.payload["readyToExecute"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), ready.payload["semanticValidationIncluded"]?.jsonPrimitive?.content)
+            assertTrue(
+                ready.payload
+                    .getValue("unknownArguments")
+                    .jsonArray
+                    .any { argument -> argument.jsonPrimitive.content == "extra" },
+            )
+            assertTrue(
+                ready.payload
+                    .getValue("argumentRequirements")
+                    .jsonArray
+                    .any { requirement ->
+                        val payload = requirement.jsonObject
+                        payload.getValue("name").jsonPrimitive.content == "prompt" &&
+                            payload.getValue("provided").jsonPrimitive.content == true.toString()
+                    },
+            )
+
+            assertTrue(missing.success)
+            assertEquals(false.toString(), missing.payload["validArguments"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), missing.payload["readyToExecute"]?.jsonPrimitive?.content)
+            assertTrue(
+                missing.payload
+                    .getValue("missingRequiredArguments")
+                    .jsonArray
+                    .any { argument -> argument.jsonPrimitive.content == "prompt" },
+            )
+            assertTrue(
+                missing.payload
+                    .getValue("missingRequiredArguments")
+                    .jsonArray
+                    .any { argument -> argument.jsonPrimitive.content == "scheduleKind" },
+            )
+
+            assertFalse(invalidArguments.success)
+            assertEquals("INVALID_ARGUMENTS", invalidArguments.errorCode)
+            assertEquals("arguments", invalidArguments.payload["field"]?.jsonPrimitive?.content)
+
+            assertFalse(missingTool.success)
+            assertEquals("TOOL_NOT_FOUND", missingTool.errorCode)
+            assertEquals("missing.tool", missingTool.payload["toolName"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tools arguments summarizes and filters argument contract metadata`() =
         runTest {
             val registry = buildRegistry()
