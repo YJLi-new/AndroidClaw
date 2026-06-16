@@ -30,6 +30,7 @@ import androidx.work.WorkManager
 import androidx.work.testing.WorkManagerTestInitHelper
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -3389,6 +3390,70 @@ class BuiltInToolsTest {
                     .jsonArray
                     .any { alias -> alias.jsonPrimitive.content == "task.create" },
             )
+        }
+
+    @Test
+    fun `tools resolve reports canonical names and aliases explicitly`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val alias =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.alias"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "task.copy")
+                        },
+                )
+            val canonical =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.resolve"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "tasks.create")
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.resolve"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "missing.tool")
+                        },
+                )
+
+            assertTrue(alias.success)
+            assertEquals("task.copy", alias.payload["requestedName"]?.jsonPrimitive?.content)
+            assertEquals("tasks.duplicate", alias.payload["canonicalName"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), alias.payload["isAlias"]?.jsonPrimitive?.content)
+            assertEquals("task.copy", alias.payload["matchedAlias"]?.jsonPrimitive?.content)
+            assertEquals("Available", alias.payload["availabilityStatus"]?.jsonPrimitive?.content)
+            assertTrue(
+                alias.payload
+                    .getValue("aliases")
+                    .jsonArray
+                    .any { value -> value.jsonPrimitive.content == "task.copy" },
+            )
+            assertTrue(
+                alias.payload
+                    .getValue("arguments")
+                    .jsonArray
+                    .any { argument ->
+                        argument.jsonObject
+                            .getValue("name")
+                            .jsonPrimitive
+                            .content == "taskId"
+                    },
+            )
+
+            assertTrue(canonical.success)
+            assertEquals("tasks.create", canonical.payload["canonicalName"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), canonical.payload["isAlias"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, canonical.payload["matchedAlias"])
+
+            assertFalse(missing.success)
+            assertEquals("TOOL_NOT_FOUND", missing.errorCode)
+            assertEquals("missing.tool", missing.payload["toolName"]?.jsonPrimitive?.content)
         }
 
     @Test

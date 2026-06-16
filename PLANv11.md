@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.resolve` / `tool.resolve` /
+  `tools.alias` / `tool.alias` as a Tool Contract alias-resolution helper.
+  Agents can now resolve a requested canonical name or alias to the canonical
+  descriptor, explicit alias/canonical status, availability, arguments, and
+  alias list without trial execution. Focused `BuiltInToolsTest`, ktlint, and
+  the full offline fast loop passed.
 - 2026-06-17: Added `sessions.uncompact` /
   `session.uncompact` / `sessions.decompact` / `sessions.expand` plus singular
   aliases as a Session Contract compaction recovery tool. Agents can now clear

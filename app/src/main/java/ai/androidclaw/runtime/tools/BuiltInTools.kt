@@ -2887,6 +2887,88 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.resolve",
+                    aliases = listOf("tool.resolve", "tools.alias", "tool.alias"),
+                    description = "Resolve a requested tool name or alias to its canonical descriptor.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "toolName",
+                                required = false,
+                                description = "Canonical tool name or alias to resolve.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val requestedToolName =
+                arguments.optionalText("toolName")
+                    ?: arguments.optionalText("name")
+                    ?: return@Entry invalidToolDiscoveryArguments(
+                        toolName = "tools.resolve",
+                        summary = "tools.resolve requires a non-empty toolName.",
+                        field = "toolName",
+                    )
+            val tool =
+                toolRegistryProvider().findDescriptor(requestedToolName)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Tool $requestedToolName was not found.",
+                        errorCode = "TOOL_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TOOL_NOT_FOUND")
+                                put("toolName", requestedToolName)
+                            },
+                    )
+            ToolExecutionResult.success(
+                summary =
+                    if (tool.name == requestedToolName) {
+                        "Resolved canonical tool ${tool.name}."
+                    } else {
+                        "Resolved alias $requestedToolName to ${tool.name}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("requestedName", requestedToolName)
+                        put("canonicalName", tool.name)
+                        put("isAlias", requestedToolName != tool.name)
+                        put("aliasCount", tool.aliases.size)
+                        put(
+                            "matchedAlias",
+                            if (requestedToolName != tool.name && requestedToolName in tool.aliases) {
+                                JsonPrimitive(requestedToolName)
+                            } else {
+                                JsonNull
+                            },
+                        )
+                        put("availabilityStatus", tool.availability.status.name)
+                        put("availabilityReason", tool.availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+                        put("description", tool.description)
+                        put(
+                            "aliases",
+                            buildJsonArray {
+                                tool.aliases.forEach { alias -> add(JsonPrimitive(alias)) }
+                            },
+                        )
+                        put(
+                            "arguments",
+                            buildJsonArray {
+                                tool.arguments.forEach { argument ->
+                                    add(
+                                        buildJsonObject {
+                                            put("name", argument.name)
+                                            put("required", argument.required)
+                                            put("description", argument.description)
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.search",
                     aliases = listOf("tool.search"),
                     description = "Search typed native tools by name, alias, description, permission, or argument metadata.",
