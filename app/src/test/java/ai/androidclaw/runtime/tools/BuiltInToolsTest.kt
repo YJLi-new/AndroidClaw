@@ -1412,6 +1412,98 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks runs status returns recent automation runs for requested status`() =
+        runTest {
+            val firstTask =
+                taskRepository.createTask(
+                    name = "First skipped automation",
+                    prompt = "Skip first",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val secondTask =
+                taskRepository.createTask(
+                    name = "Second skipped automation",
+                    prompt = "Skip second",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val olderSkipped =
+                taskRepository.recordRun(
+                    taskId = firstTask.id,
+                    scheduledAt = Instant.parse("2026-03-07T00:00:00Z"),
+                )
+            val success =
+                taskRepository.recordRun(
+                    taskId = firstTask.id,
+                    scheduledAt = Instant.parse("2026-03-08T00:00:00Z"),
+                )
+            val newerSkipped =
+                taskRepository.recordRun(
+                    taskId = secondTask.id,
+                    scheduledAt = Instant.parse("2026-03-09T00:00:00Z"),
+                )
+            taskRepository.updateRun(olderSkipped.copy(status = TaskRunStatus.Skipped))
+            taskRepository.updateRun(success.copy(status = TaskRunStatus.Success))
+            taskRepository.updateRun(newerSkipped.copy(status = TaskRunStatus.Skipped))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.runs.status"),
+                    arguments =
+                        buildJsonObject {
+                            put("status", "skipped")
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("Skipped", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            val runs =
+                result.payload
+                    .getValue("runs")
+                    .jsonArray
+                    .map { item -> item.jsonObject }
+            assertEquals(
+                listOf(newerSkipped.id, olderSkipped.id),
+                runs.map { item ->
+                    item
+                        .getValue("run")
+                        .jsonObject
+                        .getValue("id")
+                        .jsonPrimitive
+                        .content
+                },
+            )
+            assertEquals(secondTask.id, runs[0].getValue("taskId").jsonPrimitive.content)
+            assertEquals("Second skipped automation", runs[0].getValue("taskName").jsonPrimitive.content)
+            assertEquals(
+                "Skipped",
+                runs[0]
+                    .getValue("run")
+                    .jsonObject
+                    .getValue("status")
+                    .jsonPrimitive
+                    .content,
+            )
+
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.runs.status"),
+                    arguments =
+                        buildJsonObject {
+                            put("status", "unknown")
+                        },
+                )
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        }
+
+    @Test
     fun `tasks failures returns recent failed automation runs with task metadata`() =
         runTest {
             val firstTask =

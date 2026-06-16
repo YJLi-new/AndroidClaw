@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.runs.status` /
+  `task.runs.status` / `tasks.status_runs` / `task.status_runs` plus
+  automation aliases as an Automation Contract diagnostics filter. Agents can
+  now inspect bounded recent automation runs by `Pending`, `Running`,
+  `Success`, `Failure`, or `Skipped` status with parent task metadata,
+  complementing recent/all and failure-only run tools. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.runs.recent` /
   `task.runs.recent` / `tasks.recent_runs` / `task.recent_runs` plus
   automation aliases as an Automation Contract diagnostics tool. Agents can now

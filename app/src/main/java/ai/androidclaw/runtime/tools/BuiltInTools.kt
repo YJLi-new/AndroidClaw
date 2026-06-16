@@ -3233,6 +3233,81 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.runs.status",
+                    aliases =
+                        listOf(
+                            "task.runs.status",
+                            "tasks.status_runs",
+                            "task.status_runs",
+                            "automations.runs.status",
+                            "automation.runs.status",
+                        ),
+                    description = "Return recent automation runs across all tasks for one run status.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "status",
+                                required = true,
+                                description = "Pending, Running, Success, Failure, or Skipped.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum run count. Defaults to 10.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val rawStatus =
+                arguments.optionalText("status")
+                    ?: return@Entry invalidTaskArguments(
+                        toolName = "tasks.runs.status",
+                        summary = "tasks.runs.status requires a non-empty status.",
+                        field = "status",
+                    )
+            val status =
+                TaskRunStatus.entries.firstOrNull { candidate ->
+                    candidate.name.equals(rawStatus, ignoreCase = true)
+                } ?: return@Entry invalidTaskArguments(
+                    toolName = "tasks.runs.status",
+                    summary = "tasks.runs.status received unsupported status: $rawStatus.",
+                    field = "status",
+                )
+            val limit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = TASK_RUN_HISTORY_DEFAULT_LIMIT,
+                )
+            val runs = taskRepository.getRecentRunsByStatus(status = status, limit = limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (runs.isEmpty()) {
+                        "No recent ${status.name} automation runs found."
+                    } else {
+                        "Loaded ${runs.size} recent ${status.name} automation run(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("status", status.name)
+                        put("returnedCount", runs.size)
+                        put("recentFirst", true)
+                        put(
+                            "runs",
+                            buildJsonArray {
+                                runs.forEach { run ->
+                                    add(
+                                        run.toTaskRunWithTaskPayload(
+                                            task = taskRepository.getTask(run.taskId),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.failures",
                     aliases =
                         listOf(
