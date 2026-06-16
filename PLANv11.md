@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.delete` /
+  `session.delete` / `sessions.remove` / `session.remove` plus destroy aliases
+  as a Session Contract deletion control. Agents can now permanently delete a
+  normal session and its transcript only with `confirm=CONFIRM`; main-session
+  deletion is rejected, and the payload reports deleted transcript count plus
+  prior summary/compaction metadata. Focused `BuiltInToolsTest`, ktlint, and
+  the full offline fast loop passed.
 - 2026-06-17: Added `sessions.clear` /
   `session.clear` / `sessions.messages.clear` / `session.messages.clear` plus
   transcript clear aliases as a Session Contract transcript reset control.

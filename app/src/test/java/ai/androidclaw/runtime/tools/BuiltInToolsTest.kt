@@ -674,6 +674,71 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions delete requires confirmation and removes normal session with transcript`() =
+        runTest {
+            val session = sessionRepository.createSession("Delete me")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Delete this message too",
+            )
+            sessionRepository.updateSummary(
+                id = session.id,
+                summaryText = "Delete this summary",
+            )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.delete", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertNotNull(sessionRepository.getSession(session.id))
+            assertEquals(1, messageRepository.getMessageCount(session.id))
+
+            val deleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.remove", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(deleted.success)
+            assertEquals(session.id, deleted.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Delete me", deleted.payload["title"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), deleted.payload["deleted"]?.jsonPrimitive?.content)
+            assertEquals("1", deleted.payload["deletedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), deleted.payload["hadSummary"]?.jsonPrimitive?.content)
+            assertEquals(null, sessionRepository.getSession(session.id))
+            assertEquals(0, messageRepository.getMessageCount(session.id))
+        }
+
+    @Test
+    fun `sessions delete rejects the main session`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.delete", sessionId = mainSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("MAIN_SESSION", result.errorCode)
+            assertNotNull(sessionRepository.getSession(mainSession.id))
+        }
+
+    @Test
     fun `sessions archive hides session until list includes archived and unarchive restores it`() =
         runTest {
             sessionRepository.getOrCreateMainSession()

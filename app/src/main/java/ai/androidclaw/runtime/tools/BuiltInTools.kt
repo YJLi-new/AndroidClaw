@@ -229,6 +229,109 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.delete",
+                                    aliases =
+                                        listOf(
+                                            "session.delete",
+                                            "sessions.remove",
+                                            "session.remove",
+                                            "sessions.destroy",
+                                            "session.destroy",
+                                        ),
+                                    description = "Permanently delete a normal session and its transcript.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to delete. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to delete.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            if (existingSession.isMain) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "The main session cannot be deleted.",
+                                    errorCode = "MAIN_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MAIN_SESSION")
+                                            put("sessionId", sessionId)
+                                        },
+                                )
+                            }
+                            if (arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm session deletion with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("sessionId", sessionId)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val deletedMessageCount = messageRepository.getMessageCount(sessionId)
+                            val deleted = sessionRepository.deleteSession(sessionId)
+                            if (!deleted) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Session $sessionId was not deleted.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                            put("sessionId", sessionId)
+                                        },
+                                )
+                            }
+                            ToolExecutionResult.success(
+                                summary = "Deleted session \"${existingSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", existingSession.id)
+                                        put("title", existingSession.title)
+                                        put("isMain", existingSession.isMain)
+                                        put("archived", existingSession.archived)
+                                        put("deleted", true)
+                                        put("deletedMessageCount", deletedMessageCount)
+                                        put("hadSummary", existingSession.summaryText != null)
+                                        put("previousSummaryLength", existingSession.summaryText?.length ?: 0)
+                                        put("previousCompacted", existingSession.compactedUntilMessageId != null)
+                                        put("previousCompactedUntilMessageId", existingSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.clear",
                                     aliases =
                                         listOf(

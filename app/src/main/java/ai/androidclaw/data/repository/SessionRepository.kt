@@ -77,6 +77,8 @@ class SessionRepository(
 
     suspend fun getSession(id: String): Session? = dao.getById(id)?.toDomain()
 
+    suspend fun deleteSession(id: String): Boolean = dao.deleteById(id) > 0
+
     suspend fun getSessionsWithCompactionBoundary(): List<Session> =
         dao
             .getSessionsWithCompactionBoundary()

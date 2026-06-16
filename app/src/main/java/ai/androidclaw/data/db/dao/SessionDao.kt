@@ -18,6 +18,9 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): SessionEntity?
 
+    @Query("DELETE FROM sessions WHERE id = :id")
+    suspend fun deleteById(id: String): Int
+
     @Query("SELECT * FROM sessions WHERE isMain = 1 LIMIT 1")
     suspend fun getMainSession(): SessionEntity?
 
