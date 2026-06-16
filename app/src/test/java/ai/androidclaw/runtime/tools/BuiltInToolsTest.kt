@@ -3833,6 +3833,83 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools namespaces summarizes and filters canonical tool groups`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val summary =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.namespaces"),
+                    arguments = buildJsonObject {},
+                )
+            val filtered =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.namespace"),
+                    arguments =
+                        buildJsonObject {
+                            put("namespace", "tools")
+                            put("limit", "4")
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.namespaces"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "missing")
+                        },
+                )
+
+            assertTrue(summary.success)
+            assertEquals(JsonNull, summary.payload["namespace"])
+            val tasksNamespace =
+                summary.payload
+                    .getValue("namespaces")
+                    .jsonArray
+                    .first { namespace ->
+                        namespace.jsonObject
+                            .getValue("namespace")
+                            .jsonPrimitive
+                            .content == "tasks"
+                    }.jsonObject
+            assertTrue(
+                tasksNamespace
+                    .getValue("sampleTools")
+                    .jsonArray
+                    .any { tool -> tool.jsonPrimitive.content == "tasks.create" },
+            )
+            assertTrue(tasksNamespace.getValue("availabilityStats").jsonArray.isNotEmpty())
+
+            assertTrue(filtered.success)
+            assertEquals("tools", filtered.payload["namespace"]?.jsonPrimitive?.content)
+            assertEquals("tools", filtered.payload["canonicalNamespace"]?.jsonPrimitive?.content)
+            assertEquals("4", filtered.payload["limit"]?.jsonPrimitive?.content)
+            assertTrue(
+                filtered.payload
+                    .getValue("resultCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() <= 4,
+            )
+            assertTrue(
+                filtered.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .all { tool ->
+                        tool.jsonObject
+                            .getValue("namespace")
+                            .jsonPrimitive
+                            .content == "tools"
+                    },
+            )
+
+            assertTrue(missing.success)
+            assertEquals(JsonNull, missing.payload["canonicalNamespace"])
+            assertEquals("0", missing.payload["totalMatchCount"]?.jsonPrimitive?.content)
+            assertEquals("0", missing.payload["resultCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tools stats summarizes registry metadata without schemas`() =
         runTest {
             val registry = buildRegistry()

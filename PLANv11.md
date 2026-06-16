@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.namespaces` /
+  `tool.namespaces` / `tools.namespace` / `tool.namespace` plus group aliases
+  as a Tool Contract namespace-discovery helper. Agents can now summarize
+  canonical tool namespaces such as `sessions`, `tasks`, `skills`, `providers`,
+  and `tools`, or list bounded tools within one namespace with availability
+  stats, aliases, argument counts, and permission counts without loading full
+  descriptor schemas. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `tools.validate` /
   `tool.validate` / `tools.check` / `tool.check` plus dry-run aliases as a
   Tool Contract invocation preflight helper. Agents can now resolve a target

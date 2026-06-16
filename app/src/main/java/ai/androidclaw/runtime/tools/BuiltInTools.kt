@@ -3361,6 +3361,82 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.namespaces",
+                    aliases =
+                        listOf(
+                            "tool.namespaces",
+                            "tools.namespace",
+                            "tool.namespace",
+                            "tools.groups",
+                            "tool.groups",
+                        ),
+                    description = "Summarize canonical tool namespaces or list tools in one namespace.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "namespace",
+                                required = false,
+                                description = "Optional canonical namespace prefix before the first dot. Alias: name.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum result count. Defaults to 50, max 100.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val requestedNamespace = arguments.optionalText("namespace") ?: arguments.optionalText("name")
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_NAMESPACES_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_NAMESPACES_MAX_LIMIT)
+            if (requestedNamespace == null) {
+                return@Entry ToolExecutionResult.success(
+                    summary = "Summarized ${tools.size} tool(s) by canonical namespace.",
+                    payload = tools.toToolNamespaceDiscoveryPayload(limit),
+                )
+            }
+
+            val matchingTools =
+                tools.filter { tool ->
+                    tool.toolNamespace().equals(requestedNamespace, ignoreCase = true)
+                }
+            val limitedMatches = matchingTools.take(limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (matchingTools.isEmpty()) {
+                        "No tools found in namespace $requestedNamespace."
+                    } else {
+                        "Found ${limitedMatches.size} tool(s) in namespace ${matchingTools.first().toolNamespace()}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("namespace", requestedNamespace)
+                        put("canonicalNamespace", matchingTools.firstOrNull()?.toolNamespace()?.let(::JsonPrimitive) ?: JsonNull)
+                        put("limit", limit)
+                        put("totalMatchCount", matchingTools.size)
+                        put("resultCount", limitedMatches.size)
+                        if (matchingTools.size > limitedMatches.size) {
+                            put("omittedCount", matchingTools.size - limitedMatches.size)
+                        }
+                        put("availabilityStats", matchingTools.toToolAvailabilityStatsByStatusPayload())
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                limitedMatches.forEach { tool ->
+                                    add(tool.toToolNamespaceMatchPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.search",
                     aliases = listOf("tool.search"),
                     description = "Search typed native tools by name, alias, description, permission, or argument metadata.",
@@ -5491,6 +5567,8 @@ private const val TOOL_AVAILABILITY_DEFAULT_LIMIT = 50
 private const val TOOL_AVAILABILITY_MAX_LIMIT = 100
 private const val TOOL_PERMISSIONS_DEFAULT_LIMIT = 50
 private const val TOOL_PERMISSIONS_MAX_LIMIT = 100
+private const val TOOL_NAMESPACES_DEFAULT_LIMIT = 50
+private const val TOOL_NAMESPACES_MAX_LIMIT = 100
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
@@ -6169,6 +6247,80 @@ private fun ToolPermissionRequirement.matchesPermissionQuery(query: String): Boo
     return permission.lowercase().contains(normalizedQuery) ||
         displayName.lowercase().contains(normalizedQuery)
 }
+
+private fun List<ToolDescriptor>.toToolNamespaceDiscoveryPayload(limit: Int): JsonObject {
+    val namespaceGroups =
+        groupBy { tool -> tool.toolNamespace() }
+            .toList()
+            .sortedBy { (namespace, _) -> namespace }
+    val limitedGroups = namespaceGroups.take(limit)
+    return buildJsonObject {
+        put("namespace", JsonNull)
+        put("limit", limit)
+        put("toolCount", size)
+        put("namespaceCount", namespaceGroups.size)
+        put("resultCount", limitedGroups.size)
+        if (namespaceGroups.size > limitedGroups.size) {
+            put("omittedCount", namespaceGroups.size - limitedGroups.size)
+        }
+        put(
+            "namespaces",
+            buildJsonArray {
+                limitedGroups.forEach { (namespace, namespaceTools) ->
+                    val toolNames = namespaceTools.map { tool -> tool.name }.sorted()
+                    add(
+                        buildJsonObject {
+                            put("namespace", namespace)
+                            put("toolCount", namespaceTools.size)
+                            put("aliasCount", namespaceTools.sumOf { tool -> tool.aliases.size })
+                            put("argumentCount", namespaceTools.sumOf { tool -> tool.arguments.size })
+                            put(
+                                "requiredArgumentCount",
+                                namespaceTools.sumOf { tool -> tool.arguments.count { argument -> argument.required } },
+                            )
+                            put("requiredPermissionCount", namespaceTools.sumOf { tool -> tool.requiredPermissions.size })
+                            put("availabilityStats", namespaceTools.toToolAvailabilityStatsByStatusPayload())
+                            put(
+                                "sampleTools",
+                                buildJsonArray {
+                                    toolNames.take(8).forEach { toolName ->
+                                        add(JsonPrimitive(toolName))
+                                    }
+                                },
+                            )
+                            if (toolNames.size > 8) {
+                                put("sampleToolsOmitted", toolNames.size - 8)
+                            }
+                        },
+                    )
+                }
+            },
+        )
+    }
+}
+
+private fun ToolDescriptor.toToolNamespaceMatchPayload(): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("namespace", toolNamespace())
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("aliasCount", aliases.size)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put("requiredPermissionCount", requiredPermissions.size)
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+    }
+
+private fun ToolDescriptor.toolNamespace(): String = name.substringBefore(".", name)
 
 private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
     buildJsonObject {
