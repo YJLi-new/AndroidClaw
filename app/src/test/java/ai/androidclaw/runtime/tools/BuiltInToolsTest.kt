@@ -962,6 +962,113 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages copy copies message into active target session preserving metadata`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Source transcript")
+            val targetSession = sessionRepository.createSession("Target transcript")
+            val sourceMessage =
+                messageRepository.addMessage(
+                    sessionId = sourceSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolCall,
+                    content = "Copy this tool call.",
+                    providerMeta = """{"providerId":"fake"}""",
+                    toolCallId = "tool-call-copy",
+                    taskRunId = "task-run-copy",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.copy", sessionId = targetSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", sourceMessage.id)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(sourceMessage.id, result.payload["sourceMessageId"]?.jsonPrimitive?.content)
+            assertEquals(sourceSession.id, result.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals(targetSession.id, result.payload["targetSessionId"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["sameSession"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["copyProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["copiedProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["copyReferences"]?.jsonPrimitive?.content)
+            assertEquals("tool-call-copy", result.payload["toolCallId"]?.jsonPrimitive?.content)
+            assertEquals("task-run-copy", result.payload["taskRunId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["targetMessageCount"]?.jsonPrimitive?.content)
+            val copiedMessageId =
+                result.payload
+                    .getValue("copiedMessageId")
+                    .jsonPrimitive
+                    .content
+            assertTrue(copiedMessageId != sourceMessage.id)
+            val copiedMessage = messageRepository.getMessage(copiedMessageId)
+            assertNotNull(copiedMessage)
+            assertEquals(targetSession.id, copiedMessage?.sessionId)
+            assertEquals(sourceMessage.role, copiedMessage?.role)
+            assertEquals(sourceMessage.content, copiedMessage?.content)
+            assertEquals(sourceMessage.providerMeta, copiedMessage?.providerMeta)
+            assertEquals(sourceMessage.toolCallId, copiedMessage?.toolCallId)
+            assertEquals(sourceMessage.taskRunId, copiedMessage?.taskRunId)
+            assertEquals(1, messageRepository.getMessageCount(sourceSession.id))
+            assertEquals(1, messageRepository.getMessageCount(targetSession.id))
+        }
+
+    @Test
+    fun `messages copy duplicates in place and can omit metadata references`() =
+        runTest {
+            val session = sessionRepository.createSession("Duplicate in place")
+            val sourceMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                    content = "Duplicate without provenance.",
+                    providerMeta = """{"providerId":"fake"}""",
+                    toolCallId = "tool-call-omit",
+                    taskRunId = "task-run-omit",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.duplicate"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", sourceMessage.id)
+                            put("copyProviderMeta", false)
+                            put("copyReferences", false)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["targetSessionId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["sameSession"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["copyProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["copiedProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["copyReferences"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload["toolCallId"])
+            assertEquals(JsonNull, result.payload["taskRunId"])
+            assertEquals("2", result.payload["targetMessageCount"]?.jsonPrimitive?.content)
+            val copiedMessageId =
+                result.payload
+                    .getValue("copiedMessageId")
+                    .jsonPrimitive
+                    .content
+            assertTrue(copiedMessageId != sourceMessage.id)
+            val copiedMessage = messageRepository.getMessage(copiedMessageId)
+            assertNotNull(copiedMessage)
+            assertEquals(session.id, copiedMessage?.sessionId)
+            assertEquals(sourceMessage.role, copiedMessage?.role)
+            assertEquals(sourceMessage.content, copiedMessage?.content)
+            assertNull(copiedMessage?.providerMeta)
+            assertNull(copiedMessage?.toolCallId)
+            assertNull(copiedMessage?.taskRunId)
+            assertEquals(2, messageRepository.getMessageCount(session.id))
+        }
+
+    @Test
     fun `messages update requires confirmation and replaces only target content`() =
         runTest {
             val session = sessionRepository.createSession("Edit one message")

@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.copy` / `message.copy` /
+  `messages.duplicate` / `message.duplicate` plus chat-message copy aliases as
+  a Session Contract transcript-branching control. Agents can now copy one
+  message into the active or specified target session, duplicate it in place by
+  default, preserve role/content with optional provider metadata and tool/task
+  reference copying, and receive source/target session metadata plus the new
+  message id. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `messages.update` / `message.update` /
   `messages.edit` / `message.edit` plus chat-message aliases as a Session
   Contract transcript-editing control. Agents can now replace one message's

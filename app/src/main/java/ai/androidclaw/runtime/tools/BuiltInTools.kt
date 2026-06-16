@@ -1368,6 +1368,162 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.copy",
+                                    aliases =
+                                        listOf(
+                                            "message.copy",
+                                            "messages.duplicate",
+                                            "message.duplicate",
+                                            "chat.message.copy",
+                                        ),
+                                    description = "Copy one chat message into a target session or duplicate it in place.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messageId",
+                                                required = false,
+                                                description = "Message identifier to copy. The alias id is also accepted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "id",
+                                                description = "Alias for messageId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "targetSessionId",
+                                                description = "Session id to copy into. Defaults to the active session, then the source session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Alias for targetSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "copyProviderMeta",
+                                                description = "Set false to omit provider metadata. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "copyReferences",
+                                                description = "Set false to omit toolCallId and taskRunId references. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val messageId =
+                                arguments.optionalText("messageId")
+                                    ?: arguments.optionalText("id")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.copy requires a non-empty messageId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "messageId")
+                                            },
+                                    )
+                            val sourceMessage =
+                                messageRepository.getMessage(messageId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Message $messageId was not found.",
+                                        errorCode = "MISSING_MESSAGE",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_MESSAGE")
+                                                put("messageId", messageId)
+                                            },
+                                    )
+                            val sourceSession =
+                                sessionRepository.getSession(sourceMessage.sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session ${sourceMessage.sessionId} for message $messageId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", messageId)
+                                                put("sessionId", sourceMessage.sessionId)
+                                            },
+                                    )
+                            val targetSessionId =
+                                arguments.optionalText("targetSessionId")
+                                    ?: arguments.optionalText("sessionId")
+                                    ?: context.sessionId
+                                    ?: sourceMessage.sessionId
+                            val targetSession =
+                                sessionRepository.getSession(targetSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Target session $targetSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", sourceMessage.id)
+                                                put("targetSessionId", targetSessionId)
+                                            },
+                                    )
+                            val copyProviderMeta = arguments.optionalBoolean("copyProviderMeta", defaultValue = true)
+                            val copyReferences = arguments.optionalBoolean("copyReferences", defaultValue = true)
+                            val copiedMessage =
+                                messageRepository.addMessage(
+                                    sessionId = targetSession.id,
+                                    role = sourceMessage.role,
+                                    content = sourceMessage.content,
+                                    providerMeta =
+                                        if (copyProviderMeta) {
+                                            sourceMessage.providerMeta
+                                        } else {
+                                            null
+                                        },
+                                    toolCallId =
+                                        if (copyReferences) {
+                                            sourceMessage.toolCallId
+                                        } else {
+                                            null
+                                        },
+                                    taskRunId =
+                                        if (copyReferences) {
+                                            sourceMessage.taskRunId
+                                        } else {
+                                            null
+                                        },
+                                )
+                            val contentSnippet = copiedMessage.content.toMessageSearchSnippet()
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (sourceSession.id == targetSession.id) {
+                                        "Duplicated ${copiedMessage.role.name} message in \"${targetSession.title}\"."
+                                    } else {
+                                        "Copied ${copiedMessage.role.name} message into \"${targetSession.title}\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sourceMessageId", sourceMessage.id)
+                                        put("messageId", copiedMessage.id)
+                                        put("copiedMessageId", copiedMessage.id)
+                                        put("sourceSessionId", sourceSession.id)
+                                        put("sourceSessionTitle", sourceSession.title)
+                                        put("sourceSessionArchived", sourceSession.archived)
+                                        put("targetSessionId", targetSession.id)
+                                        put("targetSessionTitle", targetSession.title)
+                                        put("targetSessionArchived", targetSession.archived)
+                                        put("sameSession", sourceSession.id == targetSession.id)
+                                        put("role", copiedMessage.role.name)
+                                        put("contentSnippet", contentSnippet)
+                                        put("contentLength", copiedMessage.content.length)
+                                        put("contentTruncated", contentSnippet.length < copiedMessage.content.length)
+                                        put("createdAtIso", copiedMessage.createdAt.toString())
+                                        put("copyProviderMeta", copyProviderMeta)
+                                        put("copiedProviderMeta", copiedMessage.providerMeta != null)
+                                        put("copyReferences", copyReferences)
+                                        put("toolCallId", copiedMessage.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("taskRunId", copiedMessage.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("targetMessageCount", messageRepository.getMessageCount(targetSession.id))
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.update",
                                     aliases =
                                         listOf(
