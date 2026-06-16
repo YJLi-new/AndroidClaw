@@ -138,6 +138,31 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `get recent runs returns bounded newest-first history`() =
+        runTest {
+            val task =
+                repository.createTask(
+                    name = "History task",
+                    prompt = "Keep run history",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val older = repository.recordRun(task.id, scheduledAt = Instant.ofEpochMilli(20L))
+            val newer = repository.recordRun(task.id, scheduledAt = Instant.ofEpochMilli(30L))
+
+            repository.updateRun(older.copy(status = TaskRunStatus.Failure, errorCode = "OLD"))
+            repository.updateRun(newer.copy(status = TaskRunStatus.Success, resultSummary = "Newest"))
+
+            val recent = repository.getRecentRuns(task.id, limit = 1)
+
+            assertEquals(listOf(newer.id), recent.map { it.id })
+            assertEquals(TaskRunStatus.Success, recent.single().status)
+            assertEquals("Newest", recent.single().resultSummary)
+            assertEquals(emptyList<ai.androidclaw.data.model.TaskRun>(), repository.getRecentRuns(task.id, limit = 0))
+        }
+
+    @Test
     fun `trimRunsOlderThan removes only historical task runs`() =
         runTest {
             val task =

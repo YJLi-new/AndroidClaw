@@ -119,6 +119,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   length/truncation state, and tool/task reference ids without exposing full
   provider metadata. Focused `BuiltInToolsTest`, ktlint, and the full offline
   fast loop passed.
+- 2026-06-16: Added `tasks.runs` / `task.runs` / `tasks.history` /
+  `task.history` as a typed automation run-history inspector. It uses a new
+  bounded DAO/repository query instead of observing all runs, returns newest
+  runs first with status/time/result/error/output-message metadata, and is
+  covered by repository plus tool tests. Focused tests, ktlint, and the full
+  offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

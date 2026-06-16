@@ -2,6 +2,7 @@ package ai.androidclaw.runtime.tools
 
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -1104,6 +1105,67 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.runs",
+                    aliases = listOf("task.runs", "tasks.history", "task.history"),
+                    description = "Return recent run history for a scheduled automation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Task identifier",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum run count. Defaults to 10.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.runs",
+                    summary = "tasks.runs requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.runs", taskId = taskId)
+            val limit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = TASK_RUN_HISTORY_DEFAULT_LIMIT,
+                )
+            val runs = taskRepository.getRecentRuns(taskId = task.id, limit = limit)
+            ToolExecutionResult.success(
+                summary = "Loaded ${runs.size} recent run(s) for task ${task.name}.",
+                payload =
+                    buildJsonObject {
+                        put("taskId", task.id)
+                        put("taskName", task.name)
+                        put("returnedCount", runs.size)
+                        put("recentFirst", true)
+                        put(
+                            "runs",
+                            buildJsonArray {
+                                runs.forEach { run ->
+                                    add(run.toTaskRunHistoryPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskCreateDescriptor(),
         ) { context, arguments ->
             val spec =
@@ -1472,6 +1534,7 @@ private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
+private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 
 private fun String.toMessageSearchSnippet(): String =
@@ -1479,6 +1542,19 @@ private fun String.toMessageSearchSnippet(): String =
         this
     } else {
         take(MESSAGE_SEARCH_SNIPPET_MAX_CHARS)
+    }
+
+private fun TaskRun.toTaskRunHistoryPayload() =
+    buildJsonObject {
+        put("id", id)
+        put("status", status.name)
+        put("scheduledAtIso", scheduledAt.toString())
+        put("startedAtIso", startedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("finishedAtIso", finishedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("resultSummary", resultSummary?.let(::JsonPrimitive) ?: JsonNull)
+        put("errorCode", errorCode?.let(::JsonPrimitive) ?: JsonNull)
+        put("errorMessage", errorMessage?.let(::JsonPrimitive) ?: JsonNull)
+        put("outputMessageId", outputMessageId?.let(::JsonPrimitive) ?: JsonNull)
     }
 
 private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {

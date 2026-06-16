@@ -21,6 +21,7 @@ internal const val TASK_PROMPT_MAX_CHARS = 40_000
 internal const val TASK_TARGET_SESSION_ID_MAX_CHARS = 256
 internal const val TASK_RUN_ERROR_MESSAGE_MAX_CHARS = 1_000
 internal const val TASK_RUN_RESULT_SUMMARY_MAX_CHARS = 4_000
+internal const val TASK_RUN_QUERY_MAX_LIMIT = 100
 
 class TaskRepository(
     private val taskDao: TaskDao,
@@ -109,6 +110,17 @@ class TaskRepository(
         }
 
     suspend fun getLatestRun(taskId: String): TaskRun? = taskRunDao.getLatestByTaskId(taskId)?.toDomain()
+
+    suspend fun getRecentRuns(
+        taskId: String,
+        limit: Int,
+    ): List<TaskRun> {
+        val boundedLimit = limit.coerceIn(0, TASK_RUN_QUERY_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return taskRunDao.getRecentByTaskId(taskId, boundedLimit).map(TaskRunEntity::toDomain)
+    }
 
     suspend fun trimRunsOlderThan(instant: Instant): Int = taskRunDao.deleteOlderThan(instant.toEpochMilli())
 }

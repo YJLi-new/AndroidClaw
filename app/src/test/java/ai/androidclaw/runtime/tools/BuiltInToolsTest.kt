@@ -667,6 +667,60 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks runs returns bounded recent run history`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "History task",
+                    prompt = "Check run history",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val older = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            val newer = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-11T00:00:00Z"))
+            taskRepository.updateRun(
+                older.copy(
+                    status = TaskRunStatus.Failure,
+                    errorCode = "OLDER_FAILURE",
+                    errorMessage = "Older failure",
+                ),
+            )
+            taskRepository.updateRun(
+                newer.copy(
+                    status = TaskRunStatus.Success,
+                    startedAt = newer.scheduledAt,
+                    finishedAt = newer.scheduledAt.plusSeconds(2),
+                    resultSummary = "Newest success",
+                ),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.history"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", task.id)
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(task.id, result.payload["taskId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            val runPayload =
+                result.payload
+                    .getValue("runs")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(newer.id, runPayload.getValue("id").jsonPrimitive.content)
+            assertEquals("Success", runPayload.getValue("status").jsonPrimitive.content)
+            assertEquals("Newest success", runPayload.getValue("resultSummary").jsonPrimitive.content)
+        }
+
+    @Test
     fun `tasks create resolves current session alias and schedules work`() =
         runTest {
             val currentSession = sessionRepository.createSession("Current session")
