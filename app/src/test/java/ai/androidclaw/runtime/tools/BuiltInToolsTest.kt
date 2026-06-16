@@ -4088,6 +4088,95 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory message lists memories captured from one source message`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val deleted =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted source message memory hidden.",
+                        sourceMessageIds = listOf("message-shared"),
+                    ),
+                )
+            val otherMessage =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants another source message memory listed separately.",
+                        sourceMessageIds = listOf("message-other"),
+                    ),
+                )
+            val target =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants source message memory listed.",
+                        sourceMessageIds = listOf("message-shared", "message-extra"),
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deleted.id))
+
+            val directMessage =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.by_message"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", "message-shared")
+                        },
+                )
+            val commandMessage =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "message message-other")
+                        },
+                )
+            val missingMessage =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.message"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(directMessage.summary, directMessage.success)
+            assertEquals("message-shared", directMessage.payload["sourceMessageId"]?.jsonPrimitive?.content)
+            assertEquals("1", directMessage.payload["memoryCount"]?.jsonPrimitive?.content)
+            val directMemory =
+                directMessage.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(target.id, directMemory.getValue("id").jsonPrimitive.content)
+            assertEquals(
+                listOf("message-shared", "message-extra"),
+                directMemory
+                    .getValue("sourceMessageIds")
+                    .jsonArray
+                    .map { sourceId -> sourceId.jsonPrimitive.content },
+            )
+            assertFalse(directMemory.containsKey("ownerUserId"))
+            assertTrue(commandMessage.success)
+            assertEquals("message-other", commandMessage.payload["sourceMessageId"]?.jsonPrimitive?.content)
+            assertEquals(
+                otherMessage.id,
+                commandMessage.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("id")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(missingMessage.success)
+            assertEquals("MISSING_MEMORY_SOURCE_MESSAGE_ID", missingMessage.errorCode)
+        }
+
+    @Test
     fun `memory get returns exact memory without exposing owner identifier`() =
         runTest {
             val registry = buildRegistry()

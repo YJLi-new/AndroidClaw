@@ -168,6 +168,28 @@ class MemoryRepository(
             ).map { it.toDomain(json) }
     }
 
+    suspend fun listForSourceMessage(
+        ownerUserId: String,
+        sourceMessageId: String,
+        limit: Int = DEFAULT_LIST_LIMIT,
+    ): List<MemoryItem> {
+        val boundedLimit = limit.coerceIn(0, MAX_LIST_LIMIT)
+        val normalizedSourceMessageId =
+            listOf(sourceMessageId)
+                .toBoundedSourceMessageIds()
+                .firstOrNull()
+        if (ownerUserId.isBlank() || normalizedSourceMessageId.isNullOrBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getActiveByOwner(
+                ownerUserId = ownerUserId,
+                limit = SOURCE_MESSAGE_SCAN_LIMIT,
+            ).map { it.toDomain(json) }
+            .filter { memory -> normalizedSourceMessageId in memory.sourceMessageIds }
+            .take(boundedLimit)
+    }
+
     suspend fun get(
         ownerUserId: String,
         id: String,
@@ -318,6 +340,7 @@ class MemoryRepository(
         const val MAX_SOURCE_MESSAGE_ID_CHARS = 120
         private const val DUPLICATE_SCAN_LIMIT = 1_000
         private const val SEARCH_SCAN_LIMIT = 500
+        private const val SOURCE_MESSAGE_SCAN_LIMIT = 1_000
     }
 }
 

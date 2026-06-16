@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.message` / `memories.message` /
+  `memory.by_message` / `memories.by_message` plus source-message aliases as a
+  Memory Contract provenance inspector. Agents can now list bounded active
+  memories captured from one source message id, using the same source-message id
+  normalization as persistence, while deleted rows and owner ids stay hidden.
+  Focused repository/tool tests, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `memory.source` / `memories.source` /
   `memory.by_source` / `memories.by_source` plus source-list aliases as a
   Memory Contract provenance filter. Agents can now list bounded active manual

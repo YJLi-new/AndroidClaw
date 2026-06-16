@@ -307,6 +307,63 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.message",
+                    aliases =
+                        listOf(
+                            "memories.message",
+                            "memory.by_message",
+                            "memories.by_message",
+                            "memory.source_message",
+                            "memories.source_message",
+                        ),
+                    description = "List recent local cross-session memories captured from one source message.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "sourceMessageId",
+                                description = "Source message id. The alias messageId is also accepted.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Optional result limit.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val sourceMessageId = arguments.sourceMessageId()
+            if (sourceMessageId.isNullOrBlank()) {
+                return@Entry missingMemorySourceMessageIdResult()
+            }
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MemoryRepository.DEFAULT_LIST_LIMIT,
+                            maxValue = MemoryRepository.MAX_LIST_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            val memories =
+                memoryRepository.listForSourceMessage(
+                    ownerUserId = settings.installUserId,
+                    sourceMessageId = sourceMessageId,
+                    limit = limit,
+                )
+            memorySourceMessageListResult(
+                sourceMessageId = sourceMessageId,
+                memories = memories,
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.deleted",
                     aliases =
                         listOf(
@@ -670,6 +727,21 @@ private suspend fun executeMemoryCommand(
             )
         }
 
+        "message", "by-message", "source-message" -> {
+            val sourceMessageId =
+                rest.toSourceMessageIdOrNull()
+                    ?: return missingMemorySourceMessageIdResult()
+            memorySourceMessageListResult(
+                sourceMessageId = sourceMessageId,
+                memories =
+                    memoryRepository.listForSourceMessage(
+                        ownerUserId = settings.installUserId,
+                        sourceMessageId = sourceMessageId,
+                        limit = MemoryRepository.DEFAULT_LIST_LIMIT,
+                    ),
+            )
+        }
+
         "deleted", "trash" ->
             memoryListResult(
                 memories =
@@ -936,6 +1008,32 @@ private fun memorySourceTypeListResult(
             },
     )
 
+private fun memorySourceMessageListResult(
+    sourceMessageId: String,
+    memories: List<MemoryItem>,
+): ToolExecutionResult =
+    ToolExecutionResult.success(
+        summary =
+            if (memories.isEmpty()) {
+                "No memories found for source message $sourceMessageId."
+            } else {
+                "Found ${memories.size} memory item(s) for source message $sourceMessageId."
+            },
+        payload =
+            buildJsonObject {
+                put("sourceMessageId", sourceMessageId)
+                put("memoryCount", memories.size)
+                put(
+                    "memories",
+                    buildJsonArray {
+                        memories.forEach { memory ->
+                            add(memoryPayload(memory))
+                        }
+                    },
+                )
+            },
+    )
+
 private fun memoryGetResult(
     memory: MemoryItem?,
     id: String,
@@ -1084,6 +1182,17 @@ private fun invalidMemorySourceTypeResult(rawValue: String): ToolExecutionResult
             },
     )
 
+private fun missingMemorySourceMessageIdResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide sourceMessageId or messageId to list source-message memories.",
+        errorCode = "MISSING_MEMORY_SOURCE_MESSAGE_ID",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_SOURCE_MESSAGE_ID")
+                put("field", "sourceMessageId")
+            },
+    )
+
 private fun JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
@@ -1093,6 +1202,16 @@ private fun JsonObject.sourceSessionIdOrContext(context: ToolExecutionContext): 
     optionalText("sourceSessionId")
         ?: optionalText("sessionId")
         ?: context.sessionId?.trim()?.ifBlank { null }
+
+private fun JsonObject.sourceMessageId(): String? =
+    optionalText("sourceMessageId")
+        ?.toSourceMessageIdOrNull()
+        ?: optionalText("messageId")?.toSourceMessageIdOrNull()
+
+private fun String.toSourceMessageIdOrNull(): String? =
+    trim()
+        .take(MemoryRepository.MAX_SOURCE_MESSAGE_ID_CHARS)
+        .ifBlank { null }
 
 private sealed interface MemorySourceTypeParseResult {
     data class Success(

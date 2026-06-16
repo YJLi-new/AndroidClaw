@@ -174,6 +174,49 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `list for source message returns active owner scoped recent memories`() =
+        runTest {
+            val first =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "First source message memory.",
+                        sourceMessageIds = listOf("message-1", "message-shared"),
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "install-user",
+                text = "Different source message memory.",
+                sourceMessageIds = listOf("message-2"),
+            )
+            val second =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "Second source message memory.",
+                        sourceMessageIds = listOf("message-shared"),
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "other-user",
+                text = "Other owner source message memory.",
+                sourceMessageIds = listOf("message-shared"),
+            )
+
+            val matches = repository.listForSourceMessage("install-user", " message-shared ", limit = 5)
+            val limitedMatches = repository.listForSourceMessage("install-user", "message-shared", limit = 1)
+            assertTrue(repository.delete("install-user", first.id))
+            val activeMatches = repository.listForSourceMessage("install-user", "message-shared", limit = 5)
+
+            assertEquals(listOf(second.id, first.id), matches.map { it.id })
+            assertEquals(listOf(second.id), limitedMatches.map { it.id })
+            assertEquals(listOf(second.id), activeMatches.map { it.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceMessage("", "message-shared", 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceMessage("install-user", " ", 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceMessage("install-user", "message-shared", 0))
+        }
+
+    @Test
     fun `delete and clear hide active memories`() =
         runTest {
             val first = repository.remember("install-user", "User likes green buttons.")
