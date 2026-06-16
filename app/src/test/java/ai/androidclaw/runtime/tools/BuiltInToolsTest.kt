@@ -3199,6 +3199,138 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills secret clear removes declared saved secret with confirmation`() =
+        runTest {
+            val secretSkill =
+                skillSnapshot(
+                    id = "secret-skill",
+                    name = "secret-skill",
+                ).copy(
+                    secretStatuses = mapOf("API_TOKEN" to true),
+                )
+            var clearedEnvName: String? = null
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(secretSkill),
+                    skillSecretClearer = { skill, envName ->
+                        clearedEnvName = envName
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                            secretFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillSecretField(
+                                        envName = envName,
+                                        configured = false,
+                                    ),
+                                ),
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.secret.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "secret-skill")
+                            put("envName", "API_TOKEN")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("API_TOKEN", clearedEnvName)
+            assertEquals(
+                "API_TOKEN",
+                result.payload
+                    .getValue("envName")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("cleared")
+                    .jsonPrimitive
+                    .content,
+            )
+            val secretField =
+                result.payload
+                    .getValue("configuration")
+                    .jsonObject
+                    .getValue("secretFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("API_TOKEN", secretField.getValue("envName").jsonPrimitive.content)
+            assertEquals("false", secretField.getValue("configured").jsonPrimitive.content)
+            assertFalse(secretField.containsKey("value"))
+        }
+
+    @Test
+    fun `skills secret clear requires confirmation`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "secret-skill",
+                                name = "secret-skill",
+                            ).copy(
+                                secretStatuses = mapOf("API_TOKEN" to true),
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.secret.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "secret-skill")
+                            put("envName", "API_TOKEN")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("CONFIRMATION_REQUIRED", result.errorCode)
+        }
+
+    @Test
+    fun `skills secret clear rejects undeclared secret`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "secret-skill",
+                                name = "secret-skill",
+                            ).copy(
+                                secretStatuses = mapOf("API_TOKEN" to true),
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.secret.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "secret-skill")
+                            put("envName", "MISSING_TOKEN")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("SKILL_SECRET_NOT_FOUND", result.errorCode)
+        }
+
+    @Test
     fun `skills search returns matching inventory entries`() =
         runTest {
             val registry =
@@ -4327,6 +4459,23 @@ class BuiltInToolsTest {
                     ),
             )
         },
+        skillSecretClearer: suspend (
+            ai.androidclaw.runtime.skills.SkillSnapshot,
+            String,
+        ) -> ai.androidclaw.runtime.skills.SkillConfigurationSnapshot = { skill, envName ->
+            ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                skillId = skill.id,
+                skillKey = skill.skillKey,
+                displayName = skill.displayName,
+                secretFields =
+                    listOf(
+                        ai.androidclaw.runtime.skills.SkillSecretField(
+                            envName = envName,
+                            configured = false,
+                        ),
+                    ),
+            )
+        },
         providerSecretStore: ProviderSecretStore? = null,
     ): ToolRegistry =
         createBuiltInToolRegistry(
@@ -4340,6 +4489,7 @@ class BuiltInToolsTest {
             skillInventoryRefresher = skillInventoryRefresher,
             skillConfigurationReader = skillConfigurationReader,
             skillConfigurationUpdater = skillConfigurationUpdater,
+            skillSecretClearer = skillSecretClearer,
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

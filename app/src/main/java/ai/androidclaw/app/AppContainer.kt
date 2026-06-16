@@ -127,6 +127,21 @@ class AppContainer(
                         ?: skill
                 skillManagerRef.readConfiguration(reloadedSkill)
             },
+            skillSecretClearer = { skill, envName ->
+                skillManagerRef.saveSkillConfiguration(
+                    skillKey = skill.skillKey,
+                    secretUpdates = mapOf(envName to null),
+                    configUpdates = emptyMap(),
+                )
+                val reloadedSkill =
+                    skillManagerRef
+                        .refreshSkillInventory(
+                            sessionId = skill.workspaceSessionId,
+                            forceRefresh = true,
+                        ).find { candidate -> candidate.id == skill.id }
+                        ?: skill
+                skillManagerRef.readConfiguration(reloadedSkill)
+            },
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

@@ -68,6 +68,9 @@ internal fun createBuiltInToolRegistry(
             value = value,
         )
     },
+    skillSecretClearer: suspend (SkillSnapshot, String) -> SkillConfigurationSnapshot = { skill, envName ->
+        skill.toDefaultConfigurationSnapshot().withClearedSecretField(envName)
+    },
     providerSecretStore: ProviderSecretStore? = null,
     messageRepository: MessageRepository,
     memoryRepository: MemoryRepository? = null,
@@ -214,6 +217,89 @@ internal fun createBuiltInToolRegistry(
                                                 }
                                             },
                                         )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.secret.clear",
+                                    aliases =
+                                        listOf(
+                                            "skill.secret.clear",
+                                            "skills.secrets.clear",
+                                            "skill.secrets.clear",
+                                            "skills.secret.delete",
+                                            "skill.secret.delete",
+                                        ),
+                                    description = "Clear one saved skill secret without reading or returning the secret value.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = false,
+                                                description = "Skill id, key, or display name.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "envName",
+                                                required = false,
+                                                description = "Declared secret environment variable to clear.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.secret.clear",
+                                        summary = "skills.secret.clear requires a non-empty skillId.",
+                                    )
+                            val envName =
+                                arguments.optionalText("envName")
+                                    ?: arguments.optionalText("secretName")
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.secret.clear",
+                                        summary = "skills.secret.clear requires a non-empty envName.",
+                                        field = "envName",
+                                    )
+                            if (arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "skills.secret.clear requires confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("toolName", "skills.secret.clear")
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val skills = bundledSkillsProvider()
+                            val skill =
+                                skills.findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.secret.clear", skillId = identifier)
+                            if (!skill.secretStatuses.containsKey(envName)) {
+                                return@Entry skillSecretNotFoundResult(
+                                    toolName = "skills.secret.clear",
+                                    skillId = skill.id,
+                                    envName = envName,
+                                )
+                            }
+                            val updatedConfiguration = skillSecretClearer(skill, envName)
+                            ToolExecutionResult.success(
+                                summary = "Cleared saved secret $envName for skill ${skill.displayName}.",
+                                payload =
+                                    buildJsonObject {
+                                        put("skill", skill.toSkillSearchPayload())
+                                        put("envName", envName)
+                                        put("cleared", true)
+                                        put("configuration", updatedConfiguration.toSkillConfigurationPayload())
                                     },
                             )
                         },
@@ -4639,6 +4725,23 @@ private fun skillConfigNotFoundResult(
             },
     )
 
+private fun skillSecretNotFoundResult(
+    toolName: String,
+    skillId: String,
+    envName: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Secret $envName was not declared for skill $skillId.",
+        errorCode = "SKILL_SECRET_NOT_FOUND",
+        payload =
+            buildJsonObject {
+                put("errorCode", "SKILL_SECRET_NOT_FOUND")
+                put("toolName", toolName)
+                put("skillId", skillId)
+                put("envName", envName)
+            },
+    )
+
 private fun SkillSnapshot.matchesSkillQuery(query: String): Boolean {
     val normalizedQuery = query.lowercase()
     return listOf(
@@ -4705,6 +4808,18 @@ private fun SkillConfigurationSnapshot.withUpdatedConfigField(
             configFields.map { field ->
                 if (field.path == configPath) {
                     field.copy(value = value)
+                } else {
+                    field
+                }
+            },
+    )
+
+private fun SkillConfigurationSnapshot.withClearedSecretField(envName: String): SkillConfigurationSnapshot =
+    copy(
+        secretFields =
+            secretFields.map { field ->
+                if (field.envName == envName) {
+                    field.copy(configured = false)
                 } else {
                     field
                 }

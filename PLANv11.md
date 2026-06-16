@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.secret.clear` /
+  `skill.secret.clear` / `skills.secrets.clear` / `skill.secrets.clear` plus
+  delete aliases as a Skill Contract secret hygiene control. Agents can now
+  clear a declared saved skill secret only with `confirm=CONFIRM`, receive the
+  updated non-secret configuration payload, and get typed
+  `SKILL_SECRET_NOT_FOUND` failures for undeclared env names without ever
+  reading, setting, or returning secret values. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.config.update` /
   `skill.config.update` / `skills.configuration.update` /
   `skill.configuration.update` plus concise set aliases as a Skill Contract
