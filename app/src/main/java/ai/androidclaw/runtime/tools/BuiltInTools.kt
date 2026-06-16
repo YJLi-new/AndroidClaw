@@ -1725,6 +1725,7 @@ private fun taskToolEntries(
             descriptor =
                 ToolDescriptor(
                     name = "tasks.get",
+                    aliases = listOf("task.get"),
                     description = "Return a canonical task payload and its latest run summary.",
                     arguments =
                         listOf(
@@ -2299,6 +2300,7 @@ private fun taskToolEntries(
 private fun taskCreateDescriptor(): ToolDescriptor =
     ToolDescriptor(
         name = "tasks.create",
+        aliases = listOf("task.create"),
         description = "Create a scheduled automation using explicit schedule fields.",
         arguments = taskMutationArguments(requiredTaskId = false),
     )
@@ -2306,6 +2308,7 @@ private fun taskCreateDescriptor(): ToolDescriptor =
 private fun taskUpdateDescriptor(): ToolDescriptor =
     ToolDescriptor(
         name = "tasks.update",
+        aliases = listOf("task.update"),
         description = "Patch an existing task without replacing unspecified fields.",
         arguments = taskMutationArguments(requiredTaskId = true),
     )
@@ -2339,6 +2342,7 @@ private fun taskToggleDescriptor(
 ): ToolDescriptor =
     ToolDescriptor(
         name = name,
+        aliases = listOf(name.replaceFirst("tasks.", "task.")),
         description = description,
         arguments =
             listOf(

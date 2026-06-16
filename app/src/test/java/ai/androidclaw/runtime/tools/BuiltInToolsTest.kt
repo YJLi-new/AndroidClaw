@@ -1541,6 +1541,14 @@ class BuiltInToolsTest {
                             put("toolName", "task.copy")
                         },
                 )
+            val loadedCreateByAlias =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "task.create")
+                        },
+                )
 
             assertTrue(listed.success)
             val tools = listed.payload.getValue("tools").jsonArray
@@ -1574,6 +1582,23 @@ class BuiltInToolsTest {
                     .getValue("properties")
                     .jsonObject
                     .containsKey("taskId"),
+            )
+            assertTrue(loadedCreateByAlias.success)
+            assertEquals(
+                "tasks.create",
+                loadedCreateByAlias.payload
+                    .getValue("tool")
+                    .jsonObject
+                    .getValue("name")
+                    .jsonPrimitive.content,
+            )
+            assertTrue(
+                loadedCreateByAlias.payload
+                    .getValue("tool")
+                    .jsonObject
+                    .getValue("aliases")
+                    .jsonArray
+                    .any { alias -> alias.jsonPrimitive.content == "task.create" },
             )
         }
 

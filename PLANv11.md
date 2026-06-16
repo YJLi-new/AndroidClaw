@@ -206,6 +206,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
   repository, refresh `updatedAt`, and return the same non-secret memory payload
   as `memory.get`. Focused memory/tool tests, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added consistent singular `task.*` aliases for task tools that
+  only exposed `tasks.*` names (`task.get`, `task.create`, `task.update`,
+  `task.enable`, `task.disable`, `task.delete`, and `task.run_now`). This keeps
+  automation tool naming aligned with the already-supported singular aliases for
+  list/search/history/copy, and `tools.get` now verifies alias resolution for
+  `task.create`. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
