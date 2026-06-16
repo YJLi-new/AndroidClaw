@@ -1086,6 +1086,74 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks snooze postpones due automations with delay or target instant`() =
+        runTest {
+            val delayedTask =
+                taskRepository.createTask(
+                    name = "Delay snooze automation",
+                    prompt = "Run later by delay",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val untilTask =
+                taskRepository.createTask(
+                    name = "Instant snooze automation",
+                    prompt = "Run later by instant",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                )
+            val futureTask =
+                taskRepository.createTask(
+                    name = "Future snooze automation",
+                    prompt = "Not due yet",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val delayResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.snooze"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", delayedTask.id)
+                            put("delayMinutes", 30)
+                        },
+                )
+            val untilResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.postpone"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", untilTask.id)
+                            put("untilIso", "2026-03-08T02:00:00Z")
+                        },
+                )
+            val notDueResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.snooze"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", futureTask.id)
+                        },
+                )
+
+            assertTrue(delayResult.summary, delayResult.success)
+            assertEquals("2026-03-08T00:30:00Z", delayResult.payload["snoozedUntilIso"]?.jsonPrimitive?.content)
+            assertEquals("1800", delayResult.payload["snoozeDelaySeconds"]?.jsonPrimitive?.content)
+            assertEquals(Instant.parse("2026-03-08T00:30:00Z"), taskRepository.getTask(delayedTask.id)?.nextRunAt)
+            assertEquals(null, taskRepository.getLatestRun(delayedTask.id))
+            assertTrue(untilResult.summary, untilResult.success)
+            assertEquals("2026-03-08T02:00:00Z", untilResult.payload["snoozedUntilIso"]?.jsonPrimitive?.content)
+            assertEquals(Instant.parse("2026-03-08T02:00:00Z"), taskRepository.getTask(untilTask.id)?.nextRunAt)
+            assertFalse(notDueResult.success)
+            assertEquals("TASK_NOT_DUE", notDueResult.errorCode)
+        }
+
+    @Test
     fun `tasks runs returns bounded recent run history`() =
         runTest {
             val task =

@@ -2493,6 +2493,122 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.snooze",
+                    aliases =
+                        listOf(
+                            "task.snooze",
+                            "tasks.postpone",
+                            "task.postpone",
+                            "automations.snooze",
+                            "automation.snooze",
+                        ),
+                    description = "Postpone one currently due automation without executing its prompt.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Due task identifier",
+                            ),
+                            ToolArgumentSpec(
+                                name = "delayMinutes",
+                                description = "Positive minutes to postpone. Defaults to 15, max 10080.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "untilIso",
+                                description = "Optional ISO-8601 instant to postpone until instead of delayMinutes.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.snooze",
+                    summary = "tasks.snooze requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.snooze", taskId = taskId)
+            val snoozedAt = clock.instant()
+            val snoozedUntil =
+                try {
+                    arguments.parseTaskSnoozeUntil(now = snoozedAt)
+                } catch (error: IllegalArgumentException) {
+                    return@Entry invalidTaskArguments(
+                        toolName = "tasks.snooze",
+                        summary = error.message ?: "tasks.snooze received invalid arguments.",
+                    )
+                }
+            val dueAt =
+                task.nextRunAt
+                    ?.takeIf { nextRunAt -> !nextRunAt.isAfter(snoozedAt) }
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Task ${task.name} is not currently due.",
+                        errorCode = "TASK_NOT_DUE",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TASK_NOT_DUE")
+                                put("toolName", "tasks.snooze")
+                                put("taskId", task.id)
+                                put("enabled", task.enabled)
+                                put("nowIso", snoozedAt.toString())
+                                put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                            },
+                    )
+            if (!task.enabled) {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Task ${task.name} is disabled and cannot be snoozed as a due automation.",
+                    errorCode = "TASK_NOT_DUE",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "TASK_NOT_DUE")
+                            put("toolName", "tasks.snooze")
+                            put("taskId", task.id)
+                            put("enabled", false)
+                            put("nowIso", snoozedAt.toString())
+                            put("nextRunAtIso", dueAt.toString())
+                        },
+                )
+            }
+            val updatedTask =
+                task.copy(
+                    nextRunAt = snoozedUntil,
+                    updatedAt = snoozedAt,
+                )
+            taskRepository.updateTask(updatedTask)
+            schedulerCoordinator.scheduleTask(updatedTask.id)
+            val reloadedTask = taskRepository.getTask(updatedTask.id) ?: updatedTask
+            ToolExecutionResult.success(
+                summary = "Snoozed due run for task ${reloadedTask.name}.",
+                payload =
+                    buildJsonObject {
+                        put("snoozedAtIso", snoozedAt.toString())
+                        put("previousNextRunAtIso", dueAt.toString())
+                        put("snoozedUntilIso", snoozedUntil.toString())
+                        put("snoozeDelaySeconds", Duration.between(snoozedAt, snoozedUntil).seconds)
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.search",
                     aliases = listOf("task.search"),
                     description = "Search persisted automations by name or prompt text.",
@@ -3389,6 +3505,8 @@ private const val TASK_DUE_DEFAULT_LIMIT = 20
 private const val TASK_DUE_MAX_LIMIT = 50
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
+private const val TASK_SNOOZE_DEFAULT_DELAY_MINUTES = 15L
+private const val TASK_SNOOZE_MAX_DELAY_MINUTES = 10_080L
 private const val TASK_UPCOMING_DEFAULT_LIMIT = 20
 private const val TASK_UPCOMING_MAX_LIMIT = 50
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
@@ -4273,6 +4391,45 @@ private fun kotlinx.serialization.json.JsonObject.optionalInt(
     field: String,
     defaultValue: Int,
 ): Int = optionalText(field)?.toIntOrNull() ?: defaultValue
+
+private fun JsonObject.parseTaskSnoozeUntil(now: Instant): Instant {
+    val untilText = optionalText("untilIso")
+    val delayText = optionalText("delayMinutes")
+    if (untilText != null && delayText != null) {
+        throw IllegalArgumentException("tasks.snooze accepts either untilIso or delayMinutes, not both.")
+    }
+    if (untilText != null) {
+        val until =
+            try {
+                Instant.parse(untilText)
+            } catch (error: DateTimeParseException) {
+                throw IllegalArgumentException("tasks.snooze requires untilIso to be an ISO-8601 instant.", error)
+            }
+        require(until.isAfter(now)) { "tasks.snooze requires untilIso to be after now." }
+        requireTaskSnoozeDelay(Duration.between(now, until))
+        return until
+    }
+    val delayMinutes =
+        delayText
+            ?.toLongOrNull()
+            ?: if (delayText == null) {
+                TASK_SNOOZE_DEFAULT_DELAY_MINUTES
+            } else {
+                throw IllegalArgumentException("tasks.snooze received a non-numeric delayMinutes.")
+            }
+    require(delayMinutes > 0L) { "tasks.snooze requires delayMinutes > 0." }
+    require(delayMinutes <= TASK_SNOOZE_MAX_DELAY_MINUTES) {
+        "tasks.snooze requires delayMinutes <= $TASK_SNOOZE_MAX_DELAY_MINUTES."
+    }
+    return now.plus(Duration.ofMinutes(delayMinutes))
+}
+
+private fun requireTaskSnoozeDelay(delay: Duration) {
+    require(!delay.isZero && !delay.isNegative) { "tasks.snooze requires a future snooze time." }
+    require(delay <= Duration.ofMinutes(TASK_SNOOZE_MAX_DELAY_MINUTES)) {
+        "tasks.snooze requires snooze delay <= $TASK_SNOOZE_MAX_DELAY_MINUTES minutes."
+    }
+}
 
 internal fun notificationToolAvailability(application: Application): ToolAvailability {
     if (

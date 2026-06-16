@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.snooze` / `task.snooze` /
+  `tasks.postpone` / `task.postpone` plus automation aliases as an Automation
+  Contract triage control. Agents can now postpone a currently due automation
+  by bounded minutes or an explicit ISO instant without recording a run,
+  reschedule the task immediately, and receive the updated task payload.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.skip` / `task.skip` /
   `tasks.skip_due` / `task.skip_due` plus automation aliases as an Automation
   Contract triage control. Agents can now skip one currently due run without
