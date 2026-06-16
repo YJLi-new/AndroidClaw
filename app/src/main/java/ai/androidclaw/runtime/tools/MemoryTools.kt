@@ -263,6 +263,7 @@ internal fun memoryToolEntries(
             descriptor =
                 ToolDescriptor(
                     name = "memory.delete",
+                    aliases = listOf("memories.delete"),
                     description = "Delete one local cross-session memory.",
                     arguments =
                         listOf(
@@ -304,7 +305,37 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.restore",
+                    aliases = listOf("memories.restore"),
+                    description = "Restore one soft-deleted local cross-session memory by id.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "id",
+                                required = true,
+                                description = "Memory identifier.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val id = arguments.optionalText("id")
+            if (id.isNullOrBlank()) {
+                return@Entry missingMemoryIdResult("Provide a memory id to restore.")
+            }
+            memoryRestoreResult(
+                restoredMemory = memoryRepository.restore(settings.installUserId, id),
+                id = id,
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.clear",
+                    aliases = listOf("memories.clear"),
                     description = "Clear all local cross-session memories after explicit confirmation.",
                     arguments =
                         listOf(
@@ -495,6 +526,16 @@ private suspend fun executeMemoryCommand(
             }
         }
 
+        "restore" -> {
+            if (rest.isBlank()) {
+                return missingMemoryIdResult("Provide a memory id after /memory restore.")
+            }
+            memoryRestoreResult(
+                restoredMemory = memoryRepository.restore(settings.installUserId, rest),
+                id = rest,
+            )
+        }
+
         "clear" -> {
             if (rest != "CONFIRM") {
                 ToolExecutionResult.failure(
@@ -673,7 +714,37 @@ private fun memoryUpdateResult(
         )
     }
 
-private fun memoryPayload(memory: MemoryItem): JsonObject =
+private fun memoryRestoreResult(
+    restoredMemory: MemoryRepository.RestoredMemory?,
+    id: String,
+): ToolExecutionResult =
+    if (restoredMemory == null) {
+        ToolExecutionResult.failure(
+            summary = "Memory $id was not found.",
+            errorCode = "MEMORY_NOT_FOUND",
+            payload =
+                buildJsonObject {
+                    put("id", id)
+                    put("errorCode", "MEMORY_NOT_FOUND")
+                },
+        )
+    } else {
+        val memory = restoredMemory.memory
+        ToolExecutionResult.success(
+            summary =
+                if (restoredMemory.restored) {
+                    "Restored memory: ${memory.text}"
+                } else {
+                    "Memory was already active: ${memory.text}"
+                },
+            payload = memoryPayload(memory, restored = restoredMemory.restored),
+        )
+    }
+
+private fun memoryPayload(
+    memory: MemoryItem,
+    restored: Boolean? = null,
+): JsonObject =
     buildJsonObject {
         put("id", memory.id)
         put("text", memory.text)
@@ -689,6 +760,7 @@ private fun memoryPayload(memory: MemoryItem): JsonObject =
         put("sourceType", memory.sourceType)
         put("createdAt", memory.createdAt.toString())
         put("updatedAt", memory.updatedAt.toString())
+        restored?.let { put("restored", it) }
     }
 
 private fun missingMemoryIdResult(summary: String): ToolExecutionResult =

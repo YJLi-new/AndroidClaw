@@ -34,6 +34,11 @@ class MemoryRepository(
         val memoryCount: Long,
     )
 
+    data class RestoredMemory(
+        val memory: MemoryItem,
+        val restored: Boolean,
+    )
+
     suspend fun remember(
         ownerUserId: String,
         text: String,
@@ -201,6 +206,43 @@ class MemoryRepository(
             id = id,
             deletedAt = clock.millis(),
         ) > 0
+    }
+
+    suspend fun restore(
+        ownerUserId: String,
+        id: String,
+    ): RestoredMemory? {
+        if (ownerUserId.isBlank() || id.isBlank()) {
+            return null
+        }
+        val existing =
+            dao
+                .getByOwnerAndId(
+                    ownerUserId = ownerUserId,
+                    id = id,
+                )?.toDomain(json)
+                ?: return null
+        if (existing.deletedAt == null) {
+            return RestoredMemory(
+                memory = existing,
+                restored = false,
+            )
+        }
+        val restored =
+            dao.restore(
+                ownerUserId = ownerUserId,
+                id = id,
+                updatedAt = clock.millis(),
+            )
+        if (restored <= 0) {
+            return null
+        }
+        return get(ownerUserId, id)?.let { memory ->
+            RestoredMemory(
+                memory = memory,
+                restored = true,
+            )
+        }
     }
 
     suspend fun clear(ownerUserId: String): Int {

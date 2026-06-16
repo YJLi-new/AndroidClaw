@@ -289,6 +289,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   and timeout to defaults without changing the selected provider or touching
   credentials, and rejects local providers with typed errors. Focused
   `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `memory.restore` / `memories.restore` plus
+  `/memory restore <id>` as a Memory Contract recovery feature. It reactivates
+  soft-deleted local memories only while memory is enabled, reports whether the
+  memory was restored or already active, and keeps disabled-memory opt-out
+  behavior intact while preserving delete/clear management paths. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

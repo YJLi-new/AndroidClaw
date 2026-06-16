@@ -41,6 +41,19 @@ interface MemoryItemDao {
 
     @Query(
         """
+        SELECT * FROM memory_items
+        WHERE ownerUserId = :ownerUserId
+          AND id = :id
+        LIMIT 1
+        """,
+    )
+    suspend fun getByOwnerAndId(
+        ownerUserId: String,
+        id: String,
+    ): MemoryItemEntity?
+
+    @Query(
+        """
         UPDATE memory_items
         SET text = :text,
             updatedAt = :updatedAt
@@ -123,6 +136,22 @@ interface MemoryItemDao {
         ownerUserId: String,
         id: String,
         deletedAt: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE memory_items
+        SET deletedAt = NULL,
+            updatedAt = :updatedAt
+        WHERE ownerUserId = :ownerUserId
+          AND id = :id
+          AND deletedAt IS NOT NULL
+        """,
+    )
+    suspend fun restore(
+        ownerUserId: String,
+        id: String,
+        updatedAt: Long,
     ): Int
 
     @Query(

@@ -3154,6 +3154,75 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory restore reactivates deleted memories while memory is enabled`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val directMemory =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User wants deleted memory restored."),
+                )
+            memoryRepository.delete(ownerUserId, directMemory.id)
+
+            val directRestore =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", directMemory.id)
+                        },
+                )
+            val alreadyActive =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", directMemory.id)
+                        },
+                )
+            val commandMemory =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User wants slash restore to work too."),
+                )
+            memoryRepository.delete(ownerUserId, commandMemory.id)
+            val commandRestore =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "restore ${commandMemory.id}")
+                        },
+                )
+            val disabledMemory =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User does not want disabled restore."),
+                )
+            memoryRepository.delete(ownerUserId, disabledMemory.id)
+            settingsDataStore.setMemoryEnabled(false)
+            val disabledRestore =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", disabledMemory.id)
+                        },
+                )
+
+            assertTrue(directRestore.summary, directRestore.success)
+            assertEquals(directMemory.id, directRestore.payload["id"]?.jsonPrimitive?.content)
+            assertEquals("true", directRestore.payload["restored"]?.jsonPrimitive?.content)
+            assertEquals(directMemory.id, requireNotNull(memoryRepository.get(ownerUserId, directMemory.id)).id)
+            assertTrue(alreadyActive.success)
+            assertEquals("false", alreadyActive.payload["restored"]?.jsonPrimitive?.content)
+            assertTrue(commandRestore.success)
+            assertEquals("true", commandRestore.payload["restored"]?.jsonPrimitive?.content)
+            assertEquals(commandMemory.id, requireNotNull(memoryRepository.get(ownerUserId, commandMemory.id)).id)
+            assertFalse(disabledRestore.success)
+            assertEquals("MEMORY_DISABLED", disabledRestore.errorCode)
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()
