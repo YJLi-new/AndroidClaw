@@ -144,6 +144,45 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions search returns active title matches only`() =
+        runTest {
+            val alpha = sessionRepository.createSession("Project Alpha")
+            val atlas = sessionRepository.createSession("Project Atlas")
+            sessionRepository.createSession("Beta notes")
+            val archived = sessionRepository.createSession("Project Archived")
+            sessionRepository.archiveSession(archived.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "Project")
+                            put("limit", 5)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("2", result.payload["resultCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["activeOnly"]?.jsonPrimitive?.content)
+            val matchedSessionIds =
+                result.payload["sessions"]
+                    ?.jsonArray
+                    ?.map { item ->
+                        item.jsonObject
+                            .getValue("id")
+                            .jsonPrimitive
+                            .content
+                    }.orEmpty()
+                    .sorted()
+            assertEquals(
+                listOf(alpha.id, atlas.id).sorted(),
+                matchedSessionIds,
+            )
+        }
+
+    @Test
     fun `sessions get returns active session details and message count`() =
         runTest {
             val session = sessionRepository.createSession("Inspect me")

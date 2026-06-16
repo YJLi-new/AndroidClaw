@@ -227,6 +227,70 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.search",
+                                    aliases = listOf("session.search"),
+                                    description = "Search active chat sessions by title.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "query",
+                                                required = true,
+                                                description = "Title text to search for.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val query =
+                                arguments.optionalText("query")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "sessions.search requires a non-empty query.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "query")
+                                            },
+                                    )
+                            val limit = arguments.optionalInt("limit", SESSION_SEARCH_DEFAULT_LIMIT)
+                            val results = sessionRepository.searchSessions(query = query, limit = limit)
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (results.isEmpty()) {
+                                        "No active sessions matched \"$query\"."
+                                    } else {
+                                        "Found ${results.size} active session(s) matching \"$query\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("query", query)
+                                        put("resultCount", results.size)
+                                        put("activeOnly", true)
+                                        put(
+                                            "sessions",
+                                            buildJsonArray {
+                                                results.forEach { result ->
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("id", result.sessionId)
+                                                            put("title", result.sessionTitle)
+                                                            put("archived", false)
+                                                        },
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.archive",
                                     aliases = listOf("session.archive"),
                                     description = "Archive a normal chat session so it leaves the active session list.",
@@ -1184,6 +1248,7 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
     }
 
 private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
+private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 
 private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {

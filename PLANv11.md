@@ -96,6 +96,11 @@ available, or use the repo's Windows AVD scripts for manual QA.
   explicit session id, returns title, timestamps, archive/main flags, compact
   summary/boundary metadata, and a message count without loading full history.
   Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `sessions.search` / `session.search` as a typed session
+  discovery tool over active session titles. It reuses the bounded repository
+  title search, supports an optional result limit, excludes archived sessions,
+  and returns id/title payloads for navigation. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
