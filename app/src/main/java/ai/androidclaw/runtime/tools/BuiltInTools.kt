@@ -962,6 +962,72 @@ internal fun createBuiltInToolRegistry(
                     add(
                         ToolRegistry.Entry(
                             descriptor =
+                                ToolDescriptor(
+                                    name = "skills.search",
+                                    aliases = listOf("skill.search"),
+                                    description = "Search skill names, descriptions, and instructions.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "query",
+                                                required = true,
+                                                description = "Skill text to search for.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val query =
+                                arguments.optionalText("query")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "skills.search requires a non-empty query.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("toolName", "skills.search")
+                                                put("field", "query")
+                                            },
+                                    )
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_SEARCH_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_SEARCH_MAX_LIMIT)
+                            val matches =
+                                bundledSkillsProvider()
+                                    .filter { skill -> skill.matchesSkillQuery(query) }
+                                    .take(limit)
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (matches.isEmpty()) {
+                                        "No skills matched \"$query\"."
+                                    } else {
+                                        "Found ${matches.size} skill(s) matching \"$query\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("query", query)
+                                        put("resultCount", matches.size)
+                                        put(
+                                            "skills",
+                                            buildJsonArray {
+                                                matches.forEach { skill ->
+                                                    add(skill.toSkillSearchPayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
                                 skillToggleDescriptor(
                                     name = "skills.enable",
                                     aliases = listOf("skill.enable"),
@@ -1843,6 +1909,9 @@ private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
+private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
+private const val SKILL_SEARCH_MAX_LIMIT = 50
+private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
@@ -1904,6 +1973,42 @@ private fun skillNotFoundResult(
                 put("skillId", skillId)
             },
     )
+
+private fun SkillSnapshot.matchesSkillQuery(query: String): Boolean {
+    val normalizedQuery = query.lowercase()
+    return listOf(
+        id,
+        skillKey,
+        displayName,
+        frontmatter?.description.orEmpty(),
+        frontmatter?.homepage.orEmpty(),
+        frontmatter?.commandTool.orEmpty(),
+        instructionsMd,
+    ).any { value -> value.lowercase().contains(normalizedQuery) }
+}
+
+private fun SkillSnapshot.toSkillSearchPayload(): JsonObject {
+    val instructionSnippet =
+        if (instructionsMd.length <= SKILL_SEARCH_SNIPPET_MAX_CHARS) {
+            instructionsMd
+        } else {
+            instructionsMd.take(SKILL_SEARCH_SNIPPET_MAX_CHARS)
+        }
+    return buildJsonObject {
+        put("id", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("eligibilityStatus", eligibility.status.name)
+        put("description", frontmatter?.description?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandDispatch", frontmatter?.commandDispatch?.name?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandTool", frontmatter?.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("instructionsSnippet", instructionSnippet)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsTruncated", instructionSnippet.length < instructionsMd.length)
+    }
+}
 
 private fun SkillSnapshot.toSkillDetailPayload(includeInstructions: Boolean): JsonObject {
     val instructionsSnippet =

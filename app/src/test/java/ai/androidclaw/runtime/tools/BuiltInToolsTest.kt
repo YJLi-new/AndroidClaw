@@ -1375,6 +1375,55 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills search returns matching inventory entries`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "notify",
+                                name = "notify",
+                                enabled = false,
+                                commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                                commandTool = "notifications.post",
+                            ),
+                            skillSnapshot(
+                                id = "calendar",
+                                name = "calendar",
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "notify")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("resultCount")
+                    .jsonPrimitive.content,
+            )
+            val skill =
+                result.payload
+                    .getValue("skills")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("notify", skill.getValue("id").jsonPrimitive.content)
+            assertEquals("false", skill.getValue("enabled").jsonPrimitive.content)
+            assertEquals("Tool", skill.getValue("commandDispatch").jsonPrimitive.content)
+            assertEquals("notifications.post", skill.getValue("commandTool").jsonPrimitive.content)
+        }
+
+    @Test
     fun `skills enable and disable update skill state`() =
         runTest {
             var bundledSkills =

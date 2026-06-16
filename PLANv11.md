@@ -154,6 +154,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
   skills, so agents can discover disabled or ineligible skills and toggle them
   through the same `SkillManager` path used by the GUI. Focused
   `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `skills.search` / `skill.search` as a bounded Skill
+  Contract discovery tool over skill id/key/name, frontmatter metadata, command
+  tool names, and `SKILL.md` instructions. It returns compact result payloads
+  that include enabled/eligibility state and command dispatch metadata, allowing
+  agents to find relevant disabled or ineligible skills before calling
+  `skills.get` or toggling them. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
