@@ -182,6 +182,23 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `upcoming enabled task query returns scheduled tasks in next run order`() =
+        runTest {
+            database.taskDao().insert(taskEntity(id = "later-task", enabled = true, nextRunAt = 30L))
+            database.taskDao().insert(taskEntity(id = "disabled-task", enabled = false, nextRunAt = 5L))
+            database.taskDao().insert(taskEntity(id = "unscheduled-task", enabled = true, nextRunAt = null))
+            database.taskDao().insert(taskEntity(id = "sooner-task", enabled = true, nextRunAt = 20L))
+            database.taskDao().insert(invalidTaskEntity(id = "invalid-task", nextRunAt = 10L))
+
+            val upcoming = repository.getUpcomingEnabledTasks(limit = 10)
+            val limited = repository.getUpcomingEnabledTasks(limit = 1)
+
+            assertEquals(listOf("sooner-task", "later-task"), upcoming.map { task -> task.id })
+            assertEquals(listOf("sooner-task"), limited.map { task -> task.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), repository.getUpcomingEnabledTasks(limit = 0))
+        }
+
+    @Test
     fun `task stats aggregate task scheduling and run status state`() =
         runTest {
             database.taskDao().insert(

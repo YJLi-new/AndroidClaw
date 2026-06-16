@@ -301,6 +301,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   memory payloads with deletion timestamps, hides owner identifiers, and stays
   blocked while memory is disabled. Focused `BuiltInToolsTest`, ktlint, and the
   full offline fast loop passed.
+- 2026-06-16: Added `tasks.next` / `task.next` / `tasks.upcoming` /
+  `task.upcoming` plus automation aliases as a lightweight Automation Contract
+  planning tool. It lists bounded enabled scheduled tasks by next run time,
+  marks due tasks, reports seconds until run, and skips disabled, unscheduled,
+  or malformed schedule rows before returning results. Focused repository/tool
+  tests, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

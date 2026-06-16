@@ -26,6 +26,7 @@ internal const val TASK_RUN_ERROR_MESSAGE_MAX_CHARS = 1_000
 internal const val TASK_RUN_RESULT_SUMMARY_MAX_CHARS = 4_000
 internal const val TASK_RUN_QUERY_MAX_LIMIT = 100
 internal const val TASK_SEARCH_MAX_LIMIT = 200
+internal const val TASK_UPCOMING_QUERY_MAX_LIMIT = TASK_SEARCH_MAX_LIMIT
 
 class TaskRepository(
     private val taskDao: TaskDao,
@@ -111,6 +112,17 @@ class TaskRepository(
         taskDao
             .getEnabledTasksDueBefore(instant.toEpochMilli())
             .mapNotNull(TaskEntity::toDomainOrNull)
+
+    suspend fun getUpcomingEnabledTasks(limit: Int): List<Task> {
+        val boundedLimit = limit.coerceIn(0, TASK_SEARCH_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return taskDao
+            .getUpcomingEnabledTasks(limit = TASK_UPCOMING_QUERY_MAX_LIMIT)
+            .mapNotNull(TaskEntity::toDomainOrNull)
+            .take(boundedLimit)
+    }
 
     suspend fun searchTasks(
         query: String,

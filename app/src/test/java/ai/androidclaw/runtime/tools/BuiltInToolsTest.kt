@@ -892,6 +892,76 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks next returns upcoming enabled automations in next run order`() =
+        runTest {
+            val dueTask =
+                taskRepository.createTask(
+                    name = "Due automation",
+                    prompt = "Run before now",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val laterTask =
+                taskRepository.createTask(
+                    name = "Later automation",
+                    prompt = "Run later",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                )
+            val earliestFutureTask =
+                taskRepository.createTask(
+                    name = "Earlier future automation",
+                    prompt = "Run soon",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled automation",
+                    prompt = "Do not include",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.next"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["dueTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-07T00:00:00Z", result.payload["soonestRunAtIso"]?.jsonPrimitive?.content)
+            val tasks =
+                result.payload
+                    .getValue("tasks")
+                    .jsonArray
+                    .map { task -> task.jsonObject }
+            assertEquals(
+                listOf(dueTask.id, earliestFutureTask.id),
+                tasks.map { task -> task.getValue("id").jsonPrimitive.content },
+            )
+            assertEquals("true", tasks[0].getValue("due").jsonPrimitive.content)
+            assertEquals("false", tasks[1].getValue("due").jsonPrimitive.content)
+            assertTrue(
+                tasks.none { task ->
+                    task.getValue("id").jsonPrimitive.content == disabledTask.id ||
+                        task.getValue("id").jsonPrimitive.content == laterTask.id
+                },
+            )
+        }
+
+    @Test
     fun `tasks runs returns bounded recent run history`() =
         runTest {
             val task =

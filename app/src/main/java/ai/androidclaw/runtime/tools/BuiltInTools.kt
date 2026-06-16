@@ -40,6 +40,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -2567,6 +2568,61 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.next",
+                    aliases =
+                        listOf(
+                            "task.next",
+                            "tasks.upcoming",
+                            "task.upcoming",
+                            "automations.next",
+                            "automation.next",
+                        ),
+                    description = "List upcoming enabled automations ordered by next scheduled run.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum task count. Defaults to 20, max 50.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_UPCOMING_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_UPCOMING_MAX_LIMIT)
+            val now = clock.instant()
+            val tasks = taskRepository.getUpcomingEnabledTasks(limit = limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (tasks.isEmpty()) {
+                        "No upcoming enabled automations found."
+                    } else {
+                        "Loaded ${tasks.size} upcoming enabled automation(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("nowIso", now.toString())
+                        put("returnedCount", tasks.size)
+                        put("taskCount", tasks.size)
+                        put("dueTaskCount", tasks.count { task -> task.nextRunAt?.isAfter(now) == false })
+                        put("soonestRunAtIso", tasks.firstOrNull()?.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put(
+                            "tasks",
+                            buildJsonArray {
+                                tasks.forEach { task ->
+                                    add(task.toUpcomingTaskPayload(now = now))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.runs",
                     aliases = listOf("task.runs", "tasks.history", "task.history"),
                     description = "Return recent run history for a scheduled automation.",
@@ -3156,6 +3212,8 @@ private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
+private const val TASK_UPCOMING_DEFAULT_LIMIT = 20
+private const val TASK_UPCOMING_MAX_LIMIT = 50
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
@@ -3958,6 +4016,26 @@ private fun Task.toTaskSearchPayload(): JsonObject {
         put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
         put("nextRunAtIso", nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
         put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("promptSnippet", promptSnippet)
+        put("promptLength", prompt.length)
+        put("promptTruncated", promptSnippet.length < prompt.length)
+    }
+}
+
+private fun Task.toUpcomingTaskPayload(now: Instant): JsonObject {
+    val promptSnippet = prompt.toMessageSearchSnippet()
+    val nextRun = nextRunAt
+    return buildJsonObject {
+        put("id", id)
+        put("name", name)
+        put("enabled", enabled)
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("executionMode", executionMode.name)
+        put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("nextRunAtIso", nextRun?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("due", nextRun?.isAfter(now) == false)
+        put("secondsUntilRun", nextRun?.let { Duration.between(now, it).seconds }?.let(::JsonPrimitive) ?: JsonNull)
         put("promptSnippet", promptSnippet)
         put("promptLength", prompt.length)
         put("promptTruncated", promptSnippet.length < prompt.length)
