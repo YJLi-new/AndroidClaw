@@ -3179,6 +3179,60 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.runs.recent",
+                    aliases =
+                        listOf(
+                            "task.runs.recent",
+                            "tasks.recent_runs",
+                            "task.recent_runs",
+                            "automations.runs.recent",
+                            "automation.runs.recent",
+                        ),
+                    description = "Return recent automation runs across all tasks.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum run count. Defaults to 10.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = TASK_RUN_HISTORY_DEFAULT_LIMIT,
+                )
+            val runs = taskRepository.getRecentRuns(limit = limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (runs.isEmpty()) {
+                        "No recent automation runs found."
+                    } else {
+                        "Loaded ${runs.size} recent automation run(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("returnedCount", runs.size)
+                        put("recentFirst", true)
+                        put(
+                            "runs",
+                            buildJsonArray {
+                                runs.forEach { run ->
+                                    add(
+                                        run.toTaskRunWithTaskPayload(
+                                            task = taskRepository.getTask(run.taskId),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.failures",
                     aliases =
                         listOf(
@@ -3222,7 +3276,7 @@ private fun taskToolEntries(
                             buildJsonArray {
                                 runs.forEach { run ->
                                     add(
-                                        run.toTaskFailurePayload(
+                                        run.toTaskRunWithTaskPayload(
                                             task = taskRepository.getTask(run.taskId),
                                         ),
                                     )
@@ -4506,7 +4560,7 @@ private fun TaskRun.toTaskRunHistoryPayload() =
         put("outputMessageId", outputMessageId?.let(::JsonPrimitive) ?: JsonNull)
     }
 
-private fun TaskRun.toTaskFailurePayload(task: Task?): JsonObject =
+private fun TaskRun.toTaskRunWithTaskPayload(task: Task?): JsonObject =
     buildJsonObject {
         put("run", toTaskRunHistoryPayload())
         put("taskId", taskId)

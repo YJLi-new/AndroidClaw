@@ -1345,6 +1345,73 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks runs recent returns recent automation runs across tasks`() =
+        runTest {
+            val firstTask =
+                taskRepository.createTask(
+                    name = "First recent automation",
+                    prompt = "Run first",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val secondTask =
+                taskRepository.createTask(
+                    name = "Second recent automation",
+                    prompt = "Run second",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val older = taskRepository.recordRun(firstTask.id, scheduledAt = Instant.parse("2026-03-07T00:00:00Z"))
+            val middle = taskRepository.recordRun(firstTask.id, scheduledAt = Instant.parse("2026-03-08T00:00:00Z"))
+            val newer = taskRepository.recordRun(secondTask.id, scheduledAt = Instant.parse("2026-03-09T00:00:00Z"))
+            taskRepository.updateRun(older.copy(status = TaskRunStatus.Failure, errorCode = "OLDER_FAILURE"))
+            taskRepository.updateRun(middle.copy(status = TaskRunStatus.Success, resultSummary = "Middle success"))
+            taskRepository.updateRun(newer.copy(status = TaskRunStatus.Running))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.runs.recent"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            val runs =
+                result.payload
+                    .getValue("runs")
+                    .jsonArray
+                    .map { item -> item.jsonObject }
+            assertEquals(
+                listOf(newer.id, middle.id),
+                runs.map { item ->
+                    item
+                        .getValue("run")
+                        .jsonObject
+                        .getValue("id")
+                        .jsonPrimitive
+                        .content
+                },
+            )
+            assertEquals(secondTask.id, runs[0].getValue("taskId").jsonPrimitive.content)
+            assertEquals("Second recent automation", runs[0].getValue("taskName").jsonPrimitive.content)
+            assertEquals(
+                "Running",
+                runs[0]
+                    .getValue("run")
+                    .jsonObject
+                    .getValue("status")
+                    .jsonPrimitive
+                    .content,
+            )
+        }
+
+    @Test
     fun `tasks failures returns recent failed automation runs with task metadata`() =
         runTest {
             val firstTask =

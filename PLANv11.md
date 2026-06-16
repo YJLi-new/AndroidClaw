@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.runs.recent` /
+  `task.runs.recent` / `tasks.recent_runs` / `task.recent_runs` plus
+  automation aliases as an Automation Contract diagnostics tool. Agents can now
+  inspect bounded recent automation runs across all tasks and statuses with
+  parent task metadata, complementing per-task history and failure-only triage.
+  Focused repository/tool tests, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.failures` / `task.failures` /
   `tasks.failed_runs` / `task.failed_runs` plus automation aliases as an
   Automation Contract diagnostics tool. Agents can now inspect bounded recent

@@ -254,6 +254,40 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `recent run query returns runs across statuses in newest order`() =
+        runTest {
+            val firstTask =
+                repository.createTask(
+                    name = "First recent task",
+                    prompt = "Run first",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val secondTask =
+                repository.createTask(
+                    name = "Second recent task",
+                    prompt = "Run second",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(20L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val older = repository.recordRun(firstTask.id, scheduledAt = Instant.ofEpochMilli(1_000L))
+            val middle = repository.recordRun(firstTask.id, scheduledAt = Instant.ofEpochMilli(2_000L))
+            val newer = repository.recordRun(secondTask.id, scheduledAt = Instant.ofEpochMilli(3_000L))
+            repository.updateRun(older.copy(status = TaskRunStatus.Failure))
+            repository.updateRun(middle.copy(status = TaskRunStatus.Success))
+            repository.updateRun(newer.copy(status = TaskRunStatus.Running))
+
+            val runs = repository.getRecentRuns(limit = 10)
+            val limited = repository.getRecentRuns(limit = 2)
+
+            assertEquals(listOf(newer.id, middle.id, older.id), runs.map { run -> run.id })
+            assertEquals(listOf(newer.id, middle.id), limited.map { run -> run.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.TaskRun>(), repository.getRecentRuns(0))
+        }
+
+    @Test
     fun `task stats aggregate task scheduling and run status state`() =
         runTest {
             database.taskDao().insert(

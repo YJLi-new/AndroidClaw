@@ -213,6 +213,14 @@ class TaskRepository(
         return taskRunDao.getRecentByStatus(status = status.toStorage(), limit = boundedLimit).map(TaskRunEntity::toDomain)
     }
 
+    suspend fun getRecentRuns(limit: Int): List<TaskRun> {
+        val boundedLimit = limit.coerceIn(0, TASK_RUN_QUERY_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return taskRunDao.getRecent(boundedLimit).map(TaskRunEntity::toDomain)
+    }
+
     suspend fun getTaskStats(now: Instant): TaskStats {
         val taskStats = taskDao.getStats(now.toEpochMilli())
         val runStats = taskRunDao.getStatusStats().map(TaskRunStatusStatsRow::toRunStatusStats)
