@@ -116,6 +116,70 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions rename updates active session title`() =
+        runTest {
+            val session = sessionRepository.createSession("Untitled project")
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.rename", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("title", "Roadmap planning")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("Renamed session to \"Roadmap planning\".", result.summary)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Untitled project", result.payload["previousTitle"]?.jsonPrimitive?.content)
+            assertEquals("Roadmap planning", result.payload["title"]?.jsonPrimitive?.content)
+            assertEquals("Roadmap planning", sessionRepository.getSession(session.id)?.title)
+        }
+
+    @Test
+    fun `sessions rename can target an explicit session id`() =
+        runTest {
+            val activeSession = sessionRepository.createSession("Active chat")
+            val targetSession = sessionRepository.createSession("Target chat")
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.rename", sessionId = activeSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("sessionId", targetSession.id)
+                            put("title", "Renamed target")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(targetSession.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Active chat", sessionRepository.getSession(activeSession.id)?.title)
+            assertEquals("Renamed target", sessionRepository.getSession(targetSession.id)?.title)
+        }
+
+    @Test
+    fun `sessions rename requires an active or explicit session`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.rename"),
+                    arguments =
+                        buildJsonObject {
+                            put("title", "No target")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("MISSING_SESSION", result.errorCode)
+        }
+
+    @Test
     fun `sessions compact stores explicit summary for active session`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()

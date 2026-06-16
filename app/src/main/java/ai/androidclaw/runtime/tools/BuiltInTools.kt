@@ -150,6 +150,77 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.rename",
+                                    aliases = listOf("session.rename"),
+                                    description = "Rename the active or specified chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to rename. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "title",
+                                                required = true,
+                                                description = "New session title.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to rename.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val title =
+                                arguments.optionalText("title")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "sessions.rename requires a non-empty title.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("sessionId", sessionId)
+                                                put("field", "title")
+                                            },
+                                    )
+                            sessionRepository.updateTitle(id = sessionId, title = title)
+                            val renamedSession = sessionRepository.getSession(sessionId)
+                            val storedTitle = renamedSession?.title ?: title
+                            ToolExecutionResult.success(
+                                summary = "Renamed session to \"$storedTitle\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", sessionId)
+                                        put("previousTitle", existingSession.title)
+                                        put("title", storedTitle)
+                                        put("isMain", existingSession.isMain)
+                                        put("archived", existingSession.archived)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.compact",
                                     aliases = listOf("session.compact"),
                                     description = "Store a compacted summary and mark older active-session messages as summarized.",

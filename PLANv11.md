@@ -13,8 +13,10 @@ optional local memory, a refreshed UI, a project page, and release artifacts. Th
 plan keeps the repository aligned while we continue small, evidence-backed
 hardening cycles instead of broad rewrites.
 
-The active goal is to make the current Android-native single-APK app more robust,
-legible, and verifiable with each cycle.
+The active goal is to make the current Android-native single-APK app more useful,
+legible, and verifiable with each cycle. As of 2026-06-16, the short-term focus
+is feature-first: prefer small user-visible or agent-usable contract features,
+while still keeping the normal validation gate green.
 
 ## Current constraints
 
@@ -68,6 +70,17 @@ Use narrower test filters first when changing a focused subsystem. Run
 available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
+
+- 2026-06-16: Shifted the active slice selection to feature-first per user
+  direction. Paused the interrupted provider-metadata boundary hardening WIP and
+  selected a small Session/Tool Contract feature: a typed `sessions.rename`
+  built-in tool so the agent can retitle the active or specified chat session
+  without relying on manual UI actions.
+- 2026-06-16: Added `sessions.rename` / `session.rename` as a typed built-in
+  tool. It renames the active session by default, can target an explicit
+  session id, returns the previous/stored title in payloads, and is covered by
+  JVM registry tests. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
