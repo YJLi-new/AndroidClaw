@@ -46,6 +46,13 @@ class EventLogRepository(
         }
     }
 
+    suspend fun get(id: String): EventLogEntry? {
+        if (id.isBlank()) {
+            return null
+        }
+        return dao.getById(id.trim())?.toDomain()
+    }
+
     suspend fun trimOlderThan(instant: Instant): Int = dao.deleteOlderThan(instant.toEpochMilli())
 
     suspend fun count(): Int = dao.count()

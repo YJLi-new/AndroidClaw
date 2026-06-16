@@ -99,6 +99,41 @@ class EventLogRepositoryTest {
         }
 
     @Test
+    fun `get returns one bounded event by id`() =
+        runTest {
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "target-event",
+                    timestamp = 20L,
+                    category = "tool",
+                    level = "error",
+                    message = "Tool failed",
+                    detailsJson = "{\"tool\":\"events.get\"}",
+                ),
+            )
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "other-event",
+                    timestamp = 30L,
+                    category = "system",
+                    level = "info",
+                    message = "Other event",
+                    detailsJson = null,
+                ),
+            )
+
+            val event = repository.get(" target-event ")
+
+            assertEquals("target-event", event?.id)
+            assertEquals(EventCategory.Tool, event?.category)
+            assertEquals(EventLevel.Error, event?.level)
+            assertEquals("Tool failed", event?.message)
+            assertEquals("{\"tool\":\"events.get\"}", event?.details)
+            assertEquals(null, repository.get("missing-event"))
+            assertEquals(null, repository.get(" "))
+        }
+
+    @Test
     fun `log bounds oversized message and details before persistence`() =
         runTest {
             val oversizedMessage = "m".repeat(EVENT_LOG_MESSAGE_MAX_CHARS + 50)

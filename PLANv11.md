@@ -219,6 +219,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   returned as bounded payloads when explicitly requested, and invalid filters
   return typed argument failures. Focused `BuiltInToolsTest`, ktlint, and the
   full offline fast loop passed.
+- 2026-06-16: Added `events.get` / `event.get` / `logs.get` / `log.get` for
+  exact event-log lookup by id. The EventLog DAO/repository now supports direct
+  bounded reads, the tool hides details by default but can include bounded
+  details when requested, and missing ids return typed `EVENT_NOT_FOUND`
+  failures. Focused event repository/tool tests, ktlint, and the full offline
+  fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

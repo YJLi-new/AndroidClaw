@@ -1923,6 +1923,71 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events get loads exact event with optional details`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"diagnostic\":\"network\"}",
+            )
+            val eventId =
+                eventLogRepository
+                    .observeRecent(limit = 10)
+                    .first()
+                    .single()
+                    .id
+
+            val withoutDetails =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "log.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("eventId", eventId)
+                        },
+                )
+            val withDetails =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("eventId", eventId)
+                            put("includeDetails", true)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("eventId", "missing-event")
+                        },
+                )
+
+            assertTrue(withoutDetails.success)
+            val event =
+                withoutDetails.payload
+                    .getValue("event")
+                    .jsonObject
+            assertEquals(eventId, event.getValue("id").jsonPrimitive.content)
+            assertEquals("Provider", event.getValue("category").jsonPrimitive.content)
+            assertEquals("Error", event.getValue("level").jsonPrimitive.content)
+            assertFalse(event.containsKey("details"))
+            assertTrue(withDetails.success)
+            assertEquals(
+                "{\"diagnostic\":\"network\"}",
+                withDetails.payload
+                    .getValue("event")
+                    .jsonObject
+                    .getValue("details")
+                    .jsonPrimitive.content,
+            )
+            assertFalse(missing.success)
+            assertEquals("EVENT_NOT_FOUND", missing.errorCode)
+        }
+
+    @Test
     fun `memory tools respect disabled state and store searchable manual memories`() =
         runTest {
             val registry = buildRegistry()

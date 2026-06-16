@@ -1766,6 +1766,46 @@ private fun eventToolEntries(
                     },
             )
         },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "events.get",
+                    aliases = listOf("event.get", "logs.get", "log.get"),
+                    description = "Return one runtime event log by id for local diagnostics.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "eventId",
+                                required = true,
+                                description = "Event log identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDetails",
+                                description = "Set true to include bounded event details. Defaults to false.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val eventId =
+                arguments.optionalText("eventId")
+                    ?: return@Entry invalidEventArguments(
+                        summary = "events.get requires a non-empty eventId.",
+                        field = "eventId",
+                        toolName = "events.get",
+                    )
+            val includeDetails = arguments.optionalBoolean("includeDetails")
+            val event =
+                eventLogRepository.get(eventId)
+                    ?: return@Entry eventNotFoundResult(eventId)
+            ToolExecutionResult.success(
+                summary = "Loaded event ${event.id}.",
+                payload =
+                    buildJsonObject {
+                        put("event", event.toEventLogPayload(includeDetails = includeDetails))
+                        put("includeDetails", includeDetails)
+                    },
+            )
+        },
     )
 
 private fun parseEventCategory(rawCategory: String): EventCategory? =
@@ -1790,7 +1830,8 @@ private fun parseEventLevel(rawLevel: String): EventLevel? =
 private fun invalidEventArguments(
     summary: String,
     field: String,
-    received: String,
+    received: String? = null,
+    toolName: String = "events.recent",
 ): ToolExecutionResult =
     ToolExecutionResult.failure(
         summary = summary,
@@ -1798,9 +1839,22 @@ private fun invalidEventArguments(
         payload =
             buildJsonObject {
                 put("errorCode", "INVALID_ARGUMENTS")
-                put("toolName", "events.recent")
+                put("toolName", toolName)
                 put("field", field)
-                put("received", received.take(EVENT_LOG_FILTER_MAX_CHARS))
+                received?.let { value ->
+                    put("received", value.take(EVENT_LOG_FILTER_MAX_CHARS))
+                }
+            },
+    )
+
+private fun eventNotFoundResult(eventId: String): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Event $eventId was not found.",
+        errorCode = "EVENT_NOT_FOUND",
+        payload =
+            buildJsonObject {
+                put("errorCode", "EVENT_NOT_FOUND")
+                put("eventId", eventId)
             },
     )
 
