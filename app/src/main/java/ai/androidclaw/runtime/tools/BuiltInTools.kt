@@ -701,6 +701,74 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.stats",
+                                    aliases = listOf("message.stats", "chat.stats"),
+                                    description = "Return aggregate transcript statistics for the active or specified chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to inspect.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val stats = messageRepository.getMessageStats(sessionId)
+                            ToolExecutionResult.success(
+                                summary = "Loaded transcript stats for \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("archived", session.archived)
+                                        put("messageCount", stats.totalMessageCount)
+                                        put("contentCharCount", stats.totalContentCharCount)
+                                        put(
+                                            "oldestMessageAtIso",
+                                            stats.oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                                        )
+                                        put(
+                                            "newestMessageAtIso",
+                                            stats.newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                                        )
+                                        put(
+                                            "roleStats",
+                                            buildJsonArray {
+                                                stats.roleStats.forEach { roleStats ->
+                                                    add(roleStats.toMessageRoleStatsPayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.rename",
                                     aliases = listOf("session.rename"),
                                     description = "Rename the active or specified chat session.",
@@ -3300,6 +3368,15 @@ private fun String.toMessageSearchSnippet(): String =
         this
     } else {
         take(MESSAGE_SEARCH_SNIPPET_MAX_CHARS)
+    }
+
+private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): JsonObject =
+    buildJsonObject {
+        put("role", role.name)
+        put("messageCount", messageCount)
+        put("contentCharCount", contentCharCount)
+        put("oldestMessageAtIso", oldestMessageAt.toString())
+        put("newestMessageAtIso", newestMessageAt.toString())
     }
 
 private fun TaskRun.toTaskRunHistoryPayload() =

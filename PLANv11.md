@@ -243,6 +243,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   uses the existing EventLogRepository retention path, preserves newer events,
   and focused `BuiltInToolsTest`, ktlint, plus the full offline fast loop
   passed.
+- 2026-06-16: Added `messages.stats` / `message.stats` / `chat.stats` as a
+  lightweight transcript aggregate tool. It resolves the active or specified
+  session, uses a bounded Room aggregate query instead of loading full message
+  history, and returns total message/content counts, oldest/newest timestamps,
+  and per-role histograms for agent context planning. Focused repository/tool
+  tests, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

@@ -5,6 +5,7 @@ import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.dao.MessageDao
 import ai.androidclaw.data.db.dao.MessageSearchRow
+import ai.androidclaw.data.db.dao.MessageStatsRow
 import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.MessageRepository
@@ -208,6 +209,8 @@ private class ThrowingMessageDao(
     override suspend fun getByIds(messageIds: List<String>): List<MessageEntity> = delegate.getByIds(messageIds)
 
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)
+
+    override suspend fun getStatsBySessionId(sessionId: String): List<MessageStatsRow> = delegate.getStatsBySessionId(sessionId)
 
     override suspend fun searchByContent(
         queryPattern: String,

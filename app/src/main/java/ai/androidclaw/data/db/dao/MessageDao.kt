@@ -59,6 +59,22 @@ interface MessageDao {
     @Query(
         """
         SELECT
+            role AS role,
+            COUNT(*) AS messageCount,
+            COALESCE(SUM(LENGTH(content)), 0) AS contentCharCount,
+            MIN(createdAt) AS oldestCreatedAt,
+            MAX(createdAt) AS newestCreatedAt
+        FROM messages
+        WHERE sessionId = :sessionId
+        GROUP BY role
+        ORDER BY role ASC
+        """,
+    )
+    suspend fun getStatsBySessionId(sessionId: String): List<MessageStatsRow>
+
+    @Query(
+        """
+        SELECT
             messages.id AS id,
             messages.sessionId AS sessionId,
             sessions.title AS sessionTitle,
@@ -89,4 +105,12 @@ data class MessageSearchRow(
     val role: String,
     val content: String,
     val createdAt: Long,
+)
+
+data class MessageStatsRow(
+    val role: String,
+    val messageCount: Long,
+    val contentCharCount: Long,
+    val oldestCreatedAt: Long,
+    val newestCreatedAt: Long,
 )

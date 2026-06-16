@@ -2,6 +2,7 @@ package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.dao.MessageDao
 import ai.androidclaw.data.db.dao.MessageSearchRow
+import ai.androidclaw.data.db.dao.MessageStatsRow
 import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
@@ -26,6 +27,22 @@ class MessageRepository(
         val role: MessageRole,
         val content: String,
         val createdAt: Instant,
+    )
+
+    data class SessionMessageStats(
+        val totalMessageCount: Long,
+        val totalContentCharCount: Long,
+        val oldestMessageAt: Instant?,
+        val newestMessageAt: Instant?,
+        val roleStats: List<RoleMessageStats>,
+    )
+
+    data class RoleMessageStats(
+        val role: MessageRole,
+        val messageCount: Long,
+        val contentCharCount: Long,
+        val oldestMessageAt: Instant,
+        val newestMessageAt: Instant,
     )
 
     suspend fun addMessage(
@@ -83,6 +100,17 @@ class MessageRepository(
     }
 
     suspend fun getMessageCount(sessionId: String): Int = dao.countBySessionId(sessionId)
+
+    suspend fun getMessageStats(sessionId: String): SessionMessageStats {
+        val roleStats = dao.getStatsBySessionId(sessionId).map(MessageStatsRow::toRoleMessageStats)
+        return SessionMessageStats(
+            totalMessageCount = roleStats.sumOf { stats -> stats.messageCount },
+            totalContentCharCount = roleStats.sumOf { stats -> stats.contentCharCount },
+            oldestMessageAt = roleStats.minOfOrNull { stats -> stats.oldestMessageAt },
+            newestMessageAt = roleStats.maxOfOrNull { stats -> stats.newestMessageAt },
+            roleStats = roleStats,
+        )
+    }
 
     suspend fun searchMessages(
         query: String,
@@ -142,6 +170,15 @@ private fun MessageSearchRow.toSearchResult(): MessageRepository.SearchResult =
         role = role.toMessageRole(),
         content = content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS),
         createdAt = Instant.ofEpochMilli(createdAt),
+    )
+
+private fun MessageStatsRow.toRoleMessageStats(): MessageRepository.RoleMessageStats =
+    MessageRepository.RoleMessageStats(
+        role = role.toMessageRole(),
+        messageCount = messageCount,
+        contentCharCount = contentCharCount,
+        oldestMessageAt = Instant.ofEpochMilli(oldestCreatedAt),
+        newestMessageAt = Instant.ofEpochMilli(newestCreatedAt),
     )
 
 private fun String.toBoundedMessageText(maxChars: Int): String = take(maxChars)

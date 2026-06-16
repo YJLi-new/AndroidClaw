@@ -489,6 +489,59 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages stats returns aggregate transcript counts`() =
+        runTest {
+            val session = sessionRepository.createSession("Stats transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "hello",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "world",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "again",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                content = "ok",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.stats", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Stats transcript", result.payload["sessionTitle"]?.jsonPrimitive?.content)
+            assertEquals("4", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("17", result.payload["contentCharCount"]?.jsonPrimitive?.content)
+            assertNotNull(result.payload["oldestMessageAtIso"])
+            assertNotNull(result.payload["newestMessageAtIso"])
+            val roleStats =
+                result.payload
+                    .getValue("roleStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("role").jsonPrimitive.content to
+                            payload.getValue("messageCount").jsonPrimitive.content
+                    }
+            assertEquals("1", roleStats.getValue("User"))
+            assertEquals("2", roleStats.getValue("Assistant"))
+            assertEquals("1", roleStats.getValue("ToolResult"))
+        }
+
+    @Test
     fun `sessions compact stores explicit summary for active session`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()

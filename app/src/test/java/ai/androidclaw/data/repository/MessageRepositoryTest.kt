@@ -83,6 +83,53 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `message stats aggregate counts and content sizes without loading messages`() =
+        runTest {
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.User,
+                content = "hello",
+            )
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.Assistant,
+                content = "world",
+            )
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.Assistant,
+                content = "again",
+            )
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.ToolResult,
+                content = "ok",
+            )
+
+            val stats = repository.getMessageStats("main")
+            val roleStats = stats.roleStats.associateBy { roleStats -> roleStats.role }
+
+            assertEquals(4L, stats.totalMessageCount)
+            assertEquals(17L, stats.totalContentCharCount)
+            assertEquals(3, stats.roleStats.size)
+            assertEquals(1L, roleStats.getValue(MessageRole.User).messageCount)
+            assertEquals(5L, roleStats.getValue(MessageRole.User).contentCharCount)
+            assertEquals(2L, roleStats.getValue(MessageRole.Assistant).messageCount)
+            assertEquals(10L, roleStats.getValue(MessageRole.Assistant).contentCharCount)
+            assertEquals(1L, roleStats.getValue(MessageRole.ToolResult).messageCount)
+            assertEquals(2L, roleStats.getValue(MessageRole.ToolResult).contentCharCount)
+            assertTrue(stats.oldestMessageAt != null)
+            assertTrue(stats.newestMessageAt != null)
+
+            val emptyStats = repository.getMessageStats("missing")
+            assertEquals(0L, emptyStats.totalMessageCount)
+            assertEquals(0L, emptyStats.totalContentCharCount)
+            assertEquals(emptyList<MessageRepository.RoleMessageStats>(), emptyStats.roleStats)
+            assertEquals(null, emptyStats.oldestMessageAt)
+            assertEquals(null, emptyStats.newestMessageAt)
+        }
+
+    @Test
     fun `same timestamp messages keep insertion order`() =
         runTest {
             val sameTimestamp = Instant.parse("2026-03-12T07:00:00Z").toEpochMilli()
