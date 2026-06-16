@@ -81,6 +81,10 @@ available, or use the repo's Windows AVD scripts for manual QA.
   session id, returns the previous/stored title in payloads, and is covered by
   JVM registry tests. Focused `BuiltInToolsTest`, ktlint, and the full offline
   fast loop passed.
+- 2026-06-16: Added `sessions.create` / `session.create` as a typed built-in
+  tool so the agent can start a new normal chat session with a title and receive
+  the persisted session id/title payload. Focused `BuiltInToolsTest`, ktlint,
+  and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

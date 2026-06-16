@@ -150,6 +150,47 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.create",
+                                    aliases = listOf("session.create"),
+                                    description = "Create a new normal chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "title",
+                                                required = true,
+                                                description = "Title for the new session.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val title =
+                                arguments.optionalText("title")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "sessions.create requires a non-empty title.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "title")
+                                            },
+                                    )
+                            val session = sessionRepository.createSession(title = title)
+                            ToolExecutionResult.success(
+                                summary = "Created session \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("title", session.title)
+                                        put("isMain", session.isMain)
+                                        put("archived", session.archived)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.rename",
                                     aliases = listOf("session.rename"),
                                     description = "Rename the active or specified chat session.",

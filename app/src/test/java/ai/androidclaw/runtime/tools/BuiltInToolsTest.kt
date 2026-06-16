@@ -116,6 +116,34 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions create persists a new normal session`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.create"),
+                    arguments =
+                        buildJsonObject {
+                            put("title", "Feature planning")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("Created session \"Feature planning\".", result.summary)
+            val sessionId =
+                result.payload["sessionId"]
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty()
+            val storedSession = sessionRepository.getSession(sessionId)
+            assertNotNull(storedSession)
+            assertEquals("Feature planning", storedSession?.title)
+            assertFalse(storedSession?.isMain ?: true)
+            assertFalse(storedSession?.archived ?: true)
+        }
+
+    @Test
     fun `sessions rename updates active session title`() =
         runTest {
             val session = sessionRepository.createSession("Untitled project")
