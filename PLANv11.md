@@ -225,6 +225,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   details when requested, and missing ids return typed `EVENT_NOT_FOUND`
   failures. Focused event repository/tool tests, ktlint, and the full offline
   fast loop passed.
+- 2026-06-16: Added `events.search` / `event.search` / `logs.search` /
+  `log.search` for bounded diagnostics search over recent local event logs.
+  Agents can search event ids, categories, levels, messages, and details, while
+  matching details remain hidden by default unless `includeDetails=true` is
+  passed. Category/level filters and no-match results are covered by focused
+  tool tests, and ktlint plus the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

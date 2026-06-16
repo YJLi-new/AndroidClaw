@@ -1806,6 +1806,108 @@ private fun eventToolEntries(
                     },
             )
         },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "events.search",
+                    aliases = listOf("event.search", "logs.search", "log.search"),
+                    description = "Search bounded recent runtime event logs for local diagnostics.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "query",
+                                required = true,
+                                description = "Text to search across event ids, categories, levels, messages, and details.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum event count. Defaults to 20, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "category",
+                                description = "Optional category filter: provider, tool, scheduler, skill, system, or debug.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "level",
+                                description = "Optional level filter: info, warn, or error.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDetails",
+                                description = "Set true to include bounded event details. Defaults to false.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val query =
+                arguments.optionalText("query")
+                    ?: return@Entry invalidEventArguments(
+                        summary = "events.search requires a non-empty query.",
+                        field = "query",
+                        toolName = "events.search",
+                    )
+            val requestedLimit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = EVENT_LOG_DEFAULT_LIMIT,
+                )
+            val limit = requestedLimit.coerceIn(1, EVENT_LOG_MAX_LIMIT)
+            val category =
+                arguments.optionalText("category")?.let { rawCategory ->
+                    parseEventCategory(rawCategory)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.search received an unknown category.",
+                            field = "category",
+                            received = rawCategory,
+                            toolName = "events.search",
+                        )
+                }
+            val level =
+                arguments.optionalText("level")?.let { rawLevel ->
+                    parseEventLevel(rawLevel)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.search received an unknown level.",
+                            field = "level",
+                            received = rawLevel,
+                            toolName = "events.search",
+                        )
+                }
+            val includeDetails = arguments.optionalBoolean("includeDetails")
+            val events =
+                eventLogRepository
+                    .observeRecent(limit = EVENT_LOG_SCAN_LIMIT)
+                    .first()
+                    .asSequence()
+                    .filter { event -> category == null || event.category == category }
+                    .filter { event -> level == null || event.level == level }
+                    .filter { event -> event.matchesEventQuery(query) }
+                    .take(limit)
+                    .toList()
+            ToolExecutionResult.success(
+                summary =
+                    if (events.isEmpty()) {
+                        "No events matched \"$query\"."
+                    } else {
+                        "Found ${events.size} event(s) matching \"$query\"."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("query", query)
+                        put("eventCount", events.size)
+                        put("recentFirst", true)
+                        put("includeDetails", includeDetails)
+                        put("category", category?.name ?: "Any")
+                        put("level", level?.name ?: "Any")
+                        put(
+                            "events",
+                            buildJsonArray {
+                                events.forEach { event ->
+                                    add(event.toEventLogPayload(includeDetails = includeDetails))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
     )
 
 private fun parseEventCategory(rawCategory: String): EventCategory? =
@@ -1857,6 +1959,17 @@ private fun eventNotFoundResult(eventId: String): ToolExecutionResult =
                 put("eventId", eventId)
             },
     )
+
+private fun EventLogEntry.matchesEventQuery(query: String): Boolean {
+    val normalizedQuery = query.lowercase()
+    return buildList {
+        add(id)
+        add(category.name)
+        add(level.name)
+        add(message)
+        details?.let(::add)
+    }.any { value -> value.lowercase().contains(normalizedQuery) }
+}
 
 private fun EventLogEntry.toEventLogPayload(includeDetails: Boolean): JsonObject =
     buildJsonObject {

@@ -1988,6 +1988,90 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events search finds recent diagnostics with filters and optional details`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.Tool,
+                level = EventLevel.Warn,
+                message = "Tool retry scheduled",
+                details = "{\"tool\":\"events.search\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"diagnostic\":\"network timeout\"}",
+            )
+
+            val withoutDetails =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "timeout")
+                            put("category", "provider")
+                            put("level", "error")
+                            put("limit", 10)
+                        },
+                )
+            val withDetails =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "timeout")
+                            put("includeDetails", true)
+                        },
+                )
+            val noMatches =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "missing")
+                        },
+                )
+            val invalidLevel =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "timeout")
+                            put("level", "fatal")
+                        },
+                )
+
+            assertTrue(withoutDetails.success)
+            assertEquals("1", withoutDetails.payload["eventCount"]?.jsonPrimitive?.content)
+            val event =
+                withoutDetails.payload
+                    .getValue("events")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Provider", event.getValue("category").jsonPrimitive.content)
+            assertEquals("Error", event.getValue("level").jsonPrimitive.content)
+            assertEquals("Provider offline", event.getValue("message").jsonPrimitive.content)
+            assertFalse(event.containsKey("details"))
+            assertTrue(withDetails.success)
+            assertEquals(
+                "{\"diagnostic\":\"network timeout\"}",
+                withDetails.payload
+                    .getValue("events")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("details")
+                    .jsonPrimitive.content,
+            )
+            assertTrue(noMatches.success)
+            assertEquals("0", noMatches.payload["eventCount"]?.jsonPrimitive?.content)
+            assertFalse(invalidLevel.success)
+            assertEquals("INVALID_ARGUMENTS", invalidLevel.errorCode)
+        }
+
+    @Test
     fun `memory tools respect disabled state and store searchable manual memories`() =
         runTest {
             val registry = buildRegistry()
