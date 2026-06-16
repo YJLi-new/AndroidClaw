@@ -283,6 +283,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   counts, and non-secret API-key/OAuth status counts without exposing stored
   credentials. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added `providers.reset` / `provider.reset` /
+  `providers.defaults` / `provider.defaults` for agent-usable provider endpoint
+  recovery. It resets a configurable provider's non-secret base URL, model id,
+  and timeout to defaults without changing the selected provider or touching
+  credentials, and rejects local providers with typed errors. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

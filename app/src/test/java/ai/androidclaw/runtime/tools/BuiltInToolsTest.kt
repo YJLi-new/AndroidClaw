@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
@@ -1616,6 +1617,69 @@ class BuiltInToolsTest {
                     .getValue("baseUrl")
                     .jsonPrimitive.content,
             )
+        }
+
+    @Test
+    fun `provider reset restores default endpoint settings without changing selected provider`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.OpenAiCompatible)
+                    .withEndpointSettings(
+                        providerType = ProviderType.DeepSeek,
+                        settings =
+                            ProviderEndpointSettings(
+                                baseUrl = "https://proxy.example/v1",
+                                modelId = "deepseek-custom",
+                                timeoutSeconds = 90,
+                            ),
+                    ),
+            )
+            val registry = buildRegistry()
+
+            val reset =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.defaults"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                        },
+                )
+            val rejectedFake =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.reset"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "fake")
+                        },
+                )
+
+            assertTrue(reset.summary, reset.success)
+            val settings = settingsDataStore.settings.first()
+            assertEquals(ProviderType.OpenAiCompatible, settings.providerType)
+            assertEquals(ProviderType.DeepSeek.defaultEndpointSettings(), settings.endpointSettings(ProviderType.DeepSeek))
+            val provider = reset.payload.getValue("provider").jsonObject
+            assertEquals("deepseek", provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals(
+                ProviderType.DeepSeek.defaultBaseUrl,
+                provider
+                    .getValue("endpointSettings")
+                    .jsonObject
+                    .getValue("baseUrl")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                ProviderType.DeepSeek.defaultModelId,
+                provider
+                    .getValue("endpointSettings")
+                    .jsonObject
+                    .getValue("modelId")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(rejectedFake.success)
+            assertEquals("PROVIDER_NOT_CONFIGURABLE", rejectedFake.errorCode)
         }
 
     @Test

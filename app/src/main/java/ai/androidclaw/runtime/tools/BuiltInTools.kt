@@ -1529,6 +1529,71 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.reset",
+                    aliases = listOf("provider.reset", "providers.defaults", "provider.defaults"),
+                    description = "Reset a configurable provider's non-secret endpoint settings to defaults.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providerType =
+                if (identifier == null) {
+                    settings.providerType
+                } else {
+                    ProviderType.entries.firstOrNull { providerType ->
+                        providerType.matchesProviderIdentifier(identifier)
+                    } ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider $identifier was not found.",
+                        errorCode = "PROVIDER_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_NOT_FOUND")
+                                put("toolName", "providers.reset")
+                                put("providerId", identifier)
+                            },
+                    )
+                }
+            if (!providerType.requiresRemoteSettings) {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Provider ${providerType.displayName} does not have remote endpoint settings.",
+                    errorCode = "PROVIDER_NOT_CONFIGURABLE",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "PROVIDER_NOT_CONFIGURABLE")
+                            put("toolName", "providers.reset")
+                            put("providerId", providerType.providerId)
+                        },
+                )
+            }
+            settingsDataStore.saveProviderSettings(
+                settings.withEndpointSettings(
+                    providerType = providerType,
+                    settings = providerType.defaultEndpointSettings(),
+                ),
+            )
+            val reloadedSettings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Reset provider ${providerType.displayName} settings to defaults.",
+                payload =
+                    buildJsonObject {
+                        put("provider", providerType.toProviderPayload(reloadedSettings))
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.auth.status",
                     aliases = listOf("provider.auth.status", "providers.auth", "provider.auth"),
                     description = "Report non-secret authentication status for one or all providers.",
