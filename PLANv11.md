@@ -107,6 +107,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   compact content snippets, and lets the agent find prior context without
   loading complete histories. Focused `BuiltInToolsTest`, ktlint, and the full
   offline fast loop passed.
+- 2026-06-16: Added `messages.recent` / `message.recent` / `chat.recent` as a
+  typed recent-transcript lookup tool. It resolves the active or specified
+  session, returns bounded recent-first message snippets with role/time metadata
+  plus total/returned counts, and avoids full-history loading for quick context
+  inspection. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

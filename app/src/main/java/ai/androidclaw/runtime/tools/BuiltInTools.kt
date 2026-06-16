@@ -517,6 +517,82 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.recent",
+                                    aliases = listOf("message.recent", "chat.recent"),
+                                    description = "Return recent messages for the active or specified chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum message count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to inspect.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val limit = arguments.optionalInt("limit", MESSAGE_RECENT_DEFAULT_LIMIT)
+                            val messages = messageRepository.getRecentMessages(sessionId = sessionId, limit = limit)
+                            ToolExecutionResult.success(
+                                summary = "Loaded ${messages.size} recent message(s) for \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("archived", session.archived)
+                                        put("messageCount", messageRepository.getMessageCount(sessionId))
+                                        put("returnedCount", messages.size)
+                                        put("recentFirst", true)
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    val contentSnippet = message.content.toMessageSearchSnippet()
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("messageId", message.id)
+                                                            put("role", message.role.name)
+                                                            put("contentSnippet", contentSnippet)
+                                                            put("contentLength", message.content.length)
+                                                            put("contentTruncated", contentSnippet.length < message.content.length)
+                                                            put("createdAtIso", message.createdAt.toString())
+                                                        },
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.rename",
                                     aliases = listOf("session.rename"),
                                     description = "Rename the active or specified chat session.",
@@ -1318,6 +1394,7 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
     }
 
 private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
+private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20

@@ -407,6 +407,48 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages recent returns recent active session messages`() =
+        runTest {
+            val session = sessionRepository.createSession("Recent transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Older setup",
+            )
+            val recentMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Latest answer",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.recent", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["recentFirst"]?.jsonPrimitive?.content)
+            val message =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(recentMessage.id, message.getValue("messageId").jsonPrimitive.content)
+            assertEquals("Assistant", message.getValue("role").jsonPrimitive.content)
+            assertEquals("Latest answer", message.getValue("contentSnippet").jsonPrimitive.content)
+        }
+
+    @Test
     fun `sessions compact stores explicit summary for active session`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()
