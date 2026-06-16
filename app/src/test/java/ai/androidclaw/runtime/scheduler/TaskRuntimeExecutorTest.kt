@@ -241,6 +241,8 @@ private class ThrowingMessageDao(
 
     override suspend fun getByIds(messageIds: List<String>): List<MessageEntity> = delegate.getByIds(messageIds)
 
+    override suspend fun getById(id: String): MessageEntity? = delegate.getById(id)
+
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)
 
     override suspend fun getStatsBySessionId(sessionId: String): List<MessageStatsRow> = delegate.getStatsBySessionId(sessionId)
@@ -253,4 +255,6 @@ private class ThrowingMessageDao(
     override suspend fun deleteBySessionId(sessionId: String) {
         delegate.deleteBySessionId(sessionId)
     }
+
+    override suspend fun deleteById(id: String): Int = delegate.deleteById(id)
 }

@@ -40,6 +40,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -958,6 +959,107 @@ class BuiltInToolsTest {
             assertEquals(true.toString(), result.payload["hasProviderMeta"]?.jsonPrimitive?.content)
             assertEquals("tool-call-1", result.payload["toolCallId"]?.jsonPrimitive?.content)
             assertEquals("task-run-1", result.payload["taskRunId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `messages delete requires confirmation and deletes only the target message`() =
+        runTest {
+            val session = sessionRepository.createSession("Delete one message")
+            val target =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Delete this draft.",
+                )
+            val survivor =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Keep this response.",
+                )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.remove"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", target.id)
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertEquals(2, messageRepository.getMessageCount(session.id))
+            assertNotNull(messageRepository.getMessage(target.id))
+
+            val deleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.delete"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", target.id)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(deleted.success)
+            assertEquals(target.id, deleted.payload["messageId"]?.jsonPrimitive?.content)
+            assertEquals(session.id, deleted.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("User", deleted.payload["role"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), deleted.payload["deleted"]?.jsonPrimitive?.content)
+            assertEquals("1", deleted.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("Delete this draft.", deleted.payload["contentSnippet"]?.jsonPrimitive?.content)
+            assertNull(messageRepository.getMessage(target.id))
+            assertNotNull(messageRepository.getMessage(survivor.id))
+            assertEquals(1, messageRepository.getMessageCount(session.id))
+        }
+
+    @Test
+    fun `messages delete clears compaction boundary while preserving summary`() =
+        runTest {
+            val session = sessionRepository.createSession("Delete boundary")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Earlier compacted prompt.",
+                )
+            val survivor =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Visible response.",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Earlier summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.delete"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", boundary.id)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(true.toString(), result.payload["wasCompactionBoundary"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["compactionBoundaryCleared"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryPreserved"]?.jsonPrimitive?.content)
+            assertEquals(boundary.id, result.payload["previousCompactedUntilMessageId"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload["compactedUntilMessageId"])
+            val updatedSession = sessionRepository.getSession(session.id)
+            assertNotNull(updatedSession)
+            assertEquals("Earlier summary", updatedSession?.summaryText)
+            assertNull(updatedSession?.compactedUntilMessageId)
+            assertNull(messageRepository.getMessage(boundary.id))
+            assertNotNull(messageRepository.getMessage(survivor.id))
         }
 
     @Test

@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.delete` / `message.delete` /
+  `messages.remove` / `message.remove` as a Session Contract transcript-editing
+  control. Agents can now delete one message only with `confirm=CONFIRM`,
+  preserve the rest of the session, and automatically clear stale compaction
+  boundary metadata when the deleted message was the boundary while preserving
+  the saved summary. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `sessions.delete` /
   `session.delete` / `sessions.remove` / `session.remove` plus destroy aliases
   as a Session Contract deletion control. Agents can now permanently delete a

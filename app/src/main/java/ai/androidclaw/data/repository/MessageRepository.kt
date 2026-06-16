@@ -88,6 +88,13 @@ class MessageRepository(
 
     suspend fun getMessages(sessionId: String): List<ChatMessage> = dao.getAllBySessionId(sessionId).map(MessageEntity::toDomain)
 
+    suspend fun getMessage(messageId: String): ChatMessage? {
+        if (messageId.isBlank()) {
+            return null
+        }
+        return dao.getById(messageId)?.toDomain()
+    }
+
     suspend fun getRecentMessages(
         sessionId: String,
         limit: Int,
@@ -277,6 +284,13 @@ class MessageRepository(
 
     suspend fun deleteSessionMessages(sessionId: String) {
         dao.deleteBySessionId(sessionId)
+    }
+
+    suspend fun deleteMessage(messageId: String): Boolean {
+        if (messageId.isBlank()) {
+            return false
+        }
+        return dao.deleteById(messageId) > 0
     }
 
     suspend fun copyMessagesToSession(

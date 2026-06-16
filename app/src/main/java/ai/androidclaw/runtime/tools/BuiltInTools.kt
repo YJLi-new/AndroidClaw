@@ -1368,6 +1368,131 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.delete",
+                                    aliases =
+                                        listOf(
+                                            "message.delete",
+                                            "messages.remove",
+                                            "message.remove",
+                                        ),
+                                    description = "Delete one chat message by id while preserving the rest of the session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messageId",
+                                                required = false,
+                                                description = "Message identifier to delete. The alias id is also accepted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "id",
+                                                description = "Alias for messageId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val messageId =
+                                arguments.optionalText("messageId")
+                                    ?: arguments.optionalText("id")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.delete requires a non-empty messageId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "messageId")
+                                            },
+                                    )
+                            val message =
+                                messageRepository.getMessage(messageId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Message $messageId was not found.",
+                                        errorCode = "MISSING_MESSAGE",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_MESSAGE")
+                                                put("messageId", messageId)
+                                            },
+                                    )
+                            val session =
+                                sessionRepository.getSession(message.sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session ${message.sessionId} for message $messageId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", messageId)
+                                                put("sessionId", message.sessionId)
+                                            },
+                                    )
+                            if (arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm message deletion with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("messageId", message.id)
+                                            put("sessionId", session.id)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val wasCompactionBoundary = session.compactedUntilMessageId == message.id
+                            val deleted = messageRepository.deleteMessage(message.id)
+                            if (!deleted) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Message ${message.id} was not deleted.",
+                                    errorCode = "MISSING_MESSAGE",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_MESSAGE")
+                                            put("messageId", message.id)
+                                            put("sessionId", session.id)
+                                        },
+                                )
+                            }
+                            if (wasCompactionBoundary) {
+                                sessionRepository.clearCompactionBoundary(session.id)
+                            }
+                            val updatedSession = sessionRepository.getSession(session.id) ?: session
+                            val contentSnippet = message.content.toMessageSearchSnippet()
+                            ToolExecutionResult.success(
+                                summary = "Deleted ${message.role.name} message from \"${updatedSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("messageId", message.id)
+                                        put("sessionId", updatedSession.id)
+                                        put("sessionTitle", updatedSession.title)
+                                        put("sessionArchived", updatedSession.archived)
+                                        put("role", message.role.name)
+                                        put("deleted", true)
+                                        put("messageCount", messageRepository.getMessageCount(updatedSession.id))
+                                        put("contentSnippet", contentSnippet)
+                                        put("contentLength", message.content.length)
+                                        put("contentTruncated", contentSnippet.length < message.content.length)
+                                        put("createdAtIso", message.createdAt.toString())
+                                        put("hasProviderMeta", message.providerMeta != null)
+                                        put("toolCallId", message.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("taskRunId", message.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("previousCompactedUntilMessageId", session.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("wasCompactionBoundary", wasCompactionBoundary)
+                                        put("compactionBoundaryCleared", wasCompactionBoundary && updatedSession.compactedUntilMessageId == null)
+                                        put("compactedUntilMessageId", updatedSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("summaryPreserved", session.summaryText != null && updatedSession.summaryText == session.summaryText)
+                                        put("summaryLength", updatedSession.summaryText?.length ?: 0)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.page",
                                     aliases =
                                         listOf(

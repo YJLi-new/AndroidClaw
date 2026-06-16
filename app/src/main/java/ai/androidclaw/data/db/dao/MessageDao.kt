@@ -149,6 +149,9 @@ interface MessageDao {
     )
     suspend fun getByIds(messageIds: List<String>): List<MessageEntity>
 
+    @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): MessageEntity?
+
     @Query("SELECT COUNT(*) FROM messages WHERE sessionId = :sessionId")
     suspend fun countBySessionId(sessionId: String): Int
 
@@ -192,6 +195,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE sessionId = :sessionId")
     suspend fun deleteBySessionId(sessionId: String)
+
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteById(id: String): Int
 }
 
 data class MessageSearchRow(
