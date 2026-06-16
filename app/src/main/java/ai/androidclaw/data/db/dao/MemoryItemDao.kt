@@ -59,6 +59,22 @@ interface MemoryItemDao {
         """
         SELECT * FROM memory_items
         WHERE ownerUserId = :ownerUserId
+          AND sourceType = :sourceType
+          AND deletedAt IS NULL
+        ORDER BY createdAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getActiveByOwnerAndSourceType(
+        ownerUserId: String,
+        sourceType: String,
+        limit: Int,
+    ): List<MemoryItemEntity>
+
+    @Query(
+        """
+        SELECT * FROM memory_items
+        WHERE ownerUserId = :ownerUserId
           AND id = :id
           AND deletedAt IS NULL
         LIMIT 1

@@ -5,6 +5,7 @@ import ai.androidclaw.data.model.MemoryItem
 import ai.androidclaw.data.repository.MemoryRepository
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -242,6 +243,64 @@ internal fun memoryToolEntries(
                 )
             memorySessionListResult(
                 sourceSessionId = sourceSessionId,
+                memories = memories,
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "memory.source",
+                    aliases =
+                        listOf(
+                            "memories.source",
+                            "memory.by_source",
+                            "memories.by_source",
+                            "memory.source.list",
+                            "memories.source.list",
+                        ),
+                    description = "List recent local cross-session memories captured by one source type.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "sourceType",
+                                description = "Memory source type: manual or automatic.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Optional result limit.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val sourceType =
+                when (val parsedSourceType = arguments.parseMemorySourceType()) {
+                    is MemorySourceTypeParseResult.Failure -> return@Entry parsedSourceType.result
+                    is MemorySourceTypeParseResult.Success -> parsedSourceType.value
+                }
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MemoryRepository.DEFAULT_LIST_LIMIT,
+                            maxValue = MemoryRepository.MAX_LIST_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            val memories =
+                memoryRepository.listForSourceType(
+                    ownerUserId = settings.installUserId,
+                    sourceType = sourceType,
+                    limit = limit,
+                )
+            memorySourceTypeListResult(
+                sourceType = sourceType,
                 memories = memories,
             )
         },
@@ -592,6 +651,25 @@ private suspend fun executeMemoryCommand(
             )
         }
 
+        "source", "by-source" -> {
+            val sourceType =
+                normalizeMemorySourceType(rest)
+                    ?: return if (rest.isBlank()) {
+                        missingMemorySourceTypeResult()
+                    } else {
+                        invalidMemorySourceTypeResult(rest)
+                    }
+            memorySourceTypeListResult(
+                sourceType = sourceType,
+                memories =
+                    memoryRepository.listForSourceType(
+                        ownerUserId = settings.installUserId,
+                        sourceType = sourceType,
+                        limit = MemoryRepository.DEFAULT_LIST_LIMIT,
+                    ),
+            )
+        }
+
         "deleted", "trash" ->
             memoryListResult(
                 memories =
@@ -832,6 +910,32 @@ private fun memorySessionListResult(
             },
     )
 
+private fun memorySourceTypeListResult(
+    sourceType: String,
+    memories: List<MemoryItem>,
+): ToolExecutionResult =
+    ToolExecutionResult.success(
+        summary =
+            if (memories.isEmpty()) {
+                "No $sourceType memories found."
+            } else {
+                "Found ${memories.size} $sourceType memory item(s)."
+            },
+        payload =
+            buildJsonObject {
+                put("sourceType", sourceType)
+                put("memoryCount", memories.size)
+                put(
+                    "memories",
+                    buildJsonArray {
+                        memories.forEach { memory ->
+                            add(memoryPayload(memory))
+                        }
+                    },
+                )
+            },
+    )
+
 private fun memoryGetResult(
     memory: MemoryItem?,
     id: String,
@@ -955,6 +1059,31 @@ private fun missingMemorySourceSessionIdResult(): ToolExecutionResult =
             },
     )
 
+private fun missingMemorySourceTypeResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide sourceType=manual or sourceType=automatic.",
+        errorCode = "MISSING_MEMORY_SOURCE_TYPE",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_SOURCE_TYPE")
+                put("field", "sourceType")
+                putAllowedMemorySourceTypes()
+            },
+    )
+
+private fun invalidMemorySourceTypeResult(rawValue: String): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Memory sourceType must be manual or automatic.",
+        errorCode = "INVALID_MEMORY_SOURCE_TYPE",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_MEMORY_SOURCE_TYPE")
+                put("field", "sourceType")
+                put("received", rawValue.take(MAX_MEMORY_SOURCE_TYPE_PAYLOAD_CHARS))
+                putAllowedMemorySourceTypes()
+            },
+    )
+
 private fun JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
@@ -964,6 +1093,32 @@ private fun JsonObject.sourceSessionIdOrContext(context: ToolExecutionContext): 
     optionalText("sourceSessionId")
         ?: optionalText("sessionId")
         ?: context.sessionId?.trim()?.ifBlank { null }
+
+private sealed interface MemorySourceTypeParseResult {
+    data class Success(
+        val value: String,
+    ) : MemorySourceTypeParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : MemorySourceTypeParseResult
+}
+
+private fun JsonObject.parseMemorySourceType(): MemorySourceTypeParseResult {
+    val rawValue = optionalText("sourceType") ?: optionalText("source")
+    if (rawValue.isNullOrBlank()) {
+        return MemorySourceTypeParseResult.Failure(missingMemorySourceTypeResult())
+    }
+    return normalizeMemorySourceType(rawValue)?.let(MemorySourceTypeParseResult::Success)
+        ?: MemorySourceTypeParseResult.Failure(invalidMemorySourceTypeResult(rawValue))
+}
+
+private fun normalizeMemorySourceType(rawValue: String): String? =
+    when (rawValue.trim().lowercase().replace("_", "-")) {
+        MemoryRepository.SOURCE_TYPE_MANUAL -> MemoryRepository.SOURCE_TYPE_MANUAL
+        MemoryRepository.SOURCE_TYPE_AUTOMATIC, "auto" -> MemoryRepository.SOURCE_TYPE_AUTOMATIC
+        else -> null
+    }
 
 private sealed interface MemoryLimitParseResult {
     data class Success(
@@ -1019,4 +1174,15 @@ private fun invalidMemoryLimitResult(
             },
     )
 
+private fun JsonObjectBuilder.putAllowedMemorySourceTypes() {
+    put(
+        "allowedSourceTypes",
+        buildJsonArray {
+            add(JsonPrimitive(MemoryRepository.SOURCE_TYPE_MANUAL))
+            add(JsonPrimitive(MemoryRepository.SOURCE_TYPE_AUTOMATIC))
+        },
+    )
+}
+
+private const val MAX_MEMORY_SOURCE_TYPE_PAYLOAD_CHARS = 80
 private const val MAX_MEMORY_LIMIT_PAYLOAD_CHARS = 80

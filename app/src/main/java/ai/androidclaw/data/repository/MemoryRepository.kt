@@ -150,6 +150,24 @@ class MemoryRepository(
             ).map { it.toDomain(json) }
     }
 
+    suspend fun listForSourceType(
+        ownerUserId: String,
+        sourceType: String,
+        limit: Int = DEFAULT_LIST_LIMIT,
+    ): List<MemoryItem> {
+        val boundedLimit = limit.coerceIn(0, MAX_LIST_LIMIT)
+        val normalizedSourceType = sourceType.trim()
+        if (ownerUserId.isBlank() || normalizedSourceType.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getActiveByOwnerAndSourceType(
+                ownerUserId = ownerUserId,
+                sourceType = normalizedSourceType,
+                limit = boundedLimit,
+            ).map { it.toDomain(json) }
+    }
+
     suspend fun get(
         ownerUserId: String,
         id: String,

@@ -131,6 +131,49 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `list for source type returns active owner scoped recent memories`() =
+        runTest {
+            val deletedAutomatic =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "Deleted automatic memory.",
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "install-user",
+                text = "Manual memory.",
+                sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+            )
+            val automatic =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "Active automatic memory.",
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "other-user",
+                text = "Other owner automatic memory.",
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+
+            val matches = repository.listForSourceType("install-user", " automatic ", limit = 5)
+            val limitedMatches = repository.listForSourceType("install-user", "automatic", limit = 1)
+            assertTrue(repository.delete("install-user", deletedAutomatic.id))
+            val activeMatches = repository.listForSourceType("install-user", "automatic", limit = 5)
+
+            assertEquals(listOf(automatic.id, deletedAutomatic.id), matches.map { it.id })
+            assertEquals(listOf(automatic.id), limitedMatches.map { it.id })
+            assertEquals(listOf(automatic.id), activeMatches.map { it.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceType("", "automatic", 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceType("install-user", " ", 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceType("install-user", "automatic", 0))
+        }
+
+    @Test
     fun `delete and clear hide active memories`() =
         runTest {
             val first = repository.remember("install-user", "User likes green buttons.")

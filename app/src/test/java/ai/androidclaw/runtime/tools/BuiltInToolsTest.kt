@@ -3995,6 +3995,99 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory source lists memories captured by source type`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val deletedAutomatic =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted automatic memory hidden.",
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+            val manual =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants manual memory listed.",
+                        sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+                    ),
+                )
+            val automatic =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants automatic memory listed.",
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deletedAutomatic.id))
+
+            val directAutomatic =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.by_source"),
+                    arguments =
+                        buildJsonObject {
+                            put("sourceType", "auto")
+                        },
+                )
+            val commandManual =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "source manual")
+                        },
+                )
+            val missingSource =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.source"),
+                    arguments = buildJsonObject {},
+                )
+            val invalidSource =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.source"),
+                    arguments =
+                        buildJsonObject {
+                            put("sourceType", "external")
+                        },
+                )
+
+            assertTrue(directAutomatic.summary, directAutomatic.success)
+            assertEquals("automatic", directAutomatic.payload["sourceType"]?.jsonPrimitive?.content)
+            assertEquals("1", directAutomatic.payload["memoryCount"]?.jsonPrimitive?.content)
+            val automaticMemory =
+                directAutomatic.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(automatic.id, automaticMemory.getValue("id").jsonPrimitive.content)
+            assertEquals("automatic", automaticMemory.getValue("sourceType").jsonPrimitive.content)
+            assertFalse(automaticMemory.containsKey("ownerUserId"))
+            assertTrue(commandManual.success)
+            assertEquals("manual", commandManual.payload["sourceType"]?.jsonPrimitive?.content)
+            assertEquals(
+                manual.id,
+                commandManual.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("id")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(missingSource.success)
+            assertEquals("MISSING_MEMORY_SOURCE_TYPE", missingSource.errorCode)
+            assertFalse(invalidSource.success)
+            assertEquals("INVALID_MEMORY_SOURCE_TYPE", invalidSource.errorCode)
+        }
+
+    @Test
     fun `memory get returns exact memory without exposing owner identifier`() =
         runTest {
             val registry = buildRegistry()

@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.source` / `memories.source` /
+  `memory.by_source` / `memories.by_source` plus source-list aliases as a
+  Memory Contract provenance filter. Agents can now list bounded active manual
+  or automatic memories by source type, with explicit typed failures for
+  missing/invalid source types, deleted rows excluded, and owner ids still
+  hidden from payloads. Focused repository/tool tests, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `memory.session` / `memories.session` /
   `memory.by_session` / `memories.by_session` plus session-list aliases as a
   Memory Contract source-session inspector. Agents can now list bounded active
