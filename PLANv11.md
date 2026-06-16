@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.create` / `message.create` /
+  `messages.add` / `messages.append` plus chat-message append aliases as a
+  Session Contract transcript-construction control. Agents can now append one
+  typed `user`, `assistant`, `tool_call`, `tool_result`, or `system` message to
+  the active or specified session, preserve optional tool-call/task-run
+  references, and receive the persisted message id plus bounded content
+  metadata. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `messages.move` / `message.move` /
   `messages.transfer` / `message.transfer` plus chat-message move aliases as a
   Session Contract transcript-organization control. Agents can now move one

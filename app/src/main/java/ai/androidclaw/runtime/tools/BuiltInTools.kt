@@ -1294,6 +1294,132 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.create",
+                                    aliases =
+                                        listOf(
+                                            "message.create",
+                                            "messages.add",
+                                            "message.add",
+                                            "messages.append",
+                                            "message.append",
+                                            "chat.message.create",
+                                            "chat.message.add",
+                                            "chat.append",
+                                        ),
+                                    description = "Append one chat message to a session transcript.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to append to. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "role",
+                                                required = false,
+                                                description = "Message role: user, assistant, tool_call, tool_result, or system.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "content",
+                                                required = false,
+                                                description = "Message content to append. The alias text is also accepted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "text",
+                                                description = "Alias for content.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "toolCallId",
+                                                description = "Optional tool call reference id.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "taskRunId",
+                                                description = "Optional automation task-run reference id.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to append to.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val role =
+                                arguments.optionalMessageRole("role")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.create requires role=user, assistant, tool_call, tool_result, or system.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "role")
+                                            },
+                                    )
+                            val content =
+                                arguments.optionalRawText("content")
+                                    ?: arguments.optionalRawText("text")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.create requires non-empty content.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "content")
+                                            },
+                                    )
+                            val toolCallId = arguments.optionalMessageReferenceId("toolCallId")
+                            val taskRunId = arguments.optionalMessageReferenceId("taskRunId")
+                            val message =
+                                messageRepository.addMessage(
+                                    sessionId = session.id,
+                                    role = role,
+                                    content = content,
+                                    toolCallId = toolCallId,
+                                    taskRunId = taskRunId,
+                                )
+                            val contentSnippet = message.content.toMessageSearchSnippet()
+                            ToolExecutionResult.success(
+                                summary = "Added ${message.role.name} message to \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("messageId", message.id)
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("sessionArchived", session.archived)
+                                        put("role", message.role.name)
+                                        put("contentSnippet", contentSnippet)
+                                        put("contentLength", message.content.length)
+                                        put("contentTruncated", contentSnippet.length < message.content.length)
+                                        put("inputTruncated", content.length > message.content.length)
+                                        put("createdAtIso", message.createdAt.toString())
+                                        put("hasProviderMeta", message.providerMeta != null)
+                                        put("toolCallId", message.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("taskRunId", message.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("messageCount", messageRepository.getMessageCount(session.id))
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.get",
                                     aliases = listOf("message.get", "chat.message.get"),
                                     description = "Return one chat message by id with session metadata.",

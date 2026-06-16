@@ -927,6 +927,85 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages create appends active session message with references`() =
+        runTest {
+            val session = sessionRepository.createSession("Append active")
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.add", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("role", "tool_result")
+                            put("content", "Created tool result.")
+                            put("toolCallId", "tool-call-created")
+                            put("taskRunId", "task-run-created")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("ToolResult", result.payload["role"]?.jsonPrimitive?.content)
+            assertEquals("Created tool result.", result.payload["contentSnippet"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["hasProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals("tool-call-created", result.payload["toolCallId"]?.jsonPrimitive?.content)
+            assertEquals("task-run-created", result.payload["taskRunId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["messageCount"]?.jsonPrimitive?.content)
+            val messageId =
+                result.payload
+                    .getValue("messageId")
+                    .jsonPrimitive
+                    .content
+            val storedMessage = messageRepository.getMessage(messageId)
+            assertNotNull(storedMessage)
+            assertEquals(session.id, storedMessage?.sessionId)
+            assertEquals(ai.androidclaw.data.model.MessageRole.ToolResult, storedMessage?.role)
+            assertEquals("Created tool result.", storedMessage?.content)
+            assertEquals("tool-call-created", storedMessage?.toolCallId)
+            assertEquals("task-run-created", storedMessage?.taskRunId)
+        }
+
+    @Test
+    fun `messages create targets explicit session and rejects invalid role`() =
+        runTest {
+            val session = sessionRepository.createSession("Append explicit")
+            val registry = buildRegistry()
+
+            val created =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.append"),
+                    arguments =
+                        buildJsonObject {
+                            put("sessionId", session.id)
+                            put("role", "assistant")
+                            put("text", "Created assistant reply.")
+                        },
+                )
+
+            assertTrue(created.success)
+            assertEquals(session.id, created.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Assistant", created.payload["role"]?.jsonPrimitive?.content)
+            assertEquals("Created assistant reply.", created.payload["contentSnippet"]?.jsonPrimitive?.content)
+            assertEquals(1, messageRepository.getMessageCount(session.id))
+
+            val rejected =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.message.create", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("role", "invalid")
+                            put("content", "Should not append.")
+                        },
+                )
+
+            assertFalse(rejected.success)
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+            assertEquals("role", rejected.payload["field"]?.jsonPrimitive?.content)
+            assertEquals(1, messageRepository.getMessageCount(session.id))
+        }
+
+    @Test
     fun `messages get returns one message by id with session metadata`() =
         runTest {
             val session = sessionRepository.createSession("Message details")
