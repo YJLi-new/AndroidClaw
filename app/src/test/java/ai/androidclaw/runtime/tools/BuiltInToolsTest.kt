@@ -1033,6 +1033,59 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks skip records skipped run and clears due once automation`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Due one-shot automation",
+                    prompt = "Skip this prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val futureTask =
+                taskRepository.createTask(
+                    name = "Future one-shot automation",
+                    prompt = "Not due yet",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.skip"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", task.id)
+                        },
+                )
+            val notDueResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.skip"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", futureTask.id)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["skippedAtIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-07T00:00:00Z", result.payload["previousNextRunAtIso"]?.jsonPrimitive?.content)
+            val run = result.payload.getValue("run").jsonObject
+            assertEquals("Skipped", run.getValue("status").jsonPrimitive.content)
+            assertEquals("2026-03-07T00:00:00Z", run.getValue("scheduledAtIso").jsonPrimitive.content)
+            assertEquals("Skipped by tasks.skip.", run.getValue("resultSummary").jsonPrimitive.content)
+            val reloadedTask = taskRepository.getTask(task.id)
+            assertEquals(null, reloadedTask?.nextRunAt)
+            assertEquals(Instant.parse("2026-03-08T00:00:00Z"), reloadedTask?.lastRunAt)
+            assertEquals(0, reloadedTask?.failureCount)
+            assertFalse(notDueResult.success)
+            assertEquals("TASK_NOT_DUE", notDueResult.errorCode)
+        }
+
+    @Test
     fun `tasks runs returns bounded recent run history`() =
         runTest {
             val task =

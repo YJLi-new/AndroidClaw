@@ -11,6 +11,7 @@ import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
+import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -2623,6 +2624,118 @@ private fun taskToolEntries(
                                     add(task.toDueTaskPayload(now = now))
                                 }
                             },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.skip",
+                    aliases =
+                        listOf(
+                            "task.skip",
+                            "tasks.skip_due",
+                            "task.skip_due",
+                            "automations.skip",
+                            "automation.skip",
+                        ),
+                    description = "Skip one currently due automation run without executing its prompt.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Due task identifier",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.skip",
+                    summary = "tasks.skip requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.skip", taskId = taskId)
+            val skippedAt = clock.instant()
+            val dueAt =
+                task.nextRunAt
+                    ?.takeIf { nextRunAt -> !nextRunAt.isAfter(skippedAt) }
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Task ${task.name} is not currently due.",
+                        errorCode = "TASK_NOT_DUE",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TASK_NOT_DUE")
+                                put("toolName", "tasks.skip")
+                                put("taskId", task.id)
+                                put("enabled", task.enabled)
+                                put("nowIso", skippedAt.toString())
+                                put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                            },
+                    )
+            if (!task.enabled) {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Task ${task.name} is disabled and cannot be skipped as a due automation.",
+                    errorCode = "TASK_NOT_DUE",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "TASK_NOT_DUE")
+                            put("toolName", "tasks.skip")
+                            put("taskId", task.id)
+                            put("enabled", false)
+                            put("nowIso", skippedAt.toString())
+                            put("nextRunAtIso", dueAt.toString())
+                        },
+                )
+            }
+            val skippedRun =
+                taskRepository
+                    .recordRun(taskId = task.id, scheduledAt = dueAt)
+                    .copy(
+                        status = TaskRunStatus.Skipped,
+                        startedAt = skippedAt,
+                        finishedAt = skippedAt,
+                        resultSummary = "Skipped by tasks.skip.",
+                    )
+            taskRepository.updateRun(skippedRun)
+            val nextRunAt = schedulerCoordinator.taskPlanner.nextScheduledRun(task, skippedAt)
+            val updatedTask =
+                task.copy(
+                    nextRunAt = nextRunAt,
+                    lastRunAt = skippedAt,
+                    failureCount = 0,
+                    updatedAt = skippedAt,
+                )
+            taskRepository.updateTask(updatedTask)
+            schedulerCoordinator.scheduleTask(updatedTask.id)
+            val reloadedTask = taskRepository.getTask(updatedTask.id) ?: updatedTask
+            ToolExecutionResult.success(
+                summary = "Skipped due run for task ${reloadedTask.name}.",
+                payload =
+                    buildJsonObject {
+                        put("skippedAtIso", skippedAt.toString())
+                        put("previousNextRunAtIso", dueAt.toString())
+                        put("nextRunAtIso", reloadedTask.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("run", skippedRun.toTaskRunHistoryPayload())
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
                         )
                     },
             )

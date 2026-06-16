@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.skip` / `task.skip` /
+  `tasks.skip_due` / `task.skip_due` plus automation aliases as an Automation
+  Contract triage control. Agents can now skip one currently due run without
+  executing its prompt, persist a `Skipped` run-history entry, advance or clear
+  the next scheduled run, and receive the updated task payload. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.due` / `task.due` /
   `tasks.overdue` / `task.overdue` plus automation aliases as a lightweight
   Automation Contract triage tool. It lists bounded enabled scheduled tasks
