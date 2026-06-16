@@ -2072,6 +2072,94 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events stats summarizes recent diagnostics without exposing details`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "System started",
+                details = "{\"secret\":\"hidden\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"diagnostic\":\"network timeout\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Warn,
+                message = "Provider retrying",
+                details = "{\"diagnostic\":\"retry\"}",
+            )
+
+            val providerStats =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.stats"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "provider")
+                            put("scanLimit", 20)
+                        },
+                )
+            val errorStats =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.stats"),
+                    arguments =
+                        buildJsonObject {
+                            put("level", "error")
+                        },
+                )
+            val invalidCategory =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.stats"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "network")
+                        },
+                )
+
+            assertTrue(providerStats.success)
+            assertEquals("2", providerStats.payload["matchedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("Provider", providerStats.payload["category"]?.jsonPrimitive?.content)
+            assertEquals("Any", providerStats.payload["level"]?.jsonPrimitive?.content)
+            val providerCategoryCount =
+                providerStats.payload
+                    .getValue("countsByCategory")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Provider", providerCategoryCount.getValue("category").jsonPrimitive.content)
+            assertEquals("2", providerCategoryCount.getValue("count").jsonPrimitive.content)
+            val levels =
+                providerStats.payload
+                    .getValue("countsByLevel")
+                    .jsonArray
+                    .map { item ->
+                        val itemObject = item.jsonObject
+                        val level =
+                            itemObject
+                                .getValue("level")
+                                .jsonPrimitive
+                                .content
+                        val count =
+                            itemObject
+                                .getValue("count")
+                                .jsonPrimitive
+                                .content
+                        level to count
+                    }.toMap()
+            assertEquals("1", levels.getValue("Error"))
+            assertEquals("1", levels.getValue("Warn"))
+            assertFalse(providerStats.payload.toString().contains("network timeout"))
+            assertTrue(errorStats.success)
+            assertEquals("1", errorStats.payload["matchedEventCount"]?.jsonPrimitive?.content)
+            assertFalse(invalidCategory.success)
+            assertEquals("INVALID_ARGUMENTS", invalidCategory.errorCode)
+        }
+
+    @Test
     fun `memory tools respect disabled state and store searchable manual memories`() =
         runTest {
             val registry = buildRegistry()

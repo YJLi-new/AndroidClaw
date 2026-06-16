@@ -231,6 +231,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   matching details remain hidden by default unless `includeDetails=true` is
   passed. Category/level filters and no-match results are covered by focused
   tool tests, and ktlint plus the full offline fast loop passed.
+- 2026-06-16: Added `events.stats` / `event.stats` / `logs.stats` /
+  `log.stats` for aggregate diagnostics over recent local event logs without
+  returning event details. The tool reports scanned/matched counts,
+  category/level histograms, optional category/level filters, and newest/oldest
+  timestamps for the matched window. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

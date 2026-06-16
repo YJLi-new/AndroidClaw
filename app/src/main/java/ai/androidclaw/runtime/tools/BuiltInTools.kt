@@ -26,6 +26,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -1908,6 +1909,99 @@ private fun eventToolEntries(
                     },
             )
         },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "events.stats",
+                    aliases = listOf("event.stats", "logs.stats", "log.stats"),
+                    description = "Return aggregate counts for recent runtime event logs without event details.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "scanLimit",
+                                description = "Maximum recent event count to scan. Defaults to 200, max 500.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "category",
+                                description = "Optional category filter: provider, tool, scheduler, skill, system, or debug.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "level",
+                                description = "Optional level filter: info, warn, or error.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val requestedScanLimit =
+                arguments.optionalInt(
+                    field = "scanLimit",
+                    defaultValue = EVENT_LOG_SCAN_LIMIT,
+                )
+            val scanLimit = requestedScanLimit.coerceIn(1, EVENT_LOG_STATS_MAX_SCAN_LIMIT)
+            val category =
+                arguments.optionalText("category")?.let { rawCategory ->
+                    parseEventCategory(rawCategory)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.stats received an unknown category.",
+                            field = "category",
+                            received = rawCategory,
+                            toolName = "events.stats",
+                        )
+                }
+            val level =
+                arguments.optionalText("level")?.let { rawLevel ->
+                    parseEventLevel(rawLevel)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.stats received an unknown level.",
+                            field = "level",
+                            received = rawLevel,
+                            toolName = "events.stats",
+                        )
+                }
+            val scannedEvents =
+                eventLogRepository
+                    .observeRecent(limit = scanLimit)
+                    .first()
+            val matchingEvents =
+                scannedEvents
+                    .asSequence()
+                    .filter { event -> category == null || event.category == category }
+                    .filter { event -> level == null || event.level == level }
+                    .toList()
+            ToolExecutionResult.success(
+                summary =
+                    if (matchingEvents.isEmpty()) {
+                        "No matching recent events found in $scanLimit scanned event(s)."
+                    } else {
+                        "Summarized ${matchingEvents.size} matching event(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("scanLimit", scanLimit)
+                        put("scannedEventCount", scannedEvents.size)
+                        put("matchedEventCount", matchingEvents.size)
+                        put("recentFirst", true)
+                        put("category", category?.name ?: "Any")
+                        put("level", level?.name ?: "Any")
+                        put(
+                            "newestEventAtIso",
+                            matchingEvents
+                                .firstOrNull()
+                                ?.timestamp
+                                ?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                        )
+                        put(
+                            "oldestEventAtIso",
+                            matchingEvents
+                                .lastOrNull()
+                                ?.timestamp
+                                ?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                        )
+                        put("countsByCategory", matchingEvents.toEventCategoryCountsPayload())
+                        put("countsByLevel", matchingEvents.toEventLevelCountsPayload())
+                    },
+            )
+        },
     )
 
 private fun parseEventCategory(rawCategory: String): EventCategory? =
@@ -1970,6 +2064,47 @@ private fun EventLogEntry.matchesEventQuery(query: String): Boolean {
         details?.let(::add)
     }.any { value -> value.lowercase().contains(normalizedQuery) }
 }
+
+private fun List<EventLogEntry>.toEventCategoryCountsPayload(): JsonArray =
+    buildJsonArray {
+        listOf(
+            EventCategory.Provider,
+            EventCategory.Tool,
+            EventCategory.Scheduler,
+            EventCategory.Skill,
+            EventCategory.System,
+            EventCategory.Debug,
+        ).forEach { category ->
+            val count = count { event -> event.category == category }
+            if (count > 0) {
+                add(
+                    buildJsonObject {
+                        put("category", category.name)
+                        put("count", count)
+                    },
+                )
+            }
+        }
+    }
+
+private fun List<EventLogEntry>.toEventLevelCountsPayload(): JsonArray =
+    buildJsonArray {
+        listOf(
+            EventLevel.Info,
+            EventLevel.Warn,
+            EventLevel.Error,
+        ).forEach { level ->
+            val count = count { event -> event.level == level }
+            if (count > 0) {
+                add(
+                    buildJsonObject {
+                        put("level", level.name)
+                        put("count", count)
+                    },
+                )
+            }
+        }
+    }
 
 private fun EventLogEntry.toEventLogPayload(includeDetails: Boolean): JsonObject =
     buildJsonObject {
@@ -2724,6 +2859,7 @@ private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
 private const val EVENT_LOG_DEFAULT_LIMIT = 20
 private const val EVENT_LOG_MAX_LIMIT = 50
 private const val EVENT_LOG_SCAN_LIMIT = 200
+private const val EVENT_LOG_STATS_MAX_SCAN_LIMIT = 500
 private const val EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS = 500
 private const val EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS = 1_000
 private const val EVENT_LOG_FILTER_MAX_CHARS = 80
