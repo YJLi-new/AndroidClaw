@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.run.retry` /
+  `task.run.retry` / `tasks.retry_run` / `task.retry_run` plus automation
+  aliases as an Automation Contract recovery control. Agents can now queue a
+  manual retry directly from a failed or skipped run id returned by run-history
+  tools, while successful/in-progress runs are rejected with typed
+  `TASK_RUN_NOT_RETRYABLE` failures and future schedules remain unchanged.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.runs.status` /
   `task.runs.status` / `tasks.status_runs` / `task.status_runs` plus
   automation aliases as an Automation Contract diagnostics filter. Agents can

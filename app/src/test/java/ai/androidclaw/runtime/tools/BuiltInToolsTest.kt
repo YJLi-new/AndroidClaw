@@ -1345,6 +1345,100 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks run retry queues manual execution for failed run`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Retryable automation",
+                    prompt = "Retry the failed work.",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-08T00:00:00Z"),
+                            repeatEvery = java.time.Duration.ofMinutes(30),
+                        ),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            schedulerCoordinator.scheduleTask(task.id)
+            val initialNextRun = taskRepository.getTask(task.id)?.nextRunAt
+            val failedRun =
+                taskRepository.recordRun(
+                    taskId = task.id,
+                    scheduledAt = Instant.parse("2026-03-07T23:30:00Z"),
+                )
+            taskRepository.updateRun(
+                failedRun.copy(
+                    status = TaskRunStatus.Failure,
+                    errorCode = "PROVIDER_OFFLINE",
+                    errorMessage = "Network unavailable",
+                ),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.run.retry"),
+                    arguments =
+                        buildJsonObject {
+                            put("runId", failedRun.id)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(failedRun.id, result.payload["retryOfRunId"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["queuedAtIso"]?.jsonPrimitive?.content)
+            assertEquals("manual_retry", result.payload["trigger"]?.jsonPrimitive?.content)
+            assertEquals(
+                "Failure",
+                result.payload
+                    .getValue("sourceRun")
+                    .jsonObject
+                    .getValue("status")
+                    .jsonPrimitive
+                    .content,
+            )
+            val payloadTask = result.payload.getValue("task").jsonObject
+            assertEquals(task.id, payloadTask.getValue("id").jsonPrimitive.content)
+            assertEquals(initialNextRun, taskRepository.getTask(task.id)?.nextRunAt)
+            val retryWorkInfos =
+                WorkManager
+                    .getInstance(application)
+                    .getWorkInfosForUniqueWork(SchedulerCoordinator.runNowWorkName(task.id))
+                    .get()
+            assertEquals(1, retryWorkInfos.size)
+            assertTrue(retryWorkInfos.single().state != WorkInfo.State.CANCELLED)
+        }
+
+    @Test
+    fun `tasks run retry rejects successful run`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Successful automation",
+                    prompt = "Do not retry success.",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val run = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            taskRepository.updateRun(run.copy(status = TaskRunStatus.Success, resultSummary = "Already done"))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.run.retry"),
+                    arguments =
+                        buildJsonObject {
+                            put("runId", run.id)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("TASK_RUN_NOT_RETRYABLE", result.errorCode)
+            assertEquals("Success", result.payload["status"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tasks runs recent returns recent automation runs across tasks`() =
         runTest {
             val firstTask =

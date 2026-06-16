@@ -3179,6 +3179,95 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.run.retry",
+                    aliases =
+                        listOf(
+                            "task.run.retry",
+                            "tasks.retry_run",
+                            "task.retry_run",
+                            "automations.run.retry",
+                            "automation.run.retry",
+                        ),
+                    description = "Queue a manual retry for a failed or skipped automation run.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "runId",
+                                required = true,
+                                description = "Failed or skipped automation run identifier",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val runId =
+                arguments["runId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (runId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.run.retry",
+                    summary = "tasks.run.retry requires a non-empty runId.",
+                    field = "runId",
+                )
+            }
+            val sourceRun =
+                taskRepository.getRun(runId)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Task run $runId was not found.",
+                        errorCode = "TASK_RUN_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TASK_RUN_NOT_FOUND")
+                                put("toolName", "tasks.run.retry")
+                                put("runId", runId)
+                            },
+                    )
+            if (sourceRun.status != TaskRunStatus.Failure && sourceRun.status != TaskRunStatus.Skipped) {
+                return@Entry ToolExecutionResult.failure(
+                    summary =
+                        "tasks.run.retry can only retry Failure or Skipped runs; " +
+                            "${sourceRun.status.name} is not retryable.",
+                    errorCode = "TASK_RUN_NOT_RETRYABLE",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "TASK_RUN_NOT_RETRYABLE")
+                            put("toolName", "tasks.run.retry")
+                            put("runId", sourceRun.id)
+                            put("status", sourceRun.status.name)
+                        },
+                )
+            }
+            val task =
+                taskRepository.getTask(sourceRun.taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.run.retry", taskId = sourceRun.taskId)
+            val queuedAt = clock.instant()
+            schedulerCoordinator.runNow(task.id)
+            val reloadedTask = taskRepository.getTask(task.id) ?: task
+            ToolExecutionResult.success(
+                summary = "Queued retry for ${sourceRun.status.name} run ${sourceRun.id} of task ${task.name}.",
+                payload =
+                    buildJsonObject {
+                        put("retryOfRunId", sourceRun.id)
+                        put("queuedAtIso", queuedAt.toString())
+                        put("trigger", "manual_retry")
+                        put("sourceRun", sourceRun.toTaskRunHistoryPayload())
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.runs.recent",
                     aliases =
                         listOf(
