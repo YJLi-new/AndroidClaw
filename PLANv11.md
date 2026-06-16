@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.session` / `memories.session` /
+  `memory.by_session` / `memories.by_session` plus session-list aliases as a
+  Memory Contract source-session inspector. Agents can now list bounded active
+  memories captured from the current or specified source session, with deleted
+  and other-owner memories excluded and the local install owner id still hidden.
+  Focused repository/tool tests, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.secret.clear` /
   `skill.secret.clear` / `skills.secrets.clear` / `skill.secrets.clear` plus
   delete aliases as a Skill Contract secret hygiene control. Agents can now

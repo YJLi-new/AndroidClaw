@@ -88,6 +88,49 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `list for source session returns active owner scoped recent memories`() =
+        runTest {
+            val first =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "First session memory.",
+                        sourceSessionId = "session-1",
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "install-user",
+                text = "Different source session memory.",
+                sourceSessionId = "session-2",
+            )
+            val second =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "Second session memory.",
+                        sourceSessionId = "session-1",
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "other-user",
+                text = "Other owner same source session memory.",
+                sourceSessionId = "session-1",
+            )
+
+            val matches = repository.listForSourceSession("install-user", " session-1 ", limit = 5)
+            val limitedMatches = repository.listForSourceSession("install-user", "session-1", limit = 1)
+            assertTrue(repository.delete("install-user", first.id))
+            val activeMatches = repository.listForSourceSession("install-user", "session-1", limit = 5)
+
+            assertEquals(listOf(second.id, first.id), matches.map { it.id })
+            assertEquals(listOf(second.id), limitedMatches.map { it.id })
+            assertEquals(listOf(second.id), activeMatches.map { it.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceSession("", "session-1", 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceSession("install-user", " ", 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), repository.listForSourceSession("install-user", "session-1", 0))
+        }
+
+    @Test
     fun `delete and clear hide active memories`() =
         runTest {
             val first = repository.remember("install-user", "User likes green buttons.")

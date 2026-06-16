@@ -132,6 +132,24 @@ class MemoryRepository(
             ).map { it.toDomain(json) }
     }
 
+    suspend fun listForSourceSession(
+        ownerUserId: String,
+        sourceSessionId: String,
+        limit: Int = DEFAULT_LIST_LIMIT,
+    ): List<MemoryItem> {
+        val boundedLimit = limit.coerceIn(0, MAX_LIST_LIMIT)
+        val normalizedSourceSessionId = sourceSessionId.trim()
+        if (ownerUserId.isBlank() || normalizedSourceSessionId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getActiveByOwnerAndSourceSession(
+                ownerUserId = ownerUserId,
+                sourceSessionId = normalizedSourceSessionId,
+                limit = boundedLimit,
+            ).map { it.toDomain(json) }
+    }
+
     suspend fun get(
         ownerUserId: String,
         id: String,

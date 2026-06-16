@@ -3887,6 +3887,114 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory session lists memories captured from one source session`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val deleted =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted session memory hidden.",
+                        sourceSessionId = "session-5",
+                    ),
+                )
+            val otherSession =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants another session memory listed separately.",
+                        sourceSessionId = "session-other",
+                    ),
+                )
+            val target =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants current session memory listed.",
+                        sourceSessionId = "session-5",
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deleted.id))
+
+            val currentSession =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.session", sessionId = "session-5"),
+                    arguments = buildJsonObject {},
+                )
+            val explicitSession =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.by_session"),
+                    arguments =
+                        buildJsonObject {
+                            put("sourceSessionId", "session-other")
+                        },
+                )
+            val commandSession =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command", sessionId = "session-5"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "session")
+                        },
+                )
+            val missingSession =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.session"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(currentSession.summary, currentSession.success)
+            assertEquals("session-5", currentSession.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals("1", currentSession.payload["memoryCount"]?.jsonPrimitive?.content)
+            val currentMemories =
+                currentSession.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .map { it.jsonObject }
+            assertEquals(
+                listOf(target.id),
+                currentMemories.map { memory -> memory.getValue("id").jsonPrimitive.content },
+            )
+            assertEquals(
+                "User wants current session memory listed.",
+                currentMemories
+                    .single()
+                    .getValue("text")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(currentMemories.single().containsKey("ownerUserId"))
+            assertTrue(explicitSession.success)
+            assertEquals(
+                otherSession.id,
+                explicitSession.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("id")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertTrue(commandSession.success)
+            assertEquals(
+                target.id,
+                commandSession.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("id")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(missingSession.success)
+            assertEquals("MISSING_MEMORY_SOURCE_SESSION_ID", missingSession.errorCode)
+        }
+
+    @Test
     fun `memory get returns exact memory without exposing owner identifier`() =
         runTest {
             val registry = buildRegistry()

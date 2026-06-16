@@ -191,6 +191,63 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.session",
+                    aliases =
+                        listOf(
+                            "memories.session",
+                            "memory.by_session",
+                            "memories.by_session",
+                            "memory.session.list",
+                            "memories.session.list",
+                        ),
+                    description = "List recent local cross-session memories captured from one source session.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "sourceSessionId",
+                                description = "Optional source session id. Defaults to the current session.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Optional result limit.",
+                            ),
+                        ),
+                ),
+        ) { context, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val sourceSessionId = arguments.sourceSessionIdOrContext(context)
+            if (sourceSessionId.isNullOrBlank()) {
+                return@Entry missingMemorySourceSessionIdResult()
+            }
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MemoryRepository.DEFAULT_LIST_LIMIT,
+                            maxValue = MemoryRepository.MAX_LIST_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            val memories =
+                memoryRepository.listForSourceSession(
+                    ownerUserId = settings.installUserId,
+                    sourceSessionId = sourceSessionId,
+                    limit = limit,
+                )
+            memorySessionListResult(
+                sourceSessionId = sourceSessionId,
+                memories = memories,
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.deleted",
                     aliases =
                         listOf(
@@ -519,6 +576,22 @@ private suspend fun executeMemoryCommand(
                 nonEmptySummary = "Found stored memories.",
             )
 
+        "session", "by-session" -> {
+            val sourceSessionId = rest.ifBlank { context.sessionId.orEmpty() }.trim()
+            if (sourceSessionId.isBlank()) {
+                return missingMemorySourceSessionIdResult()
+            }
+            memorySessionListResult(
+                sourceSessionId = sourceSessionId,
+                memories =
+                    memoryRepository.listForSourceSession(
+                        ownerUserId = settings.installUserId,
+                        sourceSessionId = sourceSessionId,
+                        limit = MemoryRepository.DEFAULT_LIST_LIMIT,
+                    ),
+            )
+        }
+
         "deleted", "trash" ->
             memoryListResult(
                 memories =
@@ -733,6 +806,32 @@ private fun memoryListResult(
             },
     )
 
+private fun memorySessionListResult(
+    sourceSessionId: String,
+    memories: List<MemoryItem>,
+): ToolExecutionResult =
+    ToolExecutionResult.success(
+        summary =
+            if (memories.isEmpty()) {
+                "No memories found for session $sourceSessionId."
+            } else {
+                "Found ${memories.size} memory item(s) for session $sourceSessionId."
+            },
+        payload =
+            buildJsonObject {
+                put("sourceSessionId", sourceSessionId)
+                put("memoryCount", memories.size)
+                put(
+                    "memories",
+                    buildJsonArray {
+                        memories.forEach { memory ->
+                            add(memoryPayload(memory))
+                        }
+                    },
+                )
+            },
+    )
+
 private fun memoryGetResult(
     memory: MemoryItem?,
     id: String,
@@ -845,10 +944,26 @@ private fun missingMemoryTextResult(summary: String): ToolExecutionResult =
             },
     )
 
+private fun missingMemorySourceSessionIdResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide sourceSessionId or run within a session to list source-session memories.",
+        errorCode = "MISSING_MEMORY_SOURCE_SESSION_ID",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_SOURCE_SESSION_ID")
+                put("field", "sourceSessionId")
+            },
+    )
+
 private fun JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
 }
+
+private fun JsonObject.sourceSessionIdOrContext(context: ToolExecutionContext): String? =
+    optionalText("sourceSessionId")
+        ?: optionalText("sessionId")
+        ?: context.sessionId?.trim()?.ifBlank { null }
 
 private sealed interface MemoryLimitParseResult {
     data class Success(
