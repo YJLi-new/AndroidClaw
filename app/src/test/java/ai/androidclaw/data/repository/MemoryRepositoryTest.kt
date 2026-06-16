@@ -105,6 +105,45 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `stats aggregates active deleted and source type memory state`() =
+        runTest {
+            val manual =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "User likes green buttons.",
+                        sourceSessionId = "session-1",
+                        sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+                    ),
+                )
+            repository.remember(
+                ownerUserId = "install-user",
+                text = "User prefers compact layouts.",
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+            repository.remember(
+                ownerUserId = "other-user",
+                text = "Other user's memory is isolated.",
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+            assertTrue(repository.delete("install-user", manual.id))
+
+            val stats = repository.stats("install-user")
+            val sourceStats = stats.sourceTypeStats.associate { item -> item.sourceType to item.memoryCount }
+            val blankStats = repository.stats("")
+
+            assertEquals(2L, stats.totalMemoryCount)
+            assertEquals(1L, stats.activeMemoryCount)
+            assertEquals(1L, stats.deletedMemoryCount)
+            assertEquals(0L, stats.activeWithSourceSessionCount)
+            assertEquals(testClock.instant(), stats.oldestActiveCreatedAt)
+            assertEquals(testClock.instant(), stats.newestActiveUpdatedAt)
+            assertEquals(mapOf(MemoryRepository.SOURCE_TYPE_AUTOMATIC to 1L), sourceStats)
+            assertEquals(0L, blankStats.totalMemoryCount)
+            assertEquals(emptyList<MemoryRepository.SourceTypeStats>(), blankStats.sourceTypeStats)
+        }
+
+    @Test
     fun `update replaces active memory text and timestamp`() =
         runTest {
             val first =

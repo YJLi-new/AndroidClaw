@@ -255,6 +255,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   disabled, scheduled, due, schedule-kind, execution-mode, and run-status
   counts without loading every task/run payload. Focused repository/tool tests,
   ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `memory.stats` / `memories.stats` plus `/memory stats` as
+  a lightweight local Memory Contract aggregate tool. It reports enabled state,
+  active/deleted/total owner-scoped memory counts, active source-session counts,
+  source-type histograms, and active timestamp bounds without exposing the
+  install owner id. Focused repository/tool tests, ktlint, and the full offline
+  fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

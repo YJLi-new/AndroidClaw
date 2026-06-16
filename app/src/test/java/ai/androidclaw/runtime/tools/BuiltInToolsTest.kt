@@ -2567,6 +2567,65 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory stats reports aggregate state without exposing owner identifier`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val manual =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User likes green buttons.",
+                        sourceSessionId = "session-4",
+                        sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+                    ),
+                )
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "User prefers compact layouts.",
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+            memoryRepository.delete(ownerUserId, manual.id)
+            settingsDataStore.setMemoryEnabled(false)
+
+            val directStats =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.stats"),
+                    arguments = buildJsonObject {},
+                )
+            val commandStats =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "stats")
+                        },
+                )
+
+            assertTrue(directStats.success)
+            assertEquals("false", directStats.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals("local-device", directStats.payload["scope"]?.jsonPrimitive?.content)
+            assertEquals("1", directStats.payload["memoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", directStats.payload["activeMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", directStats.payload["deletedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("2", directStats.payload["totalMemoryCount"]?.jsonPrimitive?.content)
+            assertFalse(directStats.payload.containsKey("installUserId"))
+            val sourceStats =
+                directStats.payload
+                    .getValue("sourceTypeStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("sourceType").jsonPrimitive.content to
+                            payload.getValue("memoryCount").jsonPrimitive.content
+                    }
+            assertEquals("1", sourceStats.getValue(MemoryRepository.SOURCE_TYPE_AUTOMATIC))
+            assertTrue(commandStats.success)
+            assertEquals("1", commandStats.payload["activeMemoryCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `memory tools reject malformed or out of range limits`() =
         runTest {
             val registry = buildRegistry()

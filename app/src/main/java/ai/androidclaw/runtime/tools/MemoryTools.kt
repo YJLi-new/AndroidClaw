@@ -3,6 +3,7 @@ package ai.androidclaw.runtime.tools
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.MemoryItem
 import ai.androidclaw.data.repository.MemoryRepository
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -23,6 +24,16 @@ internal fun memoryToolEntries(
                 ),
         ) { _, _ ->
             memoryStatusResult(settingsDataStore, memoryRepository)
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "memory.stats",
+                    aliases = listOf("memories.stats"),
+                    description = "Return local cross-session memory aggregate statistics without exposing the install owner id.",
+                ),
+        ) { _, _ ->
+            memoryStatsResult(settingsDataStore, memoryRepository)
         },
         ToolRegistry.Entry(
             descriptor =
@@ -358,6 +369,9 @@ private suspend fun executeMemoryCommand(
     if (trimmed.isBlank() || trimmed.equals("status", ignoreCase = true)) {
         return memoryStatusResult(settingsDataStore, memoryRepository)
     }
+    if (trimmed.equals("stats", ignoreCase = true)) {
+        return memoryStatsResult(settingsDataStore, memoryRepository)
+    }
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
     val settings = settingsDataStore.memorySettingsSnapshot()
@@ -534,6 +548,53 @@ private suspend fun memoryStatusResult(
                 put("enabled", settings.enabled)
                 put("scope", "local-device")
                 put("memoryCount", count)
+            },
+    )
+}
+
+private suspend fun memoryStatsResult(
+    settingsDataStore: SettingsDataStore,
+    memoryRepository: MemoryRepository,
+): ToolExecutionResult {
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    val stats = memoryRepository.stats(settings.installUserId)
+    return ToolExecutionResult.success(
+        summary =
+            if (settings.enabled) {
+                "Memory is enabled with ${stats.activeMemoryCount} active memory item(s)."
+            } else {
+                "Memory is disabled with ${stats.activeMemoryCount} active memory item(s)."
+            },
+        payload =
+            buildJsonObject {
+                put("enabled", settings.enabled)
+                put("scope", "local-device")
+                put("memoryCount", stats.activeMemoryCount)
+                put("activeMemoryCount", stats.activeMemoryCount)
+                put("deletedMemoryCount", stats.deletedMemoryCount)
+                put("totalMemoryCount", stats.totalMemoryCount)
+                put("activeWithSourceSessionCount", stats.activeWithSourceSessionCount)
+                put(
+                    "oldestActiveCreatedAt",
+                    stats.oldestActiveCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                )
+                put(
+                    "newestActiveUpdatedAt",
+                    stats.newestActiveUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                )
+                put(
+                    "sourceTypeStats",
+                    buildJsonArray {
+                        stats.sourceTypeStats.forEach { sourceTypeStats ->
+                            add(
+                                buildJsonObject {
+                                    put("sourceType", sourceTypeStats.sourceType)
+                                    put("memoryCount", sourceTypeStats.memoryCount)
+                                },
+                            )
+                        }
+                    },
+                )
             },
     )
 }

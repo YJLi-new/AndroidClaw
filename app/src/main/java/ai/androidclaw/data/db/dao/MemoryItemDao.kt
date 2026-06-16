@@ -76,6 +76,41 @@ interface MemoryItemDao {
 
     @Query(
         """
+        SELECT
+            COUNT(*) AS totalMemoryCount,
+            COALESCE(SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END), 0) AS activeMemoryCount,
+            COALESCE(SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END), 0) AS deletedMemoryCount,
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN deletedAt IS NULL AND sourceSessionId IS NOT NULL THEN 1
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS activeWithSourceSessionCount,
+            MIN(CASE WHEN deletedAt IS NULL THEN createdAt ELSE NULL END) AS oldestActiveCreatedAt,
+            MAX(CASE WHEN deletedAt IS NULL THEN updatedAt ELSE NULL END) AS newestActiveUpdatedAt
+        FROM memory_items
+        WHERE ownerUserId = :ownerUserId
+        """,
+    )
+    suspend fun getStatsByOwner(ownerUserId: String): MemoryStatsRow
+
+    @Query(
+        """
+        SELECT sourceType AS sourceType, COUNT(*) AS memoryCount
+        FROM memory_items
+        WHERE ownerUserId = :ownerUserId
+          AND deletedAt IS NULL
+        GROUP BY sourceType
+        ORDER BY sourceType ASC
+        """,
+    )
+    suspend fun getActiveSourceTypeStats(ownerUserId: String): List<MemorySourceTypeStatsRow>
+
+    @Query(
+        """
         UPDATE memory_items
         SET deletedAt = :deletedAt,
             updatedAt = :deletedAt
@@ -104,3 +139,17 @@ interface MemoryItemDao {
         deletedAt: Long,
     ): Int
 }
+
+data class MemoryStatsRow(
+    val totalMemoryCount: Long,
+    val activeMemoryCount: Long,
+    val deletedMemoryCount: Long,
+    val activeWithSourceSessionCount: Long,
+    val oldestActiveCreatedAt: Long?,
+    val newestActiveUpdatedAt: Long?,
+)
+
+data class MemorySourceTypeStatsRow(
+    val sourceType: String,
+    val memoryCount: Long,
+)

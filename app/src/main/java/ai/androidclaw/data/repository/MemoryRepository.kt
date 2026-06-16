@@ -1,6 +1,7 @@
 package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.dao.MemoryItemDao
+import ai.androidclaw.data.db.dao.MemorySourceTypeStatsRow
 import ai.androidclaw.data.db.entity.MemoryItemEntity
 import ai.androidclaw.data.model.MemoryItem
 import kotlinx.coroutines.flow.Flow
@@ -18,6 +19,21 @@ class MemoryRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: Clock = Clock.systemUTC(),
 ) {
+    data class MemoryStats(
+        val totalMemoryCount: Long,
+        val activeMemoryCount: Long,
+        val deletedMemoryCount: Long,
+        val activeWithSourceSessionCount: Long,
+        val oldestActiveCreatedAt: Instant?,
+        val newestActiveUpdatedAt: Instant?,
+        val sourceTypeStats: List<SourceTypeStats>,
+    )
+
+    data class SourceTypeStats(
+        val sourceType: String,
+        val memoryCount: Long,
+    )
+
     suspend fun remember(
         ownerUserId: String,
         text: String,
@@ -145,6 +161,33 @@ class MemoryRepository(
         } else {
             dao.observeActiveCount(ownerUserId)
         }
+
+    suspend fun stats(ownerUserId: String): MemoryStats {
+        if (ownerUserId.isBlank()) {
+            return MemoryStats(
+                totalMemoryCount = 0,
+                activeMemoryCount = 0,
+                deletedMemoryCount = 0,
+                activeWithSourceSessionCount = 0,
+                oldestActiveCreatedAt = null,
+                newestActiveUpdatedAt = null,
+                sourceTypeStats = emptyList(),
+            )
+        }
+        val stats = dao.getStatsByOwner(ownerUserId)
+        return MemoryStats(
+            totalMemoryCount = stats.totalMemoryCount,
+            activeMemoryCount = stats.activeMemoryCount,
+            deletedMemoryCount = stats.deletedMemoryCount,
+            activeWithSourceSessionCount = stats.activeWithSourceSessionCount,
+            oldestActiveCreatedAt = stats.oldestActiveCreatedAt?.let(Instant::ofEpochMilli),
+            newestActiveUpdatedAt = stats.newestActiveUpdatedAt?.let(Instant::ofEpochMilli),
+            sourceTypeStats =
+                dao
+                    .getActiveSourceTypeStats(ownerUserId)
+                    .map(MemorySourceTypeStatsRow::toSourceTypeStats),
+        )
+    }
 
     suspend fun delete(
         ownerUserId: String,
@@ -279,6 +322,12 @@ private fun MemoryItemEntity.toDomain(json: Json): MemoryItem =
         createdAt = Instant.ofEpochMilli(createdAt),
         updatedAt = Instant.ofEpochMilli(updatedAt),
         deletedAt = deletedAt?.let(Instant::ofEpochMilli),
+    )
+
+private fun MemorySourceTypeStatsRow.toSourceTypeStats(): MemoryRepository.SourceTypeStats =
+    MemoryRepository.SourceTypeStats(
+        sourceType = sourceType,
+        memoryCount = memoryCount,
     )
 
 private fun decodeSourceMessageIds(
