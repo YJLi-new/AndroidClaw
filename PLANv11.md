@@ -295,6 +295,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   memory was restored or already active, and keeps disabled-memory opt-out
   behavior intact while preserving delete/clear management paths. Focused
   `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `memory.deleted` / `memories.deleted` /
+  `memory.trash` plus `/memory deleted` and `/memory trash` so agents can
+  discover restorable soft-deleted memory ids. The tool returns bounded deleted
+  memory payloads with deletion timestamps, hides owner identifiers, and stays
+  blocked while memory is disabled. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

@@ -117,6 +117,21 @@ class MemoryRepository(
             ).map { it.toDomain(json) }
     }
 
+    suspend fun listDeletedRecent(
+        ownerUserId: String,
+        limit: Int = DEFAULT_LIST_LIMIT,
+    ): List<MemoryItem> {
+        val boundedLimit = limit.coerceIn(0, MAX_LIST_LIMIT)
+        if (ownerUserId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getDeletedByOwner(
+                ownerUserId = ownerUserId,
+                limit = boundedLimit,
+            ).map { it.toDomain(json) }
+    }
+
     suspend fun get(
         ownerUserId: String,
         id: String,

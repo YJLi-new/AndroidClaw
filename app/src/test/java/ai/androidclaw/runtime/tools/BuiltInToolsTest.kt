@@ -3223,6 +3223,64 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory deleted lists restore candidates while memory is enabled`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val firstDeleted =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User wants first deleted memory listed."),
+                )
+            val secondDeleted =
+                requireNotNull(
+                    memoryRepository.remember(ownerUserId, "User wants second deleted memory listed."),
+                )
+            memoryRepository.remember(ownerUserId, "User wants active memory hidden from trash.")
+            memoryRepository.delete(ownerUserId, firstDeleted.id)
+            memoryRepository.delete(ownerUserId, secondDeleted.id)
+
+            val directDeleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.trash"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+            val commandDeleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "deleted")
+                        },
+                )
+            settingsDataStore.setMemoryEnabled(false)
+            val disabledDeleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.deleted"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(directDeleted.summary, directDeleted.success)
+            assertEquals("2", directDeleted.payload["memoryCount"]?.jsonPrimitive?.content)
+            val deletedMemories =
+                directDeleted.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .map { memory -> memory.jsonObject }
+            val deletedIds = deletedMemories.map { memory -> memory.getValue("id").jsonPrimitive.content }.toSet()
+            assertEquals(setOf(firstDeleted.id, secondDeleted.id), deletedIds)
+            assertTrue(deletedMemories.all { memory -> memory.containsKey("deletedAt") })
+            assertTrue(deletedMemories.none { memory -> memory.containsKey("ownerUserId") })
+            assertTrue(commandDeleted.success)
+            assertEquals("2", commandDeleted.payload["memoryCount"]?.jsonPrimitive?.content)
+            assertFalse(disabledDeleted.success)
+            assertEquals("MEMORY_DISABLED", disabledDeleted.errorCode)
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()

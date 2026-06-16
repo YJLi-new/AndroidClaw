@@ -150,6 +150,7 @@ internal fun memoryToolEntries(
             descriptor =
                 ToolDescriptor(
                     name = "memory.list",
+                    aliases = listOf("memories.list"),
                     description = "List recent local cross-session memories.",
                     arguments =
                         listOf(
@@ -185,6 +186,55 @@ internal fun memoryToolEntries(
                 memories = memories,
                 emptySummary = "No memories stored.",
                 nonEmptySummary = "Found ${memories.size} memory item(s).",
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "memory.deleted",
+                    aliases =
+                        listOf(
+                            "memories.deleted",
+                            "memory.trash",
+                            "memories.trash",
+                            "memory.deleted.list",
+                            "memories.deleted.list",
+                        ),
+                    description = "List recently deleted local cross-session memories that can be restored.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Optional result limit.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MemoryRepository.DEFAULT_LIST_LIMIT,
+                            maxValue = MemoryRepository.MAX_LIST_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            val memories =
+                memoryRepository.listDeletedRecent(
+                    ownerUserId = settings.installUserId,
+                    limit = limit,
+                )
+            memoryListResult(
+                memories = memories,
+                emptySummary = "No deleted memories found.",
+                nonEmptySummary = "Found ${memories.size} deleted memory item(s).",
             )
         },
         ToolRegistry.Entry(
@@ -467,6 +517,17 @@ private suspend fun executeMemoryCommand(
                     ),
                 emptySummary = "No memories stored.",
                 nonEmptySummary = "Found stored memories.",
+            )
+
+        "deleted", "trash" ->
+            memoryListResult(
+                memories =
+                    memoryRepository.listDeletedRecent(
+                        ownerUserId = settings.installUserId,
+                        limit = MemoryRepository.DEFAULT_LIST_LIMIT,
+                    ),
+                emptySummary = "No deleted memories found.",
+                nonEmptySummary = "Found deleted memories.",
             )
 
         "get" -> {
@@ -760,6 +821,7 @@ private fun memoryPayload(
         put("sourceType", memory.sourceType)
         put("createdAt", memory.createdAt.toString())
         put("updatedAt", memory.updatedAt.toString())
+        memory.deletedAt?.let { put("deletedAt", it.toString()) }
         restored?.let { put("restored", it) }
     }
 
