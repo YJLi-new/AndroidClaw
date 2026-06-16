@@ -101,6 +101,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   title search, supports an optional result limit, excludes archived sessions,
   and returns id/title payloads for navigation. Focused `BuiltInToolsTest`,
   ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `messages.search` / `message.search` / `chat.search` as a
+  typed active-transcript lookup tool. It reuses the existing message-content
+  search over non-archived sessions, returns session/message/role metadata with
+  compact content snippets, and lets the agent find prior context without
+  loading complete histories. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

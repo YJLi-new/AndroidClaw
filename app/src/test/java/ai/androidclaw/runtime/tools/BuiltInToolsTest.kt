@@ -355,6 +355,58 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages search returns active message matches only`() =
+        runTest {
+            val activeSession = sessionRepository.createSession("Active transcript")
+            val archivedSession = sessionRepository.createSession("Archived transcript")
+            val activeMessage =
+                messageRepository.addMessage(
+                    sessionId = activeSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Remember the orchid deployment note.",
+                )
+            messageRepository.addMessage(
+                sessionId = activeSession.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "No matching content here.",
+            )
+            messageRepository.addMessage(
+                sessionId = archivedSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Archived orchid note should stay hidden.",
+            )
+            sessionRepository.archiveSession(archivedSession.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "orchid")
+                            put("limit", 5)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("1", result.payload["resultCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["activeSessionsOnly"]?.jsonPrimitive?.content)
+            val message =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(activeMessage.id, message.getValue("messageId").jsonPrimitive.content)
+            assertEquals(activeSession.id, message.getValue("sessionId").jsonPrimitive.content)
+            assertEquals("User", message.getValue("role").jsonPrimitive.content)
+            assertEquals(
+                "Remember the orchid deployment note.",
+                message.getValue("contentSnippet").jsonPrimitive.content,
+            )
+        }
+
+    @Test
     fun `sessions compact stores explicit summary for active session`() =
         runTest {
             val session = sessionRepository.getOrCreateMainSession()

@@ -447,6 +447,76 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.search",
+                                    aliases = listOf("message.search", "chat.search"),
+                                    description = "Search active-session chat messages by content.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "query",
+                                                required = true,
+                                                description = "Message text to search for.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val query =
+                                arguments.optionalText("query")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.search requires a non-empty query.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "query")
+                                            },
+                                    )
+                            val limit = arguments.optionalInt("limit", MESSAGE_SEARCH_DEFAULT_LIMIT)
+                            val results = messageRepository.searchMessages(query = query, limit = limit)
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (results.isEmpty()) {
+                                        "No active-session messages matched \"$query\"."
+                                    } else {
+                                        "Found ${results.size} active-session message(s) matching \"$query\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("query", query)
+                                        put("resultCount", results.size)
+                                        put("activeSessionsOnly", true)
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                results.forEach { result ->
+                                                    val contentSnippet = result.content.toMessageSearchSnippet()
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("messageId", result.messageId)
+                                                            put("sessionId", result.sessionId)
+                                                            put("sessionTitle", result.sessionTitle)
+                                                            put("role", result.role.name)
+                                                            put("contentSnippet", contentSnippet)
+                                                            put("contentLength", result.content.length)
+                                                            put("contentTruncated", contentSnippet.length < result.content.length)
+                                                            put("createdAtIso", result.createdAt.toString())
+                                                        },
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.rename",
                                     aliases = listOf("session.rename"),
                                     description = "Rename the active or specified chat session.",
@@ -1248,8 +1318,17 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
     }
 
 private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
+private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
+private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+
+private fun String.toMessageSearchSnippet(): String =
+    if (length <= MESSAGE_SEARCH_SNIPPET_MAX_CHARS) {
+        this
+    } else {
+        take(MESSAGE_SEARCH_SNIPPET_MAX_CHARS)
+    }
 
 private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
