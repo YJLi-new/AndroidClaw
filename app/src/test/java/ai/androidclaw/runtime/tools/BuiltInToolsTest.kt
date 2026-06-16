@@ -407,6 +407,41 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages get returns one message by id with session metadata`() =
+        runTest {
+            val session = sessionRepository.createSession("Message details")
+            val message =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolCall,
+                    content = "Tool result body",
+                    providerMeta = """{"providerId":"fake"}""",
+                    toolCallId = "tool-call-1",
+                    taskRunId = "task-run-1",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", message.id)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(message.id, result.payload["messageId"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Message details", result.payload["sessionTitle"]?.jsonPrimitive?.content)
+            assertEquals("ToolCall", result.payload["role"]?.jsonPrimitive?.content)
+            assertEquals("Tool result body", result.payload["contentSnippet"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["hasProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals("tool-call-1", result.payload["toolCallId"]?.jsonPrimitive?.content)
+            assertEquals("task-run-1", result.payload["taskRunId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `messages recent returns recent active session messages`() =
         runTest {
             val session = sessionRepository.createSession("Recent transcript")

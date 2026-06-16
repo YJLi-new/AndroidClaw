@@ -113,6 +113,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   plus total/returned counts, and avoids full-history loading for quick context
   inspection. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added `messages.get` / `message.get` / `chat.message.get` as an
+  exact-message inspector for ids returned by search/recent tools. It returns
+  session title/archive metadata, role/time, bounded content snippets, content
+  length/truncation state, and tool/task reference ids without exposing full
+  provider metadata. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

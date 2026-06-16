@@ -517,6 +517,80 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.get",
+                                    aliases = listOf("message.get", "chat.message.get"),
+                                    description = "Return one chat message by id with session metadata.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messageId",
+                                                required = true,
+                                                description = "Message identifier to inspect.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val messageId =
+                                arguments.optionalText("messageId")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.get requires a non-empty messageId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "messageId")
+                                            },
+                                    )
+                            val message =
+                                messageRepository
+                                    .getMessagesByIds(listOf(messageId))
+                                    .get(messageId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Message $messageId was not found.",
+                                        errorCode = "MISSING_MESSAGE",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_MESSAGE")
+                                                put("messageId", messageId)
+                                            },
+                                    )
+                            val session =
+                                sessionRepository.getSession(message.sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session ${message.sessionId} for message $messageId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", messageId)
+                                                put("sessionId", message.sessionId)
+                                            },
+                                    )
+                            val contentSnippet = message.content.toMessageSearchSnippet()
+                            ToolExecutionResult.success(
+                                summary = "Loaded ${message.role.name} message from \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("messageId", message.id)
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("sessionArchived", session.archived)
+                                        put("role", message.role.name)
+                                        put("contentSnippet", contentSnippet)
+                                        put("contentLength", message.content.length)
+                                        put("contentTruncated", contentSnippet.length < message.content.length)
+                                        put("createdAtIso", message.createdAt.toString())
+                                        put("hasProviderMeta", message.providerMeta != null)
+                                        put("toolCallId", message.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("taskRunId", message.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.recent",
                                     aliases = listOf("message.recent", "chat.recent"),
                                     description = "Return recent messages for the active or specified chat session.",
