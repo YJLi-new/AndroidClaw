@@ -3177,6 +3177,62 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.failures",
+                    aliases =
+                        listOf(
+                            "task.failures",
+                            "tasks.failed",
+                            "task.failed",
+                            "tasks.failed_runs",
+                            "task.failed_runs",
+                            "automations.failures",
+                            "automation.failures",
+                        ),
+                    description = "Return recent failed automation runs across all tasks.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum run count. Defaults to 10.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = TASK_RUN_HISTORY_DEFAULT_LIMIT,
+                )
+            val runs = taskRepository.getRecentRunsByStatus(status = TaskRunStatus.Failure, limit = limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (runs.isEmpty()) {
+                        "No recent failed automation runs found."
+                    } else {
+                        "Loaded ${runs.size} recent failed automation run(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("returnedCount", runs.size)
+                        put("recentFirst", true)
+                        put(
+                            "runs",
+                            buildJsonArray {
+                                runs.forEach { run ->
+                                    add(
+                                        run.toTaskFailurePayload(
+                                            task = taskRepository.getTask(run.taskId),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskDuplicateDescriptor(),
         ) { _, arguments ->
             val taskId =
@@ -4448,6 +4504,18 @@ private fun TaskRun.toTaskRunHistoryPayload() =
         put("errorCode", errorCode?.let(::JsonPrimitive) ?: JsonNull)
         put("errorMessage", errorMessage?.let(::JsonPrimitive) ?: JsonNull)
         put("outputMessageId", outputMessageId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun TaskRun.toTaskFailurePayload(task: Task?): JsonObject =
+    buildJsonObject {
+        put("run", toTaskRunHistoryPayload())
+        put("taskId", taskId)
+        put("taskAvailable", task != null)
+        put("taskName", task?.name?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskEnabled", task?.enabled?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskNextRunAtIso", task?.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("taskFailureCount", task?.failureCount?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskMaxRetries", task?.maxRetries?.let(::JsonPrimitive) ?: JsonNull)
     }
 
 private fun Task.toTaskSearchPayload(): JsonObject {

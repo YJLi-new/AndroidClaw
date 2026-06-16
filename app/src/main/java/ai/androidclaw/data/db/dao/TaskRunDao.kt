@@ -37,6 +37,19 @@ interface TaskRunDao {
         limit: Int,
     ): List<TaskRunEntity>
 
+    @Query(
+        """
+        SELECT * FROM task_runs
+        WHERE status = :status
+        ORDER BY scheduledAt DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getRecentByStatus(
+        status: String,
+        limit: Int,
+    ): List<TaskRunEntity>
+
     @Query("SELECT * FROM task_runs WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): TaskRunEntity?
 

@@ -220,6 +220,40 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `recent run status query returns runs across tasks in newest order`() =
+        runTest {
+            val firstTask =
+                repository.createTask(
+                    name = "First task",
+                    prompt = "Fail first",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val secondTask =
+                repository.createTask(
+                    name = "Second task",
+                    prompt = "Fail second",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(20L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val olderFailure = repository.recordRun(firstTask.id, scheduledAt = Instant.ofEpochMilli(1_000L))
+            val success = repository.recordRun(firstTask.id, scheduledAt = Instant.ofEpochMilli(2_000L))
+            val newerFailure = repository.recordRun(secondTask.id, scheduledAt = Instant.ofEpochMilli(3_000L))
+            repository.updateRun(olderFailure.copy(status = TaskRunStatus.Failure, errorCode = "OLDER_FAILURE"))
+            repository.updateRun(success.copy(status = TaskRunStatus.Success))
+            repository.updateRun(newerFailure.copy(status = TaskRunStatus.Failure, errorCode = "NEWER_FAILURE"))
+
+            val failures = repository.getRecentRunsByStatus(TaskRunStatus.Failure, limit = 10)
+            val limited = repository.getRecentRunsByStatus(TaskRunStatus.Failure, limit = 1)
+
+            assertEquals(listOf(newerFailure.id, olderFailure.id), failures.map { run -> run.id })
+            assertEquals(listOf(newerFailure.id), limited.map { run -> run.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.TaskRun>(), repository.getRecentRunsByStatus(TaskRunStatus.Failure, 0))
+        }
+
+    @Test
     fun `task stats aggregate task scheduling and run status state`() =
         runTest {
             database.taskDao().insert(

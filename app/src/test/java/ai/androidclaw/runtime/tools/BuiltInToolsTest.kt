@@ -1345,6 +1345,65 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks failures returns recent failed automation runs with task metadata`() =
+        runTest {
+            val firstTask =
+                taskRepository.createTask(
+                    name = "First failing automation",
+                    prompt = "Fail first",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val secondTask =
+                taskRepository.createTask(
+                    name = "Second failing automation",
+                    prompt = "Fail second",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val olderFailure = taskRepository.recordRun(firstTask.id, scheduledAt = Instant.parse("2026-03-07T00:00:00Z"))
+            val success = taskRepository.recordRun(firstTask.id, scheduledAt = Instant.parse("2026-03-08T00:00:00Z"))
+            val newerFailure = taskRepository.recordRun(secondTask.id, scheduledAt = Instant.parse("2026-03-09T00:00:00Z"))
+            taskRepository.updateRun(olderFailure.copy(status = TaskRunStatus.Failure, errorCode = "OLDER_FAILURE"))
+            taskRepository.updateRun(success.copy(status = TaskRunStatus.Success))
+            taskRepository.updateRun(newerFailure.copy(status = TaskRunStatus.Failure, errorCode = "NEWER_FAILURE"))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.failures"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            val failures =
+                result.payload
+                    .getValue("runs")
+                    .jsonArray
+                    .map { item -> item.jsonObject }
+            assertEquals(
+                listOf(newerFailure.id, olderFailure.id),
+                failures.map { item ->
+                    item
+                        .getValue("run")
+                        .jsonObject
+                        .getValue("id")
+                        .jsonPrimitive
+                        .content
+                },
+            )
+            assertEquals(secondTask.id, failures[0].getValue("taskId").jsonPrimitive.content)
+            assertEquals("Second failing automation", failures[0].getValue("taskName").jsonPrimitive.content)
+            assertEquals("true", failures[0].getValue("taskAvailable").jsonPrimitive.content)
+        }
+
+    @Test
     fun `tasks duplicate creates a disabled copy by default`() =
         runTest {
             val targetSession = sessionRepository.createSession("Automation target")
