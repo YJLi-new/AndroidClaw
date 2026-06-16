@@ -1375,6 +1375,70 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills enable and disable update skill state`() =
+        runTest {
+            var bundledSkills =
+                listOf(
+                    skillSnapshot(
+                        id = "notify",
+                        name = "notify",
+                        enabled = false,
+                    ),
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkillsProvider = { bundledSkills },
+                    skillEnabledUpdater = { skillId, enabled ->
+                        bundledSkills =
+                            bundledSkills.map { skill ->
+                                if (skill.id == skillId) {
+                                    skill.copy(enabled = enabled)
+                                } else {
+                                    skill
+                                }
+                            }
+                    },
+                )
+
+            val enabled =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.enable"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "notify")
+                        },
+                )
+            val disabled =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.disable"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "notify")
+                        },
+                )
+
+            assertTrue(enabled.summary, enabled.success)
+            assertEquals(
+                "true",
+                enabled.payload
+                    .getValue("skill")
+                    .jsonObject
+                    .getValue("enabled")
+                    .jsonPrimitive.content,
+            )
+            assertTrue(disabled.summary, disabled.success)
+            assertEquals(
+                "false",
+                disabled.payload
+                    .getValue("skill")
+                    .jsonObject
+                    .getValue("enabled")
+                    .jsonPrimitive.content,
+            )
+            assertFalse(bundledSkills.single().enabled)
+        }
+
+    @Test
     fun `health status reports selected provider and current tool availability`() =
         runTest {
             settingsDataStore.saveProviderSettings(
@@ -1662,6 +1726,8 @@ class BuiltInToolsTest {
 
     private fun buildRegistry(
         bundledSkills: List<ai.androidclaw.runtime.skills.SkillSnapshot> = emptyList(),
+        bundledSkillsProvider: suspend () -> List<ai.androidclaw.runtime.skills.SkillSnapshot> = { bundledSkills },
+        skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
     ): ToolRegistry =
         createBuiltInToolRegistry(
             application = application,
@@ -1669,7 +1735,8 @@ class BuiltInToolsTest {
             sessionRepository = sessionRepository,
             taskRepository = taskRepository,
             schedulerCoordinator = schedulerCoordinator,
-            bundledSkillsProvider = { bundledSkills },
+            bundledSkillsProvider = bundledSkillsProvider,
+            skillEnabledUpdater = skillEnabledUpdater,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
@@ -1680,6 +1747,7 @@ class BuiltInToolsTest {
 private fun skillSnapshot(
     id: String,
     name: String,
+    enabled: Boolean = true,
     commandDispatch: ai.androidclaw.runtime.skills.SkillCommandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Model,
     commandTool: String? = null,
     eligibility: ai.androidclaw.runtime.skills.SkillEligibility =
@@ -1692,7 +1760,7 @@ private fun skillSnapshot(
         skillKey = name,
         sourceType = ai.androidclaw.runtime.skills.SkillSourceType.Bundled,
         baseDir = "asset://skills/$id",
-        enabled = true,
+        enabled = enabled,
         frontmatter =
             ai.androidclaw.runtime.skills.SkillFrontmatter(
                 name = name,

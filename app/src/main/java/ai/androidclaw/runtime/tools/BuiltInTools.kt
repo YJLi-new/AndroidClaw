@@ -37,6 +37,7 @@ internal fun createBuiltInToolRegistry(
     taskRepository: TaskRepository,
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
+    skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
     messageRepository: MessageRepository,
     memoryRepository: MemoryRepository? = null,
     eventLogRepository: EventLogRepository? = null,
@@ -928,7 +929,7 @@ internal fun createBuiltInToolRegistry(
                                         listOf(
                                             ToolArgumentSpec(
                                                 name = "skillId",
-                                                required = true,
+                                                required = false,
                                                 description = "Skill id, key, or display name.",
                                             ),
                                             ToolArgumentSpec(
@@ -939,41 +940,83 @@ internal fun createBuiltInToolRegistry(
                                 ),
                         ) { _, arguments ->
                             val identifier =
-                                arguments.optionalText("skillId")
-                                    ?: arguments.optionalText("id")
-                                    ?: arguments.optionalText("name")
-                                    ?: return@Entry ToolExecutionResult.failure(
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.get",
                                         summary = "skills.get requires a non-empty skillId.",
-                                        errorCode = "INVALID_ARGUMENTS",
-                                        payload =
-                                            buildJsonObject {
-                                                put("errorCode", "INVALID_ARGUMENTS")
-                                                put("toolName", "skills.get")
-                                                put("field", "skillId")
-                                            },
                                     )
                             val skills = bundledSkillsProvider()
                             val skill =
-                                skills.firstOrNull { candidate ->
-                                    candidate.id.equals(identifier, ignoreCase = true) ||
-                                        candidate.skillKey.equals(identifier, ignoreCase = true) ||
-                                        candidate.displayName.equals(identifier, ignoreCase = true)
-                                } ?: return@Entry ToolExecutionResult.failure(
-                                    summary = "Skill $identifier was not found.",
-                                    errorCode = "SKILL_NOT_FOUND",
-                                    payload =
-                                        buildJsonObject {
-                                            put("errorCode", "SKILL_NOT_FOUND")
-                                            put("toolName", "skills.get")
-                                            put("skillId", identifier)
-                                        },
-                                )
+                                skills.findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.get", skillId = identifier)
                             val includeInstructions = arguments.optionalBoolean("includeInstructions", defaultValue = true)
                             ToolExecutionResult.success(
                                 summary = "Loaded skill ${skill.displayName}.",
                                 payload =
                                     buildJsonObject {
                                         put("skill", skill.toSkillDetailPayload(includeInstructions = includeInstructions))
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                skillToggleDescriptor(
+                                    name = "skills.enable",
+                                    aliases = listOf("skill.enable"),
+                                    description = "Enable a skill by id, key, or display name.",
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.enable",
+                                        summary = "skills.enable requires a non-empty skillId.",
+                                    )
+                            val skill =
+                                bundledSkillsProvider().findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.enable", skillId = identifier)
+                            skillEnabledUpdater(skill.id, true)
+                            val reloadedSkill =
+                                bundledSkillsProvider().findByIdentifier(skill.id)
+                                    ?: skill.copy(enabled = true)
+                            ToolExecutionResult.success(
+                                summary = "Enabled skill ${reloadedSkill.displayName}.",
+                                payload =
+                                    buildJsonObject {
+                                        put("skill", reloadedSkill.toSkillDetailPayload(includeInstructions = false))
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                skillToggleDescriptor(
+                                    name = "skills.disable",
+                                    aliases = listOf("skill.disable"),
+                                    description = "Disable a skill by id, key, or display name.",
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.disable",
+                                        summary = "skills.disable requires a non-empty skillId.",
+                                    )
+                            val skill =
+                                bundledSkillsProvider().findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.disable", skillId = identifier)
+                            skillEnabledUpdater(skill.id, false)
+                            val reloadedSkill =
+                                bundledSkillsProvider().findByIdentifier(skill.id)
+                                    ?: skill.copy(enabled = false)
+                            ToolExecutionResult.success(
+                                summary = "Disabled skill ${reloadedSkill.displayName}.",
+                                payload =
+                                    buildJsonObject {
+                                        put("skill", reloadedSkill.toSkillDetailPayload(includeInstructions = false))
                                     },
                             )
                         },
@@ -1803,6 +1846,64 @@ private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+
+private fun skillToggleDescriptor(
+    name: String,
+    aliases: List<String>,
+    description: String,
+): ToolDescriptor =
+    ToolDescriptor(
+        name = name,
+        aliases = aliases,
+        description = description,
+        arguments =
+            listOf(
+                ToolArgumentSpec(
+                    name = "skillId",
+                    required = false,
+                    description = "Skill id, key, or display name.",
+                ),
+            ),
+    )
+
+private fun JsonObject.skillIdentifier(): String? = optionalText("skillId") ?: optionalText("id") ?: optionalText("name")
+
+private fun List<SkillSnapshot>.findByIdentifier(identifier: String): SkillSnapshot? =
+    firstOrNull { candidate ->
+        candidate.id.equals(identifier, ignoreCase = true) ||
+            candidate.skillKey.equals(identifier, ignoreCase = true) ||
+            candidate.displayName.equals(identifier, ignoreCase = true)
+    }
+
+private fun invalidSkillArguments(
+    toolName: String,
+    summary: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = summary,
+        errorCode = "INVALID_ARGUMENTS",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_ARGUMENTS")
+                put("toolName", toolName)
+                put("field", "skillId")
+            },
+    )
+
+private fun skillNotFoundResult(
+    toolName: String,
+    skillId: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Skill $skillId was not found.",
+        errorCode = "SKILL_NOT_FOUND",
+        payload =
+            buildJsonObject {
+                put("errorCode", "SKILL_NOT_FOUND")
+                put("toolName", toolName)
+                put("skillId", skillId)
+            },
+    )
 
 private fun SkillSnapshot.toSkillDetailPayload(includeInstructions: Boolean): JsonObject {
     val instructionsSnippet =
