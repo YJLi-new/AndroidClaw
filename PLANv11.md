@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.page` / `message.page` /
+  `chat.page` / `messages.transcript` / `chat.transcript` /
+  `session.transcript` as a Session Contract transcript pagination tool.
+  Agents can now inspect bounded chronological pages from the start, recent
+  tail, before an anchor, or after an anchor without loading full histories,
+  with anchor validation, provider/tool reference flags, session metadata, and
+  repository-level paging helpers. Focused repository/tool tests, ktlint, and
+  the full offline fast loop passed.
 - 2026-06-17: Added `sessions.fork` / `session.fork` /
   `sessions.duplicate` / `session.duplicate` plus copy aliases as a Session
   Contract branching tool. Agents can now fork an active or specified session

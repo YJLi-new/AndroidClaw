@@ -685,6 +685,130 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages page returns bounded chronological transcript pages`() =
+        runTest {
+            val session = sessionRepository.createSession("Paged transcript")
+            val first =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "First prompt",
+                )
+            val second =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Second answer",
+                )
+            val third =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                    content = "Third tool result",
+                    providerMeta = """{"provider":"fake"}""",
+                    toolCallId = "tool-1",
+                )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Fourth answer",
+            )
+            val otherSession = sessionRepository.createSession("Other paged transcript")
+            val otherMessage =
+                messageRepository.addMessage(
+                    sessionId = otherSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Other prompt",
+                )
+            val registry = buildRegistry()
+
+            val start =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.transcript", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+            val after =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.page", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("direction", "after")
+                            put("anchorMessageId", second.id)
+                            put("limit", 1)
+                        },
+                )
+            val recent =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.page", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("direction", "recent")
+                            put("limit", 2)
+                        },
+                )
+            val invalidAnchor =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.page", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("direction", "before")
+                            put("anchorMessageId", otherMessage.id)
+                        },
+                )
+
+            assertTrue(start.success)
+            assertEquals(session.id, start.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("start", start.payload["direction"]?.jsonPrimitive?.content)
+            assertEquals("4", start.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", start.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), start.payload["chronological"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf(first.id, second.id),
+                start.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .map { message ->
+                        message.jsonObject
+                            .getValue("messageId")
+                            .jsonPrimitive
+                            .content
+                    },
+            )
+
+            assertTrue(after.success)
+            val afterMessage =
+                after.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(third.id, afterMessage.getValue("messageId").jsonPrimitive.content)
+            assertEquals("ToolResult", afterMessage.getValue("role").jsonPrimitive.content)
+            assertEquals(true.toString(), afterMessage.getValue("hasProviderMeta").jsonPrimitive.content)
+            assertEquals("tool-1", afterMessage.getValue("toolCallId").jsonPrimitive.content)
+
+            assertTrue(recent.success)
+            assertEquals(
+                listOf("Third tool result", "Fourth answer"),
+                recent.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .map { message ->
+                        message.jsonObject
+                            .getValue("contentSnippet")
+                            .jsonPrimitive
+                            .content
+                    },
+            )
+
+            assertFalse(invalidAnchor.success)
+            assertEquals("INVALID_PAGE_ANCHOR", invalidAnchor.errorCode)
+        }
+
+    @Test
     fun `messages context returns bounded window around message id`() =
         runTest {
             val session = sessionRepository.createSession("Context transcript")

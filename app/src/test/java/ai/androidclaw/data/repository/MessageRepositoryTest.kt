@@ -267,6 +267,53 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `message page helpers return bounded chronological transcript slices`() =
+        runTest {
+            val sameTimestamp = Instant.parse("2026-03-12T08:00:00Z").toEpochMilli()
+            database.messageDao().insertAll(
+                listOf(
+                    messageEntity(
+                        id = "page-a",
+                        sessionId = "main",
+                        content = "a",
+                        createdAt = sameTimestamp,
+                    ),
+                    messageEntity(
+                        id = "page-b",
+                        sessionId = "main",
+                        content = "b",
+                        createdAt = sameTimestamp,
+                    ),
+                    messageEntity(
+                        id = "page-c",
+                        sessionId = "main",
+                        content = "c",
+                        createdAt = sameTimestamp,
+                    ),
+                    messageEntity(
+                        id = "page-d",
+                        sessionId = "main",
+                        content = "d",
+                        createdAt = sameTimestamp,
+                    ),
+                ),
+            )
+
+            val start = repository.getFirstMessages("main", limit = 2)
+            val recent = repository.getRecentMessagesChronological("main", limit = 2)
+            val before = repository.getMessagesBefore("main", anchorMessageId = "page-c", limit = 2)
+            val after = repository.getMessagesAfter("main", anchorMessageId = "page-b", limit = 2)
+
+            assertEquals(listOf("page-a", "page-b"), start.map { message -> message.id })
+            assertEquals(listOf("page-c", "page-d"), recent.map { message -> message.id })
+            assertEquals(listOf("page-a", "page-b"), before.map { message -> message.id })
+            assertEquals(listOf("page-c", "page-d"), after.map { message -> message.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getFirstMessages("main", limit = 0))
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getMessagesBefore("", "page-c", limit = 2))
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getMessagesAfter("main", "", limit = 2))
+        }
+
+    @Test
     fun `search messages returns active session matches with session titles`() =
         runTest {
             database.sessionDao().insert(
@@ -623,6 +670,7 @@ private fun messageEntity(
     id: String,
     sessionId: String,
     content: String,
+    createdAt: Long = 1L,
     providerMeta: String? = null,
     toolCallId: String? = null,
     taskRunId: String? = null,
@@ -632,7 +680,7 @@ private fun messageEntity(
         sessionId = sessionId,
         role = "assistant",
         content = content,
-        createdAt = 1L,
+        createdAt = createdAt,
         providerMeta = providerMeta,
         toolCallId = toolCallId,
         taskRunId = taskRunId,

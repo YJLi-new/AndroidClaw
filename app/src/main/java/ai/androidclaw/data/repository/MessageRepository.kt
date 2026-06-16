@@ -99,6 +99,57 @@ class MessageRepository(
         return dao.getRecentBySessionId(sessionId, boundedLimit).map(MessageEntity::toDomain)
     }
 
+    suspend fun getFirstMessages(
+        sessionId: String,
+        limit: Int,
+    ): List<ChatMessage> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (sessionId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao.getFirstBySessionId(sessionId, boundedLimit).map(MessageEntity::toDomain)
+    }
+
+    suspend fun getRecentMessagesChronological(
+        sessionId: String,
+        limit: Int,
+    ): List<ChatMessage> = getRecentMessages(sessionId = sessionId, limit = limit).asReversed()
+
+    suspend fun getMessagesBefore(
+        sessionId: String,
+        anchorMessageId: String,
+        limit: Int,
+    ): List<ChatMessage> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (sessionId.isBlank() || anchorMessageId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getBeforeMessage(
+                sessionId = sessionId,
+                anchorMessageId = anchorMessageId,
+                limit = boundedLimit,
+            ).asReversed()
+            .map(MessageEntity::toDomain)
+    }
+
+    suspend fun getMessagesAfter(
+        sessionId: String,
+        anchorMessageId: String,
+        limit: Int,
+    ): List<ChatMessage> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (sessionId.isBlank() || anchorMessageId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getAfterMessage(
+                sessionId = sessionId,
+                anchorMessageId = anchorMessageId,
+                limit = boundedLimit,
+            ).map(MessageEntity::toDomain)
+    }
+
     suspend fun getRecentMessagesByRole(
         sessionId: String,
         role: MessageRole,

@@ -49,6 +49,19 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE sessionId = :sessionId
+        ORDER BY createdAt ASC, rowid ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getFirstBySessionId(
+        sessionId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
           AND (
             createdAt < (SELECT createdAt FROM messages WHERE id = :anchorMessageId LIMIT 1)
             OR (

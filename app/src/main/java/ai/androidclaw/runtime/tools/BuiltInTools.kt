@@ -1106,6 +1106,173 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.page",
+                                    aliases =
+                                        listOf(
+                                            "message.page",
+                                            "chat.page",
+                                            "messages.transcript",
+                                            "chat.transcript",
+                                            "session.transcript",
+                                        ),
+                                    description = "Return a bounded chronological page of messages for a chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "direction",
+                                                description = "start, recent, before, or after. Defaults to start.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "anchorMessageId",
+                                                description = "Anchor message id required for before or after pages.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum message count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to inspect.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val directionText = arguments.optionalText("direction")
+                            val direction =
+                                directionText?.toMessagePageDirectionOrNull()
+                                    ?: if (directionText == null) {
+                                        MessagePageDirection.Start
+                                    } else {
+                                        return@Entry ToolExecutionResult.failure(
+                                            summary = "messages.page direction must be start, recent, before, or after.",
+                                            errorCode = "INVALID_ARGUMENTS",
+                                            payload =
+                                                buildJsonObject {
+                                                    put("errorCode", "INVALID_ARGUMENTS")
+                                                    put("field", "direction")
+                                                },
+                                        )
+                                    }
+                            val anchorMessageId = arguments.optionalText("anchorMessageId")
+                            val anchorMessage =
+                                anchorMessageId
+                                    ?.let { messageId ->
+                                        messageRepository
+                                            .getMessagesByIds(listOf(messageId))
+                                            .get(messageId)
+                                    }
+                            if ((direction == MessagePageDirection.Before || direction == MessagePageDirection.After) && anchorMessageId == null) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "messages.page requires anchorMessageId for before or after pages.",
+                                    errorCode = "INVALID_ARGUMENTS",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_ARGUMENTS")
+                                            put("field", "anchorMessageId")
+                                            put("direction", direction.payloadName)
+                                        },
+                                )
+                            }
+                            if (anchorMessageId != null && anchorMessage == null) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Message $anchorMessageId was not found.",
+                                    errorCode = "MISSING_MESSAGE",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_MESSAGE")
+                                            put("messageId", anchorMessageId)
+                                        },
+                                )
+                            }
+                            if (anchorMessage != null && anchorMessage.sessionId != session.id) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Anchor message $anchorMessageId does not belong to session ${session.id}.",
+                                    errorCode = "INVALID_PAGE_ANCHOR",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_PAGE_ANCHOR")
+                                            put("sessionId", session.id)
+                                            put("anchorMessageId", anchorMessage.id)
+                                            put("anchorSessionId", anchorMessage.sessionId)
+                                        },
+                                )
+                            }
+                            val limit = arguments.optionalInt("limit", MESSAGE_RECENT_DEFAULT_LIMIT)
+                            val messages =
+                                when (direction) {
+                                    MessagePageDirection.Start ->
+                                        messageRepository.getFirstMessages(
+                                            sessionId = session.id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.Recent ->
+                                        messageRepository.getRecentMessagesChronological(
+                                            sessionId = session.id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.Before ->
+                                        messageRepository.getMessagesBefore(
+                                            sessionId = session.id,
+                                            anchorMessageId = requireNotNull(anchorMessage).id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.After ->
+                                        messageRepository.getMessagesAfter(
+                                            sessionId = session.id,
+                                            anchorMessageId = requireNotNull(anchorMessage).id,
+                                            limit = limit,
+                                        )
+                                }
+                            ToolExecutionResult.success(
+                                summary = "Loaded ${messages.size} chronological message(s) from \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("archived", session.archived)
+                                        put("direction", direction.payloadName)
+                                        put("anchorMessageId", anchorMessage?.id?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("messageCount", messageRepository.getMessageCount(session.id))
+                                        put("returnedCount", messages.size)
+                                        put("chronological", true)
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    add(message.toMessagePagePayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.context",
                                     aliases = listOf("message.context", "chat.context", "messages.around", "message.around"),
                                     description = "Return a bounded chronological transcript window around one message id.",
@@ -4665,6 +4832,16 @@ private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val SESSION_SUMMARY_SNIPPET_MAX_CHARS = 500
+
+private enum class MessagePageDirection(
+    val payloadName: String,
+) {
+    Start("start"),
+    Recent("recent"),
+    Before("before"),
+    After("after"),
+}
+
 private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_SEARCH_MAX_LIMIT = 50
@@ -5534,6 +5711,21 @@ private fun ChatMessage.toMessageReferencePayload(session: Session?): JsonObject
     }
 }
 
+private fun ChatMessage.toMessagePagePayload(): JsonObject {
+    val contentSnippet = content.toMessageSearchSnippet()
+    return buildJsonObject {
+        put("messageId", id)
+        put("role", role.name)
+        put("contentSnippet", contentSnippet)
+        put("contentLength", content.length)
+        put("contentTruncated", contentSnippet.length < content.length)
+        put("createdAtIso", createdAt.toString())
+        put("hasProviderMeta", providerMeta != null)
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
 private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): JsonObject =
     buildJsonObject {
         put("role", role.name)
@@ -5762,6 +5954,15 @@ private fun JsonObject.optionalMessageRole(field: String): MessageRole? =
         "tool_call", "toolcall", "tool" -> MessageRole.ToolCall
         "tool_result", "toolresult" -> MessageRole.ToolResult
         "system" -> MessageRole.System
+        else -> null
+    }
+
+private fun String.toMessagePageDirectionOrNull(): MessagePageDirection? =
+    when (lowercase().replace("-", "_")) {
+        "start", "first", "oldest", "from_start" -> MessagePageDirection.Start
+        "recent", "latest", "last", "end" -> MessagePageDirection.Recent
+        "before" -> MessagePageDirection.Before
+        "after" -> MessagePageDirection.After
         else -> null
     }
 
