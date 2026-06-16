@@ -111,6 +111,7 @@ class AppContainer(
                     forceRefresh = forceRefresh,
                 )
             },
+            skillConfigurationReader = { skill -> skillManagerRef.readConfiguration(skill) },
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

@@ -2981,6 +2981,81 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills config get returns config values without secret values`() =
+        runTest {
+            val configSkill =
+                skillSnapshot(
+                    id = "configurable",
+                    name = "configurable",
+                ).copy(
+                    secretStatuses = mapOf("API_TOKEN" to true, "ROOM_TOKEN" to false),
+                    configStatuses = mapOf("endpoint" to true, "room" to false),
+                )
+            var inspectedSkillId: String? = null
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(configSkill),
+                    skillConfigurationReader = { skill ->
+                        inspectedSkillId = skill.id
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                            secretFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillSecretField(
+                                        envName = "API_TOKEN",
+                                        configured = true,
+                                    ),
+                                    ai.androidclaw.runtime.skills.SkillSecretField(
+                                        envName = "ROOM_TOKEN",
+                                        configured = false,
+                                    ),
+                                ),
+                            configFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillConfigField(
+                                        path = "endpoint",
+                                        value = "https://example.test",
+                                    ),
+                                    ai.androidclaw.runtime.skills.SkillConfigField(
+                                        path = "room",
+                                        value = null,
+                                    ),
+                                ),
+                            recoveryMessage = "Saved secret API_TOKEN could not be restored on this device.",
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.config"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "configurable")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("configurable", inspectedSkillId)
+            val configuration = result.payload.getValue("configuration").jsonObject
+            assertEquals("configurable", configuration.getValue("skillId").jsonPrimitive.content)
+            assertEquals("2", configuration.getValue("secretFieldCount").jsonPrimitive.content)
+            assertEquals("1", configuration.getValue("configuredSecretFieldCount").jsonPrimitive.content)
+            assertEquals("2", configuration.getValue("configFieldCount").jsonPrimitive.content)
+            assertEquals("1", configuration.getValue("configuredConfigFieldCount").jsonPrimitive.content)
+            val secretFields = configuration.getValue("secretFields").jsonArray.map { it.jsonObject }
+            assertEquals("API_TOKEN", secretFields[0].getValue("envName").jsonPrimitive.content)
+            assertEquals("true", secretFields[0].getValue("configured").jsonPrimitive.content)
+            assertFalse(secretFields[0].containsKey("value"))
+            val configFields = configuration.getValue("configFields").jsonArray.map { it.jsonObject }
+            assertEquals("endpoint", configFields[0].getValue("path").jsonPrimitive.content)
+            assertEquals("https://example.test", configFields[0].getValue("value").jsonPrimitive.content)
+            assertEquals("false", configFields[1].getValue("configured").jsonPrimitive.content)
+        }
+
+    @Test
     fun `skills search returns matching inventory entries`() =
         runTest {
             val registry =
@@ -4083,6 +4158,14 @@ class BuiltInToolsTest {
         skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
         skillInventoryRefresher: suspend (sessionId: String?, forceRefresh: Boolean) -> List<ai.androidclaw.runtime.skills.SkillSnapshot> =
             { _, _ -> bundledSkillsProvider() },
+        skillConfigurationReader: suspend (ai.androidclaw.runtime.skills.SkillSnapshot) -> ai.androidclaw.runtime.skills.SkillConfigurationSnapshot =
+            { skill ->
+                ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                    skillId = skill.id,
+                    skillKey = skill.skillKey,
+                    displayName = skill.displayName,
+                )
+            },
         providerSecretStore: ProviderSecretStore? = null,
     ): ToolRegistry =
         createBuiltInToolRegistry(
@@ -4094,6 +4177,7 @@ class BuiltInToolsTest {
             bundledSkillsProvider = bundledSkillsProvider,
             skillEnabledUpdater = skillEnabledUpdater,
             skillInventoryRefresher = skillInventoryRefresher,
+            skillConfigurationReader = skillConfigurationReader,
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

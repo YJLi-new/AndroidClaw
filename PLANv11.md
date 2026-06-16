@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.config.get` /
+  `skill.config.get` / `skills.configuration.get` / `skill.configuration.get`
+  plus concise config aliases as a Skill Contract configuration inspector.
+  Agents can now inspect declared config values, secret configured/missing
+  booleans, and recovery notices for one skill without exposing secret values,
+  making skill setup legible from typed tools instead of only the GUI. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.refresh` /
   `skill.refresh` / `skills.rescan` / `skill.rescan` as a Skill Contract
   inventory control. Agents can now force a bounded reload of bundled, local,

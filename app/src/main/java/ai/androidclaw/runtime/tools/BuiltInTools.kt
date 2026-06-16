@@ -20,8 +20,11 @@ import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
+import ai.androidclaw.runtime.skills.SkillConfigField
+import ai.androidclaw.runtime.skills.SkillConfigurationSnapshot
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillResolutionState
+import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import android.app.Application
 import android.app.NotificationChannel
@@ -55,6 +58,9 @@ internal fun createBuiltInToolRegistry(
     skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
     skillInventoryRefresher: suspend (sessionId: String?, forceRefresh: Boolean) -> List<SkillSnapshot> = { _, _ ->
         bundledSkillsProvider()
+    },
+    skillConfigurationReader: suspend (SkillSnapshot) -> SkillConfigurationSnapshot = { skill ->
+        skill.toDefaultConfigurationSnapshot()
     },
     providerSecretStore: ProviderSecretStore? = null,
     messageRepository: MessageRepository,
@@ -202,6 +208,51 @@ internal fun createBuiltInToolRegistry(
                                                 }
                                             },
                                         )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.config.get",
+                                    aliases =
+                                        listOf(
+                                            "skill.config.get",
+                                            "skills.configuration.get",
+                                            "skill.configuration.get",
+                                            "skills.config",
+                                            "skill.config",
+                                        ),
+                                    description = "Return non-secret configuration status for one skill.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = false,
+                                                description = "Skill id, key, or display name.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.config.get",
+                                        summary = "skills.config.get requires a non-empty skillId.",
+                                    )
+                            val skills = bundledSkillsProvider()
+                            val skill =
+                                skills.findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.config.get", skillId = identifier)
+                            val configuration = skillConfigurationReader(skill)
+                            ToolExecutionResult.success(
+                                summary = "Loaded configuration status for skill ${skill.displayName}.",
+                                payload =
+                                    buildJsonObject {
+                                        put("skill", skill.toSkillSearchPayload())
+                                        put("configuration", configuration.toSkillConfigurationPayload())
                                     },
                             )
                         },
@@ -4502,6 +4553,67 @@ private fun SkillSnapshot.toSkillSearchPayload(): JsonObject {
         put("instructionsTruncated", instructionSnippet.length < instructionsMd.length)
     }
 }
+
+private fun SkillSnapshot.toDefaultConfigurationSnapshot(): SkillConfigurationSnapshot =
+    SkillConfigurationSnapshot(
+        skillId = id,
+        skillKey = skillKey,
+        displayName = displayName,
+        secretFields =
+            secretStatuses.map { (envName, configured) ->
+                SkillSecretField(
+                    envName = envName,
+                    configured = configured,
+                )
+            },
+        configFields =
+            configStatuses.map { (path, configured) ->
+                SkillConfigField(
+                    path = path,
+                    value = if (configured) "" else null,
+                )
+            },
+    )
+
+private fun SkillConfigurationSnapshot.toSkillConfigurationPayload(): JsonObject =
+    buildJsonObject {
+        put("skillId", skillId?.let(::JsonPrimitive) ?: JsonNull)
+        put("skillKey", skillKey)
+        put("displayName", displayName?.let(::JsonPrimitive) ?: JsonNull)
+        put("secretFieldCount", secretFields.size)
+        put("configuredSecretFieldCount", secretFields.count { field -> field.configured })
+        put("configFieldCount", configFields.size)
+        put("configuredConfigFieldCount", configFields.count { field -> field.value != null })
+        put("recoveryMessage", recoveryMessage?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "secretFields",
+            buildJsonArray {
+                secretFields.forEach { field ->
+                    add(
+                        buildJsonObject {
+                            put("envName", field.envName)
+                            put("configured", field.configured)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "configFields",
+            buildJsonArray {
+                configFields.forEach { field ->
+                    val value = field.value
+                    add(
+                        buildJsonObject {
+                            put("path", field.path)
+                            put("configured", value != null)
+                            put("value", value?.let(::JsonPrimitive) ?: JsonNull)
+                        },
+                    )
+                }
+            },
+        )
+    }
 
 private fun List<SkillSnapshot>.toSkillStatsPayload(): JsonObject {
     val totalSecretFieldCount = sumOf { skill -> skill.secretStatuses.size }
