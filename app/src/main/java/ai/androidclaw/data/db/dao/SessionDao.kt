@@ -61,4 +61,49 @@ interface SessionDao {
         queryPattern: String,
         limit: Int,
     ): List<SessionEntity>
+
+    @Query(
+        """
+        SELECT
+            COUNT(*) AS totalSessionCount,
+            COALESCE(SUM(CASE WHEN archivedAt IS NULL THEN 1 ELSE 0 END), 0) AS activeSessionCount,
+            COALESCE(SUM(CASE WHEN archivedAt IS NOT NULL THEN 1 ELSE 0 END), 0) AS archivedSessionCount,
+            COALESCE(SUM(CASE WHEN isMain = 1 THEN 1 ELSE 0 END), 0) AS mainSessionCount,
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN summaryText IS NOT NULL AND summaryText != '' THEN 1
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS summarizedSessionCount,
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN compactedUntilMessageId IS NOT NULL AND compactedUntilMessageId != '' THEN 1
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS compactedSessionCount,
+            MIN(createdAt) AS oldestSessionCreatedAt,
+            MAX(updatedAt) AS newestSessionUpdatedAt,
+            MAX(archivedAt) AS newestArchivedAt
+        FROM sessions
+        """,
+    )
+    suspend fun getStats(): SessionStatsRow
 }
+
+data class SessionStatsRow(
+    val totalSessionCount: Long,
+    val activeSessionCount: Long,
+    val archivedSessionCount: Long,
+    val mainSessionCount: Long,
+    val summarizedSessionCount: Long,
+    val compactedSessionCount: Long,
+    val oldestSessionCreatedAt: Long?,
+    val newestSessionUpdatedAt: Long?,
+    val newestArchivedAt: Long?,
+)

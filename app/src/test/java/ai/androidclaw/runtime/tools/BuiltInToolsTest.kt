@@ -188,6 +188,39 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions stats returns aggregate session state`() =
+        runTest {
+            val main = sessionRepository.getOrCreateMainSession()
+            val compacted = sessionRepository.createSession("Compacted session")
+            val archived = sessionRepository.createSession("Archived session")
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = compacted.id,
+                summaryText = "Compact summary",
+                compactedUntilMessageId = "message-1",
+            )
+            sessionRepository.archiveSession(archived.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.sessions.stats", sessionId = main.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals("3", result.payload["sessionCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["totalSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["activeSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["archivedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["mainSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["summarizedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["compactedSessionCount"]?.jsonPrimitive?.content)
+            assertNotNull(result.payload["oldestSessionCreatedAtIso"])
+            assertNotNull(result.payload["newestSessionUpdatedAtIso"])
+            assertNotNull(result.payload["newestArchivedAtIso"])
+        }
+
+    @Test
     fun `sessions get returns active session details and message count`() =
         runTest {
             val session = sessionRepository.createSession("Inspect me")

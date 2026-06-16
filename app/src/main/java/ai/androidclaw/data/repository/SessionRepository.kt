@@ -1,6 +1,7 @@
 package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.dao.SessionDao
+import ai.androidclaw.data.db.dao.SessionStatsRow
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.model.Session
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,18 @@ class SessionRepository(
     data class SearchResult(
         val sessionId: String,
         val sessionTitle: String,
+    )
+
+    data class SessionStats(
+        val totalSessionCount: Long,
+        val activeSessionCount: Long,
+        val archivedSessionCount: Long,
+        val mainSessionCount: Long,
+        val summarizedSessionCount: Long,
+        val compactedSessionCount: Long,
+        val oldestSessionCreatedAt: Instant?,
+        val newestSessionUpdatedAt: Instant?,
+        val newestArchivedAt: Instant?,
     )
 
     suspend fun createSession(
@@ -157,6 +170,8 @@ class SessionRepository(
             )
         }
     }
+
+    suspend fun getSessionStats(): SessionStats = dao.getStats().toSessionStats()
 }
 
 private fun String.toBoundedSessionText(maxChars: Int): String =
@@ -176,6 +191,19 @@ private fun SessionEntity.toDomain(): Session =
         archived = archivedAt != null,
         summaryText = summaryText?.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
         compactedUntilMessageId = compactedUntilMessageId?.toBoundedCompactionBoundaryIdOrNull(),
+    )
+
+private fun SessionStatsRow.toSessionStats(): SessionRepository.SessionStats =
+    SessionRepository.SessionStats(
+        totalSessionCount = totalSessionCount,
+        activeSessionCount = activeSessionCount,
+        archivedSessionCount = archivedSessionCount,
+        mainSessionCount = mainSessionCount,
+        summarizedSessionCount = summarizedSessionCount,
+        compactedSessionCount = compactedSessionCount,
+        oldestSessionCreatedAt = oldestSessionCreatedAt?.let(Instant::ofEpochMilli),
+        newestSessionUpdatedAt = newestSessionUpdatedAt?.let(Instant::ofEpochMilli),
+        newestArchivedAt = newestArchivedAt?.let(Instant::ofEpochMilli),
     )
 
 private fun String.toBoundedCompactionBoundaryIdOrNull(): String? =

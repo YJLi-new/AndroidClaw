@@ -100,6 +100,59 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `session stats aggregate active archived summary and compaction state`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "main",
+                    title = "Main session",
+                    isMain = true,
+                    createdAt = 1_000L,
+                    updatedAt = 1_500L,
+                    archivedAt = null,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "compact",
+                    title = "Compacted session",
+                    isMain = false,
+                    createdAt = 2_000L,
+                    updatedAt = 3_500L,
+                    archivedAt = null,
+                    summaryText = "Compact summary",
+                    compactedUntilMessageId = "message-1",
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "archived",
+                    title = "Archived session",
+                    isMain = false,
+                    createdAt = 4_000L,
+                    updatedAt = 5_500L,
+                    archivedAt = 5_000L,
+                    summaryText = "Archived summary",
+                    compactedUntilMessageId = null,
+                ),
+            )
+
+            val stats = repository.getSessionStats()
+
+            assertEquals(3L, stats.totalSessionCount)
+            assertEquals(2L, stats.activeSessionCount)
+            assertEquals(1L, stats.archivedSessionCount)
+            assertEquals(1L, stats.mainSessionCount)
+            assertEquals(2L, stats.summarizedSessionCount)
+            assertEquals(1L, stats.compactedSessionCount)
+            assertEquals(java.time.Instant.ofEpochMilli(1_000L), stats.oldestSessionCreatedAt)
+            assertEquals(java.time.Instant.ofEpochMilli(5_500L), stats.newestSessionUpdatedAt)
+            assertEquals(java.time.Instant.ofEpochMilli(5_000L), stats.newestArchivedAt)
+        }
+
+    @Test
     fun `non-positive session search limits return empty results`() =
         runTest {
             repository.createSession("Alpha plan")

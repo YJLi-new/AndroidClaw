@@ -325,6 +325,22 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.stats",
+                                    aliases = listOf("session.stats", "chat.sessions.stats"),
+                                    description = "Return aggregate chat-session statistics without loading transcripts.",
+                                ),
+                        ) { _, _ ->
+                            val stats = sessionRepository.getSessionStats()
+                            ToolExecutionResult.success(
+                                summary = "Loaded stats for ${stats.totalSessionCount} session(s).",
+                                payload = stats.toSessionStatsPayload(),
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.archive",
                                     aliases = listOf("session.archive"),
                                     description = "Archive a normal chat session so it leaves the active session list.",
@@ -3398,6 +3414,20 @@ private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): Json
         put("contentCharCount", contentCharCount)
         put("oldestMessageAtIso", oldestMessageAt.toString())
         put("newestMessageAtIso", newestMessageAt.toString())
+    }
+
+private fun SessionRepository.SessionStats.toSessionStatsPayload(): JsonObject =
+    buildJsonObject {
+        put("sessionCount", totalSessionCount)
+        put("totalSessionCount", totalSessionCount)
+        put("activeSessionCount", activeSessionCount)
+        put("archivedSessionCount", archivedSessionCount)
+        put("mainSessionCount", mainSessionCount)
+        put("summarizedSessionCount", summarizedSessionCount)
+        put("compactedSessionCount", compactedSessionCount)
+        put("oldestSessionCreatedAtIso", oldestSessionCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestSessionUpdatedAtIso", newestSessionUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestArchivedAtIso", newestArchivedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
     }
 
 private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundIntervalMinutes: Long): JsonObject =

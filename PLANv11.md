@@ -261,6 +261,11 @@ available, or use the repo's Windows AVD scripts for manual QA.
   source-type histograms, and active timestamp bounds without exposing the
   install owner id. Focused repository/tool tests, ktlint, and the full offline
   fast loop passed.
+- 2026-06-16: Added `sessions.stats` / `session.stats` /
+  `chat.sessions.stats` as a lightweight Session Contract aggregate tool. It
+  reports total, active, archived, main, summarized, and compacted session
+  counts plus timestamp bounds without loading transcripts or message payloads.
+  Focused repository/tool tests, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
