@@ -10,10 +10,12 @@ import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.EventLogEntry
+import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MESSAGE_REFERENCE_ID_MAX_CHARS
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
@@ -1024,6 +1026,97 @@ internal fun createBuiltInToolRegistry(
                                             buildJsonArray {
                                                 messages.forEach { message ->
                                                     add(message)
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "messages.reference",
+                                    aliases =
+                                        listOf(
+                                            "message.reference",
+                                            "chat.reference",
+                                            "messages.by_reference",
+                                            "message.by_reference",
+                                            "messages.refs",
+                                        ),
+                                    description = "Return bounded chat messages linked to one tool call id or automation task run id.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "toolCallId",
+                                                description = "Tool call id to inspect. Mutually exclusive with taskRunId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "taskRunId",
+                                                description = "Automation task run id to inspect. Mutually exclusive with toolCallId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val toolCallId = arguments.optionalMessageReferenceId("toolCallId")
+                            val taskRunId = arguments.optionalMessageReferenceId("taskRunId")
+                            if ((toolCallId == null) == (taskRunId == null)) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "messages.reference requires exactly one of toolCallId or taskRunId.",
+                                    errorCode = "INVALID_ARGUMENTS",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_ARGUMENTS")
+                                            put("fields", "toolCallId,taskRunId")
+                                        },
+                                )
+                            }
+                            val limit = arguments.optionalInt("limit", MESSAGE_RECENT_DEFAULT_LIMIT)
+                            val referenceType = if (toolCallId != null) "toolCallId" else "taskRunId"
+                            val referenceId = toolCallId ?: requireNotNull(taskRunId)
+                            val messages =
+                                if (toolCallId != null) {
+                                    messageRepository.getMessagesByToolCallId(
+                                        toolCallId = toolCallId,
+                                        limit = limit,
+                                    )
+                                } else {
+                                    messageRepository.getMessagesByTaskRunId(
+                                        taskRunId = requireNotNull(taskRunId),
+                                        limit = limit,
+                                    )
+                                }
+                            val sessionsById = mutableMapOf<String, Session?>()
+                            messages
+                                .map { message -> message.sessionId }
+                                .distinct()
+                                .forEach { sessionId ->
+                                    sessionsById[sessionId] = sessionRepository.getSession(sessionId)
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (messages.isEmpty()) {
+                                        "No messages found for $referenceType $referenceId."
+                                    } else {
+                                        "Found ${messages.size} message(s) for $referenceType $referenceId."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("referenceType", referenceType)
+                                        put("referenceId", referenceId)
+                                        put("resultCount", messages.size)
+                                        put("recentFirst", true)
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    add(message.toMessageReferencePayload(sessionsById[message.sessionId]))
                                                 }
                                             },
                                         )
@@ -5161,6 +5254,24 @@ private fun ChatMessage.toMessageContextPayload(
     }
 }
 
+private fun ChatMessage.toMessageReferencePayload(session: Session?): JsonObject {
+    val contentSnippet = content.toMessageSearchSnippet()
+    return buildJsonObject {
+        put("messageId", id)
+        put("sessionId", sessionId)
+        put("sessionTitle", session?.title?.let(::JsonPrimitive) ?: JsonNull)
+        put("sessionArchived", session?.archived?.let(::JsonPrimitive) ?: JsonNull)
+        put("sessionMissing", session == null)
+        put("role", role.name)
+        put("contentSnippet", contentSnippet)
+        put("contentLength", content.length)
+        put("contentTruncated", contentSnippet.length < content.length)
+        put("createdAtIso", createdAt.toString())
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
 private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): JsonObject =
     buildJsonObject {
         put("role", role.name)
@@ -5359,6 +5470,11 @@ private fun kotlinx.serialization.json.JsonObject.optionalInt(
     field: String,
     defaultValue: Int,
 ): Int = optionalText(field)?.toIntOrNull() ?: defaultValue
+
+private fun JsonObject.optionalMessageReferenceId(field: String): String? =
+    optionalText(field)
+        ?.take(MESSAGE_REFERENCE_ID_MAX_CHARS)
+        ?.ifBlank { null }
 
 private fun JsonObject.parseTaskSnoozeUntil(now: Instant): Instant {
     val untilText = optionalText("untilIso")

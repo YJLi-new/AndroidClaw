@@ -90,6 +90,32 @@ interface MessageDao {
     @Query(
         """
         SELECT * FROM messages
+        WHERE toolCallId = :toolCallId
+        ORDER BY createdAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getByToolCallId(
+        toolCallId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE taskRunId = :taskRunId
+        ORDER BY createdAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getByTaskRunId(
+        taskRunId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
         WHERE id IN (:messageIds)
         """,
     )

@@ -144,6 +144,38 @@ class MessageRepository(
         )
     }
 
+    suspend fun getMessagesByToolCallId(
+        toolCallId: String,
+        limit: Int,
+    ): List<ChatMessage> {
+        val normalizedToolCallId = toolCallId.toReferenceIdOrNull() ?: return emptyList()
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getByToolCallId(
+                toolCallId = normalizedToolCallId,
+                limit = boundedLimit,
+            ).map(MessageEntity::toDomain)
+    }
+
+    suspend fun getMessagesByTaskRunId(
+        taskRunId: String,
+        limit: Int,
+    ): List<ChatMessage> {
+        val normalizedTaskRunId = taskRunId.toReferenceIdOrNull() ?: return emptyList()
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getByTaskRunId(
+                taskRunId = normalizedTaskRunId,
+                limit = boundedLimit,
+            ).map(MessageEntity::toDomain)
+    }
+
     suspend fun getMessageCount(sessionId: String): Int = dao.countBySessionId(sessionId)
 
     suspend fun getMessageStats(sessionId: String): SessionMessageStats {
@@ -177,6 +209,11 @@ class MessageRepository(
 private fun Int.toSafeQueryLimit(): Int = coerceIn(0, MESSAGE_QUERY_MAX_LIMIT)
 
 private fun Int.toSafeContextLimit(): Int = coerceIn(0, MESSAGE_CONTEXT_MAX_SIDE_LIMIT)
+
+private fun String.toReferenceIdOrNull(): String? =
+    trim()
+        .take(MESSAGE_REFERENCE_ID_MAX_CHARS)
+        .ifBlank { null }
 
 private fun MessageEntity.toDomain(): ChatMessage =
     ChatMessage(

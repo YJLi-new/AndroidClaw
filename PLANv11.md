@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.reference` /
+  `message.reference` / `chat.reference` plus reference aliases as a Session
+  and Tool Contract provenance lookup. Agents can now list bounded recent chat
+  messages linked to exactly one `toolCallId` or automation `taskRunId`, with
+  session titles/archive flags, snippets, and stored reference ids while
+  preserving repository caps and rejecting ambiguous reference arguments.
+  Focused repository/tool tests, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.context` / `message.context` /
   `chat.context` plus around aliases as a Session Contract transcript-window
   tool. Agents can now inspect a bounded chronological message window around an

@@ -560,6 +560,105 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages reference lists messages by tool call or task run id`() =
+        runTest {
+            val session = sessionRepository.createSession("Reference transcript")
+            val archivedSession = sessionRepository.createSession("Archived reference transcript")
+            val toolCall =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolCall,
+                    content = "Tool call body",
+                    toolCallId = "tool-call-ref",
+                )
+            val toolResult =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                    content = "Tool result body",
+                    toolCallId = "tool-call-ref",
+                )
+            val archivedTaskMessage =
+                messageRepository.addMessage(
+                    sessionId = archivedSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Archived task output",
+                    taskRunId = "task-run-ref",
+                )
+            sessionRepository.archiveSession(archivedSession.id)
+            val registry = buildRegistry()
+
+            val toolReference =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.reference"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolCallId", "tool-call-ref")
+                        },
+                )
+            val taskReference =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.reference"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskRunId", "task-run-ref")
+                        },
+                )
+            val rejected =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.reference"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolCallId", "tool-call-ref")
+                            put("taskRunId", "task-run-ref")
+                        },
+                )
+
+            assertTrue(toolReference.success)
+            assertEquals("toolCallId", toolReference.payload["referenceType"]?.jsonPrimitive?.content)
+            assertEquals("tool-call-ref", toolReference.payload["referenceId"]?.jsonPrimitive?.content)
+            assertEquals("2", toolReference.payload["resultCount"]?.jsonPrimitive?.content)
+            val toolMessages =
+                toolReference.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .map { message -> message.jsonObject }
+            assertEquals(
+                listOf(toolResult.id, toolCall.id),
+                toolMessages.map { message -> message.getValue("messageId").jsonPrimitive.content },
+            )
+            assertEquals(
+                "Reference transcript",
+                toolMessages
+                    .first()
+                    .getValue("sessionTitle")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "tool-call-ref",
+                toolMessages
+                    .first()
+                    .getValue("toolCallId")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertTrue(taskReference.success)
+            assertEquals("taskRunId", taskReference.payload["referenceType"]?.jsonPrimitive?.content)
+            val taskMessage =
+                taskReference.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(archivedTaskMessage.id, taskMessage.getValue("messageId").jsonPrimitive.content)
+            assertEquals(true.toString(), taskMessage.getValue("sessionArchived").jsonPrimitive.content)
+            assertEquals("task-run-ref", taskMessage.getValue("taskRunId").jsonPrimitive.content)
+            assertFalse(rejected.success)
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        }
+
+    @Test
     fun `messages recent returns recent active session messages`() =
         runTest {
             val session = sessionRepository.createSession("Recent transcript")

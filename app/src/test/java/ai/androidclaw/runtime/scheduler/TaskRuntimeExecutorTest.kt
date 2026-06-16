@@ -218,6 +218,16 @@ private class ThrowingMessageDao(
         limit: Int,
     ): List<MessageEntity> = delegate.getAfterMessage(sessionId, anchorMessageId, limit)
 
+    override suspend fun getByToolCallId(
+        toolCallId: String,
+        limit: Int,
+    ): List<MessageEntity> = delegate.getByToolCallId(toolCallId, limit)
+
+    override suspend fun getByTaskRunId(
+        taskRunId: String,
+        limit: Int,
+    ): List<MessageEntity> = delegate.getByTaskRunId(taskRunId, limit)
+
     override suspend fun getByIds(messageIds: List<String>): List<MessageEntity> = delegate.getByIds(messageIds)
 
     override suspend fun countBySessionId(sessionId: String): Int = delegate.countBySessionId(sessionId)

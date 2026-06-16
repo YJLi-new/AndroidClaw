@@ -402,6 +402,43 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `reference id lookups return bounded recent messages`() =
+        runTest {
+            val first =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.ToolCall,
+                    content = "tool call",
+                    toolCallId = "call-1",
+                    taskRunId = "run-1",
+                )
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.Assistant,
+                content = "unrelated",
+                toolCallId = "call-other",
+                taskRunId = "run-other",
+            )
+            val second =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.ToolResult,
+                    content = "tool result",
+                    toolCallId = "call-1",
+                )
+
+            val toolMatches = repository.getMessagesByToolCallId(" call-1 ", limit = 5)
+            val limitedToolMatches = repository.getMessagesByToolCallId("call-1", limit = 1)
+            val taskMatches = repository.getMessagesByTaskRunId("run-1", limit = 5)
+
+            assertEquals(listOf(second.id, first.id), toolMatches.map { message -> message.id })
+            assertEquals(listOf(second.id), limitedToolMatches.map { message -> message.id })
+            assertEquals(listOf(first.id), taskMatches.map { message -> message.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getMessagesByToolCallId(" ", limit = 5))
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), repository.getMessagesByTaskRunId("run-1", limit = 0))
+        }
+
+    @Test
     fun `add message bounds content metadata and reference ids before persistence`() =
         runTest {
             val longContent = "c".repeat(MESSAGE_CONTENT_MAX_CHARS + 25)
