@@ -1,5 +1,7 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.ProviderOAuthCredential
+import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -1448,6 +1450,80 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider auth status reports configured secrets without exposing values`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "sk-secret-value")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "access-secret",
+                    refreshToken = "refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli(),
+                    email = "user@example.test",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val allStatuses =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.auth"),
+                    arguments = buildJsonObject {},
+                )
+            val fakeStatus =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.auth.status"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "fake")
+                        },
+                )
+
+            assertTrue(allStatuses.summary, allStatuses.success)
+            val payloadText = allStatuses.payload.toString()
+            assertFalse(payloadText.contains("sk-secret-value"))
+            assertFalse(payloadText.contains("access-secret"))
+            assertFalse(payloadText.contains("refresh-secret"))
+            val providers = allStatuses.payload.getValue("providers").jsonArray
+            val deepSeek =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive.content == "deepseek"
+                    }.jsonObject
+            assertEquals("Configured", deepSeek.getValue("status").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("configured").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("apiKeyConfigured").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("selected").jsonPrimitive.content)
+            val codex =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive.content == "openai-codex"
+                    }.jsonObject
+            assertEquals("Configured", codex.getValue("status").jsonPrimitive.content)
+            assertEquals("true", codex.getValue("oauthConfigured").jsonPrimitive.content)
+            assertEquals("2026-03-09T00:00:00Z", codex.getValue("oauthExpiresAtIso").jsonPrimitive.content)
+            assertEquals("false", codex.getValue("oauthExpired").jsonPrimitive.content)
+
+            assertTrue(fakeStatus.success)
+            val fakeProvider =
+                fakeStatus.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("NotRequired", fakeProvider.getValue("status").jsonPrimitive.content)
+            assertEquals("true", fakeProvider.getValue("configured").jsonPrimitive.content)
+        }
+
+    @Test
     fun `tools list and get expose typed descriptors`() =
         runTest {
             val registry = buildRegistry()
@@ -2020,6 +2096,7 @@ class BuiltInToolsTest {
         bundledSkills: List<ai.androidclaw.runtime.skills.SkillSnapshot> = emptyList(),
         bundledSkillsProvider: suspend () -> List<ai.androidclaw.runtime.skills.SkillSnapshot> = { bundledSkills },
         skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
+        providerSecretStore: ProviderSecretStore? = null,
     ): ToolRegistry =
         createBuiltInToolRegistry(
             application = application,
@@ -2029,11 +2106,37 @@ class BuiltInToolsTest {
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = bundledSkillsProvider,
             skillEnabledUpdater = skillEnabledUpdater,
+            providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
             clock = testClock,
         )
+}
+
+private class FakeProviderSecretStore : ProviderSecretStore {
+    private val apiKeys = mutableMapOf<ProviderType, String?>()
+    private val oAuthCredentials = mutableMapOf<ProviderType, ProviderOAuthCredential?>()
+
+    override suspend fun readApiKey(providerType: ProviderType): String? = apiKeys[providerType]
+
+    override suspend fun writeApiKey(
+        providerType: ProviderType,
+        apiKey: String?,
+    ) {
+        apiKeys[providerType] = apiKey
+    }
+
+    override suspend fun readOAuthCredential(providerType: ProviderType): ProviderOAuthCredential? = oAuthCredentials[providerType]
+
+    override suspend fun writeOAuthCredential(
+        providerType: ProviderType,
+        credential: ProviderOAuthCredential?,
+    ) {
+        oAuthCredentials[providerType] = credential
+    }
+
+    override suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean = false
 }
 
 private fun skillSnapshot(

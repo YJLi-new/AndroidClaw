@@ -186,6 +186,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   providers without changing the currently selected provider or exposing stored
   credentials. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added `providers.auth.status` / `provider.auth.status` /
+  `providers.auth` / `provider.auth` as a non-secret provider authentication
+  inspector. It reports whether API-key and OpenAI Codex OAuth credentials are
+  configured, selected provider state, OAuth expiry metadata, and not-required
+  auth status for local providers without returning secret values. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

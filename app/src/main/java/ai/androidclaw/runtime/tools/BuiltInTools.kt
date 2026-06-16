@@ -1,6 +1,7 @@
 package ai.androidclaw.runtime.tools
 
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.Clock
+import java.time.Instant
 
 internal fun createBuiltInToolRegistry(
     application: Application,
@@ -41,6 +43,7 @@ internal fun createBuiltInToolRegistry(
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
     skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
+    providerSecretStore: ProviderSecretStore? = null,
     messageRepository: MessageRepository,
     memoryRepository: MemoryRepository? = null,
     eventLogRepository: EventLogRepository? = null,
@@ -108,7 +111,13 @@ internal fun createBuiltInToolRegistry(
                             )
                         },
                     )
-                    addAll(providerToolEntries(settingsDataStore))
+                    addAll(
+                        providerToolEntries(
+                            settingsDataStore = settingsDataStore,
+                            providerSecretStore = providerSecretStore,
+                            clock = clock,
+                        ),
+                    )
                     addAll(
                         toolDiscoveryEntries(
                             toolRegistryProvider = { toolRegistry },
@@ -1185,7 +1194,11 @@ internal fun createBuiltInToolRegistry(
     return toolRegistry
 }
 
-private fun providerToolEntries(settingsDataStore: SettingsDataStore): List<ToolRegistry.Entry> =
+private fun providerToolEntries(
+    settingsDataStore: SettingsDataStore,
+    providerSecretStore: ProviderSecretStore?,
+    clock: Clock,
+): List<ToolRegistry.Entry> =
     listOf(
         ToolRegistry.Entry(
             descriptor =
@@ -1395,6 +1408,76 @@ private fun providerToolEntries(settingsDataStore: SettingsDataStore): List<Tool
                 payload =
                     buildJsonObject {
                         put("provider", providerType.toProviderPayload(reloadedSettings))
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "providers.auth.status",
+                    aliases = listOf("provider.auth.status", "providers.auth", "provider.auth"),
+                    description = "Report non-secret authentication status for one or all providers.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Omit to list all providers.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providers =
+                if (identifier == null) {
+                    ProviderType.entries
+                } else {
+                    listOf(
+                        ProviderType.entries.firstOrNull { providerType ->
+                            providerType.matchesProviderIdentifier(identifier)
+                        } ?: return@Entry ToolExecutionResult.failure(
+                            summary = "Provider $identifier was not found.",
+                            errorCode = "PROVIDER_NOT_FOUND",
+                            payload =
+                                buildJsonObject {
+                                    put("errorCode", "PROVIDER_NOT_FOUND")
+                                    put("toolName", "providers.auth.status")
+                                    put("providerId", identifier)
+                                },
+                        ),
+                    )
+                }
+            val authPayloads =
+                providers.map { providerType ->
+                    providerType.toProviderAuthPayload(
+                        settings = settings,
+                        providerSecretStore = providerSecretStore,
+                        clock = clock,
+                    )
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (identifier == null) {
+                        "Loaded authentication status for ${providers.size} provider(s)."
+                    } else {
+                        "Loaded authentication status for ${providers.single().displayName}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("currentProviderId", settings.providerType.providerId)
+                        put("secretStatusAvailable", providerSecretStore != null)
+                        put(
+                            "providers",
+                            buildJsonArray {
+                                authPayloads.forEach { payload ->
+                                    add(payload)
+                                }
+                            },
+                        )
                     },
             )
         },
@@ -2357,6 +2440,67 @@ private fun ProviderType.toProviderPayload(settings: ProviderSettingsSnapshot): 
             },
         )
     }
+
+private suspend fun ProviderType.toProviderAuthPayload(
+    settings: ProviderSettingsSnapshot,
+    providerSecretStore: ProviderSecretStore?,
+    clock: Clock,
+): JsonObject {
+    val apiKeyConfigured =
+        if (providerSecretStore == null || !requiresApiKey) {
+            null
+        } else {
+            providerSecretStore.readApiKey(this) != null
+        }
+    val oauthCredential =
+        if (providerSecretStore == null || !usesOpenAiCodexOAuth) {
+            null
+        } else {
+            providerSecretStore.readOAuthCredential(this)
+        }
+    val oauthConfigured =
+        when {
+            providerSecretStore == null || !usesOpenAiCodexOAuth -> null
+            else -> oauthCredential != null
+        }
+    val configured =
+        when {
+            providerSecretStore == null -> null
+            authMode == ai.androidclaw.data.ProviderAuthMode.None -> true
+            requiresApiKey -> apiKeyConfigured == true
+            usesOpenAiCodexOAuth -> oauthConfigured == true
+            else -> false
+        }
+    val status =
+        when (configured) {
+            null -> "Unknown"
+            true -> if (authMode == ai.androidclaw.data.ProviderAuthMode.None) "NotRequired" else "Configured"
+            false -> "Missing"
+        }
+    val expiresAt = oauthCredential?.expiresAtEpochMillis?.let(Instant::ofEpochMilli)
+    val oauthProfileConfigured =
+        oauthCredential?.let { credential ->
+            !credential.email.isNullOrBlank() ||
+                !credential.profileName.isNullOrBlank() ||
+                !credential.chatGptAccountId.isNullOrBlank()
+        }
+    return buildJsonObject {
+        put("storageValue", storageValue)
+        put("providerId", providerId)
+        put("displayName", displayName)
+        put("authMode", authMode.name)
+        put("selected", settings.providerType == this@toProviderAuthPayload)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("secretStatusAvailable", providerSecretStore != null)
+        put("configured", configured?.let(::JsonPrimitive) ?: JsonNull)
+        put("status", status)
+        put("apiKeyConfigured", apiKeyConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthConfigured", oauthConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthExpiresAtIso", expiresAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("oauthExpired", expiresAt?.isBefore(clock.instant())?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthProfileConfigured", oauthProfileConfigured?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
 
 private fun JsonObject.optionalProviderTimeoutSeconds(): Int? {
     val value = optionalText("timeoutSeconds") ?: return null
