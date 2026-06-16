@@ -152,6 +152,12 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): MessageEntity?
 
+    @Query("UPDATE messages SET content = :content WHERE id = :id")
+    suspend fun updateContentById(
+        id: String,
+        content: String,
+    ): Int
+
     @Query("SELECT COUNT(*) FROM messages WHERE sessionId = :sessionId")
     suspend fun countBySessionId(sessionId: String): Int
 

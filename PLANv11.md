@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.update` / `message.update` /
+  `messages.edit` / `message.edit` plus chat-message aliases as a Session
+  Contract transcript-editing control. Agents can now replace one message's
+  content only with `confirm=CONFIRM`, preserve session linkage, provider/tool
+  metadata, summaries, and compaction-boundary ids, and receive before/after
+  snippets plus truncation metadata. Focused `BuiltInToolsTest`, ktlint, and
+  the full offline fast loop passed.
 - 2026-06-17: Added `messages.delete` / `message.delete` /
   `messages.remove` / `message.remove` as a Session Contract transcript-editing
   control. Agents can now delete one message only with `confirm=CONFIRM`,

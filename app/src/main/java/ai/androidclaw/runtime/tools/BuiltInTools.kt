@@ -1368,6 +1368,154 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.update",
+                                    aliases =
+                                        listOf(
+                                            "message.update",
+                                            "messages.edit",
+                                            "message.edit",
+                                            "chat.message.update",
+                                            "chat.message.edit",
+                                        ),
+                                    description = "Replace one chat message's content while preserving its session and metadata.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messageId",
+                                                required = false,
+                                                description = "Message identifier to update. The alias id is also accepted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "id",
+                                                description = "Alias for messageId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "content",
+                                                required = false,
+                                                description = "Replacement message content. The alias text is also accepted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "text",
+                                                description = "Alias for content.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val messageId =
+                                arguments.optionalText("messageId")
+                                    ?: arguments.optionalText("id")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.update requires a non-empty messageId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "messageId")
+                                            },
+                                    )
+                            val replacementContent =
+                                arguments.optionalRawText("content")
+                                    ?: arguments.optionalRawText("text")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.update requires non-empty replacement content.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "content")
+                                            },
+                                    )
+                            val message =
+                                messageRepository.getMessage(messageId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Message $messageId was not found.",
+                                        errorCode = "MISSING_MESSAGE",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_MESSAGE")
+                                                put("messageId", messageId)
+                                            },
+                                    )
+                            val session =
+                                sessionRepository.getSession(message.sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session ${message.sessionId} for message $messageId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", messageId)
+                                                put("sessionId", message.sessionId)
+                                            },
+                                    )
+                            if (arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm message update with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("messageId", message.id)
+                                            put("sessionId", session.id)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val updatedMessage =
+                                messageRepository.updateMessageContent(
+                                    messageId = message.id,
+                                    content = replacementContent,
+                                ) ?: return@Entry ToolExecutionResult.failure(
+                                    summary = "Message ${message.id} was not updated.",
+                                    errorCode = "MISSING_MESSAGE",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_MESSAGE")
+                                            put("messageId", message.id)
+                                            put("sessionId", session.id)
+                                        },
+                                )
+                            val updatedSession = sessionRepository.getSession(session.id) ?: session
+                            val previousContentSnippet = message.content.toMessageSearchSnippet()
+                            val contentSnippet = updatedMessage.content.toMessageSearchSnippet()
+                            val wasCompactionBoundary = session.compactedUntilMessageId == message.id
+                            ToolExecutionResult.success(
+                                summary = "Updated ${updatedMessage.role.name} message from \"${updatedSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("messageId", updatedMessage.id)
+                                        put("sessionId", updatedSession.id)
+                                        put("sessionTitle", updatedSession.title)
+                                        put("sessionArchived", updatedSession.archived)
+                                        put("role", updatedMessage.role.name)
+                                        put("updated", true)
+                                        put("contentChanged", updatedMessage.content != message.content)
+                                        put("previousContentSnippet", previousContentSnippet)
+                                        put("previousContentLength", message.content.length)
+                                        put("contentSnippet", contentSnippet)
+                                        put("contentLength", updatedMessage.content.length)
+                                        put("contentTruncated", contentSnippet.length < updatedMessage.content.length)
+                                        put("inputTruncated", replacementContent.length > updatedMessage.content.length)
+                                        put("createdAtIso", updatedMessage.createdAt.toString())
+                                        put("hasProviderMeta", updatedMessage.providerMeta != null)
+                                        put("toolCallId", updatedMessage.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("taskRunId", updatedMessage.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("wasCompactionBoundary", wasCompactionBoundary)
+                                        put("compactedUntilMessageId", updatedSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("summaryPreserved", session.summaryText != null && updatedSession.summaryText == session.summaryText)
+                                        put("summaryLength", updatedSession.summaryText?.length ?: 0)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.delete",
                                     aliases =
                                         listOf(
@@ -7370,6 +7518,11 @@ private fun TaskSchedule.toTaskSearchKind(): String =
 private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
+}
+
+private fun kotlinx.serialization.json.JsonObject.optionalRawText(field: String): String? {
+    val primitive = this[field] as? JsonPrimitive ?: return null
+    return primitive.contentOrNull?.takeIf { value -> value.isNotBlank() }
 }
 
 private fun kotlinx.serialization.json.JsonObject.optionalBoolean(

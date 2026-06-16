@@ -95,6 +95,26 @@ class MessageRepository(
         return dao.getById(messageId)?.toDomain()
     }
 
+    suspend fun updateMessageContent(
+        messageId: String,
+        content: String,
+    ): ChatMessage? {
+        val normalizedMessageId = messageId.trim()
+        if (normalizedMessageId.isBlank()) {
+            return null
+        }
+        val boundedContent = content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS)
+        val updated =
+            dao.updateContentById(
+                id = normalizedMessageId,
+                content = boundedContent,
+            )
+        if (updated <= 0) {
+            return null
+        }
+        return dao.getById(normalizedMessageId)?.toDomain()
+    }
+
     suspend fun getRecentMessages(
         sessionId: String,
         limit: Int,

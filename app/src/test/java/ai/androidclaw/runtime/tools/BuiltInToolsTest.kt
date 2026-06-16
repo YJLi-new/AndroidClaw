@@ -962,6 +962,112 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages update requires confirmation and replaces only target content`() =
+        runTest {
+            val session = sessionRepository.createSession("Edit one message")
+            val target =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Original draft.",
+                )
+            val survivor =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Keep this reply.",
+                )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.edit"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", target.id)
+                            put("content", "Corrected draft.")
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertEquals("Original draft.", messageRepository.getMessage(target.id)?.content)
+
+            val updated =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", target.id)
+                            put("text", "Corrected draft.")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(updated.success)
+            assertEquals(target.id, updated.payload["messageId"]?.jsonPrimitive?.content)
+            assertEquals(session.id, updated.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("User", updated.payload["role"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), updated.payload["updated"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), updated.payload["contentChanged"]?.jsonPrimitive?.content)
+            assertEquals("Original draft.", updated.payload["previousContentSnippet"]?.jsonPrimitive?.content)
+            assertEquals("Corrected draft.", updated.payload["contentSnippet"]?.jsonPrimitive?.content)
+            assertEquals("Corrected draft.", messageRepository.getMessage(target.id)?.content)
+            assertEquals("Keep this reply.", messageRepository.getMessage(survivor.id)?.content)
+            assertEquals(2, messageRepository.getMessageCount(session.id))
+        }
+
+    @Test
+    fun `messages update preserves metadata and compaction boundary`() =
+        runTest {
+            val session = sessionRepository.createSession("Edit boundary")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                    content = "Original compacted result.",
+                    providerMeta = """{"providerId":"fake"}""",
+                    toolCallId = "tool-call-boundary",
+                    taskRunId = "task-run-boundary",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Earlier summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.message.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", boundary.id)
+                            put("content", "Corrected compacted result.")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("ToolResult", result.payload["role"]?.jsonPrimitive?.content)
+            assertEquals("Corrected compacted result.", result.payload["contentSnippet"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["hasProviderMeta"]?.jsonPrimitive?.content)
+            assertEquals("tool-call-boundary", result.payload["toolCallId"]?.jsonPrimitive?.content)
+            assertEquals("task-run-boundary", result.payload["taskRunId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["wasCompactionBoundary"]?.jsonPrimitive?.content)
+            assertEquals(boundary.id, result.payload["compactedUntilMessageId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryPreserved"]?.jsonPrimitive?.content)
+            val updatedMessage = messageRepository.getMessage(boundary.id)
+            val updatedSession = sessionRepository.getSession(session.id)
+            assertEquals("Corrected compacted result.", updatedMessage?.content)
+            assertEquals("""{"providerId":"fake"}""", updatedMessage?.providerMeta)
+            assertEquals("tool-call-boundary", updatedMessage?.toolCallId)
+            assertEquals("task-run-boundary", updatedMessage?.taskRunId)
+            assertEquals("Earlier summary", updatedSession?.summaryText)
+            assertEquals(boundary.id, updatedSession?.compactedUntilMessageId)
+        }
+
+    @Test
     fun `messages delete requires confirmation and deletes only the target message`() =
         runTest {
             val session = sessionRepository.createSession("Delete one message")
