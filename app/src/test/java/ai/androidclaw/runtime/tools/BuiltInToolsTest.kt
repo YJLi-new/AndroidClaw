@@ -1693,6 +1693,118 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider stats summarizes inventory endpoint customization and auth state`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-secret")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "codex-access-secret",
+                    refreshToken = "codex-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-07T00:00:00Z").toEpochMilli(),
+                    profileName = "Work",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.OpenAiCodex)
+                    .withEndpointSettings(
+                        providerType = ProviderType.DeepSeek,
+                        settings =
+                            ProviderType.DeepSeek
+                                .defaultEndpointSettings()
+                                .copy(
+                                    baseUrl = "https://proxy.example/v1",
+                                    modelId = "deepseek-stats",
+                                    timeoutSeconds = 42,
+                                ),
+                    ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.stats"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-secret"))
+            assertFalse(payloadText.contains("codex-access-secret"))
+            assertFalse(payloadText.contains("codex-refresh-secret"))
+            assertEquals(
+                ProviderType.entries.size.toString(),
+                result.payload
+                    .getValue("providerCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                ProviderType.OpenAiCodex.providerId,
+                result.payload
+                    .getValue("currentProviderId")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("secretStatusAvailable")
+                    .jsonPrimitive
+                    .content,
+            )
+            val endpointStats =
+                result.payload
+                    .getValue("endpointStats")
+                    .jsonObject
+            assertEquals("1", endpointStats.getValue("customBaseUrlProviderCount").jsonPrimitive.content)
+            assertEquals("1", endpointStats.getValue("customModelIdProviderCount").jsonPrimitive.content)
+            assertEquals("1", endpointStats.getValue("customTimeoutProviderCount").jsonPrimitive.content)
+
+            val apiKeyStats =
+                result.payload
+                    .getValue("apiKeyStats")
+                    .jsonObject
+            assertEquals(
+                ProviderType.entries
+                    .count { provider -> provider.requiresApiKey }
+                    .toString(),
+                apiKeyStats
+                    .getValue("apiKeyProviderCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals("1", apiKeyStats.getValue("apiKeyConfiguredProviderCount").jsonPrimitive.content)
+
+            val oauthStats =
+                result.payload
+                    .getValue("oauthStats")
+                    .jsonObject
+            assertEquals("1", oauthStats.getValue("oauthProviderCount").jsonPrimitive.content)
+            assertEquals("1", oauthStats.getValue("oauthConfiguredProviderCount").jsonPrimitive.content)
+            assertEquals("1", oauthStats.getValue("oauthExpiredProviderCount").jsonPrimitive.content)
+            assertEquals("1", oauthStats.getValue("oauthProfileConfiguredProviderCount").jsonPrimitive.content)
+
+            val configuredAuthCount =
+                result.payload
+                    .getValue("authStatusStats")
+                    .jsonArray
+                    .first { stats ->
+                        stats.jsonObject
+                            .getValue("status")
+                            .jsonPrimitive
+                            .content == "Configured"
+                    }.jsonObject
+                    .getValue("providerCount")
+                    .jsonPrimitive
+                    .content
+            assertEquals("2", configuredAuthCount)
+        }
+
+    @Test
     fun `tools list and get expose typed descriptors`() =
         runTest {
             val registry = buildRegistry()

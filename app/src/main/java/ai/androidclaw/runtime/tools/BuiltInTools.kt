@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
@@ -1598,6 +1599,24 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.stats",
+                    aliases = listOf("provider.stats"),
+                    description = "Summarize provider inventory, endpoint customization, and non-secret auth status.",
+                ),
+        ) { _, _ ->
+            val settings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Summarized ${ProviderType.entries.size} provider(s).",
+                payload =
+                    settings.toProviderStatsPayload(
+                        providerSecretStore = providerSecretStore,
+                        clock = clock,
+                    ),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.get",
                     aliases = listOf("provider.get"),
                     description = "Return one provider by id, storage value, or display name.",
@@ -3107,6 +3126,185 @@ private fun ProviderType.toProviderPayload(settings: ProviderSettingsSnapshot): 
             },
         )
     }
+
+private data class ProviderAuthState(
+    val providerType: ProviderType,
+    val status: String,
+    val apiKeyConfigured: Boolean?,
+    val oauthConfigured: Boolean?,
+    val oauthExpired: Boolean?,
+    val oauthProfileConfigured: Boolean?,
+)
+
+private suspend fun ProviderSettingsSnapshot.toProviderStatsPayload(
+    providerSecretStore: ProviderSecretStore?,
+    clock: Clock,
+): JsonObject {
+    val providers = ProviderType.entries
+    val remoteProviders = providers.filter { provider -> provider.requiresRemoteSettings }
+    val authStates =
+        providers.map { provider ->
+            provider.toProviderAuthState(
+                providerSecretStore = providerSecretStore,
+                clock = clock,
+            )
+        }
+    return buildJsonObject {
+        put("providerCount", providers.size)
+        put("currentProviderId", providerType.providerId)
+        put("currentProviderDisplayName", providerType.displayName)
+        put("currentProtocolFamily", providerType.protocolFamily.name)
+        put("currentAuthMode", providerType.authMode.name)
+        put("selectedRequiresCredential", providerType.requiresApiKey || providerType.usesOpenAiCodexOAuth)
+        put("secretStatusAvailable", providerSecretStore != null)
+        put("remoteProviderCount", remoteProviders.size)
+        put("localProviderCount", providers.count { provider -> !provider.requiresRemoteSettings })
+        put("requiresCredentialProviderCount", providers.count { provider -> provider.requiresApiKey || provider.usesOpenAiCodexOAuth })
+        put("apiKeyProviderCount", providers.count { provider -> provider.requiresApiKey })
+        put("openAiCodexOAuthProviderCount", providers.count { provider -> provider.usesOpenAiCodexOAuth })
+        put(
+            "protocolFamilyStats",
+            providerTypeCountPayloads(
+                nameField = "protocolFamily",
+                selector = { provider -> provider.protocolFamily.name },
+            ),
+        )
+        put(
+            "authModeStats",
+            providerTypeCountPayloads(
+                nameField = "authMode",
+                selector = { provider -> provider.authMode.name },
+            ),
+        )
+        put(
+            "authStatusStats",
+            authStates.toProviderAuthStatusStatsPayload(),
+        )
+        put(
+            "endpointStats",
+            remoteProviders.toProviderEndpointStatsPayload(settings = this@toProviderStatsPayload),
+        )
+        put(
+            "apiKeyStats",
+            authStates.toProviderApiKeyStatsPayload(),
+        )
+        put(
+            "oauthStats",
+            authStates.toProviderOAuthStatsPayload(),
+        )
+    }
+}
+
+private suspend fun ProviderType.toProviderAuthState(
+    providerSecretStore: ProviderSecretStore?,
+    clock: Clock,
+): ProviderAuthState {
+    val apiKeyConfigured =
+        if (providerSecretStore == null || !requiresApiKey) {
+            null
+        } else {
+            providerSecretStore.readApiKey(this) != null
+        }
+    val oauthCredential =
+        if (providerSecretStore == null || !usesOpenAiCodexOAuth) {
+            null
+        } else {
+            providerSecretStore.readOAuthCredential(this)
+        }
+    val oauthConfigured =
+        when {
+            providerSecretStore == null || !usesOpenAiCodexOAuth -> null
+            else -> oauthCredential != null
+        }
+    val status =
+        when {
+            authMode == ProviderAuthMode.None -> "NotRequired"
+            providerSecretStore == null -> "Unknown"
+            requiresApiKey && apiKeyConfigured == true -> "Configured"
+            usesOpenAiCodexOAuth && oauthConfigured == true -> "Configured"
+            else -> "Missing"
+        }
+    val expiresAt = oauthCredential?.expiresAtEpochMillis?.let(Instant::ofEpochMilli)
+    val oauthProfileConfigured =
+        oauthCredential?.let { credential ->
+            !credential.email.isNullOrBlank() ||
+                !credential.profileName.isNullOrBlank() ||
+                !credential.chatGptAccountId.isNullOrBlank()
+        }
+    return ProviderAuthState(
+        providerType = this,
+        status = status,
+        apiKeyConfigured = apiKeyConfigured,
+        oauthConfigured = oauthConfigured,
+        oauthExpired = expiresAt?.isBefore(clock.instant()),
+        oauthProfileConfigured = oauthProfileConfigured,
+    )
+}
+
+private fun providerTypeCountPayloads(
+    nameField: String,
+    selector: (ProviderType) -> String,
+): JsonArray =
+    buildJsonArray {
+        ProviderType.entries
+            .groupingBy(selector)
+            .eachCount()
+            .toList()
+            .sortedBy { (name, _) -> name }
+            .forEach { (name, count) ->
+                add(namedCountPayload(nameField = nameField, name = name, countField = "providerCount", count = count))
+            }
+    }
+
+private fun List<ProviderAuthState>.toProviderAuthStatusStatsPayload(): JsonArray =
+    buildJsonArray {
+        groupingBy { state -> state.status }
+            .eachCount()
+            .toList()
+            .sortedBy { (status, _) -> status }
+            .forEach { (status, count) ->
+                add(namedCountPayload(nameField = "status", name = status, countField = "providerCount", count = count))
+            }
+    }
+
+private fun List<ProviderType>.toProviderEndpointStatsPayload(settings: ProviderSettingsSnapshot): JsonObject =
+    buildJsonObject {
+        put("remoteProviderCount", size)
+        put("customBaseUrlProviderCount", count { provider -> settings.endpointSettings(provider).baseUrl != provider.defaultBaseUrl })
+        put("customModelIdProviderCount", count { provider -> settings.endpointSettings(provider).modelId != provider.defaultModelId })
+        put(
+            "customTimeoutProviderCount",
+            count { provider ->
+                settings.endpointSettings(provider).timeoutSeconds != provider.defaultEndpointSettings().timeoutSeconds
+            },
+        )
+        put("blankModelIdProviderCount", count { provider -> settings.endpointSettings(provider).modelId.isBlank() })
+    }
+
+private fun List<ProviderAuthState>.toProviderApiKeyStatsPayload(): JsonObject {
+    val apiKeyStates = filter { state -> state.providerType.requiresApiKey }
+    return buildJsonObject {
+        put("apiKeyProviderCount", apiKeyStates.size)
+        put("apiKeyConfiguredProviderCount", apiKeyStates.count { state -> state.apiKeyConfigured == true })
+        put("apiKeyMissingProviderCount", apiKeyStates.count { state -> state.status == "Missing" })
+        put("apiKeyUnknownProviderCount", apiKeyStates.count { state -> state.status == "Unknown" })
+    }
+}
+
+private fun List<ProviderAuthState>.toProviderOAuthStatsPayload(): JsonObject {
+    val oauthStates = filter { state -> state.providerType.usesOpenAiCodexOAuth }
+    return buildJsonObject {
+        put("oauthProviderCount", oauthStates.size)
+        put("oauthConfiguredProviderCount", oauthStates.count { state -> state.oauthConfigured == true })
+        put("oauthMissingProviderCount", oauthStates.count { state -> state.status == "Missing" })
+        put("oauthUnknownProviderCount", oauthStates.count { state -> state.status == "Unknown" })
+        put("oauthExpiredProviderCount", oauthStates.count { state -> state.oauthExpired == true })
+        put(
+            "oauthProfileConfiguredProviderCount",
+            oauthStates.count { state -> state.oauthProfileConfigured == true },
+        )
+    }
+}
 
 private suspend fun ProviderType.toProviderAuthPayload(
     settings: ProviderSettingsSnapshot,

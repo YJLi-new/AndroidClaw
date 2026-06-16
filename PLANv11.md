@@ -277,6 +277,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   foreground requirements, permission requirements, and availability/permission
   histograms without returning full input schemas. Focused `BuiltInToolsTest`,
   ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `providers.stats` / `provider.stats` as a lightweight
+  provider/OAuth aggregate tool. It summarizes provider inventory, selected
+  provider metadata, protocol/auth-mode histograms, endpoint customization
+  counts, and non-secret API-key/OAuth status counts without exposing stored
+  credentials. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
