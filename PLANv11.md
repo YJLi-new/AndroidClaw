@@ -91,6 +91,11 @@ available, or use the repo's Windows AVD scripts for manual QA.
   session remains protected from archival, archived sessions can be discovered
   and restored by id, and repository/tool tests cover the round trip. Focused
   registry/repository tests, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `sessions.get` / `session.get` as a lightweight typed
+  session inspector. The tool defaults to the active session or accepts an
+  explicit session id, returns title, timestamps, archive/main flags, compact
+  summary/boundary metadata, and a message count without loading full history.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

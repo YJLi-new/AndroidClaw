@@ -17,6 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -157,6 +158,66 @@ internal fun createBuiltInToolRegistry(
                                                     )
                                                 }
                                             },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "sessions.get",
+                                    aliases = listOf("session.get"),
+                                    description = "Return details for the active or specified chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to inspect.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val messageCount = messageRepository.getMessageCount(sessionId)
+                            ToolExecutionResult.success(
+                                summary = "Loaded session \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("title", session.title)
+                                        put("isMain", session.isMain)
+                                        put("archived", session.archived)
+                                        put("createdAtIso", session.createdAt.toString())
+                                        put("updatedAtIso", session.updatedAt.toString())
+                                        put("messageCount", messageCount)
+                                        put("summaryText", session.summaryText?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("summaryLength", session.summaryText?.length ?: 0)
+                                        put(
+                                            "compactedUntilMessageId",
+                                            session.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull,
                                         )
                                     },
                             )

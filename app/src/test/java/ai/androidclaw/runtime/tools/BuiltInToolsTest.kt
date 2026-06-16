@@ -144,6 +144,43 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions get returns active session details and message count`() =
+        runTest {
+            val session = sessionRepository.createSession("Inspect me")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "First message",
+                )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Second message",
+            )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Compact summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.get", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals("Loaded session \"Inspect me\".", result.summary)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Inspect me", result.payload["title"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("Compact summary", result.payload["summaryText"]?.jsonPrimitive?.content)
+            assertEquals(boundary.id, result.payload["compactedUntilMessageId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `sessions archive hides session until list includes archived and unarchive restores it`() =
         runTest {
             sessionRepository.getOrCreateMainSession()
