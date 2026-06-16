@@ -143,6 +143,11 @@ available, or use the repo's Windows AVD scripts for manual QA.
   budget, defaults the new copy to disabled for safe editing, and can
   immediately enable/schedule the copy when requested. Focused `BuiltInToolsTest`,
   ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `skills.get` / `skill.get` as a typed Skill Contract
+  inspector. Agents can now load one skill by id, key, or display name and
+  receive eligibility/configuration metadata, frontmatter, and bounded
+  `SKILL.md` instructions without relying only on the summary list. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

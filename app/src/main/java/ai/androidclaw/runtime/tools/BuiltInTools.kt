@@ -921,6 +921,67 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.get",
+                                    aliases = listOf("skill.get"),
+                                    description = "Return detailed metadata and instructions for one bundled skill.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = true,
+                                                description = "Skill id, key, or display name.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeInstructions",
+                                                description = "true to include bounded SKILL.md instructions. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.optionalText("skillId")
+                                    ?: arguments.optionalText("id")
+                                    ?: arguments.optionalText("name")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "skills.get requires a non-empty skillId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("toolName", "skills.get")
+                                                put("field", "skillId")
+                                            },
+                                    )
+                            val skills = bundledSkillsProvider()
+                            val skill =
+                                skills.firstOrNull { candidate ->
+                                    candidate.id.equals(identifier, ignoreCase = true) ||
+                                        candidate.skillKey.equals(identifier, ignoreCase = true) ||
+                                        candidate.displayName.equals(identifier, ignoreCase = true)
+                                } ?: return@Entry ToolExecutionResult.failure(
+                                    summary = "Skill $identifier was not found.",
+                                    errorCode = "SKILL_NOT_FOUND",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "SKILL_NOT_FOUND")
+                                            put("toolName", "skills.get")
+                                            put("skillId", identifier)
+                                        },
+                                )
+                            val includeInstructions = arguments.optionalBoolean("includeInstructions", defaultValue = true)
+                            ToolExecutionResult.success(
+                                summary = "Loaded skill ${skill.displayName}.",
+                                payload =
+                                    buildJsonObject {
+                                        put("skill", skill.toSkillDetailPayload(includeInstructions = includeInstructions))
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "notifications.post",
                                     aliases = listOf("notification.post"),
                                     description = "Post a lightweight Android notification.",
@@ -1738,9 +1799,92 @@ private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
+private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+
+private fun SkillSnapshot.toSkillDetailPayload(includeInstructions: Boolean): JsonObject {
+    val instructionsSnippet =
+        if (instructionsMd.length <= SKILL_INSTRUCTIONS_MAX_CHARS) {
+            instructionsMd
+        } else {
+            instructionsMd.take(SKILL_INSTRUCTIONS_MAX_CHARS)
+        }
+    return buildJsonObject {
+        put("id", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("workspaceSessionId", workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("baseDir", baseDir)
+        put("resolutionState", resolutionState.name)
+        put("shadowedBy", shadowedBy?.let(::JsonPrimitive) ?: JsonNull)
+        put("eligibilityStatus", eligibility.status.name)
+        put(
+            "eligibilityReasons",
+            buildJsonArray {
+                eligibility.reasons.forEach { add(JsonPrimitive(it)) }
+            },
+        )
+        put(
+            "secretStatuses",
+            buildJsonArray {
+                secretStatuses.forEach { (envName, configured) ->
+                    add(
+                        buildJsonObject {
+                            put("envName", envName)
+                            put("configured", configured)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "configStatuses",
+            buildJsonArray {
+                configStatuses.forEach { (path, configured) ->
+                    add(
+                        buildJsonObject {
+                            put("path", path)
+                            put("configured", configured)
+                        },
+                    )
+                }
+            },
+        )
+        put("parseError", parseError?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "frontmatter",
+            frontmatter?.let { metadata ->
+                buildJsonObject {
+                    put("name", metadata.name)
+                    put("description", metadata.description)
+                    put("homepage", metadata.homepage?.let(::JsonPrimitive) ?: JsonNull)
+                    put("userInvocable", metadata.userInvocable)
+                    put("disableModelInvocation", metadata.disableModelInvocation)
+                    put("commandDispatch", metadata.commandDispatch.name)
+                    put("commandTool", metadata.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+                    put("commandArgMode", metadata.commandArgMode)
+                    put("metadata", metadata.metadata ?: JsonNull)
+                    put(
+                        "unknownFields",
+                        buildJsonObject {
+                            metadata.unknownFields.forEach { (field, value) ->
+                                put(field, value)
+                            }
+                        },
+                    )
+                }
+            } ?: JsonNull,
+        )
+        put("instructionsIncluded", includeInstructions)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsTruncated", instructionsSnippet.length < instructionsMd.length)
+        put("instructionsMd", if (includeInstructions) JsonPrimitive(instructionsSnippet) else JsonNull)
+    }
+}
 
 private fun String.toMessageSearchSnippet(): String =
     if (length <= MESSAGE_SEARCH_SNIPPET_MAX_CHARS) {

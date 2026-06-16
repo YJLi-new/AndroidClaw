@@ -1339,6 +1339,42 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills get returns frontmatter and instructions`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "notify",
+                                name = "notify",
+                                commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                                commandTool = "notifications.post",
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "notify")
+                        },
+                )
+
+            assertTrue(result.success)
+            val skill = result.payload.getValue("skill").jsonObject
+            assertEquals("notify", skill.getValue("id").jsonPrimitive.content)
+            assertEquals("notify", skill.getValue("name").jsonPrimitive.content)
+            assertEquals("Do work", skill.getValue("instructionsMd").jsonPrimitive.content)
+            assertEquals("true", skill.getValue("instructionsIncluded").jsonPrimitive.content)
+            val frontmatter = skill.getValue("frontmatter").jsonObject
+            assertEquals("Tool", frontmatter.getValue("commandDispatch").jsonPrimitive.content)
+            assertEquals("notifications.post", frontmatter.getValue("commandTool").jsonPrimitive.content)
+        }
+
+    @Test
     fun `health status reports selected provider and current tool availability`() =
         runTest {
             settingsDataStore.saveProviderSettings(
