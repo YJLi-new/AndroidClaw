@@ -893,6 +893,43 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks preview returns next run without persisting automation`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.preview"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "interval")
+                            put("anchorAtIso", "2026-03-07T00:00:00Z")
+                            put("repeatEveryMinutes", 1_440)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.schedule.preview"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "once")
+                            put("atIso", "2026-03-07T00:00:00Z")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("interval", result.payload["scheduleKind"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-09T00:00:00Z", result.payload["nextRunAtIso"]?.jsonPrimitive?.content)
+            assertEquals("86400", result.payload["secondsUntilRun"]?.jsonPrimitive?.content)
+            val schedule = result.payload.getValue("schedule").jsonObject
+            assertEquals("interval", schedule.getValue("kind").jsonPrimitive.content)
+            assertEquals("1440", schedule.getValue("repeatEveryMinutes").jsonPrimitive.content)
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        }
+
+    @Test
     fun `tasks next returns upcoming enabled automations in next run order`() =
         runTest {
             val dueTask =

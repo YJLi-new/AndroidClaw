@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.preview` / `task.preview` /
+  `tasks.schedule.preview` / `task.schedule.preview` plus automation aliases as
+  an Automation Contract planning tool. Agents can now validate once, interval,
+  or cron schedule payloads and see the next run time without creating or
+  mutating a task, reusing the same parser and scheduler bounds as task
+  creation. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `tasks.reschedule` / `task.reschedule` /
   `tasks.recompute_next` / `task.recompute_next` plus automation aliases as an
   Automation Contract recovery control. Agents can now recompute a task's next

@@ -2493,6 +2493,77 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.preview",
+                    aliases =
+                        listOf(
+                            "task.preview",
+                            "tasks.schedule.preview",
+                            "task.schedule.preview",
+                            "automations.preview",
+                            "automation.preview",
+                        ),
+                    description = "Preview an automation schedule without creating or updating a task.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "scheduleKind",
+                                required = true,
+                                description = "once | interval | cron",
+                            ),
+                            ToolArgumentSpec(
+                                name = "atIso",
+                                description = "ISO-8601 instant for once schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "anchorAtIso",
+                                description = "ISO-8601 anchor instant for interval schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "repeatEveryMinutes",
+                                description = "Positive interval minutes; must meet scheduler minimum.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "cronExpression",
+                                description = "Five-field cron expression for cron schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "timezone",
+                                description = "IANA timezone id for cron schedules.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val now = clock.instant()
+            val preview =
+                try {
+                    parseTaskSchedulePreview(
+                        arguments = arguments,
+                        capabilities = schedulerCoordinator.capabilities(),
+                        now = now,
+                    )
+                } catch (error: IllegalArgumentException) {
+                    return@Entry invalidTaskArguments(
+                        toolName = "tasks.preview",
+                        summary = error.message ?: "tasks.preview received invalid arguments.",
+                    )
+                }
+            when (preview) {
+                is TaskToolParseResult.Failure -> preview.result
+                is TaskToolParseResult.Success ->
+                    ToolExecutionResult.success(
+                        summary =
+                            if (preview.value.nextRunAt == null) {
+                                "Previewed schedule; no next run was produced."
+                            } else {
+                                "Previewed schedule."
+                            },
+                        payload = preview.value.toPayload(now = now),
+                    )
+            }
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.reschedule",
                     aliases =
                         listOf(

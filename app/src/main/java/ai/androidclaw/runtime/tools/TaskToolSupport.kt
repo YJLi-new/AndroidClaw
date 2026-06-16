@@ -38,6 +38,11 @@ internal data class TaskToolSpec(
     val maxRetries: Int,
 )
 
+internal data class TaskSchedulePreview(
+    val schedule: TaskSchedule,
+    val nextRunAt: Instant?,
+)
+
 internal sealed interface TaskToolParseResult<out T> {
     data class Success<T>(
         val value: T,
@@ -123,6 +128,34 @@ internal fun invalidTaskArguments(
                 put("field", field?.let(::JsonPrimitive) ?: JsonNull)
             },
     )
+
+internal fun parseTaskSchedulePreview(
+    arguments: JsonObject,
+    capabilities: SchedulerCapabilities,
+    now: Instant,
+    toolName: String = "tasks.preview",
+): TaskToolParseResult<TaskSchedulePreview> {
+    val schedule =
+        parseSchedule(
+            arguments = arguments,
+            existingSchedule = null,
+            capabilities = capabilities,
+            now = now,
+            toolName = toolName,
+        ) ?: return TaskToolParseResult.Failure(
+            invalidTaskArguments(
+                toolName = toolName,
+                summary = "$toolName requires a valid schedule payload.",
+                field = "scheduleKind",
+            ),
+        )
+    return TaskToolParseResult.Success(
+        TaskSchedulePreview(
+            schedule = schedule,
+            nextRunAt = taskNextRun(schedule = schedule, now = now),
+        ),
+    )
+}
 
 internal suspend fun parseTaskCreateSpec(
     arguments: JsonObject,
@@ -607,6 +640,15 @@ private fun TaskSchedule.toPayload(): JsonObject =
                 put("cronExpression", expression.toSpec())
                 put("timezone", zoneId.id)
             }
+    }
+
+internal fun TaskSchedulePreview.toPayload(now: Instant): JsonObject =
+    buildJsonObject {
+        put("nowIso", now.toString())
+        put("scheduleKind", schedule.kindName())
+        put("schedule", schedule.toPayload())
+        put("nextRunAtIso", nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("secondsUntilRun", nextRunAt?.let { Duration.between(now, it).seconds }?.let(::JsonPrimitive) ?: JsonNull)
     }
 
 private fun TaskRun.toPayload(): JsonObject =
