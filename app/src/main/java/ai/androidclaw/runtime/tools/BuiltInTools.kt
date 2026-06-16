@@ -105,6 +105,11 @@ internal fun createBuiltInToolRegistry(
                             )
                         },
                     )
+                    addAll(
+                        toolDiscoveryEntries(
+                            toolRegistryProvider = { toolRegistry },
+                        ),
+                    )
                     memoryRepository?.let { repository ->
                         addAll(
                             memoryToolEntries(
@@ -1176,6 +1181,138 @@ internal fun createBuiltInToolRegistry(
     return toolRegistry
 }
 
+private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List<ToolRegistry.Entry> =
+    listOf(
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tools.list",
+                    aliases = listOf("tool.list"),
+                    description = "List typed native tools with current availability and argument metadata.",
+                ),
+        ) { _, _ ->
+            val tools = toolRegistryProvider().descriptors()
+            ToolExecutionResult.success(
+                summary = "Found ${tools.size} tool(s).",
+                payload =
+                    buildJsonObject {
+                        put("toolCount", tools.size)
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                tools.forEach { tool ->
+                                    add(tool.toToolDescriptorPayload(includeInputSchema = false))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tools.get",
+                    aliases = listOf("tool.get"),
+                    description = "Return one typed native tool descriptor by canonical name or alias.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "toolName",
+                                required = false,
+                                description = "Canonical tool name or alias.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val requestedToolName =
+                arguments.optionalText("toolName")
+                    ?: arguments.optionalText("name")
+                    ?: return@Entry invalidToolDiscoveryArguments(
+                        toolName = "tools.get",
+                        summary = "tools.get requires a non-empty toolName.",
+                        field = "toolName",
+                    )
+            val tool =
+                toolRegistryProvider().findDescriptor(requestedToolName)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Tool $requestedToolName was not found.",
+                        errorCode = "TOOL_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TOOL_NOT_FOUND")
+                                put("toolName", requestedToolName)
+                            },
+                    )
+            ToolExecutionResult.success(
+                summary = "Loaded tool ${tool.name}.",
+                payload =
+                    buildJsonObject {
+                        put("tool", tool.toToolDescriptorPayload(includeInputSchema = true))
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tools.search",
+                    aliases = listOf("tool.search"),
+                    description = "Search typed native tools by name, alias, description, permission, or argument metadata.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "query",
+                                required = true,
+                                description = "Tool text to search for.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum result count. Defaults to 20.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val query =
+                arguments.optionalText("query")
+                    ?: return@Entry invalidToolDiscoveryArguments(
+                        toolName = "tools.search",
+                        summary = "tools.search requires a non-empty query.",
+                        field = "query",
+                    )
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_SEARCH_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_SEARCH_MAX_LIMIT)
+            val matches =
+                toolRegistryProvider()
+                    .descriptors()
+                    .filter { tool -> tool.matchesToolQuery(query) }
+                    .take(limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (matches.isEmpty()) {
+                        "No tools matched \"$query\"."
+                    } else {
+                        "Found ${matches.size} tool(s) matching \"$query\"."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("query", query)
+                        put("resultCount", matches.size)
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                matches.forEach { tool ->
+                                    add(tool.toToolDescriptorPayload(includeInputSchema = false))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+    )
+
 // These handlers are the typed automation contract for v5. They intentionally mirror the
 // repository's real schedule model instead of inventing a second scheduler abstraction.
 private fun taskToolEntries(
@@ -1914,7 +2051,91 @@ private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
+private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
+private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+
+private fun invalidToolDiscoveryArguments(
+    toolName: String,
+    summary: String,
+    field: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = summary,
+        errorCode = "INVALID_ARGUMENTS",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_ARGUMENTS")
+                put("toolName", toolName)
+                put("field", field)
+            },
+    )
+
+private fun ToolDescriptor.matchesToolQuery(query: String): Boolean {
+    val normalizedQuery = query.lowercase()
+    val values =
+        buildList {
+            add(name)
+            add(description)
+            addAll(aliases)
+            add(availability.status.name)
+            availability.reason?.let(::add)
+            requiredPermissions.forEach { permission ->
+                add(permission.permission)
+                add(permission.displayName)
+            }
+            arguments.forEach { argument ->
+                add(argument.name)
+                add(argument.description)
+            }
+        }
+    return values.any { value -> value.lowercase().contains(normalizedQuery) }
+}
+
+private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("description", description)
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+        put("foregroundRequired", foregroundRequired)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "requiredPermissions",
+            buildJsonArray {
+                requiredPermissions.forEach { permission ->
+                    add(
+                        buildJsonObject {
+                            put("permission", permission.permission)
+                            put("displayName", permission.displayName)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "arguments",
+            buildJsonArray {
+                arguments.forEach { argument ->
+                    add(
+                        buildJsonObject {
+                            put("name", argument.name)
+                            put("required", argument.required)
+                            put("description", argument.description)
+                        },
+                    )
+                }
+            },
+        )
+        put("inputSchema", if (includeInputSchema) inputSchema else JsonNull)
+    }
 
 private fun skillToggleDescriptor(
     name: String,

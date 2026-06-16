@@ -161,6 +161,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   agents to find relevant disabled or ineligible skills before calling
   `skills.get` or toggling them. Focused `BuiltInToolsTest`, ktlint, and the
   full offline fast loop passed.
+- 2026-06-16: Added `tools.list` / `tool.list`, `tools.get` / `tool.get`, and
+  `tools.search` / `tool.search` as typed Tool Contract introspection tools.
+  Agents can now inspect canonical tool names, aliases, availability,
+  permissions, arguments, and input schemas without relying on the coarse
+  `health.status` payload. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

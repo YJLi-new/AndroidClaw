@@ -1301,6 +1301,102 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools list and get expose typed descriptors`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val listed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.list"),
+                    arguments = buildJsonObject {},
+                )
+            val loaded =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "task.copy")
+                        },
+                )
+
+            assertTrue(listed.success)
+            val tools = listed.payload.getValue("tools").jsonArray
+            assertTrue(
+                tools.any { tool ->
+                    tool.jsonObject
+                        .getValue("name")
+                        .jsonPrimitive.content == "tools.get"
+                },
+            )
+            assertTrue(
+                tools.any { tool ->
+                    tool.jsonObject
+                        .getValue("name")
+                        .jsonPrimitive.content == "tasks.create"
+                },
+            )
+            assertTrue(loaded.success)
+            val tool = loaded.payload.getValue("tool").jsonObject
+            assertEquals("tasks.duplicate", tool.getValue("name").jsonPrimitive.content)
+            assertTrue(
+                tool
+                    .getValue("aliases")
+                    .jsonArray
+                    .any { alias -> alias.jsonPrimitive.content == "task.copy" },
+            )
+            assertTrue(
+                tool
+                    .getValue("inputSchema")
+                    .jsonObject
+                    .getValue("properties")
+                    .jsonObject
+                    .containsKey("taskId"),
+            )
+        }
+
+    @Test
+    fun `tools search returns matching descriptors`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "notification title")
+                        },
+                )
+
+            assertTrue(result.success)
+            val tools = result.payload.getValue("tools").jsonArray
+            assertTrue(
+                tools.any { tool ->
+                    tool.jsonObject
+                        .getValue("name")
+                        .jsonPrimitive.content == "notifications.post"
+                },
+            )
+            val notificationTool =
+                tools
+                    .first { tool ->
+                        tool.jsonObject
+                            .getValue("name")
+                            .jsonPrimitive.content == "notifications.post"
+                    }.jsonObject
+            assertTrue(
+                notificationTool
+                    .getValue("arguments")
+                    .jsonArray
+                    .any { argument ->
+                        argument.jsonObject
+                            .getValue("name")
+                            .jsonPrimitive.content == "title"
+                    },
+            )
+        }
+
+    @Test
     fun `skills list returns eligibility metadata`() =
         runTest {
             val registry =
