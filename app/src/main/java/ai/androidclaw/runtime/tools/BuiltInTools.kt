@@ -114,9 +114,24 @@ internal fun createBuiltInToolRegistry(
                                     name = "sessions.list",
                                     aliases = listOf("session.list"),
                                     description = "List known chat sessions.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "includeArchived",
+                                                description = "Set true to include archived sessions.",
+                                            ),
+                                        ),
                                 ),
-                        ) { _, _ ->
-                            val sessions = sessionRepository.observeSessions().first()
+                        ) { _, arguments ->
+                            val includeArchived = arguments.optionalBoolean("includeArchived")
+                            val activeSessions = sessionRepository.observeSessions().first()
+                            val sessions =
+                                if (includeArchived) {
+                                    (activeSessions + sessionRepository.observeArchivedSessions().first())
+                                        .sortedByDescending { session -> session.updatedAt }
+                                } else {
+                                    activeSessions
+                                }
                             ToolExecutionResult.success(
                                 summary =
                                     if (sessions.isEmpty()) {
@@ -127,6 +142,7 @@ internal fun createBuiltInToolRegistry(
                                 payload =
                                     buildJsonObject {
                                         put("sessionCount", sessions.size)
+                                        put("includeArchived", includeArchived)
                                         put(
                                             "sessions",
                                             buildJsonArray {
@@ -142,6 +158,121 @@ internal fun createBuiltInToolRegistry(
                                                 }
                                             },
                                         )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "sessions.archive",
+                                    aliases = listOf("session.archive"),
+                                    description = "Archive a normal chat session so it leaves the active session list.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to archive. Defaults to the active session.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to archive.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            if (existingSession.isMain) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "The main session cannot be archived.",
+                                    errorCode = "MAIN_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MAIN_SESSION")
+                                            put("sessionId", sessionId)
+                                        },
+                                )
+                            }
+                            sessionRepository.archiveSession(sessionId)
+                            val archivedSession = sessionRepository.getSession(sessionId)
+                            ToolExecutionResult.success(
+                                summary = "Archived session \"${archivedSession?.title ?: existingSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", sessionId)
+                                        put("title", archivedSession?.title ?: existingSession.title)
+                                        put("isMain", existingSession.isMain)
+                                        put("archived", archivedSession?.archived ?: true)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "sessions.unarchive",
+                                    aliases = listOf("session.unarchive"),
+                                    description = "Restore an archived chat session to the active session list.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to restore. Defaults to the active session.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active or specified session is available to restore.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            sessionRepository.unarchiveSession(sessionId)
+                            val restoredSession = sessionRepository.getSession(sessionId)
+                            ToolExecutionResult.success(
+                                summary = "Restored session \"${restoredSession?.title ?: existingSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", sessionId)
+                                        put("title", restoredSession?.title ?: existingSession.title)
+                                        put("isMain", restoredSession?.isMain ?: existingSession.isMain)
+                                        put("archived", restoredSession?.archived ?: false)
                                     },
                             )
                         },
@@ -997,6 +1128,18 @@ private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
+}
+
+private fun kotlinx.serialization.json.JsonObject.optionalBoolean(
+    field: String,
+    defaultValue: Boolean = false,
+): Boolean {
+    val primitive = this[field] as? JsonPrimitive ?: return defaultValue
+    return when (primitive.contentOrNull?.trim()?.lowercase()) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> defaultValue
+    }
 }
 
 private fun kotlinx.serialization.json.JsonObject.optionalInt(

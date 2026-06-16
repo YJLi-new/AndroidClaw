@@ -64,6 +64,11 @@ class SessionRepository(
             sessions.map(SessionEntity::toDomain)
         }
 
+    fun observeArchivedSessions(): Flow<List<Session>> =
+        dao.getArchivedSessions().map { sessions ->
+            sessions.map(SessionEntity::toDomain)
+        }
+
     suspend fun updateTitle(
         id: String,
         title: String,
@@ -84,6 +89,16 @@ class SessionRepository(
             existing.copy(
                 updatedAt = now,
                 archivedAt = now,
+            ),
+        )
+    }
+
+    suspend fun unarchiveSession(id: String) {
+        val existing = dao.getById(id) ?: return
+        dao.update(
+            existing.copy(
+                updatedAt = Instant.now().toEpochMilli(),
+                archivedAt = null,
             ),
         )
     }

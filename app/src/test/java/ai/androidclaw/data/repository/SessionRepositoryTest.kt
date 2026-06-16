@@ -66,7 +66,7 @@ class SessionRepositoryTest {
         }
 
     @Test
-    fun `update title and archive session persist state`() =
+    fun `update title archive and unarchive session persist state`() =
         runTest {
             val created = repository.createSession(title = "Draft")
 
@@ -78,6 +78,12 @@ class SessionRepositoryTest {
             assertEquals("Renamed", stored?.title)
             assertTrue(stored?.archived == true)
             assertTrue(repository.observeSessions().first().isEmpty())
+
+            repository.unarchiveSession(created.id)
+
+            val restored = repository.getSession(created.id)
+            assertTrue(restored?.archived == false)
+            assertEquals(listOf(created.id), repository.observeSessions().first().map { it.id })
         }
 
     @Test

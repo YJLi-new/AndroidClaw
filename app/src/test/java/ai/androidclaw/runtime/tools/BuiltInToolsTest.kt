@@ -144,6 +144,77 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions archive hides session until list includes archived and unarchive restores it`() =
+        runTest {
+            sessionRepository.getOrCreateMainSession()
+            val session = sessionRepository.createSession("Project archive")
+            val registry = buildRegistry()
+
+            val archived =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.archive", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+            val activeList =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.list"),
+                    arguments = buildJsonObject {},
+                )
+            val archivedList =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.list"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeArchived", true)
+                        },
+                )
+            assertTrue(archived.success)
+            assertEquals(true.toString(), archived.payload["archived"]?.jsonPrimitive?.content)
+            assertTrue(sessionRepository.getSession(session.id)?.archived == true)
+            assertFalse(
+                activeList.payload["sessions"]
+                    ?.jsonArray
+                    ?.any { item -> item.jsonObject["id"]?.jsonPrimitive?.content == session.id }
+                    ?: true,
+            )
+            assertTrue(
+                archivedList.payload["sessions"]
+                    ?.jsonArray
+                    ?.any { item -> item.jsonObject["id"]?.jsonPrimitive?.content == session.id }
+                    ?: false,
+            )
+            val restored =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.unarchive"),
+                    arguments =
+                        buildJsonObject {
+                            put("sessionId", session.id)
+                        },
+                )
+
+            assertTrue(restored.success)
+            assertEquals(false.toString(), restored.payload["archived"]?.jsonPrimitive?.content)
+            assertTrue(sessionRepository.getSession(session.id)?.archived == false)
+        }
+
+    @Test
+    fun `sessions archive rejects the main session`() =
+        runTest {
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.archive", sessionId = mainSession.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(result.success)
+            assertEquals("MAIN_SESSION", result.errorCode)
+            assertTrue(sessionRepository.getSession(mainSession.id)?.archived == false)
+        }
+
+    @Test
     fun `sessions rename updates active session title`() =
         runTest {
             val session = sessionRepository.createSession("Untitled project")
