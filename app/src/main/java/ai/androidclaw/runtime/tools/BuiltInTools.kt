@@ -1,5 +1,7 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.ProviderSettingsSnapshot
+import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.Task
@@ -105,6 +107,7 @@ internal fun createBuiltInToolRegistry(
                             )
                         },
                     )
+                    addAll(providerToolEntries(settingsDataStore))
                     addAll(
                         toolDiscoveryEntries(
                             toolRegistryProvider = { toolRegistry },
@@ -1181,6 +1184,106 @@ internal fun createBuiltInToolRegistry(
     return toolRegistry
 }
 
+private fun providerToolEntries(settingsDataStore: SettingsDataStore): List<ToolRegistry.Entry> =
+    listOf(
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "providers.list",
+                    aliases = listOf("provider.list"),
+                    description = "List available model providers and current non-secret endpoint settings.",
+                ),
+        ) { _, _ ->
+            val settings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Found ${ProviderType.entries.size} provider(s).",
+                payload =
+                    buildJsonObject {
+                        put("currentProviderId", settings.providerType.providerId)
+                        put("currentProviderDisplayName", settings.providerType.displayName)
+                        put("providerCount", ProviderType.entries.size)
+                        put(
+                            "providers",
+                            buildJsonArray {
+                                ProviderType.entries.forEach { providerType ->
+                                    add(providerType.toProviderPayload(settings))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "providers.current",
+                    aliases = listOf("provider.current", "providers.status", "provider.status"),
+                    description = "Return the selected model provider and its current non-secret endpoint settings.",
+                ),
+        ) { _, _ ->
+            val settings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Current provider is ${settings.providerType.displayName}.",
+                payload =
+                    buildJsonObject {
+                        put("provider", settings.providerType.toProviderPayload(settings))
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "providers.get",
+                    aliases = listOf("provider.get"),
+                    description = "Return one provider by id, storage value, or display name.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "providers.get requires a non-empty providerId.",
+                        errorCode = "INVALID_ARGUMENTS",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "INVALID_ARGUMENTS")
+                                put("toolName", "providers.get")
+                                put("field", "providerId")
+                            },
+                    )
+            val providerType =
+                ProviderType.entries.firstOrNull { providerType ->
+                    providerType.matchesProviderIdentifier(identifier)
+                } ?: return@Entry ToolExecutionResult.failure(
+                    summary = "Provider $identifier was not found.",
+                    errorCode = "PROVIDER_NOT_FOUND",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "PROVIDER_NOT_FOUND")
+                            put("toolName", "providers.get")
+                            put("providerId", identifier)
+                        },
+                )
+            val settings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Loaded provider ${providerType.displayName}.",
+                payload =
+                    buildJsonObject {
+                        put("provider", providerType.toProviderPayload(settings))
+                    },
+            )
+        },
+    )
+
 private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List<ToolRegistry.Entry> =
     listOf(
         ToolRegistry.Entry(
@@ -2054,6 +2157,38 @@ private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
+
+private fun ProviderType.matchesProviderIdentifier(identifier: String): Boolean =
+    providerId.equals(identifier, ignoreCase = true) ||
+        storageValue.equals(identifier, ignoreCase = true) ||
+        displayName.equals(identifier, ignoreCase = true) ||
+        name.equals(identifier, ignoreCase = true)
+
+private fun ProviderType.toProviderPayload(settings: ProviderSettingsSnapshot): JsonObject =
+    buildJsonObject {
+        put("storageValue", storageValue)
+        put("providerId", providerId)
+        put("displayName", displayName)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("requiresRemoteSettings", requiresRemoteSettings)
+        put("requiresApiKey", requiresApiKey)
+        put("usesOpenAiCodexOAuth", usesOpenAiCodexOAuth)
+        put("selected", settings.providerType == this@toProviderPayload)
+        put(
+            "endpointSettings",
+            if (requiresRemoteSettings) {
+                val endpointSettings = settings.endpointSettings(this@toProviderPayload)
+                buildJsonObject {
+                    put("baseUrl", endpointSettings.baseUrl)
+                    put("modelId", endpointSettings.modelId)
+                    put("timeoutSeconds", endpointSettings.timeoutSeconds)
+                }
+            } else {
+                JsonNull
+            },
+        )
+    }
 
 private fun invalidToolDiscoveryArguments(
     toolName: String,

@@ -167,6 +167,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
   permissions, arguments, and input schemas without relying on the coarse
   `health.status` payload. Focused `BuiltInToolsTest`, ktlint, and the full
   offline fast loop passed.
+- 2026-06-16: Added `providers.list` / `provider.list`, `providers.current` /
+  `provider.current`, and `providers.get` / `provider.get` as typed provider
+  introspection tools. They expose the selected provider, protocol/auth mode,
+  and non-secret endpoint/model/timeout settings for all configured provider
+  families, improving provider/OAuth legibility without exposing stored
+  credentials. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

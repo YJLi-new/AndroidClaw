@@ -1301,6 +1301,82 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider tools expose selected provider and endpoint metadata`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            val registry = buildRegistry()
+
+            val listed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.list"),
+                    arguments = buildJsonObject {},
+                )
+            val current =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.current"),
+                    arguments = buildJsonObject {},
+                )
+            val deepSeek =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                        },
+                )
+
+            assertTrue(listed.success)
+            assertEquals(
+                "openai-compatible",
+                listed.payload
+                    .getValue("currentProviderId")
+                    .jsonPrimitive.content,
+            )
+            val selectedProvider =
+                listed.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive.content == "openai-compatible"
+                    }.jsonObject
+            assertEquals("true", selectedProvider.getValue("selected").jsonPrimitive.content)
+            assertEquals("ApiKey", selectedProvider.getValue("authMode").jsonPrimitive.content)
+            assertEquals(
+                "https://api.openai.com/v1",
+                selectedProvider
+                    .getValue("endpointSettings")
+                    .jsonObject
+                    .getValue("baseUrl")
+                    .jsonPrimitive.content,
+            )
+
+            assertTrue(current.success)
+            assertEquals(
+                "openai-compatible",
+                current.payload
+                    .getValue("provider")
+                    .jsonObject
+                    .getValue("providerId")
+                    .jsonPrimitive.content,
+            )
+            assertTrue(deepSeek.success)
+            assertEquals(
+                "deepseek-v4-flash",
+                deepSeek.payload
+                    .getValue("provider")
+                    .jsonObject
+                    .getValue("endpointSettings")
+                    .jsonObject
+                    .getValue("modelId")
+                    .jsonPrimitive.content,
+            )
+        }
+
+    @Test
     fun `tools list and get expose typed descriptors`() =
         runTest {
             val registry = buildRegistry()
