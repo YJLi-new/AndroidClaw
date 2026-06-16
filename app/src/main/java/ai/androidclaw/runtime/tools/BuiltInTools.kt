@@ -53,6 +53,9 @@ internal fun createBuiltInToolRegistry(
     schedulerCoordinator: SchedulerCoordinator,
     bundledSkillsProvider: suspend () -> List<SkillSnapshot>,
     skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
+    skillInventoryRefresher: suspend (sessionId: String?, forceRefresh: Boolean) -> List<SkillSnapshot> = { _, _ ->
+        bundledSkillsProvider()
+    },
     providerSecretStore: ProviderSecretStore? = null,
     messageRepository: MessageRepository,
     memoryRepository: MemoryRepository? = null,
@@ -196,6 +199,52 @@ internal fun createBuiltInToolRegistry(
                                                             put("archived", session.archived)
                                                         },
                                                     )
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.refresh",
+                                    aliases = listOf("skill.refresh", "skills.rescan", "skill.rescan"),
+                                    description = "Force reload bundled, local, and workspace skill inventory.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Workspace session id to include. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "forceRefresh",
+                                                description = "Set false to reuse caches when available. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            val forceRefresh = arguments.optionalBoolean("forceRefresh", defaultValue = true)
+                            val skills =
+                                skillInventoryRefresher(
+                                    sessionId,
+                                    forceRefresh,
+                                )
+                            ToolExecutionResult.success(
+                                summary = "Reloaded ${skills.size} skill(s).",
+                                payload =
+                                    buildJsonObject {
+                                        put("skillCount", skills.size)
+                                        put("sessionId", sessionId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("forceRefresh", forceRefresh)
+                                        put(
+                                            "skills",
+                                            buildJsonArray {
+                                                skills.forEach { skill ->
+                                                    add(skill.toSkillSearchPayload())
                                                 }
                                             },
                                         )

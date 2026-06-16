@@ -105,6 +105,12 @@ class AppContainer(
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = { skillManagerRef.refreshSkillInventory() },
             skillEnabledUpdater = { skillId, enabled -> skillManagerRef.setEnabled(skillId, enabled) },
+            skillInventoryRefresher = { sessionId, forceRefresh ->
+                skillManagerRef.refreshSkillInventory(
+                    sessionId = sessionId,
+                    forceRefresh = forceRefresh,
+                )
+            },
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

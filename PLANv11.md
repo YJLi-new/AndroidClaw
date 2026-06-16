@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.refresh` /
+  `skill.refresh` / `skills.rescan` / `skill.rescan` as a Skill Contract
+  inventory control. Agents can now force a bounded reload of bundled, local,
+  and active-session workspace skills after imports or filesystem changes, with
+  optional session scoping and compact metadata payloads that avoid returning
+  full `SKILL.md` bodies. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `tasks.run.retry` /
   `task.run.retry` / `tasks.retry_run` / `task.retry_run` plus automation
   aliases as an Automation Contract recovery control. Agents can now queue a

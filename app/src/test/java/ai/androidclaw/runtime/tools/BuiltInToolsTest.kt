@@ -2790,6 +2790,54 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills refresh forces inventory reload for active session`() =
+        runTest {
+            var capturedSessionId: String? = null
+            var capturedForceRefresh: Boolean? = null
+            val refreshedSkill =
+                skillSnapshot(
+                    id = "workspace-helper",
+                    name = "workspace-helper",
+                ).copy(
+                    sourceType = ai.androidclaw.runtime.skills.SkillSourceType.Workspace,
+                    workspaceSessionId = "session-1",
+                )
+            val registry =
+                buildRegistry(
+                    skillInventoryRefresher = { sessionId, forceRefresh ->
+                        capturedSessionId = sessionId
+                        capturedForceRefresh = forceRefresh
+                        listOf(refreshedSkill)
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context =
+                        ToolExecutionContext.internal(
+                            requestedName = "skill.rescan",
+                            sessionId = "session-1",
+                        ),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("session-1", capturedSessionId)
+            assertEquals(true, capturedForceRefresh)
+            assertEquals("1", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("session-1", result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["forceRefresh"]?.jsonPrimitive?.content)
+            val skill =
+                result.payload
+                    .getValue("skills")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("workspace-helper", skill.getValue("id").jsonPrimitive.content)
+            assertEquals("Workspace", skill.getValue("sourceType").jsonPrimitive.content)
+        }
+
+    @Test
     fun `skills stats returns aggregate inventory metadata without instructions`() =
         runTest {
             val toolSkill =
@@ -4033,6 +4081,8 @@ class BuiltInToolsTest {
         bundledSkills: List<ai.androidclaw.runtime.skills.SkillSnapshot> = emptyList(),
         bundledSkillsProvider: suspend () -> List<ai.androidclaw.runtime.skills.SkillSnapshot> = { bundledSkills },
         skillEnabledUpdater: suspend (skillId: String, enabled: Boolean) -> Unit = { _, _ -> },
+        skillInventoryRefresher: suspend (sessionId: String?, forceRefresh: Boolean) -> List<ai.androidclaw.runtime.skills.SkillSnapshot> =
+            { _, _ -> bundledSkillsProvider() },
         providerSecretStore: ProviderSecretStore? = null,
     ): ToolRegistry =
         createBuiltInToolRegistry(
@@ -4043,6 +4093,7 @@ class BuiltInToolsTest {
             schedulerCoordinator = schedulerCoordinator,
             bundledSkillsProvider = bundledSkillsProvider,
             skillEnabledUpdater = skillEnabledUpdater,
+            skillInventoryRefresher = skillInventoryRefresher,
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,
