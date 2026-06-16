@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.uncompact` /
+  `session.uncompact` / `sessions.decompact` / `sessions.expand` plus singular
+  aliases as a Session Contract compaction recovery tool. Agents can now clear
+  an active or specified session's compaction boundary so older messages become
+  visible again while preserving the saved summary by default; deleting the
+  summary is supported only with `clearSummary=true` and `confirm=CONFIRM`.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `sessions.activity` /
   `session.activity` / `sessions.timeline` / `session.timeline` plus recent
   aliases as a Session Contract activity overview. Agents can now inspect a

@@ -1399,6 +1399,91 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions uncompact clears boundary while preserving summary by default`() =
+        runTest {
+            val session = sessionRepository.createSession("Expand transcript")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Boundary answer",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Keep this summary.",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.expand", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["clearSummary"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["previousCompacted"]?.jsonPrimitive?.content)
+            assertEquals(boundary.id, result.payload["previousCompactedUntilMessageId"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["compacted"]?.jsonPrimitive?.content)
+            assertEquals("18", result.payload["summaryLength"]?.jsonPrimitive?.content)
+            val stored = sessionRepository.getSession(session.id)
+            assertEquals("Keep this summary.", stored?.summaryText)
+            assertEquals(null, stored?.compactedUntilMessageId)
+        }
+
+    @Test
+    fun `sessions uncompact clear summary requires confirmation`() =
+        runTest {
+            val session = sessionRepository.createSession("Clear compact summary")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Boundary answer",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Remove this summary.",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val rejected =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.uncompact", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("clearSummary", true)
+                        },
+                )
+
+            assertFalse(rejected.success)
+            assertEquals("CONFIRMATION_REQUIRED", rejected.errorCode)
+            assertEquals("Remove this summary.", sessionRepository.getSession(session.id)?.summaryText)
+
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.decompact"),
+                    arguments =
+                        buildJsonObject {
+                            put("sessionId", session.id)
+                            put("clearSummary", true)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(cleared.success)
+            assertEquals(true.toString(), cleared.payload["clearSummary"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), cleared.payload["compacted"]?.jsonPrimitive?.content)
+            assertEquals("0", cleared.payload["summaryLength"]?.jsonPrimitive?.content)
+            val stored = sessionRepository.getSession(session.id)
+            assertEquals(null, stored?.summaryText)
+            assertEquals(null, stored?.compactedUntilMessageId)
+        }
+
+    @Test
     fun `tasks list returns canonical task payloads and latest run summary`() =
         runTest {
             val task =

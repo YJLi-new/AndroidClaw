@@ -1935,6 +1935,105 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.uncompact",
+                                    aliases =
+                                        listOf(
+                                            "session.uncompact",
+                                            "sessions.decompact",
+                                            "session.decompact",
+                                            "sessions.expand",
+                                            "session.expand",
+                                        ),
+                                    description = "Clear a session compaction boundary so older messages become visible again.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to uncompact. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "clearSummary",
+                                                description = "Set true to also delete the stored summary. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Required as CONFIRM when clearSummary is true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to uncompact.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val clearSummary = arguments.optionalBoolean("clearSummary")
+                            if (clearSummary && arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm clearSummary with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("sessionId", sessionId)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            if (clearSummary) {
+                                sessionRepository.updateSummaryState(
+                                    id = sessionId,
+                                    summaryText = null,
+                                    compactedUntilMessageId = null,
+                                )
+                            } else {
+                                sessionRepository.clearCompactionBoundary(sessionId)
+                            }
+                            val updatedSession = sessionRepository.getSession(sessionId) ?: existingSession
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (existingSession.compactedUntilMessageId == null && !clearSummary) {
+                                        "Session \"${updatedSession.title}\" was already expanded."
+                                    } else {
+                                        "Expanded session \"${updatedSession.title}\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", updatedSession.id)
+                                        put("title", updatedSession.title)
+                                        put("archived", updatedSession.archived)
+                                        put("clearSummary", clearSummary)
+                                        put("previousCompacted", existingSession.compactedUntilMessageId != null)
+                                        put("previousCompactedUntilMessageId", existingSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("previousSummaryLength", existingSession.summaryText?.length ?: 0)
+                                        put("compacted", updatedSession.compactedUntilMessageId != null)
+                                        put("compactedUntilMessageId", updatedSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("summaryLength", updatedSession.summaryText?.length ?: 0)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.list",
                                     aliases = listOf("skill.list"),
                                     description = "List bundled skills and their current eligibility.",
