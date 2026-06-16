@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.reschedule` / `task.reschedule` /
+  `tasks.recompute_next` / `task.recompute_next` plus automation aliases as an
+  Automation Contract recovery control. Agents can now recompute a task's next
+  scheduled run from its schedule without executing it, clear stale retry
+  state, and re-enqueue or cancel work according to the recalculated future.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.snooze` / `task.snooze` /
   `tasks.postpone` / `task.postpone` plus automation aliases as an Automation
   Contract triage control. Agents can now postpone a currently due automation

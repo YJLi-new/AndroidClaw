@@ -2493,6 +2493,85 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.reschedule",
+                    aliases =
+                        listOf(
+                            "task.reschedule",
+                            "tasks.recompute_next",
+                            "task.recompute_next",
+                            "automations.reschedule",
+                            "automation.reschedule",
+                        ),
+                    description = "Recompute an automation's next run from its schedule without executing it.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Task identifier",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.reschedule",
+                    summary = "tasks.reschedule requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.reschedule", taskId = taskId)
+            val rescheduledAt = clock.instant()
+            val recalculatedNextRunAt = schedulerCoordinator.taskPlanner.nextScheduledRun(task, rescheduledAt)
+            val updatedTask =
+                task.copy(
+                    nextRunAt = recalculatedNextRunAt,
+                    failureCount = 0,
+                    updatedAt = rescheduledAt,
+                )
+            taskRepository.updateTask(updatedTask)
+            if (updatedTask.enabled) {
+                schedulerCoordinator.scheduleTask(updatedTask.id)
+            } else {
+                schedulerCoordinator.cancelTask(updatedTask.id)
+            }
+            val reloadedTask = taskRepository.getTask(updatedTask.id) ?: updatedTask
+            ToolExecutionResult.success(
+                summary =
+                    if (reloadedTask.nextRunAt == null) {
+                        "Rescheduled task ${reloadedTask.name}; no future run remains."
+                    } else {
+                        "Rescheduled task ${reloadedTask.name}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("rescheduledAtIso", rescheduledAt.toString())
+                        put("previousNextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("nextRunAtIso", reloadedTask.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("failureCountCleared", task.failureCount != 0)
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.snooze",
                     aliases =
                         listOf(

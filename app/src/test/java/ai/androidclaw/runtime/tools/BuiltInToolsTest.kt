@@ -42,6 +42,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 
@@ -1151,6 +1152,66 @@ class BuiltInToolsTest {
             assertEquals(Instant.parse("2026-03-08T02:00:00Z"), taskRepository.getTask(untilTask.id)?.nextRunAt)
             assertFalse(notDueResult.success)
             assertEquals("TASK_NOT_DUE", notDueResult.errorCode)
+        }
+
+    @Test
+    fun `tasks reschedule recomputes next run and clears retry state`() =
+        runTest {
+            val intervalTask =
+                taskRepository.createTask(
+                    name = "Interval automation",
+                    prompt = "Run on interval",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-07T00:00:00Z"),
+                            repeatEvery = Duration.ofDays(1),
+                        ),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                    maxRetries = 3,
+                )
+            taskRepository.updateTask(
+                intervalTask.copy(
+                    nextRunAt = Instant.parse("2026-03-07T00:00:00Z"),
+                    failureCount = 2,
+                ),
+            )
+            val onceTask =
+                taskRepository.createTask(
+                    name = "Past one-shot automation",
+                    prompt = "No future run",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val intervalResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.reschedule"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", intervalTask.id)
+                        },
+                )
+            val onceResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.recompute_next"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", onceTask.id)
+                        },
+                )
+
+            assertTrue(intervalResult.summary, intervalResult.success)
+            assertEquals("2026-03-07T00:00:00Z", intervalResult.payload["previousNextRunAtIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-09T00:00:00Z", intervalResult.payload["nextRunAtIso"]?.jsonPrimitive?.content)
+            assertEquals("true", intervalResult.payload["failureCountCleared"]?.jsonPrimitive?.content)
+            val reloadedIntervalTask = taskRepository.getTask(intervalTask.id)
+            assertEquals(Instant.parse("2026-03-09T00:00:00Z"), reloadedIntervalTask?.nextRunAt)
+            assertEquals(0, reloadedIntervalTask?.failureCount)
+            assertTrue(onceResult.summary, onceResult.success)
+            assertEquals(null, taskRepository.getTask(onceTask.id)?.nextRunAt)
         }
 
     @Test
