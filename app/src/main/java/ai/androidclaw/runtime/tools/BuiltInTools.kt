@@ -2969,6 +2969,99 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.arguments",
+                    aliases =
+                        listOf(
+                            "tool.arguments",
+                            "tools.by_argument",
+                            "tool.by_argument",
+                            "tools.arg",
+                            "tool.arg",
+                        ),
+                    description = "Summarize argument names or list tools that declare one argument.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "argumentName",
+                                required = false,
+                                description = "Optional argument name to filter by. Alias: name.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "requiredOnly",
+                                description = "Set true to include only tools where the matched argument is required.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum result count. Defaults to 50, max 100.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val requestedArgumentName = arguments.optionalText("argumentName") ?: arguments.optionalText("name")
+            val requiredOnly = arguments.optionalBoolean("requiredOnly")
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_ARGUMENTS_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_ARGUMENTS_MAX_LIMIT)
+            if (requestedArgumentName == null) {
+                return@Entry ToolExecutionResult.success(
+                    summary = "Summarized declared arguments across ${tools.size} tool(s).",
+                    payload =
+                        tools.toToolArgumentStatsPayload(
+                            limit = limit,
+                            requiredOnly = requiredOnly,
+                        ),
+                )
+            }
+
+            val matchingTools =
+                tools.mapNotNull { tool ->
+                    val matchingArguments =
+                        tool.arguments.filter { argument ->
+                            argument.name.equals(requestedArgumentName, ignoreCase = true) &&
+                                (!requiredOnly || argument.required)
+                        }
+                    if (matchingArguments.isEmpty()) {
+                        null
+                    } else {
+                        tool to matchingArguments
+                    }
+                }
+            val limitedMatches = matchingTools.take(limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (matchingTools.isEmpty()) {
+                        "No tools declare argument $requestedArgumentName."
+                    } else {
+                        "Found ${limitedMatches.size} tool(s) declaring argument $requestedArgumentName."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("argumentName", requestedArgumentName)
+                        put("requiredOnly", requiredOnly)
+                        put("limit", limit)
+                        put("totalMatchCount", matchingTools.size)
+                        put("resultCount", limitedMatches.size)
+                        if (matchingTools.size > limitedMatches.size) {
+                            put("omittedCount", matchingTools.size - limitedMatches.size)
+                        }
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                limitedMatches.forEach { (tool, matchingArguments) ->
+                                    add(tool.toToolArgumentMatchPayload(matchingArguments))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.search",
                     aliases = listOf("tool.search"),
                     description = "Search typed native tools by name, alias, description, permission, or argument metadata.",
@@ -5093,6 +5186,8 @@ private const val TASK_SNOOZE_DEFAULT_DELAY_MINUTES = 15L
 private const val TASK_SNOOZE_MAX_DELAY_MINUTES = 10_080L
 private const val TASK_UPCOMING_DEFAULT_LIMIT = 20
 private const val TASK_UPCOMING_MAX_LIMIT = 50
+private const val TOOL_ARGUMENTS_DEFAULT_LIMIT = 50
+private const val TOOL_ARGUMENTS_MAX_LIMIT = 100
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
@@ -5454,6 +5549,64 @@ private fun List<ToolDescriptor>.toToolPermissionStatsPayload(): JsonArray {
     }
 }
 
+private fun List<ToolDescriptor>.toToolArgumentStatsPayload(
+    limit: Int,
+    requiredOnly: Boolean,
+): JsonObject {
+    val stats =
+        flatMap { tool ->
+            tool.arguments
+                .filter { argument -> !requiredOnly || argument.required }
+                .map { argument -> tool to argument }
+        }.groupBy { (_, argument) -> argument.name }
+            .toList()
+            .sortedWith(
+                compareByDescending<Pair<String, List<Pair<ToolDescriptor, ToolArgumentSpec>>>> { (_, entries) ->
+                    entries.map { (tool, _) -> tool.name }.distinct().size
+                }.thenBy { (argumentName, _) -> argumentName },
+            )
+    val limitedStats = stats.take(limit)
+    return buildJsonObject {
+        put("argumentName", JsonNull)
+        put("requiredOnly", requiredOnly)
+        put("limit", limit)
+        put("uniqueArgumentCount", stats.size)
+        put("resultCount", limitedStats.size)
+        if (stats.size > limitedStats.size) {
+            put("omittedCount", stats.size - limitedStats.size)
+        }
+        put(
+            "arguments",
+            buildJsonArray {
+                limitedStats.forEach { (argumentName, entries) ->
+                    val toolNames = entries.map { (tool, _) -> tool.name }.distinct().sorted()
+                    val requiredCount = entries.count { (_, argument) -> argument.required }
+                    val optionalCount = entries.size - requiredCount
+                    add(
+                        buildJsonObject {
+                            put("name", argumentName)
+                            put("toolCount", toolNames.size)
+                            put("requiredCount", requiredCount)
+                            put("optionalCount", optionalCount)
+                            put(
+                                "sampleTools",
+                                buildJsonArray {
+                                    toolNames.take(5).forEach { toolName ->
+                                        add(JsonPrimitive(toolName))
+                                    }
+                                },
+                            )
+                            if (toolNames.size > 5) {
+                                put("sampleToolsOmitted", toolNames.size - 5)
+                            }
+                        },
+                    )
+                }
+            },
+        )
+    }
+}
+
 private fun ToolDescriptor.matchesToolQuery(query: String): Boolean {
     val normalizedQuery = query.lowercase()
     val values =
@@ -5474,6 +5627,40 @@ private fun ToolDescriptor.matchesToolQuery(query: String): Boolean {
         }
     return values.any { value -> value.lowercase().contains(normalizedQuery) }
 }
+
+private fun ToolDescriptor.toToolArgumentMatchPayload(matchingArguments: List<ToolArgumentSpec>): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("foregroundRequired", foregroundRequired)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+        put(
+            "matchingArguments",
+            buildJsonArray {
+                matchingArguments.forEach { argument ->
+                    add(argument.toToolArgumentPayload())
+                }
+            },
+        )
+    }
+
+private fun ToolArgumentSpec.toToolArgumentPayload(): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("required", required)
+        put("description", description)
+    }
 
 private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
     buildJsonObject {

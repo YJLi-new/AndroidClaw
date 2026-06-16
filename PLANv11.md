@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.arguments` /
+  `tool.arguments` / `tools.by_argument` / `tool.by_argument` plus short
+  argument aliases as a Tool Contract metadata-discovery helper. Agents can now
+  summarize declared argument names across the registry or list bounded tools
+  that declare a specific argument, with required-only filtering, availability,
+  aliases, and matching argument metadata without loading every schema. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tools.resolve` / `tool.resolve` /
   `tools.alias` / `tool.alias` as a Tool Contract alias-resolution helper.
   Agents can now resolve a requested canonical name or alias to the canonical

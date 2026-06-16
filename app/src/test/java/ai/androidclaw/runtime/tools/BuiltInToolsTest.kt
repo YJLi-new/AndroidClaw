@@ -3457,6 +3457,112 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools arguments summarizes and filters argument contract metadata`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val summary =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.arguments"),
+                    arguments = buildJsonObject {},
+                )
+            val filtered =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.by_argument"),
+                    arguments =
+                        buildJsonObject {
+                            put("argumentName", "taskId")
+                            put("limit", "2")
+                        },
+                )
+            val required =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.arguments"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "taskId")
+                            put("requiredOnly", "true")
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.arguments"),
+                    arguments =
+                        buildJsonObject {
+                            put("argumentName", "missingArgument")
+                        },
+                )
+
+            assertTrue(summary.success)
+            assertEquals(JsonNull, summary.payload["argumentName"])
+            val argumentStats = summary.payload.getValue("arguments").jsonArray
+            val taskIdStats =
+                argumentStats
+                    .first { argument ->
+                        argument.jsonObject
+                            .getValue("name")
+                            .jsonPrimitive
+                            .content == "taskId"
+                    }.jsonObject
+            assertTrue(
+                taskIdStats
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() > 0,
+            )
+            assertTrue(taskIdStats.getValue("sampleTools").jsonArray.isNotEmpty())
+
+            assertTrue(filtered.success)
+            assertEquals("taskId", filtered.payload["argumentName"]?.jsonPrimitive?.content)
+            assertEquals("2", filtered.payload["limit"]?.jsonPrimitive?.content)
+            assertTrue(
+                filtered.payload
+                    .getValue("resultCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() <= 2,
+            )
+            assertTrue(
+                filtered.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .all { tool ->
+                        tool.jsonObject
+                            .getValue("matchingArguments")
+                            .jsonArray
+                            .any { argument ->
+                                argument.jsonObject
+                                    .getValue("name")
+                                    .jsonPrimitive
+                                    .content == "taskId"
+                            }
+                    },
+            )
+
+            assertTrue(required.success)
+            assertTrue(
+                required.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .flatMap { tool ->
+                        tool.jsonObject
+                            .getValue("matchingArguments")
+                            .jsonArray
+                    }.all { argument ->
+                        argument.jsonObject
+                            .getValue("required")
+                            .jsonPrimitive
+                            .content == true.toString()
+                    },
+            )
+
+            assertTrue(missing.success)
+            assertEquals("0", missing.payload["totalMatchCount"]?.jsonPrimitive?.content)
+            assertEquals("0", missing.payload["resultCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tools stats summarizes registry metadata without schemas`() =
         runTest {
             val registry = buildRegistry()
