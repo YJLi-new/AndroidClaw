@@ -962,6 +962,77 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks due returns due enabled automations in scheduled order`() =
+        runTest {
+            val olderDueTask =
+                taskRepository.createTask(
+                    name = "Older due automation",
+                    prompt = "Run first",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val newerDueTask =
+                taskRepository.createTask(
+                    name = "Newer due automation",
+                    prompt = "Run second",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                )
+            val futureTask =
+                taskRepository.createTask(
+                    name = "Future automation",
+                    prompt = "Run later",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled due automation",
+                    prompt = "Do not include",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-05T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.due"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["dueTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-06T00:00:00Z", result.payload["oldestDueAtIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-07T00:00:00Z", result.payload["newestDueAtIso"]?.jsonPrimitive?.content)
+            val tasks =
+                result.payload
+                    .getValue("tasks")
+                    .jsonArray
+                    .map { task -> task.jsonObject }
+            assertEquals(
+                listOf(olderDueTask.id, newerDueTask.id),
+                tasks.map { task -> task.getValue("id").jsonPrimitive.content },
+            )
+            assertEquals("true", tasks[0].getValue("due").jsonPrimitive.content)
+            assertEquals("172800", tasks[0].getValue("secondsOverdue").jsonPrimitive.content)
+            assertTrue(
+                tasks.none { task ->
+                    task.getValue("id").jsonPrimitive.content == disabledTask.id ||
+                        task.getValue("id").jsonPrimitive.content == futureTask.id
+                },
+            )
+        }
+
+    @Test
     fun `tasks runs returns bounded recent run history`() =
         runTest {
             val task =

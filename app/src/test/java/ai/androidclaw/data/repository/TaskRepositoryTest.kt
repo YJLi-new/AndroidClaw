@@ -199,6 +199,27 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `limited due task query returns valid enabled tasks in next run order`() =
+        runTest {
+            database.taskDao().insert(taskEntity(id = "newer-due-task", enabled = true, nextRunAt = 30L))
+            database.taskDao().insert(taskEntity(id = "disabled-task", enabled = false, nextRunAt = 5L))
+            database.taskDao().insert(taskEntity(id = "unscheduled-task", enabled = true, nextRunAt = null))
+            database.taskDao().insert(taskEntity(id = "future-task", enabled = true, nextRunAt = 40L))
+            database.taskDao().insert(taskEntity(id = "older-due-task", enabled = true, nextRunAt = 20L))
+            database.taskDao().insert(invalidTaskEntity(id = "invalid-task", nextRunAt = 10L))
+
+            val due = repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(35L), limit = 10)
+            val limited = repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(35L), limit = 1)
+
+            assertEquals(listOf("older-due-task", "newer-due-task"), due.map { task -> task.id })
+            assertEquals(listOf("older-due-task"), limited.map { task -> task.id })
+            assertEquals(
+                emptyList<ai.androidclaw.data.model.Task>(),
+                repository.getEnabledTasksDueBefore(Instant.ofEpochMilli(35L), limit = 0),
+            )
+        }
+
+    @Test
     fun `task stats aggregate task scheduling and run status state`() =
         runTest {
             database.taskDao().insert(

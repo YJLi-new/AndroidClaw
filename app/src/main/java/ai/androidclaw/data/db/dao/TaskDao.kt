@@ -38,6 +38,19 @@ interface TaskDao {
     @Query(
         """
         SELECT * FROM tasks
+        WHERE enabled = 1 AND nextRunAt IS NOT NULL AND nextRunAt <= :instant
+        ORDER BY nextRunAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getEnabledTasksDueBeforeLimited(
+        instant: Long,
+        limit: Int,
+    ): List<TaskEntity>
+
+    @Query(
+        """
+        SELECT * FROM tasks
         WHERE enabled = 1 AND nextRunAt IS NOT NULL
         ORDER BY nextRunAt ASC
         LIMIT :limit

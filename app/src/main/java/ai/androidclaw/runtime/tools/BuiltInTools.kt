@@ -2568,6 +2568,68 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.due",
+                    aliases =
+                        listOf(
+                            "task.due",
+                            "tasks.overdue",
+                            "task.overdue",
+                            "automations.due",
+                            "automation.due",
+                        ),
+                    description = "List enabled automations that are currently due, ordered by scheduled run time.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum task count. Defaults to 20, max 50.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_DUE_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_DUE_MAX_LIMIT)
+            val now = clock.instant()
+            val tasks = taskRepository.getEnabledTasksDueBefore(instant = now, limit = limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (tasks.isEmpty()) {
+                        "No due enabled automations found."
+                    } else {
+                        "Loaded ${tasks.size} due enabled automation(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("nowIso", now.toString())
+                        put("returnedCount", tasks.size)
+                        put("taskCount", tasks.size)
+                        put("dueTaskCount", tasks.size)
+                        put(
+                            "oldestDueAtIso",
+                            tasks.firstOrNull()?.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                        )
+                        put(
+                            "newestDueAtIso",
+                            tasks.lastOrNull()?.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                        )
+                        put(
+                            "tasks",
+                            buildJsonArray {
+                                tasks.forEach { task ->
+                                    add(task.toDueTaskPayload(now = now))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.next",
                     aliases =
                         listOf(
@@ -3210,6 +3272,8 @@ private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
+private const val TASK_DUE_DEFAULT_LIMIT = 20
+private const val TASK_DUE_MAX_LIMIT = 50
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TASK_UPCOMING_DEFAULT_LIMIT = 20
@@ -4036,6 +4100,32 @@ private fun Task.toUpcomingTaskPayload(now: Instant): JsonObject {
         put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
         put("due", nextRun?.isAfter(now) == false)
         put("secondsUntilRun", nextRun?.let { Duration.between(now, it).seconds }?.let(::JsonPrimitive) ?: JsonNull)
+        put("promptSnippet", promptSnippet)
+        put("promptLength", prompt.length)
+        put("promptTruncated", promptSnippet.length < prompt.length)
+    }
+}
+
+private fun Task.toDueTaskPayload(now: Instant): JsonObject {
+    val promptSnippet = prompt.toMessageSearchSnippet()
+    val nextRun = nextRunAt
+    return buildJsonObject {
+        put("id", id)
+        put("name", name)
+        put("enabled", enabled)
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("executionMode", executionMode.name)
+        put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("nextRunAtIso", nextRun?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("due", nextRun?.isAfter(now) == false)
+        put(
+            "secondsOverdue",
+            nextRun
+                ?.let { Duration.between(it, now).seconds.coerceAtLeast(0) }
+                ?.let(::JsonPrimitive)
+                ?: JsonNull,
+        )
         put("promptSnippet", promptSnippet)
         put("promptLength", prompt.length)
         put("promptTruncated", promptSnippet.length < prompt.length)

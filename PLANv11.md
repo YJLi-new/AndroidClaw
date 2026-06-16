@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.due` / `task.due` /
+  `tasks.overdue` / `task.overdue` plus automation aliases as a lightweight
+  Automation Contract triage tool. It lists bounded enabled scheduled tasks
+  that are due at the current clock time, reports overdue age in seconds, and
+  skips disabled, unscheduled, future, or malformed schedule rows before
+  returning results. Focused repository/tool tests, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-16: Shifted the active slice selection to feature-first per user
   direction. Paused the interrupted provider-metadata boundary hardening WIP and
   selected a small Session/Tool Contract feature: a typed `sessions.rename`
