@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.clear` /
+  `session.clear` / `sessions.messages.clear` / `session.messages.clear` plus
+  transcript clear aliases as a Session Contract transcript reset control.
+  Agents can now clear all messages from an active or specified session only
+  with `confirm=CONFIRM`, preserve the session row and summary by default,
+  optionally clear the summary, and always clear stale compaction-boundary
+  message ids after transcript deletion. Focused `BuiltInToolsTest`, ktlint,
+  and the full offline fast loop passed.
 - 2026-06-17: Added `tools.namespaces` /
   `tool.namespaces` / `tools.namespace` / `tool.namespace` plus group aliases
   as a Tool Contract namespace-discovery helper. Agents can now summarize

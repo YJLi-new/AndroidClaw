@@ -583,6 +583,97 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions clear requires confirmation and clears transcript while preserving session`() =
+        runTest {
+            val session = sessionRepository.createSession("Clear transcript")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Remove this prompt",
+                )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Remove this answer",
+            )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Keep this summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.clear", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertEquals("2", messageRepository.getMessageCount(session.id).toString())
+
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.clear", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(cleared.success)
+            assertEquals(session.id, cleared.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("2", cleared.payload["deletedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("0", cleared.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), cleared.payload["clearSummary"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), cleared.payload["summaryPreserved"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), cleared.payload["previousCompacted"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, cleared.payload["compactedUntilMessageId"])
+            assertEquals(emptyList<ai.androidclaw.data.model.ChatMessage>(), messageRepository.getMessages(session.id))
+            val updatedSession = requireNotNull(sessionRepository.getSession(session.id))
+            assertEquals("Clear transcript", updatedSession.title)
+            assertEquals("Keep this summary", updatedSession.summaryText)
+            assertEquals(null, updatedSession.compactedUntilMessageId)
+        }
+
+    @Test
+    fun `sessions clear can also clear summary after confirmation`() =
+        runTest {
+            val session = sessionRepository.createSession("Clear all transcript metadata")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Remove me",
+            )
+            sessionRepository.updateSummary(
+                id = session.id,
+                summaryText = "Remove this summary too",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.messages.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("sessionId", session.id)
+                            put("clearSummary", true)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("1", result.payload["deletedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["clearSummary"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["summaryPreserved"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["summaryLength"]?.jsonPrimitive?.content)
+            assertEquals(0, messageRepository.getMessageCount(session.id))
+            assertEquals(null, sessionRepository.getSession(session.id)?.summaryText)
+        }
+
+    @Test
     fun `sessions archive hides session until list includes archived and unarchive restores it`() =
         runTest {
             sessionRepository.getOrCreateMainSession()

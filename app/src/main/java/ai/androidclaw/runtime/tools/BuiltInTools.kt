@@ -229,6 +229,108 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.clear",
+                                    aliases =
+                                        listOf(
+                                            "session.clear",
+                                            "sessions.messages.clear",
+                                            "session.messages.clear",
+                                            "messages.clear",
+                                            "chat.clear",
+                                        ),
+                                    description = "Clear a session transcript while preserving the session row.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to clear. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "clearSummary",
+                                                description = "Set true to also delete the stored summary. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to clear.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            if (arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm transcript clearing with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("sessionId", sessionId)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val clearSummary = arguments.optionalBoolean("clearSummary")
+                            val previousMessageCount = messageRepository.getMessageCount(sessionId)
+                            messageRepository.deleteSessionMessages(sessionId)
+                            sessionRepository.updateSummaryState(
+                                id = sessionId,
+                                summaryText =
+                                    if (clearSummary) {
+                                        null
+                                    } else {
+                                        existingSession.summaryText
+                                    },
+                                compactedUntilMessageId = null,
+                            )
+                            val updatedSession = sessionRepository.getSession(sessionId) ?: existingSession
+                            val remainingMessageCount = messageRepository.getMessageCount(sessionId)
+                            ToolExecutionResult.success(
+                                summary = "Cleared $previousMessageCount message(s) from session \"${updatedSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", updatedSession.id)
+                                        put("title", updatedSession.title)
+                                        put("isMain", updatedSession.isMain)
+                                        put("archived", updatedSession.archived)
+                                        put("deletedMessageCount", previousMessageCount)
+                                        put("messageCount", remainingMessageCount)
+                                        put("clearSummary", clearSummary)
+                                        put("summaryPreserved", !clearSummary && updatedSession.summaryText != null)
+                                        put("previousSummaryLength", existingSession.summaryText?.length ?: 0)
+                                        put("summaryLength", updatedSession.summaryText?.length ?: 0)
+                                        put("previousCompacted", existingSession.compactedUntilMessageId != null)
+                                        put("previousCompactedUntilMessageId", existingSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("compacted", updatedSession.compactedUntilMessageId != null)
+                                        put("compactedUntilMessageId", updatedSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.secret.clear",
                                     aliases =
                                         listOf(
