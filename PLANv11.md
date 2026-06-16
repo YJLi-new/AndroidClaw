@@ -266,6 +266,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   reports total, active, archived, main, summarized, and compacted session
   counts plus timestamp bounds without loading transcripts or message payloads.
   Focused repository/tool tests, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `skills.stats` / `skill.stats` as a lightweight Skill
+  Contract aggregate tool. It reports enabled/disabled, eligible/ineligible,
+  model-ready, tool-dispatch, frontmatter/parse-error, source-type,
+  eligibility, dispatch, resolution, secret, and config counts without loading
+  full `SKILL.md` instruction bodies. Focused `BuiltInToolsTest`, ktlint, and
+  the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

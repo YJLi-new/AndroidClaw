@@ -1852,6 +1852,113 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills stats returns aggregate inventory metadata without instructions`() =
+        runTest {
+            val toolSkill =
+                skillSnapshot(
+                    id = "notify",
+                    name = "notify",
+                    commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                    commandTool = "notifications.post",
+                    eligibility =
+                        ai.androidclaw.runtime.skills.SkillEligibility(
+                            status = ai.androidclaw.runtime.skills.SkillEligibilityStatus.MissingTool,
+                            reasons = listOf("Tool blocked: notifications.post"),
+                        ),
+                ).copy(
+                    sourceType = ai.androidclaw.runtime.skills.SkillSourceType.Local,
+                    secretStatuses = mapOf("NOTIFY_TOKEN" to false, "NOTIFY_ROOM" to true),
+                    configStatuses = mapOf("notify.endpoint" to false, "notify.room" to true),
+                )
+            val shadowedInvalid =
+                skillSnapshot(
+                    id = "shadowed",
+                    name = "shadowed",
+                    eligibility =
+                        ai.androidclaw.runtime.skills.SkillEligibility(
+                            status = ai.androidclaw.runtime.skills.SkillEligibilityStatus.Invalid,
+                            reasons = listOf("Invalid frontmatter"),
+                        ),
+                ).copy(
+                    sourceType = ai.androidclaw.runtime.skills.SkillSourceType.Workspace,
+                    frontmatter = null,
+                    parseError = "Invalid frontmatter",
+                    resolutionState = ai.androidclaw.runtime.skills.SkillResolutionState.Shadowed,
+                    shadowedBy = "bundled-shadowed",
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "ready", name = "ready"),
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false),
+                            toolSkill,
+                            shadowedInvalid,
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.stats"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals("4", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["enabledSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["disabledSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["eligibleSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["ineligibleSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["modelReadySkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["toolDispatchSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["missingFrontmatterCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["parseErrorCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["skillsWithSecretFieldsCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["totalSecretFieldCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["missingSecretFieldCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["skillsWithConfigFieldsCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["totalConfigFieldCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["missingConfigFieldCount"]?.jsonPrimitive?.content)
+            val eligibilityStats =
+                result.payload
+                    .getValue("eligibilityStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("eligibilityStatus").jsonPrimitive.content to
+                            payload.getValue("skillCount").jsonPrimitive.content
+                    }
+            val dispatchStats =
+                result.payload
+                    .getValue("commandDispatchStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("commandDispatch").jsonPrimitive.content to
+                            payload.getValue("skillCount").jsonPrimitive.content
+                    }
+            val sourceStats =
+                result.payload
+                    .getValue("sourceTypeStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("sourceType").jsonPrimitive.content to
+                            payload.getValue("skillCount").jsonPrimitive.content
+                    }
+            assertEquals("2", eligibilityStats.getValue("Eligible"))
+            assertEquals("1", eligibilityStats.getValue("Invalid"))
+            assertEquals("1", eligibilityStats.getValue("MissingTool"))
+            assertEquals("2", dispatchStats.getValue("Model"))
+            assertEquals("1", dispatchStats.getValue("Tool"))
+            assertEquals("1", dispatchStats.getValue("MissingFrontmatter"))
+            assertEquals("2", sourceStats.getValue("Bundled"))
+            assertEquals("1", sourceStats.getValue("Local"))
+            assertEquals("1", sourceStats.getValue("Workspace"))
+            assertFalse(result.payload.containsKey("instructionsMd"))
+        }
+
+    @Test
     fun `skills get returns frontmatter and instructions`() =
         runTest {
             val registry =

@@ -17,6 +17,9 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskSchedule
+import ai.androidclaw.runtime.skills.SkillCommandDispatch
+import ai.androidclaw.runtime.skills.SkillEligibilityStatus
+import ai.androidclaw.runtime.skills.SkillResolutionState
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import android.app.Application
 import android.app.NotificationChannel
@@ -1028,6 +1031,22 @@ internal fun createBuiltInToolRegistry(
                                             },
                                         )
                                     },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.stats",
+                                    aliases = listOf("skill.stats"),
+                                    description = "Return aggregate skill inventory statistics without loading SKILL.md instructions.",
+                                ),
+                        ) { _, _ ->
+                            val skills = bundledSkillsProvider()
+                            ToolExecutionResult.success(
+                                summary = "Loaded stats for ${skills.size} skill(s).",
+                                payload = skills.toSkillStatsPayload(),
                             )
                         },
                     )
@@ -3317,6 +3336,92 @@ private fun SkillSnapshot.toSkillSearchPayload(): JsonObject {
         put("instructionsTruncated", instructionSnippet.length < instructionsMd.length)
     }
 }
+
+private fun List<SkillSnapshot>.toSkillStatsPayload(): JsonObject {
+    val totalSecretFieldCount = sumOf { skill -> skill.secretStatuses.size }
+    val missingSecretFieldCount = sumOf { skill -> skill.secretStatuses.count { (_, configured) -> !configured } }
+    val totalConfigFieldCount = sumOf { skill -> skill.configStatuses.size }
+    val missingConfigFieldCount = sumOf { skill -> skill.configStatuses.count { (_, configured) -> !configured } }
+    val modelReadySkillCount =
+        count { skill ->
+            val frontmatter = skill.frontmatter ?: return@count false
+            skill.enabled &&
+                skill.resolutionState == SkillResolutionState.Effective &&
+                skill.eligibility.status == SkillEligibilityStatus.Eligible &&
+                frontmatter.commandDispatch == SkillCommandDispatch.Model &&
+                !frontmatter.disableModelInvocation
+        }
+    return buildJsonObject {
+        put("skillCount", size)
+        put("enabledSkillCount", count { skill -> skill.enabled })
+        put("disabledSkillCount", count { skill -> !skill.enabled })
+        put("eligibleSkillCount", count { skill -> skill.eligibility.status == SkillEligibilityStatus.Eligible })
+        put("ineligibleSkillCount", count { skill -> skill.eligibility.status != SkillEligibilityStatus.Eligible })
+        put("modelReadySkillCount", modelReadySkillCount)
+        put("toolDispatchSkillCount", count { skill -> skill.frontmatter?.commandDispatch == SkillCommandDispatch.Tool })
+        put("missingFrontmatterCount", count { skill -> skill.frontmatter == null })
+        put("parseErrorCount", count { skill -> skill.parseError != null })
+        put("skillsWithSecretFieldsCount", count { skill -> skill.secretStatuses.isNotEmpty() })
+        put("totalSecretFieldCount", totalSecretFieldCount)
+        put("missingSecretFieldCount", missingSecretFieldCount)
+        put("skillsWithConfigFieldsCount", count { skill -> skill.configStatuses.isNotEmpty() })
+        put("totalConfigFieldCount", totalConfigFieldCount)
+        put("missingConfigFieldCount", missingConfigFieldCount)
+        put(
+            "sourceTypeStats",
+            buildJsonArray {
+                groupedCounts { skill -> skill.sourceType.name }
+                    .forEach { (sourceType, count) ->
+                        add(namedCountPayload(nameField = "sourceType", name = sourceType, countField = "skillCount", count = count))
+                    }
+            },
+        )
+        put(
+            "eligibilityStats",
+            buildJsonArray {
+                groupedCounts { skill -> skill.eligibility.status.name }
+                    .forEach { (status, count) ->
+                        add(namedCountPayload(nameField = "eligibilityStatus", name = status, countField = "skillCount", count = count))
+                    }
+            },
+        )
+        put(
+            "commandDispatchStats",
+            buildJsonArray {
+                groupedCounts { skill -> skill.frontmatter?.commandDispatch?.name ?: "MissingFrontmatter" }
+                    .forEach { (dispatch, count) ->
+                        add(namedCountPayload(nameField = "commandDispatch", name = dispatch, countField = "skillCount", count = count))
+                    }
+            },
+        )
+        put(
+            "resolutionStateStats",
+            buildJsonArray {
+                groupedCounts { skill -> skill.resolutionState.name }
+                    .forEach { (state, count) ->
+                        add(namedCountPayload(nameField = "resolutionState", name = state, countField = "skillCount", count = count))
+                    }
+            },
+        )
+    }
+}
+
+private fun List<SkillSnapshot>.groupedCounts(selector: (SkillSnapshot) -> String): List<Pair<String, Int>> =
+    groupingBy(selector)
+        .eachCount()
+        .toList()
+        .sortedBy { (name, _) -> name }
+
+private fun namedCountPayload(
+    nameField: String,
+    name: String,
+    countField: String,
+    count: Int,
+): JsonObject =
+    buildJsonObject {
+        put(nameField, name)
+        put(countField, count)
+    }
 
 private fun SkillSnapshot.toSkillDetailPayload(includeInstructions: Boolean): JsonObject {
     val instructionsSnippet =
