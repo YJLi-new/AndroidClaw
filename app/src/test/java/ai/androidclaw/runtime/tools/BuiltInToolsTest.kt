@@ -7,6 +7,7 @@ import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.db.entity.EventLogEntity
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.TaskRunStatus
@@ -2157,6 +2158,75 @@ class BuiltInToolsTest {
             assertEquals("1", errorStats.payload["matchedEventCount"]?.jsonPrimitive?.content)
             assertFalse(invalidCategory.success)
             assertEquals("INVALID_ARGUMENTS", invalidCategory.errorCode)
+        }
+
+    @Test
+    fun `events trim deletes old diagnostics after explicit confirmation`() =
+        runTest {
+            val registry = buildRegistry()
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "old-event",
+                    timestamp = 1L,
+                    category = "system",
+                    level = "info",
+                    message = "Old event",
+                    detailsJson = null,
+                ),
+            )
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "fresh-event",
+                    timestamp = 3_000L,
+                    category = "provider",
+                    level = "warn",
+                    message = "Fresh event",
+                    detailsJson = null,
+                ),
+            )
+
+            val rejected =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.trim"),
+                    arguments =
+                        buildJsonObject {
+                            put("olderThanIso", "1970-01-01T00:00:02Z")
+                            put("confirm", "no")
+                        },
+                )
+            val trimmed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.trim"),
+                    arguments =
+                        buildJsonObject {
+                            put("olderThanIso", "1970-01-01T00:00:02Z")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+            val invalidCutoff =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.trim"),
+                    arguments =
+                        buildJsonObject {
+                            put("olderThanIso", "not-a-timestamp")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(rejected.success)
+            assertEquals("MISSING_TRIM_CONFIRMATION", rejected.errorCode)
+            assertTrue(trimmed.success)
+            assertEquals("1", trimmed.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertEquals("1970-01-01T00:00:02Z", trimmed.payload["olderThanIso"]?.jsonPrimitive?.content)
+            val remainingIds =
+                eventLogRepository
+                    .observeRecent(limit = 20)
+                    .first()
+                    .map { event -> event.id }
+            assertFalse(remainingIds.contains("old-event"))
+            assertTrue(remainingIds.contains("fresh-event"))
+            assertFalse(invalidCutoff.success)
+            assertEquals("INVALID_ARGUMENTS", invalidCutoff.errorCode)
         }
 
     @Test

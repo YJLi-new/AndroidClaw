@@ -37,6 +37,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.Clock
 import java.time.Instant
+import java.time.format.DateTimeParseException
 
 internal fun createBuiltInToolRegistry(
     application: Application,
@@ -1999,6 +2000,66 @@ private fun eventToolEntries(
                         )
                         put("countsByCategory", matchingEvents.toEventCategoryCountsPayload())
                         put("countsByLevel", matchingEvents.toEventLevelCountsPayload())
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "events.trim",
+                    aliases = listOf("event.trim", "logs.trim", "log.trim"),
+                    description = "Delete local event logs older than an ISO-8601 cutoff after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "olderThanIso",
+                                required = true,
+                                description = "ISO-8601 cutoff. Events before this instant are deleted.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                required = true,
+                                description = "Must be CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val olderThanIso =
+                arguments.optionalText("olderThanIso")
+                    ?: return@Entry invalidEventArguments(
+                        summary = "events.trim requires a non-empty olderThanIso.",
+                        field = "olderThanIso",
+                        toolName = "events.trim",
+                    )
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Pass confirm=CONFIRM to trim old event logs.",
+                    errorCode = "MISSING_TRIM_CONFIRMATION",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "MISSING_TRIM_CONFIRMATION")
+                            put("toolName", "events.trim")
+                        },
+                )
+            }
+            val cutoff =
+                try {
+                    Instant.parse(olderThanIso)
+                } catch (_: DateTimeParseException) {
+                    return@Entry invalidEventArguments(
+                        summary = "events.trim received an invalid olderThanIso.",
+                        field = "olderThanIso",
+                        received = olderThanIso,
+                        toolName = "events.trim",
+                    )
+                }
+            val deletedCount = eventLogRepository.trimOlderThan(cutoff)
+            ToolExecutionResult.success(
+                summary = "Trimmed $deletedCount event log(s) older than $cutoff.",
+                payload =
+                    buildJsonObject {
+                        put("olderThanIso", cutoff.toString())
+                        put("deletedCount", deletedCount)
                     },
             )
         },

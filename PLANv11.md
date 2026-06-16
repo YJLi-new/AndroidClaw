@@ -237,6 +237,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   category/level histograms, optional category/level filters, and newest/oldest
   timestamps for the matched window. Focused `BuiltInToolsTest`, ktlint, and the
   full offline fast loop passed.
+- 2026-06-16: Added `events.trim` / `event.trim` / `logs.trim` / `log.trim`
+  to prune local event logs older than an explicit ISO-8601 cutoff after
+  `confirm=CONFIRM`. The tool returns typed confirmation/argument failures,
+  uses the existing EventLogRepository retention path, preserves newer events,
+  and focused `BuiltInToolsTest`, ktlint, plus the full offline fast loop
+  passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
