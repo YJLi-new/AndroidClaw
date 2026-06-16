@@ -1524,6 +1524,196 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.move",
+                                    aliases =
+                                        listOf(
+                                            "message.move",
+                                            "messages.transfer",
+                                            "message.transfer",
+                                            "chat.message.move",
+                                        ),
+                                    description = "Move one chat message into a different target session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messageId",
+                                                required = false,
+                                                description = "Message identifier to move. The alias id is also accepted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "id",
+                                                description = "Alias for messageId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "targetSessionId",
+                                                description = "Destination session id. Defaults to the active session when it differs from the source.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Alias for targetSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val messageId =
+                                arguments.optionalText("messageId")
+                                    ?: arguments.optionalText("id")
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.move requires a non-empty messageId.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("field", "messageId")
+                                            },
+                                    )
+                            val sourceMessage =
+                                messageRepository.getMessage(messageId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Message $messageId was not found.",
+                                        errorCode = "MISSING_MESSAGE",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_MESSAGE")
+                                                put("messageId", messageId)
+                                            },
+                                    )
+                            val sourceSession =
+                                sessionRepository.getSession(sourceMessage.sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session ${sourceMessage.sessionId} for message $messageId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", messageId)
+                                                put("sessionId", sourceMessage.sessionId)
+                                            },
+                                    )
+                            val targetSessionId =
+                                arguments.optionalText("targetSessionId")
+                                    ?: arguments.optionalText("sessionId")
+                                    ?: context.sessionId
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "messages.move requires a targetSessionId or different active session.",
+                                        errorCode = "INVALID_ARGUMENTS",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "INVALID_ARGUMENTS")
+                                                put("messageId", sourceMessage.id)
+                                                put("field", "targetSessionId")
+                                            },
+                                    )
+                            if (targetSessionId == sourceSession.id) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "messages.move targetSessionId must differ from the source session.",
+                                    errorCode = "INVALID_TARGET_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_TARGET_SESSION")
+                                            put("messageId", sourceMessage.id)
+                                            put("sourceSessionId", sourceSession.id)
+                                            put("targetSessionId", targetSessionId)
+                                        },
+                                )
+                            }
+                            val targetSession =
+                                sessionRepository.getSession(targetSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Target session $targetSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("messageId", sourceMessage.id)
+                                                put("targetSessionId", targetSessionId)
+                                            },
+                                    )
+                            if (arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm message move with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("messageId", sourceMessage.id)
+                                            put("sourceSessionId", sourceSession.id)
+                                            put("targetSessionId", targetSession.id)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val movedMessage =
+                                messageRepository.addMessage(
+                                    sessionId = targetSession.id,
+                                    role = sourceMessage.role,
+                                    content = sourceMessage.content,
+                                    providerMeta = sourceMessage.providerMeta,
+                                    toolCallId = sourceMessage.toolCallId,
+                                    taskRunId = sourceMessage.taskRunId,
+                                )
+                            val deleted = messageRepository.deleteMessage(sourceMessage.id)
+                            if (!deleted) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Message ${sourceMessage.id} was copied but the source could not be deleted.",
+                                    errorCode = "MOVE_SOURCE_DELETE_FAILED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MOVE_SOURCE_DELETE_FAILED")
+                                            put("sourceMessageId", sourceMessage.id)
+                                            put("movedMessageId", movedMessage.id)
+                                            put("targetSessionId", targetSession.id)
+                                        },
+                                )
+                            }
+                            val wasCompactionBoundary = sourceSession.compactedUntilMessageId == sourceMessage.id
+                            if (wasCompactionBoundary) {
+                                sessionRepository.clearCompactionBoundary(sourceSession.id)
+                            }
+                            val updatedSourceSession = sessionRepository.getSession(sourceSession.id) ?: sourceSession
+                            val updatedTargetSession = sessionRepository.getSession(targetSession.id) ?: targetSession
+                            val contentSnippet = movedMessage.content.toMessageSearchSnippet()
+                            ToolExecutionResult.success(
+                                summary = "Moved ${movedMessage.role.name} message into \"${updatedTargetSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sourceMessageId", sourceMessage.id)
+                                        put("messageId", movedMessage.id)
+                                        put("movedMessageId", movedMessage.id)
+                                        put("sourceSessionId", updatedSourceSession.id)
+                                        put("sourceSessionTitle", updatedSourceSession.title)
+                                        put("sourceSessionArchived", updatedSourceSession.archived)
+                                        put("targetSessionId", updatedTargetSession.id)
+                                        put("targetSessionTitle", updatedTargetSession.title)
+                                        put("targetSessionArchived", updatedTargetSession.archived)
+                                        put("role", movedMessage.role.name)
+                                        put("contentSnippet", contentSnippet)
+                                        put("contentLength", movedMessage.content.length)
+                                        put("contentTruncated", contentSnippet.length < movedMessage.content.length)
+                                        put("createdAtIso", movedMessage.createdAt.toString())
+                                        put("hasProviderMeta", movedMessage.providerMeta != null)
+                                        put("toolCallId", movedMessage.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("taskRunId", movedMessage.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("sourceMessageDeleted", true)
+                                        put("sourceMessageCount", messageRepository.getMessageCount(updatedSourceSession.id))
+                                        put("targetMessageCount", messageRepository.getMessageCount(updatedTargetSession.id))
+                                        put("wasCompactionBoundary", wasCompactionBoundary)
+                                        put("sourceCompactionBoundaryCleared", wasCompactionBoundary && updatedSourceSession.compactedUntilMessageId == null)
+                                        put("sourceCompactedUntilMessageId", updatedSourceSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("sourceSummaryPreserved", sourceSession.summaryText != null && updatedSourceSession.summaryText == sourceSession.summaryText)
+                                        put("sourceSummaryLength", updatedSourceSession.summaryText?.length ?: 0)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.update",
                                     aliases =
                                         listOf(

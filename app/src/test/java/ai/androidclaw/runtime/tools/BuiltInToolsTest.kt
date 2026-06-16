@@ -1069,6 +1069,131 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages move requires confirmation and moves message into active target session`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Move source")
+            val targetSession = sessionRepository.createSession("Move target")
+            val sourceMessage =
+                messageRepository.addMessage(
+                    sessionId = sourceSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.ToolCall,
+                    content = "Move this tool call.",
+                    providerMeta = """{"providerId":"fake"}""",
+                    toolCallId = "tool-call-move",
+                    taskRunId = "task-run-move",
+                )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.move", sessionId = targetSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", sourceMessage.id)
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertNotNull(messageRepository.getMessage(sourceMessage.id))
+            assertEquals(1, messageRepository.getMessageCount(sourceSession.id))
+            assertEquals(0, messageRepository.getMessageCount(targetSession.id))
+
+            val moved =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.move", sessionId = targetSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("id", sourceMessage.id)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(moved.success)
+            assertEquals(sourceMessage.id, moved.payload["sourceMessageId"]?.jsonPrimitive?.content)
+            assertEquals(sourceSession.id, moved.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals(targetSession.id, moved.payload["targetSessionId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), moved.payload["sourceMessageDeleted"]?.jsonPrimitive?.content)
+            assertEquals("0", moved.payload["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("1", moved.payload["targetMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("tool-call-move", moved.payload["toolCallId"]?.jsonPrimitive?.content)
+            assertEquals("task-run-move", moved.payload["taskRunId"]?.jsonPrimitive?.content)
+            val movedMessageId =
+                moved.payload
+                    .getValue("movedMessageId")
+                    .jsonPrimitive
+                    .content
+            assertTrue(movedMessageId != sourceMessage.id)
+            assertNull(messageRepository.getMessage(sourceMessage.id))
+            val movedMessage = messageRepository.getMessage(movedMessageId)
+            assertNotNull(movedMessage)
+            assertEquals(targetSession.id, movedMessage?.sessionId)
+            assertEquals(sourceMessage.role, movedMessage?.role)
+            assertEquals(sourceMessage.content, movedMessage?.content)
+            assertEquals(sourceMessage.providerMeta, movedMessage?.providerMeta)
+            assertEquals(sourceMessage.toolCallId, movedMessage?.toolCallId)
+            assertEquals(sourceMessage.taskRunId, movedMessage?.taskRunId)
+        }
+
+    @Test
+    fun `messages move clears source compaction boundary while preserving summary`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Move compacted source")
+            val targetSession = sessionRepository.createSession("Move compacted target")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = sourceSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Move compacted prompt.",
+                )
+            val survivor =
+                messageRepository.addMessage(
+                    sessionId = sourceSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Keep this source response.",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = sourceSession.id,
+                summaryText = "Earlier summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "message.transfer"),
+                    arguments =
+                        buildJsonObject {
+                            put("messageId", boundary.id)
+                            put("targetSessionId", targetSession.id)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(true.toString(), result.payload["wasCompactionBoundary"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["sourceCompactionBoundaryCleared"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["sourceSummaryPreserved"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload["sourceCompactedUntilMessageId"])
+            assertEquals("1", result.payload["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["targetMessageCount"]?.jsonPrimitive?.content)
+            val updatedSourceSession = sessionRepository.getSession(sourceSession.id)
+            assertEquals("Earlier summary", updatedSourceSession?.summaryText)
+            assertNull(updatedSourceSession?.compactedUntilMessageId)
+            assertNull(messageRepository.getMessage(boundary.id))
+            assertNotNull(messageRepository.getMessage(survivor.id))
+            val movedMessageId =
+                result.payload
+                    .getValue("movedMessageId")
+                    .jsonPrimitive
+                    .content
+            val movedMessage = messageRepository.getMessage(movedMessageId)
+            assertNotNull(movedMessage)
+            assertEquals(targetSession.id, movedMessage?.sessionId)
+            assertEquals("Move compacted prompt.", movedMessage?.content)
+        }
+
+    @Test
     fun `messages update requires confirmation and replaces only target content`() =
         runTest {
             val session = sessionRepository.createSession("Edit one message")

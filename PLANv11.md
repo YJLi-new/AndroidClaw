@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.move` / `message.move` /
+  `messages.transfer` / `message.transfer` plus chat-message move aliases as a
+  Session Contract transcript-organization control. Agents can now move one
+  message into a different active or specified target session only with
+  `confirm=CONFIRM`, preserve content/role/provider metadata/tool and task
+  references under a fresh message id, delete the source message, and clear a
+  stale source compaction boundary while preserving the source summary. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.copy` / `message.copy` /
   `messages.duplicate` / `message.duplicate` plus chat-message copy aliases as
   a Session Contract transcript-branching control. Agents can now copy one
