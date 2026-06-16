@@ -1772,6 +1772,96 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools stats summarizes registry metadata without schemas`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.stats"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            val descriptors = registry.descriptors()
+            val payload = result.payload
+            val toolsWithAliasesCount =
+                payload
+                    .getValue("toolsWithAliasesCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt()
+            val aliasCount =
+                payload
+                    .getValue("aliasCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt()
+            val toolsWithArgumentsCount =
+                payload
+                    .getValue("toolsWithArgumentsCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt()
+            val totalArgumentCount =
+                payload
+                    .getValue("totalArgumentCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt()
+            assertEquals(
+                descriptors.size.toString(),
+                payload
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "false",
+                payload
+                    .getValue("inputSchemaIncluded")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(payload.containsKey("inputSchema"))
+            assertTrue(toolsWithAliasesCount > 0)
+            assertTrue(aliasCount > 0)
+            assertTrue(toolsWithArgumentsCount > 0)
+            assertTrue(totalArgumentCount > 0)
+            assertTrue(
+                payload
+                    .getValue("availabilityStats")
+                    .jsonArray
+                    .any { stats ->
+                        val statsPayload = stats.jsonObject
+                        val toolCount =
+                            statsPayload
+                                .getValue("toolCount")
+                                .jsonPrimitive
+                                .content
+                                .toInt()
+                        statsPayload
+                            .getValue("status")
+                            .jsonPrimitive
+                            .content == "Available" &&
+                            toolCount > 0
+                    },
+            )
+            assertTrue(
+                payload
+                    .getValue("permissionStats")
+                    .jsonArray
+                    .any { stats ->
+                        stats.jsonObject
+                            .getValue("permission")
+                            .jsonPrimitive
+                            .content
+                            .isNotBlank()
+                    },
+            )
+        }
+
+    @Test
     fun `tools search returns matching descriptors`() =
         runTest {
             val registry = buildRegistry()

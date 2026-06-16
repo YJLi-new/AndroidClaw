@@ -272,6 +272,11 @@ available, or use the repo's Windows AVD scripts for manual QA.
   eligibility, dispatch, resolution, secret, and config counts without loading
   full `SKILL.md` instruction bodies. Focused `BuiltInToolsTest`, ktlint, and
   the full offline fast loop passed.
+- 2026-06-16: Added `tools.stats` / `tool.stats` as a lightweight Tool Contract
+  aggregate tool. It reports total tools, aliases, argument metadata,
+  foreground requirements, permission requirements, and availability/permission
+  histograms without returning full input schemas. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

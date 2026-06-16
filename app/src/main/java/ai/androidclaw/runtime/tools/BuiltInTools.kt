@@ -1654,6 +1654,20 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.stats",
+                    aliases = listOf("tool.stats"),
+                    description = "Summarize typed native tool registry metadata without returning schemas.",
+                ),
+        ) { _, _ ->
+            val tools = toolRegistryProvider().descriptors()
+            ToolExecutionResult.success(
+                summary = "Summarized ${tools.size} tool(s).",
+                payload = tools.toToolStatsPayload(),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.list",
                     aliases = listOf("tool.list"),
                     description = "List typed native tools with current availability and argument metadata.",
@@ -3176,6 +3190,69 @@ private fun invalidToolDiscoveryArguments(
                 put("field", field)
             },
     )
+
+private fun List<ToolDescriptor>.toToolStatsPayload(): JsonObject =
+    buildJsonObject {
+        put("toolCount", size)
+        put("totalToolCount", size)
+        put("availableToolCount", count { tool -> tool.availability.status == ToolAvailabilityStatus.Available })
+        put("foregroundRequiredToolCount", count { tool -> tool.foregroundRequired })
+        put("toolsWithRequiredPermissionsCount", count { tool -> tool.requiredPermissions.isNotEmpty() })
+        put("totalRequiredPermissionCount", sumOf { tool -> tool.requiredPermissions.size })
+        put("toolsWithAliasesCount", count { tool -> tool.aliases.isNotEmpty() })
+        put("aliasCount", sumOf { tool -> tool.aliases.size })
+        put("toolsWithArgumentsCount", count { tool -> tool.arguments.isNotEmpty() })
+        put("totalArgumentCount", sumOf { tool -> tool.arguments.size })
+        put("requiredArgumentCount", sumOf { tool -> tool.arguments.count { argument -> argument.required } })
+        put("inputSchemaIncluded", false)
+        put("availabilityStats", toToolAvailabilityStatsPayload())
+        put("permissionStats", toToolPermissionStatsPayload())
+    }
+
+private fun List<ToolDescriptor>.toToolAvailabilityStatsPayload(): JsonArray {
+    val countsByStatus = groupingBy { tool -> tool.availability.status }.eachCount()
+    return buildJsonArray {
+        ToolAvailabilityStatus.entries.forEach { status ->
+            countsByStatus[status]?.let { count ->
+                add(
+                    buildJsonObject {
+                        put("status", status.name)
+                        put("toolCount", count)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun List<ToolDescriptor>.toToolPermissionStatsPayload(): JsonArray {
+    val stats =
+        flatMap { tool ->
+            tool.requiredPermissions.map { permission ->
+                tool.name to permission
+            }
+        }.groupBy { (_, permission) ->
+            permission.permission to permission.displayName
+        }.toList()
+            .sortedWith(
+                compareBy(
+                    { (permissionKey, _) -> permissionKey.first },
+                    { (permissionKey, _) -> permissionKey.second },
+                ),
+            )
+    return buildJsonArray {
+        stats.forEach { (permissionKey, entries) ->
+            add(
+                buildJsonObject {
+                    put("permission", permissionKey.first)
+                    put("displayName", permissionKey.second)
+                    put("toolCount", entries.map { (toolName, _) -> toolName }.distinct().size)
+                    put("requirementCount", entries.size)
+                },
+            )
+        }
+    }
+}
 
 private fun ToolDescriptor.matchesToolQuery(query: String): Boolean {
     val normalizedQuery = query.lowercase()
