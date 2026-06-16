@@ -3062,6 +3062,105 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.availability",
+                    aliases =
+                        listOf(
+                            "tool.availability",
+                            "tools.status",
+                            "tool.status",
+                            "tools.readiness",
+                            "tool.readiness",
+                        ),
+                    description = "Summarize tool availability or list tools by one availability status.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "status",
+                                required = false,
+                                description =
+                                    "Optional availability status: available, unavailable, permission_required, " +
+                                        "foreground_required, or disabled_by_config.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "foregroundRequiredOnly",
+                                description = "Set true to include only foreground-required tools.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum result count. Defaults to 50, max 100.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val requestedStatusText = arguments.optionalText("status")
+            val requestedStatus =
+                requestedStatusText?.toToolAvailabilityStatusOrNull()
+                    ?: if (requestedStatusText == null) {
+                        null
+                    } else {
+                        return@Entry invalidToolDiscoveryArguments(
+                            toolName = "tools.availability",
+                            summary = "tools.availability received an unknown availability status.",
+                            field = "status",
+                        )
+                    }
+            val foregroundRequiredOnly = arguments.optionalBoolean("foregroundRequiredOnly")
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_AVAILABILITY_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_AVAILABILITY_MAX_LIMIT)
+
+            if (requestedStatus == null) {
+                return@Entry ToolExecutionResult.success(
+                    summary = "Summarized availability across ${tools.size} tool(s).",
+                    payload =
+                        tools.toToolAvailabilityStatsPayload(
+                            limit = limit,
+                            foregroundRequiredOnly = foregroundRequiredOnly,
+                        ),
+                )
+            }
+
+            val matchingTools =
+                tools.filter { tool ->
+                    tool.availability.status == requestedStatus &&
+                        (!foregroundRequiredOnly || tool.foregroundRequired)
+                }
+            val limitedMatches = matchingTools.take(limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (matchingTools.isEmpty()) {
+                        "No tools currently have availability status ${requestedStatus.name}."
+                    } else {
+                        "Found ${limitedMatches.size} tool(s) with availability status ${requestedStatus.name}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("availabilityStatus", requestedStatus.name)
+                        put("foregroundRequiredOnly", foregroundRequiredOnly)
+                        put("limit", limit)
+                        put("totalMatchCount", matchingTools.size)
+                        put("resultCount", limitedMatches.size)
+                        if (matchingTools.size > limitedMatches.size) {
+                            put("omittedCount", matchingTools.size - limitedMatches.size)
+                        }
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                limitedMatches.forEach { tool ->
+                                    add(tool.toToolAvailabilityMatchPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.search",
                     aliases = listOf("tool.search"),
                     description = "Search typed native tools by name, alias, description, permission, or argument metadata.",
@@ -5188,6 +5287,8 @@ private const val TASK_UPCOMING_DEFAULT_LIMIT = 20
 private const val TASK_UPCOMING_MAX_LIMIT = 50
 private const val TOOL_ARGUMENTS_DEFAULT_LIMIT = 50
 private const val TOOL_ARGUMENTS_MAX_LIMIT = 100
+private const val TOOL_AVAILABILITY_DEFAULT_LIMIT = 50
+private const val TOOL_AVAILABILITY_MAX_LIMIT = 100
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
@@ -5660,6 +5761,87 @@ private fun ToolArgumentSpec.toToolArgumentPayload(): JsonObject =
         put("name", name)
         put("required", required)
         put("description", description)
+    }
+
+private fun List<ToolDescriptor>.toToolAvailabilityStatsPayload(
+    limit: Int,
+    foregroundRequiredOnly: Boolean,
+): JsonObject {
+    val filteredTools =
+        if (foregroundRequiredOnly) {
+            filter { tool -> tool.foregroundRequired }
+        } else {
+            this
+        }
+    val toolsByStatus = filteredTools.groupBy { tool -> tool.availability.status }
+    return buildJsonObject {
+        put("availabilityStatus", JsonNull)
+        put("foregroundRequiredOnly", foregroundRequiredOnly)
+        put("limit", limit)
+        put("toolCount", filteredTools.size)
+        put("statusCount", toolsByStatus.size)
+        put(
+            "statuses",
+            buildJsonArray {
+                ToolAvailabilityStatus.entries.forEach { status ->
+                    val statusTools = toolsByStatus[status].orEmpty()
+                    if (statusTools.isNotEmpty()) {
+                        val toolNames = statusTools.map { tool -> tool.name }.sorted()
+                        add(
+                            buildJsonObject {
+                                put("status", status.name)
+                                put("toolCount", toolNames.size)
+                                put("foregroundRequiredToolCount", statusTools.count { tool -> tool.foregroundRequired })
+                                put(
+                                    "sampleTools",
+                                    buildJsonArray {
+                                        toolNames.take(limit).forEach { toolName ->
+                                            add(JsonPrimitive(toolName))
+                                        }
+                                    },
+                                )
+                                if (toolNames.size > limit) {
+                                    put("sampleToolsOmitted", toolNames.size - limit)
+                                }
+                            },
+                        )
+                    }
+                }
+            },
+        )
+    }
+}
+
+private fun ToolDescriptor.toToolAvailabilityMatchPayload(): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("foregroundRequired", foregroundRequired)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+        put(
+            "requiredPermissions",
+            buildJsonArray {
+                requiredPermissions.forEach { permission ->
+                    add(
+                        buildJsonObject {
+                            put("permission", permission.permission)
+                            put("displayName", permission.displayName)
+                        },
+                    )
+                }
+            },
+        )
     }
 
 private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
@@ -6411,6 +6593,16 @@ private fun JsonObject.optionalMessageRole(field: String): MessageRole? =
         "tool_call", "toolcall", "tool" -> MessageRole.ToolCall
         "tool_result", "toolresult" -> MessageRole.ToolResult
         "system" -> MessageRole.System
+        else -> null
+    }
+
+private fun String.toToolAvailabilityStatusOrNull(): ToolAvailabilityStatus? =
+    when (lowercase().replace("-", "_").replace(" ", "_")) {
+        "available" -> ToolAvailabilityStatus.Available
+        "unavailable" -> ToolAvailabilityStatus.Unavailable
+        "permission_required", "permissionrequired", "permission" -> ToolAvailabilityStatus.PermissionRequired
+        "foreground_required", "foregroundrequired", "foreground" -> ToolAvailabilityStatus.ForegroundRequired
+        "disabled_by_config", "disabledbyconfig", "disabled" -> ToolAvailabilityStatus.DisabledByConfig
         else -> null
     }
 

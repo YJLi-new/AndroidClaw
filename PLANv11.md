@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.availability` /
+  `tool.availability` / `tools.status` / `tool.status` plus readiness aliases
+  as a Tool Contract readiness-discovery helper. Agents can now summarize
+  availability status counts or list bounded tools for one status, with
+  foreground-required filtering, aliases, permissions, and argument counts
+  without loading every descriptor schema. Focused `BuiltInToolsTest`, ktlint,
+  and the full offline fast loop passed.
 - 2026-06-17: Added `tools.arguments` /
   `tool.arguments` / `tools.by_argument` / `tool.by_argument` plus short
   argument aliases as a Tool Contract metadata-discovery helper. Agents can now

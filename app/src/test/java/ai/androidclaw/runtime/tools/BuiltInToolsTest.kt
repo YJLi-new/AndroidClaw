@@ -3563,6 +3563,84 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools availability summarizes and filters readiness metadata`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val summary =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.availability"),
+                    arguments = buildJsonObject {},
+                )
+            val available =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.status"),
+                    arguments =
+                        buildJsonObject {
+                            put("status", "available")
+                            put("limit", "3")
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.availability"),
+                    arguments =
+                        buildJsonObject {
+                            put("status", "not-a-status")
+                        },
+                )
+
+            assertTrue(summary.success)
+            assertEquals(JsonNull, summary.payload["availabilityStatus"])
+            val availableStats =
+                summary.payload
+                    .getValue("statuses")
+                    .jsonArray
+                    .first { status ->
+                        status.jsonObject
+                            .getValue("status")
+                            .jsonPrimitive
+                            .content == "Available"
+                    }.jsonObject
+            assertTrue(
+                availableStats
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() > 0,
+            )
+            assertTrue(availableStats.getValue("sampleTools").jsonArray.isNotEmpty())
+
+            assertTrue(available.success)
+            assertEquals("Available", available.payload["availabilityStatus"]?.jsonPrimitive?.content)
+            assertEquals("3", available.payload["limit"]?.jsonPrimitive?.content)
+            assertTrue(
+                available.payload
+                    .getValue("resultCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() <= 3,
+            )
+            assertTrue(
+                available.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .all { tool ->
+                        val toolPayload = tool.jsonObject
+                        toolPayload
+                            .getValue("availabilityStatus")
+                            .jsonPrimitive
+                            .content == "Available" &&
+                            toolPayload.containsKey("requiredPermissions")
+                    },
+            )
+
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+            assertEquals("status", invalid.payload["field"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tools stats summarizes registry metadata without schemas`() =
         runTest {
             val registry = buildRegistry()
