@@ -9,6 +9,7 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.EventLogEntity
+import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
@@ -320,6 +321,124 @@ class BuiltInToolsTest {
             assertTrue(includeArchived.success)
             assertEquals("3", includeArchived.payload["sessionCount"]?.jsonPrimitive?.content)
             assertEquals(true.toString(), includeArchived.payload["includeArchived"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `sessions activity lists recent sessions with latest message snippets`() =
+        runTest {
+            val longLatestMessage = "m".repeat(350)
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "quiet",
+                    title = "Quiet session",
+                    isMain = false,
+                    createdAt = 1_000L,
+                    updatedAt = 2_000L,
+                    archivedAt = null,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "active",
+                    title = "Active session",
+                    isMain = false,
+                    createdAt = 2_000L,
+                    updatedAt = 3_000L,
+                    archivedAt = null,
+                    summaryText = "Activity summary",
+                    compactedUntilMessageId = "active-latest",
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "archived",
+                    title = "Archived activity",
+                    isMain = false,
+                    createdAt = 3_000L,
+                    updatedAt = 7_000L,
+                    archivedAt = 8_000L,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.messageDao().insertAll(
+                listOf(
+                    toolTestMessageEntity(
+                        id = "active-older",
+                        sessionId = "active",
+                        role = "user",
+                        content = "Older prompt",
+                        createdAt = 4_000L,
+                    ),
+                    toolTestMessageEntity(
+                        id = "active-latest",
+                        sessionId = "active",
+                        role = "assistant",
+                        content = longLatestMessage,
+                        createdAt = 6_000L,
+                    ),
+                ),
+            )
+            val registry = buildRegistry()
+
+            val active =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.timeline"),
+                    arguments = buildJsonObject {},
+                )
+            val includeArchived =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.activity"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeArchived", true)
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(active.success)
+            assertEquals("2", active.payload["sessionCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), active.payload["includeArchived"]?.jsonPrimitive?.content)
+            val activeSessions =
+                active.payload
+                    .getValue("sessions")
+                    .jsonArray
+                    .map { session -> session.jsonObject }
+            assertEquals(
+                listOf("active", "quiet"),
+                activeSessions.map { session -> session.getValue("sessionId").jsonPrimitive.content },
+            )
+            val activeSession = activeSessions.first()
+            assertEquals("2", activeSession.getValue("messageCount").jsonPrimitive.content)
+            assertEquals(true.toString(), activeSession.getValue("hasSummary").jsonPrimitive.content)
+            assertEquals(true.toString(), activeSession.getValue("compacted").jsonPrimitive.content)
+            val latestMessage = activeSession.getValue("latestMessage").jsonObject
+            assertEquals("active-latest", latestMessage.getValue("messageId").jsonPrimitive.content)
+            assertEquals("Assistant", latestMessage.getValue("role").jsonPrimitive.content)
+            assertEquals(
+                "300",
+                latestMessage
+                    .getValue("contentSnippet")
+                    .jsonPrimitive
+                    .content
+                    .length
+                    .toString(),
+            )
+            assertEquals("350", latestMessage.getValue("contentLength").jsonPrimitive.content)
+            assertEquals(true.toString(), latestMessage.getValue("contentTruncated").jsonPrimitive.content)
+
+            assertTrue(includeArchived.success)
+            assertEquals("1", includeArchived.payload["sessionCount"]?.jsonPrimitive?.content)
+            val archivedSession =
+                includeArchived.payload
+                    .getValue("sessions")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("archived", archivedSession.getValue("sessionId").jsonPrimitive.content)
+            assertEquals(true.toString(), archivedSession.getValue("archived").jsonPrimitive.content)
         }
 
     @Test
@@ -5355,6 +5474,24 @@ class BuiltInToolsTest {
             clock = testClock,
         )
 }
+
+private fun toolTestMessageEntity(
+    id: String,
+    sessionId: String,
+    role: String,
+    content: String,
+    createdAt: Long,
+): MessageEntity =
+    MessageEntity(
+        id = id,
+        sessionId = sessionId,
+        role = role,
+        content = content,
+        createdAt = createdAt,
+        providerMeta = null,
+        toolCallId = null,
+        taskRunId = null,
+    )
 
 private class FakeProviderSecretStore : ProviderSecretStore {
     private val apiKeys = mutableMapOf<ProviderType, String?>()

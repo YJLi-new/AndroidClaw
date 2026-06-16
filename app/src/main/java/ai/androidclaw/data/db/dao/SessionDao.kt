@@ -82,6 +82,64 @@ interface SessionDao {
     @Query(
         """
         SELECT
+            sessions.id AS id,
+            sessions.title AS title,
+            sessions.isMain AS isMain,
+            sessions.createdAt AS createdAt,
+            sessions.updatedAt AS updatedAt,
+            sessions.archivedAt AS archivedAt,
+            sessions.summaryText AS summaryText,
+            sessions.compactedUntilMessageId AS compactedUntilMessageId,
+            (
+                SELECT COUNT(*)
+                FROM messages
+                WHERE messages.sessionId = sessions.id
+            ) AS messageCount,
+            (
+                SELECT messages.id
+                FROM messages
+                WHERE messages.sessionId = sessions.id
+                ORDER BY messages.createdAt DESC, messages.rowid DESC
+                LIMIT 1
+            ) AS latestMessageId,
+            (
+                SELECT messages.role
+                FROM messages
+                WHERE messages.sessionId = sessions.id
+                ORDER BY messages.createdAt DESC, messages.rowid DESC
+                LIMIT 1
+            ) AS latestMessageRole,
+            (
+                SELECT messages.content
+                FROM messages
+                WHERE messages.sessionId = sessions.id
+                ORDER BY messages.createdAt DESC, messages.rowid DESC
+                LIMIT 1
+            ) AS latestMessageContent,
+            (
+                SELECT messages.createdAt
+                FROM messages
+                WHERE messages.sessionId = sessions.id
+                ORDER BY messages.createdAt DESC, messages.rowid DESC
+                LIMIT 1
+            ) AS latestMessageCreatedAt
+        FROM sessions
+        WHERE (:includeArchived = 1 OR sessions.archivedAt IS NULL)
+        ORDER BY
+            COALESCE(latestMessageCreatedAt, sessions.updatedAt) DESC,
+            sessions.updatedAt DESC,
+            sessions.rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getActivity(
+        includeArchived: Boolean,
+        limit: Int,
+    ): List<SessionActivityRow>
+
+    @Query(
+        """
+        SELECT
             COUNT(*) AS totalSessionCount,
             COALESCE(SUM(CASE WHEN archivedAt IS NULL THEN 1 ELSE 0 END), 0) AS activeSessionCount,
             COALESCE(SUM(CASE WHEN archivedAt IS NOT NULL THEN 1 ELSE 0 END), 0) AS archivedSessionCount,
@@ -123,4 +181,20 @@ data class SessionStatsRow(
     val oldestSessionCreatedAt: Long?,
     val newestSessionUpdatedAt: Long?,
     val newestArchivedAt: Long?,
+)
+
+data class SessionActivityRow(
+    val id: String,
+    val title: String,
+    val isMain: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val archivedAt: Long?,
+    val summaryText: String?,
+    val compactedUntilMessageId: String?,
+    val messageCount: Long,
+    val latestMessageId: String?,
+    val latestMessageRole: String?,
+    val latestMessageContent: String?,
+    val latestMessageCreatedAt: Long?,
 )

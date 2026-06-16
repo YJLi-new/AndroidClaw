@@ -1,8 +1,10 @@
 package ai.androidclaw.data.repository
 
+import ai.androidclaw.data.db.dao.SessionActivityRow
 import ai.androidclaw.data.db.dao.SessionDao
 import ai.androidclaw.data.db.dao.SessionStatsRow
 import ai.androidclaw.data.db.entity.SessionEntity
+import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Session
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -36,6 +38,15 @@ class SessionRepository(
         val oldestSessionCreatedAt: Instant?,
         val newestSessionUpdatedAt: Instant?,
         val newestArchivedAt: Instant?,
+    )
+
+    data class SessionActivity(
+        val session: Session,
+        val messageCount: Long,
+        val latestMessageId: String?,
+        val latestMessageRole: MessageRole?,
+        val latestMessageContent: String?,
+        val latestMessageCreatedAt: Instant?,
     )
 
     suspend fun createSession(
@@ -201,6 +212,21 @@ class SessionRepository(
             ).map(SessionEntity::toDomain)
     }
 
+    suspend fun listSessionActivity(
+        limit: Int,
+        includeArchived: Boolean = false,
+    ): List<SessionActivity> {
+        val boundedLimit = limit.coerceIn(0, SESSION_SEARCH_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getActivity(
+                includeArchived = includeArchived,
+                limit = boundedLimit,
+            ).map(SessionActivityRow::toSessionActivity)
+    }
+
     suspend fun getSessionStats(): SessionStats = dao.getStats().toSessionStats()
 }
 
@@ -235,6 +261,36 @@ private fun SessionStatsRow.toSessionStats(): SessionRepository.SessionStats =
         newestSessionUpdatedAt = newestSessionUpdatedAt?.let(Instant::ofEpochMilli),
         newestArchivedAt = newestArchivedAt?.let(Instant::ofEpochMilli),
     )
+
+private fun SessionActivityRow.toSessionActivity(): SessionRepository.SessionActivity =
+    SessionRepository.SessionActivity(
+        session =
+            SessionEntity(
+                id = id,
+                title = title,
+                isMain = isMain,
+                createdAt = createdAt,
+                updatedAt = updatedAt,
+                archivedAt = archivedAt,
+                summaryText = summaryText,
+                compactedUntilMessageId = compactedUntilMessageId,
+            ).toDomain(),
+        messageCount = messageCount,
+        latestMessageId = latestMessageId,
+        latestMessageRole = latestMessageRole?.toMessageRole(),
+        latestMessageContent = latestMessageContent?.take(MESSAGE_CONTENT_MAX_CHARS),
+        latestMessageCreatedAt = latestMessageCreatedAt?.let(Instant::ofEpochMilli),
+    )
+
+private fun String.toMessageRole(): MessageRole =
+    when (this) {
+        "user" -> MessageRole.User
+        "assistant" -> MessageRole.Assistant
+        "tool_call" -> MessageRole.ToolCall
+        "tool_result" -> MessageRole.ToolResult
+        "system" -> MessageRole.System
+        else -> MessageRole.System
+    }
 
 private fun String.toBoundedCompactionBoundaryIdOrNull(): String? =
     trim()

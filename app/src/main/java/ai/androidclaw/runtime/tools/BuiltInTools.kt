@@ -681,6 +681,63 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.activity",
+                                    aliases =
+                                        listOf(
+                                            "session.activity",
+                                            "sessions.timeline",
+                                            "session.timeline",
+                                            "sessions.recent",
+                                            "session.recent",
+                                        ),
+                                    description = "List recently active sessions with message counts and latest-message snippets.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "includeArchived",
+                                                description = "Set true to include archived sessions.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val includeArchived = arguments.optionalBoolean("includeArchived")
+                            val limit = arguments.optionalInt("limit", SESSION_SEARCH_DEFAULT_LIMIT)
+                            val activity =
+                                sessionRepository.listSessionActivity(
+                                    limit = limit,
+                                    includeArchived = includeArchived,
+                                )
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (activity.isEmpty()) {
+                                        "No sessions found."
+                                    } else {
+                                        "Loaded activity for ${activity.size} session(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionCount", activity.size)
+                                        put("includeArchived", includeArchived)
+                                        put(
+                                            "sessions",
+                                            buildJsonArray {
+                                                activity.forEach { item ->
+                                                    add(item.toSessionActivityPayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.stats",
                                     aliases = listOf("session.stats", "chat.sessions.stats"),
                                     description = "Return aggregate chat-session statistics without loading transcripts.",
@@ -4830,6 +4887,7 @@ private const val MESSAGE_CONTEXT_DEFAULT_RADIUS = 3
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
+private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val SESSION_SUMMARY_SNIPPET_MAX_CHARS = 500
 
@@ -5749,6 +5807,37 @@ private fun Session.toSessionSummaryPayload(): JsonObject {
         put("summarySnippet", summarySnippet?.let(::JsonPrimitive) ?: JsonNull)
         put("compactedUntilMessageId", compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
         put("compacted", compactedUntilMessageId != null)
+    }
+}
+
+private fun SessionRepository.SessionActivity.toSessionActivityPayload(): JsonObject {
+    val latestMessageSnippet = latestMessageContent?.take(SESSION_ACTIVITY_SNIPPET_MAX_CHARS)
+    return buildJsonObject {
+        put("sessionId", session.id)
+        put("title", session.title)
+        put("isMain", session.isMain)
+        put("archived", session.archived)
+        put("createdAtIso", session.createdAt.toString())
+        put("updatedAtIso", session.updatedAt.toString())
+        put("activityAtIso", (latestMessageCreatedAt ?: session.updatedAt).toString())
+        put("messageCount", messageCount)
+        put("hasSummary", session.summaryText != null)
+        put("summaryLength", session.summaryText?.length ?: 0)
+        put("compacted", session.compactedUntilMessageId != null)
+        put("compactedUntilMessageId", session.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "latestMessage",
+            latestMessageId?.let { messageId ->
+                buildJsonObject {
+                    put("messageId", messageId)
+                    put("role", latestMessageRole?.name?.let(::JsonPrimitive) ?: JsonNull)
+                    put("contentSnippet", latestMessageSnippet?.let(::JsonPrimitive) ?: JsonNull)
+                    put("contentLength", latestMessageContent?.length ?: 0)
+                    put("contentTruncated", latestMessageContent?.let { it.length > SESSION_ACTIVITY_SNIPPET_MAX_CHARS } ?: false)
+                    put("createdAtIso", latestMessageCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                }
+            } ?: JsonNull,
+        )
     }
 }
 

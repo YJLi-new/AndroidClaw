@@ -2,7 +2,9 @@ package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.db.entity.SessionEntity
+import ai.androidclaw.data.model.MessageRole
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -215,6 +217,104 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `list session activity returns bounded latest message metadata`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "alpha",
+                    title = "Alpha",
+                    isMain = false,
+                    createdAt = 1_000L,
+                    updatedAt = 1_500L,
+                    archivedAt = null,
+                    summaryText = "Alpha summary",
+                    compactedUntilMessageId = "alpha-message-2",
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "beta",
+                    title = "Beta",
+                    isMain = false,
+                    createdAt = 2_000L,
+                    updatedAt = 2_500L,
+                    archivedAt = null,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "empty",
+                    title = "Empty",
+                    isMain = false,
+                    createdAt = 3_000L,
+                    updatedAt = 3_500L,
+                    archivedAt = null,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "archived",
+                    title = "Archived",
+                    isMain = false,
+                    createdAt = 4_000L,
+                    updatedAt = 5_500L,
+                    archivedAt = 6_000L,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.messageDao().insertAll(
+                listOf(
+                    messageEntity(
+                        id = "alpha-message-1",
+                        sessionId = "alpha",
+                        role = "user",
+                        content = "Older alpha prompt",
+                        createdAt = 7_000L,
+                    ),
+                    messageEntity(
+                        id = "alpha-message-2",
+                        sessionId = "alpha",
+                        role = "assistant",
+                        content = "Latest alpha answer",
+                        createdAt = 9_000L,
+                    ),
+                    messageEntity(
+                        id = "beta-message-1",
+                        sessionId = "beta",
+                        role = "tool_result",
+                        content = "Beta tool output",
+                        createdAt = 8_000L,
+                    ),
+                ),
+            )
+
+            val active = repository.listSessionActivity(limit = 10, includeArchived = false)
+            val all = repository.listSessionActivity(limit = 10, includeArchived = true)
+            val limited = repository.listSessionActivity(limit = 1, includeArchived = false)
+
+            assertEquals(listOf("alpha", "beta", "empty"), active.map { item -> item.session.id })
+            assertEquals(listOf("alpha", "beta", "archived", "empty"), all.map { item -> item.session.id })
+            assertEquals(listOf("alpha"), limited.map { item -> item.session.id })
+            assertEquals(emptyList<SessionRepository.SessionActivity>(), repository.listSessionActivity(limit = 0))
+            val alpha = active.first()
+            assertEquals(2L, alpha.messageCount)
+            assertEquals("alpha-message-2", alpha.latestMessageId)
+            assertEquals(MessageRole.Assistant, alpha.latestMessageRole)
+            assertEquals("Latest alpha answer", alpha.latestMessageContent)
+            assertEquals(java.time.Instant.ofEpochMilli(9_000L), alpha.latestMessageCreatedAt)
+            assertEquals("Alpha summary", alpha.session.summaryText)
+            assertEquals("alpha-message-2", alpha.session.compactedUntilMessageId)
+            val empty = active.last()
+            assertEquals(0L, empty.messageCount)
+            assertEquals(null, empty.latestMessageId)
+        }
+
+    @Test
     fun `non-positive session search limits return empty results`() =
         runTest {
             repository.createSession("Alpha plan")
@@ -410,3 +510,21 @@ class SessionRepositoryTest {
             assertEquals(emptyList<ai.androidclaw.data.model.Session>(), repository.getSessionsWithCompactionBoundary())
         }
 }
+
+private fun messageEntity(
+    id: String,
+    sessionId: String,
+    role: String,
+    content: String,
+    createdAt: Long,
+): MessageEntity =
+    MessageEntity(
+        id = id,
+        sessionId = sessionId,
+        role = role,
+        content = content,
+        createdAt = createdAt,
+        providerMeta = null,
+        toolCallId = null,
+        taskRunId = null,
+    )

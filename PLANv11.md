@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.activity` /
+  `session.activity` / `sessions.timeline` / `session.timeline` plus recent
+  aliases as a Session Contract activity overview. Agents can now inspect a
+  bounded list of active or optionally archived sessions ordered by latest
+  message/update activity, including message counts, summary/compaction flags,
+  and latest-message snippets without loading transcripts. Focused
+  repository/tool tests, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.page` / `message.page` /
   `chat.page` / `messages.transcript` / `chat.transcript` /
   `session.transcript` as a Session Contract transcript pagination tool.
