@@ -131,6 +131,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   schedule/enabled/target metadata instead of full prompts, and is covered by
   repository plus tool tests. Focused tests, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added `tasks.run.get` / `task.run.get` / `taskrun.get` as an
+  exact automation-run inspector for ids returned by `tasks.runs`. The
+  repository now supports direct run lookup, and the tool returns parent task
+  metadata plus the bounded run payload. Focused tests, ktlint, a reproducing
+  `ChatViewModelTest` rerun after a transient executor failure, and a clean full
+  offline fast-loop rerun passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

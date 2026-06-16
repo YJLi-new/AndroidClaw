@@ -124,6 +124,8 @@ class TaskRepository(
 
     suspend fun getLatestRun(taskId: String): TaskRun? = taskRunDao.getLatestByTaskId(taskId)?.toDomain()
 
+    suspend fun getRun(id: String): TaskRun? = taskRunDao.getById(id)?.toDomain()
+
     suspend fun getRecentRuns(
         taskId: String,
         limit: Int,

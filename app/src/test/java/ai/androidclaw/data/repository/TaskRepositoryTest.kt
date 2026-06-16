@@ -207,6 +207,29 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `get run returns exact run by id`() =
+        runTest {
+            val task =
+                repository.createTask(
+                    name = "Exact run task",
+                    prompt = "Load one run",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val run = repository.recordRun(task.id, scheduledAt = Instant.ofEpochMilli(20L))
+            repository.updateRun(run.copy(status = TaskRunStatus.Success, resultSummary = "Loaded exactly"))
+
+            val loaded = repository.getRun(run.id)
+
+            assertEquals(run.id, loaded?.id)
+            assertEquals(task.id, loaded?.taskId)
+            assertEquals(TaskRunStatus.Success, loaded?.status)
+            assertEquals("Loaded exactly", loaded?.resultSummary)
+            assertNull(repository.getRun("missing-run"))
+        }
+
+    @Test
     fun `trimRunsOlderThan removes only historical task runs`() =
         runTest {
             val task =

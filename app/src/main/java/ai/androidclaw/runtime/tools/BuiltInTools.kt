@@ -1224,6 +1224,60 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.run.get",
+                    aliases = listOf("task.run.get", "taskrun.get"),
+                    description = "Return one automation run by id with its parent task metadata.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "runId",
+                                required = true,
+                                description = "Task run identifier",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val runId =
+                arguments["runId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (runId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.run.get",
+                    summary = "tasks.run.get requires a non-empty runId.",
+                    field = "runId",
+                )
+            }
+            val run =
+                taskRepository.getRun(runId)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Task run $runId was not found.",
+                        errorCode = "TASK_RUN_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TASK_RUN_NOT_FOUND")
+                                put("toolName", "tasks.run.get")
+                                put("runId", runId)
+                            },
+                    )
+            val task =
+                taskRepository.getTask(run.taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.run.get", taskId = run.taskId)
+            ToolExecutionResult.success(
+                summary = "Loaded run ${run.id} for task ${task.name}.",
+                payload =
+                    buildJsonObject {
+                        put("taskId", task.id)
+                        put("taskName", task.name)
+                        put("run", run.toTaskRunHistoryPayload())
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskCreateDescriptor(),
         ) { context, arguments ->
             val spec =

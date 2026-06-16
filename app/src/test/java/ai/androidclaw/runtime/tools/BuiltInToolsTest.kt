@@ -774,6 +774,45 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks run get returns one run by id`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Exact run task",
+                    prompt = "Inspect a run",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val run = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            taskRepository.updateRun(
+                run.copy(
+                    status = TaskRunStatus.Failure,
+                    errorCode = "RUN_FAILED",
+                    errorMessage = "Failure summary",
+                ),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "taskrun.get"),
+                    arguments =
+                        buildJsonObject {
+                            put("runId", run.id)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(task.id, result.payload["taskId"]?.jsonPrimitive?.content)
+            assertEquals("Exact run task", result.payload["taskName"]?.jsonPrimitive?.content)
+            val runPayload = result.payload.getValue("run").jsonObject
+            assertEquals(run.id, runPayload.getValue("id").jsonPrimitive.content)
+            assertEquals("Failure", runPayload.getValue("status").jsonPrimitive.content)
+            assertEquals("RUN_FAILED", runPayload.getValue("errorCode").jsonPrimitive.content)
+        }
+
+    @Test
     fun `tasks create resolves current session alias and schedules work`() =
         runTest {
             val currentSession = sessionRepository.createSession("Current session")
