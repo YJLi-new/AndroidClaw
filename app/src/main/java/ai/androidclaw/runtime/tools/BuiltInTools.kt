@@ -6,6 +6,8 @@ import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.EventLevel
+import ai.androidclaw.data.model.EventLogEntry
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.repository.EventLogRepository
@@ -123,6 +125,13 @@ internal fun createBuiltInToolRegistry(
                             toolRegistryProvider = { toolRegistry },
                         ),
                     )
+                    eventLogRepository?.let { repository ->
+                        addAll(
+                            eventToolEntries(
+                                eventLogRepository = repository,
+                            ),
+                        )
+                    }
                     memoryRepository?.let { repository ->
                         addAll(
                             memoryToolEntries(
@@ -1667,6 +1676,152 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         },
     )
 
+private fun eventToolEntries(
+    eventLogRepository: EventLogRepository,
+): List<ToolRegistry.Entry> =
+    listOf(
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "events.recent",
+                    aliases = listOf("event.recent", "logs.recent", "log.recent"),
+                    description = "Return bounded recent runtime event logs for local diagnostics.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum event count. Defaults to 20, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "category",
+                                description = "Optional category filter: provider, tool, scheduler, skill, system, or debug.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "level",
+                                description = "Optional level filter: info, warn, or error.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDetails",
+                                description = "Set true to include bounded event details. Defaults to false.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val requestedLimit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = EVENT_LOG_DEFAULT_LIMIT,
+                )
+            val limit = requestedLimit.coerceIn(1, EVENT_LOG_MAX_LIMIT)
+            val category =
+                arguments.optionalText("category")?.let { rawCategory ->
+                    parseEventCategory(rawCategory)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.recent received an unknown category.",
+                            field = "category",
+                            received = rawCategory,
+                        )
+                }
+            val level =
+                arguments.optionalText("level")?.let { rawLevel ->
+                    parseEventLevel(rawLevel)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.recent received an unknown level.",
+                            field = "level",
+                            received = rawLevel,
+                        )
+                }
+            val includeDetails = arguments.optionalBoolean("includeDetails")
+            val events =
+                eventLogRepository
+                    .observeRecent(limit = EVENT_LOG_SCAN_LIMIT)
+                    .first()
+                    .asSequence()
+                    .filter { event -> category == null || event.category == category }
+                    .filter { event -> level == null || event.level == level }
+                    .take(limit)
+                    .toList()
+            ToolExecutionResult.success(
+                summary =
+                    if (events.isEmpty()) {
+                        "No matching recent events found."
+                    } else {
+                        "Loaded ${events.size} recent event(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("eventCount", events.size)
+                        put("recentFirst", true)
+                        put("includeDetails", includeDetails)
+                        put("category", category?.name ?: "Any")
+                        put("level", level?.name ?: "Any")
+                        put(
+                            "events",
+                            buildJsonArray {
+                                events.forEach { event ->
+                                    add(event.toEventLogPayload(includeDetails = includeDetails))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+    )
+
+private fun parseEventCategory(rawCategory: String): EventCategory? =
+    when (rawCategory.trim().lowercase()) {
+        "provider" -> EventCategory.Provider
+        "tool" -> EventCategory.Tool
+        "scheduler" -> EventCategory.Scheduler
+        "skill" -> EventCategory.Skill
+        "system" -> EventCategory.System
+        "debug" -> EventCategory.Debug
+        else -> null
+    }
+
+private fun parseEventLevel(rawLevel: String): EventLevel? =
+    when (rawLevel.trim().lowercase()) {
+        "info" -> EventLevel.Info
+        "warn", "warning" -> EventLevel.Warn
+        "error" -> EventLevel.Error
+        else -> null
+    }
+
+private fun invalidEventArguments(
+    summary: String,
+    field: String,
+    received: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = summary,
+        errorCode = "INVALID_ARGUMENTS",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_ARGUMENTS")
+                put("toolName", "events.recent")
+                put("field", field)
+                put("received", received.take(EVENT_LOG_FILTER_MAX_CHARS))
+            },
+    )
+
+private fun EventLogEntry.toEventLogPayload(includeDetails: Boolean): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("timestampIso", timestamp.toString())
+        put("category", category.name)
+        put("level", level.name)
+        put("message", message.take(EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS))
+        put("messageTruncated", message.length > EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS)
+        if (includeDetails) {
+            val boundedDetails = details?.take(EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS)
+            put("details", boundedDetails?.let(::JsonPrimitive) ?: JsonNull)
+            put(
+                "detailsTruncated",
+                details?.let { it.length > EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS } ?: false,
+            )
+        }
+    }
+
 // These handlers are the typed automation contract for v5. They intentionally mirror the
 // repository's real schedule model instead of inventing a second scheduler abstraction.
 private fun taskToolEntries(
@@ -2399,6 +2554,12 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
     }
 
 private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
+private const val EVENT_LOG_DEFAULT_LIMIT = 20
+private const val EVENT_LOG_MAX_LIMIT = 50
+private const val EVENT_LOG_SCAN_LIMIT = 200
+private const val EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS = 500
+private const val EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS = 1_000
+private const val EVENT_LOG_FILTER_MAX_CHARS = 80
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500

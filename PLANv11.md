@@ -213,6 +213,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   list/search/history/copy, and `tools.get` now verifies alias resolution for
   `task.create`. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
   loop passed.
+- 2026-06-16: Added `events.recent` / `logs.recent` as a bounded Tool Contract
+  diagnostics feature. Agents can now inspect recent local runtime events with
+  optional category/level filters, details are hidden by default and only
+  returned as bounded payloads when explicitly requested, and invalid filters
+  return typed argument failures. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

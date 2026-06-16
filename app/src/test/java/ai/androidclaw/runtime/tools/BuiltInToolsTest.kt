@@ -7,6 +7,8 @@ import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
+import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
@@ -1850,6 +1852,74 @@ class BuiltInToolsTest {
             val tools = result.payload["tools"]?.jsonArray.orEmpty()
             assertTrue(tools.any { it.jsonObject["name"]?.jsonPrimitive?.content == "notifications.post" })
             assertTrue(tools.any { it.jsonObject["name"]?.jsonPrimitive?.content == "tasks.create" })
+        }
+
+    @Test
+    fun `events recent exposes bounded diagnostics with optional details`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "System started",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"diagnostic\":\"network\"}",
+            )
+
+            val withoutDetails =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.recent"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "provider")
+                            put("level", "error")
+                            put("limit", 5)
+                        },
+                )
+            val withDetails =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.recent"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "provider")
+                            put("includeDetails", true)
+                        },
+                )
+            val invalidCategory =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.recent"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "network")
+                        },
+                )
+
+            assertTrue(withoutDetails.success)
+            assertEquals("1", withoutDetails.payload["eventCount"]?.jsonPrimitive?.content)
+            val event =
+                withoutDetails.payload
+                    .getValue("events")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Provider", event.getValue("category").jsonPrimitive.content)
+            assertEquals("Error", event.getValue("level").jsonPrimitive.content)
+            assertEquals("Provider offline", event.getValue("message").jsonPrimitive.content)
+            assertFalse(event.containsKey("details"))
+            assertTrue(withDetails.success)
+            val detailedEvent =
+                withDetails.payload
+                    .getValue("events")
+                    .jsonArray
+                    .first()
+                    .jsonObject
+            assertEquals("{\"diagnostic\":\"network\"}", detailedEvent.getValue("details").jsonPrimitive.content)
+            assertFalse(invalidCategory.success)
+            assertEquals("INVALID_ARGUMENTS", invalidCategory.errorCode)
         }
 
     @Test
