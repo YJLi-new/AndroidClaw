@@ -171,6 +171,21 @@ class SessionRepository(
         }
     }
 
+    suspend fun listSummarizedSessions(
+        limit: Int,
+        includeArchived: Boolean = false,
+    ): List<Session> {
+        val boundedLimit = limit.coerceIn(0, SESSION_SEARCH_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getSummarizedSessions(
+                includeArchived = includeArchived,
+                limit = boundedLimit,
+            ).map(SessionEntity::toDomain)
+    }
+
     suspend fun getSessionStats(): SessionStats = dao.getStats().toSessionStats()
 }
 

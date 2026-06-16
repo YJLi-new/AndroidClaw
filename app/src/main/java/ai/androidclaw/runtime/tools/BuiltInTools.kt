@@ -624,6 +624,63 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.summaries",
+                                    aliases =
+                                        listOf(
+                                            "session.summaries",
+                                            "sessions.summarized",
+                                            "session.summarized",
+                                            "sessions.compacted",
+                                            "session.compacted",
+                                        ),
+                                    description = "List sessions that carry summary or compaction boundary metadata.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "includeArchived",
+                                                description = "Set true to include archived summarized sessions.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum result count. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val includeArchived = arguments.optionalBoolean("includeArchived")
+                            val limit = arguments.optionalInt("limit", SESSION_SEARCH_DEFAULT_LIMIT)
+                            val sessions =
+                                sessionRepository.listSummarizedSessions(
+                                    limit = limit,
+                                    includeArchived = includeArchived,
+                                )
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (sessions.isEmpty()) {
+                                        "No summarized sessions found."
+                                    } else {
+                                        "Found ${sessions.size} summarized session(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionCount", sessions.size)
+                                        put("includeArchived", includeArchived)
+                                        put(
+                                            "sessions",
+                                            buildJsonArray {
+                                                sessions.forEach { session ->
+                                                    add(session.toSessionSummaryPayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.stats",
                                     aliases = listOf("session.stats", "chat.sessions.stats"),
                                     description = "Return aggregate chat-session statistics without loading transcripts.",
@@ -4498,6 +4555,7 @@ private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
+private const val SESSION_SUMMARY_SNIPPET_MAX_CHARS = 500
 private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_SEARCH_MAX_LIMIT = 50
@@ -5375,6 +5433,23 @@ private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): Json
         put("oldestMessageAtIso", oldestMessageAt.toString())
         put("newestMessageAtIso", newestMessageAt.toString())
     }
+
+private fun Session.toSessionSummaryPayload(): JsonObject {
+    val summarySnippet = summaryText?.take(SESSION_SUMMARY_SNIPPET_MAX_CHARS)
+    return buildJsonObject {
+        put("sessionId", id)
+        put("title", title)
+        put("isMain", isMain)
+        put("archived", archived)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("summaryLength", summaryText?.length ?: 0)
+        put("summaryTruncated", summaryText?.let { it.length > SESSION_SUMMARY_SNIPPET_MAX_CHARS } ?: false)
+        put("summarySnippet", summarySnippet?.let(::JsonPrimitive) ?: JsonNull)
+        put("compactedUntilMessageId", compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("compacted", compactedUntilMessageId != null)
+    }
+}
 
 private fun SessionRepository.SessionStats.toSessionStatsPayload(): JsonObject =
     buildJsonObject {

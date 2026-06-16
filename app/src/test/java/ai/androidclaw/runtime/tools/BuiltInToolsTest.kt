@@ -9,6 +9,7 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.db.entity.EventLogEntity
+import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.TaskRunStatus
@@ -220,6 +221,105 @@ class BuiltInToolsTest {
             assertNotNull(result.payload["oldestSessionCreatedAtIso"])
             assertNotNull(result.payload["newestSessionUpdatedAtIso"])
             assertNotNull(result.payload["newestArchivedAtIso"])
+        }
+
+    @Test
+    fun `sessions summaries lists summarized and compacted sessions`() =
+        runTest {
+            val longSummary = "s".repeat(600)
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "plain",
+                    title = "Plain session",
+                    isMain = false,
+                    createdAt = 1_000L,
+                    updatedAt = 1_500L,
+                    archivedAt = null,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "summary",
+                    title = "Summary session",
+                    isMain = false,
+                    createdAt = 2_000L,
+                    updatedAt = 3_000L,
+                    archivedAt = null,
+                    summaryText = longSummary,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "compact",
+                    title = "Compacted session",
+                    isMain = false,
+                    createdAt = 3_000L,
+                    updatedAt = 4_000L,
+                    archivedAt = null,
+                    summaryText = "Compact summary",
+                    compactedUntilMessageId = "message-1",
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "archived",
+                    title = "Archived summary",
+                    isMain = false,
+                    createdAt = 4_000L,
+                    updatedAt = 5_000L,
+                    archivedAt = 5_500L,
+                    summaryText = "Archived summary",
+                    compactedUntilMessageId = null,
+                ),
+            )
+            val registry = buildRegistry()
+
+            val active =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compacted"),
+                    arguments = buildJsonObject {},
+                )
+            val includeArchived =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.summaries"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeArchived", true)
+                        },
+                )
+
+            assertTrue(active.success)
+            assertEquals("2", active.payload["sessionCount"]?.jsonPrimitive?.content)
+            val activeSessions =
+                active.payload
+                    .getValue("sessions")
+                    .jsonArray
+                    .map { session -> session.jsonObject }
+            assertEquals(
+                listOf("compact", "summary"),
+                activeSessions.map { session -> session.getValue("sessionId").jsonPrimitive.content },
+            )
+            val summarySession = activeSessions.single { session -> session.getValue("sessionId").jsonPrimitive.content == "summary" }
+            assertEquals("600", summarySession.getValue("summaryLength").jsonPrimitive.content)
+            assertEquals(true.toString(), summarySession.getValue("summaryTruncated").jsonPrimitive.content)
+            assertEquals(
+                "500",
+                summarySession
+                    .getValue("summarySnippet")
+                    .jsonPrimitive
+                    .content
+                    .length
+                    .toString(),
+            )
+            val compactSession = activeSessions.first()
+            assertEquals("message-1", compactSession.getValue("compactedUntilMessageId").jsonPrimitive.content)
+            assertEquals(true.toString(), compactSession.getValue("compacted").jsonPrimitive.content)
+            assertTrue(includeArchived.success)
+            assertEquals("3", includeArchived.payload["sessionCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), includeArchived.payload["includeArchived"]?.jsonPrimitive?.content)
         }
 
     @Test

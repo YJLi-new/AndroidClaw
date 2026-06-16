@@ -64,6 +64,23 @@ interface SessionDao {
 
     @Query(
         """
+        SELECT * FROM sessions
+        WHERE (:includeArchived = 1 OR archivedAt IS NULL)
+          AND (
+            summaryText IS NOT NULL AND summaryText != ''
+            OR compactedUntilMessageId IS NOT NULL AND compactedUntilMessageId != ''
+          )
+        ORDER BY updatedAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getSummarizedSessions(
+        includeArchived: Boolean,
+        limit: Int,
+    ): List<SessionEntity>
+
+    @Query(
+        """
         SELECT
             COUNT(*) AS totalSessionCount,
             COALESCE(SUM(CASE WHEN archivedAt IS NULL THEN 1 ELSE 0 END), 0) AS activeSessionCount,

@@ -153,6 +153,68 @@ class SessionRepositoryTest {
         }
 
     @Test
+    fun `list summarized sessions filters archived rows and applies limits`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "plain",
+                    title = "Plain session",
+                    isMain = false,
+                    createdAt = 1_000L,
+                    updatedAt = 1_500L,
+                    archivedAt = null,
+                    summaryText = null,
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "summary",
+                    title = "Summary session",
+                    isMain = false,
+                    createdAt = 2_000L,
+                    updatedAt = 3_000L,
+                    archivedAt = null,
+                    summaryText = "Summary text",
+                    compactedUntilMessageId = null,
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "compact",
+                    title = "Compacted session",
+                    isMain = false,
+                    createdAt = 3_000L,
+                    updatedAt = 4_000L,
+                    archivedAt = null,
+                    summaryText = "Compact summary",
+                    compactedUntilMessageId = "message-1",
+                ),
+            )
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "archived",
+                    title = "Archived summary",
+                    isMain = false,
+                    createdAt = 4_000L,
+                    updatedAt = 5_000L,
+                    archivedAt = 5_500L,
+                    summaryText = "Archived summary",
+                    compactedUntilMessageId = null,
+                ),
+            )
+
+            val active = repository.listSummarizedSessions(limit = 10, includeArchived = false)
+            val all = repository.listSummarizedSessions(limit = 10, includeArchived = true)
+            val limited = repository.listSummarizedSessions(limit = 1, includeArchived = true)
+
+            assertEquals(listOf("compact", "summary"), active.map { session -> session.id })
+            assertEquals(listOf("archived", "compact", "summary"), all.map { session -> session.id })
+            assertEquals(listOf("archived"), limited.map { session -> session.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.Session>(), repository.listSummarizedSessions(limit = 0))
+        }
+
+    @Test
     fun `non-positive session search limits return empty results`() =
         runTest {
             repository.createSession("Alpha plan")

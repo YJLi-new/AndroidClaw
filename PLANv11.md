@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.summaries` /
+  `session.summaries` / `sessions.summarized` / `sessions.compacted` plus
+  compacted aliases as a Session Contract summary discovery tool. Agents can
+  now list bounded sessions that carry summary text or compaction boundary
+  metadata, include archived sessions on request, and inspect summary snippets,
+  truncation state, timestamps, and compaction boundaries without loading full
+  histories. Focused repository/tool tests, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `messages.role` / `message.role` /
   `chat.role` plus by-role aliases as a Session Contract transcript filter.
   Agents can now list bounded recent messages for one role within the active or
