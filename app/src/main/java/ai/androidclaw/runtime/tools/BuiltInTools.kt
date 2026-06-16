@@ -3161,6 +3161,88 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.permissions",
+                    aliases =
+                        listOf(
+                            "tool.permissions",
+                            "tools.permission",
+                            "tool.permission",
+                            "tools.by_permission",
+                            "tool.by_permission",
+                        ),
+                    description = "Summarize Android permission requirements or list tools requiring one permission.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "permission",
+                                required = false,
+                                description = "Optional permission name, suffix, or display name to filter by. Alias: name.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum result count. Defaults to 50, max 100.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val requestedPermission = arguments.optionalText("permission") ?: arguments.optionalText("name")
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_PERMISSIONS_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_PERMISSIONS_MAX_LIMIT)
+            if (requestedPermission == null) {
+                return@Entry ToolExecutionResult.success(
+                    summary = "Summarized permission requirements across ${tools.size} tool(s).",
+                    payload = tools.toToolPermissionDiscoveryPayload(limit),
+                )
+            }
+
+            val matchingTools =
+                tools.mapNotNull { tool ->
+                    val matchingPermissions =
+                        tool.requiredPermissions.filter { permission ->
+                            permission.matchesPermissionQuery(requestedPermission)
+                        }
+                    if (matchingPermissions.isEmpty()) {
+                        null
+                    } else {
+                        tool to matchingPermissions
+                    }
+                }
+            val limitedMatches = matchingTools.take(limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (matchingTools.isEmpty()) {
+                        "No tools require permission $requestedPermission."
+                    } else {
+                        "Found ${limitedMatches.size} tool(s) requiring permission $requestedPermission."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("permission", requestedPermission)
+                        put("limit", limit)
+                        put("totalMatchCount", matchingTools.size)
+                        put("resultCount", limitedMatches.size)
+                        if (matchingTools.size > limitedMatches.size) {
+                            put("omittedCount", matchingTools.size - limitedMatches.size)
+                        }
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                limitedMatches.forEach { (tool, matchingPermissions) ->
+                                    add(tool.toToolPermissionMatchPayload(matchingPermissions))
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.search",
                     aliases = listOf("tool.search"),
                     description = "Search typed native tools by name, alias, description, permission, or argument metadata.",
@@ -5289,6 +5371,8 @@ private const val TOOL_ARGUMENTS_DEFAULT_LIMIT = 50
 private const val TOOL_ARGUMENTS_MAX_LIMIT = 100
 private const val TOOL_AVAILABILITY_DEFAULT_LIMIT = 50
 private const val TOOL_AVAILABILITY_MAX_LIMIT = 100
+private const val TOOL_PERMISSIONS_DEFAULT_LIMIT = 50
+private const val TOOL_PERMISSIONS_MAX_LIMIT = 100
 private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
@@ -5843,6 +5927,117 @@ private fun ToolDescriptor.toToolAvailabilityMatchPayload(): JsonObject =
             },
         )
     }
+
+private fun List<ToolDescriptor>.toToolPermissionDiscoveryPayload(limit: Int): JsonObject {
+    val permissionGroups =
+        flatMap { tool ->
+            tool.requiredPermissions.map { permission -> tool to permission }
+        }.groupBy { (_, permission) -> permission.permission to permission.displayName }
+            .toList()
+            .sortedWith(
+                compareBy<Pair<Pair<String, String>, List<Pair<ToolDescriptor, ToolPermissionRequirement>>>> { entry ->
+                    entry.first.first
+                }.thenBy { entry -> entry.first.second },
+            )
+    val limitedGroups = permissionGroups.take(limit)
+    return buildJsonObject {
+        put("permission", JsonNull)
+        put("limit", limit)
+        put("toolCount", count { tool -> tool.requiredPermissions.isNotEmpty() })
+        put("uniquePermissionCount", permissionGroups.size)
+        put("requirementCount", sumOf { tool -> tool.requiredPermissions.size })
+        put("resultCount", limitedGroups.size)
+        if (permissionGroups.size > limitedGroups.size) {
+            put("omittedCount", permissionGroups.size - limitedGroups.size)
+        }
+        put(
+            "permissions",
+            buildJsonArray {
+                limitedGroups.forEach { (permissionKey, entries) ->
+                    val toolNames = entries.map { (tool, _) -> tool.name }.distinct().sorted()
+                    add(
+                        buildJsonObject {
+                            put("permission", permissionKey.first)
+                            put("displayName", permissionKey.second)
+                            put("toolCount", toolNames.size)
+                            put("requirementCount", entries.size)
+                            put("availabilityStats", entries.map { (tool, _) -> tool }.toToolAvailabilityStatsByStatusPayload())
+                            put(
+                                "sampleTools",
+                                buildJsonArray {
+                                    toolNames.take(5).forEach { toolName ->
+                                        add(JsonPrimitive(toolName))
+                                    }
+                                },
+                            )
+                            if (toolNames.size > 5) {
+                                put("sampleToolsOmitted", toolNames.size - 5)
+                            }
+                        },
+                    )
+                }
+            },
+        )
+    }
+}
+
+private fun List<ToolDescriptor>.toToolAvailabilityStatsByStatusPayload(): JsonArray {
+    val countsByStatus = groupingBy { tool -> tool.availability.status }.eachCount()
+    return buildJsonArray {
+        ToolAvailabilityStatus.entries.forEach { status ->
+            countsByStatus[status]?.let { count ->
+                add(
+                    buildJsonObject {
+                        put("status", status.name)
+                        put("toolCount", count)
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun ToolDescriptor.toToolPermissionMatchPayload(
+    matchingPermissions: List<ToolPermissionRequirement>,
+): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("foregroundRequired", foregroundRequired)
+        put("requiredPermissionCount", requiredPermissions.size)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+        put(
+            "matchingPermissions",
+            buildJsonArray {
+                matchingPermissions.forEach { permission ->
+                    add(permission.toToolPermissionPayload())
+                }
+            },
+        )
+    }
+
+private fun ToolPermissionRequirement.toToolPermissionPayload(): JsonObject =
+    buildJsonObject {
+        put("permission", permission)
+        put("displayName", displayName)
+    }
+
+private fun ToolPermissionRequirement.matchesPermissionQuery(query: String): Boolean {
+    val normalizedQuery = query.lowercase()
+    return permission.lowercase().contains(normalizedQuery) ||
+        displayName.lowercase().contains(normalizedQuery)
+}
 
 private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
     buildJsonObject {

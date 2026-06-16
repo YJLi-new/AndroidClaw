@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.permissions` /
+  `tool.permissions` / `tools.permission` / `tool.permission` plus
+  by-permission aliases as a Tool Contract Android permission-discovery helper.
+  Agents can now summarize permission requirements or list bounded tools that
+  require one permission by name, suffix, or display name, including
+  availability stats and matching permission metadata without loading full
+  schemas. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `tools.availability` /
   `tool.availability` / `tools.status` / `tool.status` plus readiness aliases
   as a Tool Contract readiness-discovery helper. Agents can now summarize

@@ -3641,6 +3641,95 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools permissions summarizes and filters permission metadata`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val summary =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.permission"),
+                    arguments = buildJsonObject {},
+                )
+            val filtered =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.by_permission"),
+                    arguments =
+                        buildJsonObject {
+                            put("permission", "POST_NOTIFICATIONS")
+                        },
+                )
+            val displayName =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.permissions"),
+                    arguments =
+                        buildJsonObject {
+                            put("name", "Post notifications")
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.permissions"),
+                    arguments =
+                        buildJsonObject {
+                            put("permission", "missing.permission")
+                        },
+                )
+
+            assertTrue(summary.success)
+            assertEquals(JsonNull, summary.payload["permission"])
+            val permissionStats =
+                summary.payload
+                    .getValue("permissions")
+                    .jsonArray
+                    .first { permission ->
+                        permission.jsonObject
+                            .getValue("permission")
+                            .jsonPrimitive
+                            .content == "android.permission.POST_NOTIFICATIONS"
+                    }.jsonObject
+            assertTrue(
+                permissionStats
+                    .getValue("sampleTools")
+                    .jsonArray
+                    .any { tool -> tool.jsonPrimitive.content == "notifications.post" },
+            )
+            assertTrue(permissionStats.getValue("availabilityStats").jsonArray.isNotEmpty())
+
+            assertTrue(filtered.success)
+            assertEquals("POST_NOTIFICATIONS", filtered.payload["permission"]?.jsonPrimitive?.content)
+            assertTrue(
+                filtered.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .any { tool ->
+                        val toolPayload = tool.jsonObject
+                        toolPayload.getValue("name").jsonPrimitive.content == "notifications.post" &&
+                            toolPayload
+                                .getValue("matchingPermissions")
+                                .jsonArray
+                                .any { permission ->
+                                    permission.jsonObject
+                                        .getValue("permission")
+                                        .jsonPrimitive
+                                        .content == "android.permission.POST_NOTIFICATIONS"
+                                }
+                    },
+            )
+
+            assertTrue(displayName.success)
+            assertTrue(
+                displayName.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .isNotEmpty(),
+            )
+
+            assertTrue(missing.success)
+            assertEquals("0", missing.payload["totalMatchCount"]?.jsonPrimitive?.content)
+            assertEquals("0", missing.payload["resultCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tools stats summarizes registry metadata without schemas`() =
         runTest {
             val registry = buildRegistry()
