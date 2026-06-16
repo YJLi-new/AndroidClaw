@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.config.update` /
+  `skill.config.update` / `skills.configuration.update` /
+  `skill.configuration.update` plus concise set aliases as a Skill Contract
+  configuration writer. Agents can now set or clear declared non-secret config
+  values for a skill, receive the updated non-secret configuration payload, and
+  get typed `SKILL_CONFIG_NOT_FOUND` failures for undeclared paths while secret
+  values remain unsupported by this tool. Focused `BuiltInToolsTest`, ktlint,
+  and the full offline fast loop passed.
 - 2026-06-17: Added `skills.config.get` /
   `skill.config.get` / `skills.configuration.get` / `skill.configuration.get`
   plus concise config aliases as a Skill Contract configuration inspector.

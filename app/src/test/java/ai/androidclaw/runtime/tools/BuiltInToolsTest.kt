@@ -3056,6 +3056,149 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills config update sets and clears non secret config values`() =
+        runTest {
+            val configSkill =
+                skillSnapshot(
+                    id = "configurable",
+                    name = "configurable",
+                ).copy(
+                    configStatuses = mapOf("endpoint" to false),
+                )
+            var storedValue: String? = null
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(configSkill),
+                    skillConfigurationUpdater = { skill, configPath, value ->
+                        storedValue = value
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                            configFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillConfigField(
+                                        path = configPath,
+                                        value = value,
+                                    ),
+                                ),
+                        )
+                    },
+                )
+
+            val setResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.config.set"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "configurable")
+                            put("path", "endpoint")
+                            put("value", "https://example.test")
+                        },
+                )
+
+            assertTrue(setResult.summary, setResult.success)
+            assertEquals("https://example.test", storedValue)
+            assertEquals(
+                "false",
+                setResult.payload
+                    .getValue("cleared")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "endpoint",
+                setResult.payload
+                    .getValue("configPath")
+                    .jsonPrimitive
+                    .content,
+            )
+            val setConfigField =
+                setResult.payload
+                    .getValue("configuration")
+                    .jsonObject
+                    .getValue("configFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(
+                "true",
+                setConfigField
+                    .getValue("configured")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "https://example.test",
+                setConfigField
+                    .getValue("value")
+                    .jsonPrimitive
+                    .content,
+            )
+
+            val clearResult =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.config.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "configurable")
+                            put("configPath", "endpoint")
+                            put("clear", true)
+                        },
+                )
+
+            assertTrue(clearResult.summary, clearResult.success)
+            assertEquals(null, storedValue)
+            assertEquals(
+                "true",
+                clearResult.payload
+                    .getValue("cleared")
+                    .jsonPrimitive
+                    .content,
+            )
+            val clearedConfigField =
+                clearResult.payload
+                    .getValue("configuration")
+                    .jsonObject
+                    .getValue("configFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("false", clearedConfigField.getValue("configured").jsonPrimitive.content)
+        }
+
+    @Test
+    fun `skills config update rejects undeclared config path`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "configurable",
+                                name = "configurable",
+                            ).copy(
+                                configStatuses = mapOf("endpoint" to false),
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.config.update"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "configurable")
+                            put("configPath", "missing")
+                            put("value", "ignored")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("SKILL_CONFIG_NOT_FOUND", result.errorCode)
+        }
+
+    @Test
     fun `skills search returns matching inventory entries`() =
         runTest {
             val registry =
@@ -4166,6 +4309,24 @@ class BuiltInToolsTest {
                     displayName = skill.displayName,
                 )
             },
+        skillConfigurationUpdater: suspend (
+            ai.androidclaw.runtime.skills.SkillSnapshot,
+            String,
+            String?,
+        ) -> ai.androidclaw.runtime.skills.SkillConfigurationSnapshot = { skill, configPath, value ->
+            ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                skillId = skill.id,
+                skillKey = skill.skillKey,
+                displayName = skill.displayName,
+                configFields =
+                    listOf(
+                        ai.androidclaw.runtime.skills.SkillConfigField(
+                            path = configPath,
+                            value = value,
+                        ),
+                    ),
+            )
+        },
         providerSecretStore: ProviderSecretStore? = null,
     ): ToolRegistry =
         createBuiltInToolRegistry(
@@ -4178,6 +4339,7 @@ class BuiltInToolsTest {
             skillEnabledUpdater = skillEnabledUpdater,
             skillInventoryRefresher = skillInventoryRefresher,
             skillConfigurationReader = skillConfigurationReader,
+            skillConfigurationUpdater = skillConfigurationUpdater,
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

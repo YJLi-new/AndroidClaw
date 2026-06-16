@@ -62,6 +62,12 @@ internal fun createBuiltInToolRegistry(
     skillConfigurationReader: suspend (SkillSnapshot) -> SkillConfigurationSnapshot = { skill ->
         skill.toDefaultConfigurationSnapshot()
     },
+    skillConfigurationUpdater: suspend (SkillSnapshot, String, String?) -> SkillConfigurationSnapshot = { skill, configPath, value ->
+        skill.toDefaultConfigurationSnapshot().withUpdatedConfigField(
+            configPath = configPath,
+            value = value,
+        )
+    },
     providerSecretStore: ProviderSecretStore? = null,
     messageRepository: MessageRepository,
     memoryRepository: MemoryRepository? = null,
@@ -208,6 +214,103 @@ internal fun createBuiltInToolRegistry(
                                                 }
                                             },
                                         )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.config.update",
+                                    aliases =
+                                        listOf(
+                                            "skill.config.update",
+                                            "skills.configuration.update",
+                                            "skill.configuration.update",
+                                            "skills.config.set",
+                                            "skill.config.set",
+                                        ),
+                                    description = "Set or clear one non-secret config value for a skill.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = false,
+                                                description = "Skill id, key, or display name.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "configPath",
+                                                required = false,
+                                                description = "Declared config path to update. Also accepts path.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "value",
+                                                description = "New non-secret config value. Omit when clear=true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "clear",
+                                                description = "Set true to clear the config value.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.config.update",
+                                        summary = "skills.config.update requires a non-empty skillId.",
+                                    )
+                            val configPath =
+                                arguments.optionalText("configPath")
+                                    ?: arguments.optionalText("path")
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.config.update",
+                                        summary = "skills.config.update requires a non-empty configPath.",
+                                        field = "configPath",
+                                    )
+                            val skills = bundledSkillsProvider()
+                            val skill =
+                                skills.findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.config.update", skillId = identifier)
+                            if (!skill.configStatuses.containsKey(configPath)) {
+                                return@Entry skillConfigNotFoundResult(
+                                    toolName = "skills.config.update",
+                                    skillId = skill.id,
+                                    configPath = configPath,
+                                )
+                            }
+                            val clear = arguments.optionalBoolean("clear", defaultValue = false)
+                            val value =
+                                if (clear) {
+                                    null
+                                } else {
+                                    arguments.optionalText("value")
+                                        ?: return@Entry invalidSkillArguments(
+                                            toolName = "skills.config.update",
+                                            summary = "skills.config.update requires a non-empty value unless clear=true.",
+                                            field = "value",
+                                        )
+                                }
+                            val updatedConfiguration =
+                                skillConfigurationUpdater(
+                                    skill,
+                                    configPath,
+                                    value,
+                                )
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (clear) {
+                                        "Cleared config $configPath for skill ${skill.displayName}."
+                                    } else {
+                                        "Updated config $configPath for skill ${skill.displayName}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("skill", skill.toSkillSearchPayload())
+                                        put("configPath", configPath)
+                                        put("cleared", clear)
+                                        put("configuration", updatedConfiguration.toSkillConfigurationPayload())
                                     },
                             )
                         },
@@ -4491,6 +4594,7 @@ private fun List<SkillSnapshot>.findByIdentifier(identifier: String): SkillSnaps
 private fun invalidSkillArguments(
     toolName: String,
     summary: String,
+    field: String = "skillId",
 ): ToolExecutionResult =
     ToolExecutionResult.failure(
         summary = summary,
@@ -4499,7 +4603,7 @@ private fun invalidSkillArguments(
             buildJsonObject {
                 put("errorCode", "INVALID_ARGUMENTS")
                 put("toolName", toolName)
-                put("field", "skillId")
+                put("field", field)
             },
     )
 
@@ -4515,6 +4619,23 @@ private fun skillNotFoundResult(
                 put("errorCode", "SKILL_NOT_FOUND")
                 put("toolName", toolName)
                 put("skillId", skillId)
+            },
+    )
+
+private fun skillConfigNotFoundResult(
+    toolName: String,
+    skillId: String,
+    configPath: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Config path $configPath was not declared for skill $skillId.",
+        errorCode = "SKILL_CONFIG_NOT_FOUND",
+        payload =
+            buildJsonObject {
+                put("errorCode", "SKILL_CONFIG_NOT_FOUND")
+                put("toolName", toolName)
+                put("skillId", skillId)
+                put("configPath", configPath)
             },
     )
 
@@ -4572,6 +4693,21 @@ private fun SkillSnapshot.toDefaultConfigurationSnapshot(): SkillConfigurationSn
                     path = path,
                     value = if (configured) "" else null,
                 )
+            },
+    )
+
+private fun SkillConfigurationSnapshot.withUpdatedConfigField(
+    configPath: String,
+    value: String?,
+): SkillConfigurationSnapshot =
+    copy(
+        configFields =
+            configFields.map { field ->
+                if (field.path == configPath) {
+                    field.copy(value = value)
+                } else {
+                    field
+                }
             },
     )
 
