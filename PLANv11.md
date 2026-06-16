@@ -137,6 +137,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   metadata plus the bounded run payload. Focused tests, ktlint, a reproducing
   `ChatViewModelTest` rerun after a transient executor failure, and a clean full
   offline fast-loop rerun passed.
+- 2026-06-16: Added `tasks.duplicate` / `task.duplicate` / `tasks.copy` /
+  `task.copy` as a typed automation cloning tool. It copies the persisted
+  schedule, prompt, execution mode, target session, precision request, and retry
+  budget, defaults the new copy to disabled for safe editing, and can
+  immediately enable/schedule the copy when requested. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

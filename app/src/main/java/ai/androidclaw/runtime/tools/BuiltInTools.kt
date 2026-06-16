@@ -1278,6 +1278,75 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor = taskDuplicateDescriptor(),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.duplicate",
+                    summary = "tasks.duplicate requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val sourceTask =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.duplicate", taskId = taskId)
+            val copyName = arguments.optionalText("name") ?: "Copy of ${sourceTask.name}"
+            val enabled = arguments.optionalBoolean("enabled", defaultValue = false)
+            val createdTask =
+                taskRepository.createTask(
+                    name = copyName,
+                    prompt = sourceTask.prompt,
+                    schedule = sourceTask.schedule,
+                    executionMode = sourceTask.executionMode,
+                    targetSessionId = sourceTask.targetSessionId,
+                    precise = sourceTask.precise,
+                    maxRetries = sourceTask.maxRetries,
+                )
+            val finalTask =
+                if (enabled) {
+                    createdTask
+                } else {
+                    createdTask.copy(
+                        enabled = false,
+                        updatedAt = clock.instant(),
+                    )
+                }
+            if (finalTask != createdTask) {
+                taskRepository.updateTask(finalTask)
+            }
+            if (finalTask.enabled) {
+                schedulerCoordinator.scheduleTask(finalTask.id)
+            }
+            val reloadedTask = taskRepository.getTask(finalTask.id) ?: finalTask
+            ToolExecutionResult.success(
+                summary =
+                    if (reloadedTask.enabled) {
+                        "Duplicated and enabled task ${sourceTask.name} as ${reloadedTask.name}."
+                    } else {
+                        "Duplicated task ${sourceTask.name} as disabled copy ${reloadedTask.name}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("sourceTaskId", sourceTask.id)
+                        put(
+                            "task",
+                            buildTaskPayload(
+                                task = reloadedTask,
+                                latestRun = taskRepository.getLatestRun(reloadedTask.id),
+                                sessionRepository = sessionRepository,
+                                diagnostics = schedulerCoordinator.diagnostics(),
+                            ),
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskCreateDescriptor(),
         ) { context, arguments ->
             val spec =
@@ -1578,6 +1647,29 @@ private fun taskUpdateDescriptor(): ToolDescriptor =
         name = "tasks.update",
         description = "Patch an existing task without replacing unspecified fields.",
         arguments = taskMutationArguments(requiredTaskId = true),
+    )
+
+private fun taskDuplicateDescriptor(): ToolDescriptor =
+    ToolDescriptor(
+        name = "tasks.duplicate",
+        aliases = listOf("task.duplicate", "tasks.copy", "task.copy"),
+        description = "Duplicate an existing scheduled automation, disabled by default.",
+        arguments =
+            listOf(
+                ToolArgumentSpec(
+                    name = "taskId",
+                    required = true,
+                    description = "Task identifier to copy",
+                ),
+                ToolArgumentSpec(
+                    name = "name",
+                    description = "Name for the copy. Defaults to Copy of the source task name.",
+                ),
+                ToolArgumentSpec(
+                    name = "enabled",
+                    description = "true to enable and schedule the copy. Defaults to false.",
+                ),
+            ),
     )
 
 private fun taskToggleDescriptor(

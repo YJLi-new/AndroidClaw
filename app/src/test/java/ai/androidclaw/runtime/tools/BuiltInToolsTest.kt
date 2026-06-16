@@ -813,6 +813,88 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks duplicate creates a disabled copy by default`() =
+        runTest {
+            val targetSession = sessionRepository.createSession("Automation target")
+            val source =
+                taskRepository.createTask(
+                    name = "Daily briefing",
+                    prompt = "Summarize today's work.",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-08T09:00:00Z"),
+                            repeatEvery = java.time.Duration.ofHours(24),
+                        ),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = targetSession.id,
+                    precise = true,
+                    maxRetries = 5,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.copy"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", source.id)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(source.id, result.payload["sourceTaskId"]?.jsonPrimitive?.content)
+            val copied = taskRepository.observeTasks().first().single { task -> task.id != source.id }
+            assertEquals("Copy of Daily briefing", copied.name)
+            assertEquals(source.prompt, copied.prompt)
+            assertEquals(source.schedule, copied.schedule)
+            assertEquals(TaskExecutionMode.IsolatedSession, copied.executionMode)
+            assertEquals(targetSession.id, copied.targetSessionId)
+            assertEquals(source.precise, copied.precise)
+            assertEquals(5, copied.maxRetries)
+            assertFalse(copied.enabled)
+            val payloadTask = result.payload.getValue("task").jsonObject
+            assertEquals(copied.id, payloadTask.getValue("id").jsonPrimitive.content)
+            assertEquals("false", payloadTask.getValue("enabled").jsonPrimitive.content)
+        }
+
+    @Test
+    fun `tasks duplicate can enable and schedule the copy`() =
+        runTest {
+            val source =
+                taskRepository.createTask(
+                    name = "Enabled template",
+                    prompt = "Run the enabled copy.",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-20T08:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.duplicate"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", source.id)
+                            put("name", "Enabled copy")
+                            put("enabled", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val copied = taskRepository.observeTasks().first().single { task -> task.id != source.id }
+            assertEquals("Enabled copy", copied.name)
+            assertTrue(copied.enabled)
+            val workInfos =
+                WorkManager
+                    .getInstance(application)
+                    .getWorkInfosForUniqueWork(SchedulerCoordinator.nextWorkName(copied.id))
+                    .get()
+            assertEquals(1, workInfos.size)
+            assertEquals(WorkInfo.State.ENQUEUED, workInfos.single().state)
+        }
+
+    @Test
     fun `tasks create resolves current session alias and schedules work`() =
         runTest {
             val currentSession = sessionRepository.createSession("Current session")
