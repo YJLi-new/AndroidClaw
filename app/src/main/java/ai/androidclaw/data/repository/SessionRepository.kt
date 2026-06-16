@@ -154,6 +154,21 @@ class SessionRepository(
         )
     }
 
+    suspend fun updateSummaryState(
+        id: String,
+        summaryText: String?,
+        compactedUntilMessageId: String?,
+    ) {
+        val existing = dao.getById(id) ?: return
+        dao.update(
+            existing.copy(
+                summaryText = summaryText?.toBoundedSessionText(SESSION_SUMMARY_MAX_CHARS),
+                compactedUntilMessageId = compactedUntilMessageId?.toBoundedCompactionBoundaryIdOrNull(),
+                updatedAt = Instant.now().toEpochMilli(),
+            ),
+        )
+    }
+
     suspend fun searchSessions(
         query: String,
         limit: Int,

@@ -853,6 +853,115 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.fork",
+                                    aliases =
+                                        listOf(
+                                            "session.fork",
+                                            "sessions.duplicate",
+                                            "session.duplicate",
+                                            "sessions.copy",
+                                            "session.copy",
+                                        ),
+                                    description = "Fork an existing chat session into a new active session with copied messages.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to fork. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "title",
+                                                description = "Title for the fork. Defaults to the source title plus \" fork\".",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "copyMessages",
+                                                description = "Set false to create an empty fork. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "copySummary",
+                                                description = "Set false to skip summary and compaction metadata. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sourceSessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sourceSessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to fork.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val sourceSession =
+                                sessionRepository.getSession(sourceSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sourceSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sourceSessionId)
+                                            },
+                                    )
+                            val forkTitle = arguments.optionalText("title") ?: "${sourceSession.title} fork"
+                            val copyMessages = arguments.optionalBoolean("copyMessages", defaultValue = true)
+                            val copySummary = arguments.optionalBoolean("copySummary", defaultValue = true)
+                            val forkedSession = sessionRepository.createSession(title = forkTitle)
+                            val copyResult =
+                                if (copyMessages) {
+                                    messageRepository.copyMessagesToSession(
+                                        sourceSessionId = sourceSession.id,
+                                        targetSessionId = forkedSession.id,
+                                    )
+                                } else {
+                                    MessageRepository.CopyResult(
+                                        sourceMessageCount = messageRepository.getMessageCount(sourceSession.id),
+                                        copiedMessageCount = 0,
+                                        messageIdMap = emptyMap(),
+                                    )
+                                }
+                            val copiedCompactionBoundaryId =
+                                sourceSession.compactedUntilMessageId
+                                    ?.let { boundaryId -> copyResult.messageIdMap[boundaryId] }
+                            if (copySummary && (sourceSession.summaryText != null || copiedCompactionBoundaryId != null)) {
+                                sessionRepository.updateSummaryState(
+                                    id = forkedSession.id,
+                                    summaryText = sourceSession.summaryText,
+                                    compactedUntilMessageId = copiedCompactionBoundaryId,
+                                )
+                            }
+                            val storedFork = sessionRepository.getSession(forkedSession.id) ?: forkedSession
+                            ToolExecutionResult.success(
+                                summary = "Forked session \"${sourceSession.title}\" into \"${storedFork.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sourceSessionId", sourceSession.id)
+                                        put("sourceTitle", sourceSession.title)
+                                        put("sourceArchived", sourceSession.archived)
+                                        put("sessionId", storedFork.id)
+                                        put("title", storedFork.title)
+                                        put("isMain", storedFork.isMain)
+                                        put("archived", storedFork.archived)
+                                        put("copyMessages", copyMessages)
+                                        put("copySummary", copySummary)
+                                        put("sourceMessageCount", copyResult.sourceMessageCount)
+                                        put("messageCount", messageRepository.getMessageCount(storedFork.id))
+                                        put("copiedMessageCount", copyResult.copiedMessageCount)
+                                        put("summaryCopied", copySummary && sourceSession.summaryText != null)
+                                        put("sourceCompactedUntilMessageId", sourceSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("compactedUntilMessageId", storedFork.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("compactionBoundaryCopied", copiedCompactionBoundaryId != null)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.search",
                                     aliases = listOf("message.search", "chat.search"),
                                     description = "Search active-session chat messages by content.",

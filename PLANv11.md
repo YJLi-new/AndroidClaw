@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.fork` / `session.fork` /
+  `sessions.duplicate` / `session.duplicate` plus copy aliases as a Session
+  Contract branching tool. Agents can now fork an active or specified session
+  into a new active normal session, copy transcript messages with fresh message
+  ids, optionally skip message or summary copying, and preserve summary plus
+  remapped compaction-boundary metadata when the source boundary message is
+  copied. Focused repository/tool tests, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `sessions.summaries` /
   `session.summaries` / `sessions.summarized` / `sessions.compacted` plus
   compacted aliases as a Session Contract summary discovery tool. Agents can

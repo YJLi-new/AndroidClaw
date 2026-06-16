@@ -360,6 +360,109 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions fork duplicates messages and remaps compaction boundary`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Source transcript")
+            messageRepository.addMessage(
+                sessionId = sourceSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Plan the fork",
+            )
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = sourceSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Fork this answer",
+                    toolCallId = "tool-1",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = sourceSession.id,
+                summaryText = "Source summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.duplicate", sessionId = sourceSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("title", "Forked transcript")
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(sourceSession.id, result.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals("Forked transcript", result.payload["title"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["copiedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryCopied"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["compactionBoundaryCopied"]?.jsonPrimitive?.content)
+            val forkedSessionId =
+                result.payload
+                    .getValue("sessionId")
+                    .jsonPrimitive
+                    .content
+            val forkedSession = requireNotNull(sessionRepository.getSession(forkedSessionId))
+            val forkedMessages = messageRepository.getMessages(forkedSessionId)
+
+            assertFalse(forkedSession.isMain)
+            assertFalse(forkedSession.archived)
+            assertEquals("Source summary", forkedSession.summaryText)
+            assertEquals(
+                listOf("Plan the fork", "Fork this answer"),
+                forkedMessages.map { message -> message.content },
+            )
+            assertEquals("tool-1", forkedMessages.last().toolCallId)
+            assertEquals(forkedMessages.last().id, forkedSession.compactedUntilMessageId)
+            assertTrue(forkedMessages.none { message -> message.id == boundary.id })
+        }
+
+    @Test
+    fun `sessions fork can create an empty fork without summary metadata`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Empty fork source")
+            messageRepository.addMessage(
+                sessionId = sourceSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Do not copy me",
+            )
+            sessionRepository.updateSummary(
+                id = sourceSession.id,
+                summaryText = "Do not copy summary",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.fork", sessionId = sourceSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("copyMessages", false)
+                            put("copySummary", false)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(false.toString(), result.payload["copyMessages"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["copySummary"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["summaryCopied"]?.jsonPrimitive?.content)
+            val forkedSessionId =
+                result.payload
+                    .getValue("sessionId")
+                    .jsonPrimitive
+                    .content
+
+            assertEquals(
+                emptyList<ai.androidclaw.data.model.ChatMessage>(),
+                messageRepository.getMessages(forkedSessionId),
+            )
+            assertEquals(null, sessionRepository.getSession(forkedSessionId)?.summaryText)
+        }
+
+    @Test
     fun `sessions archive hides session until list includes archived and unarchive restores it`() =
         runTest {
             sessionRepository.getOrCreateMainSession()

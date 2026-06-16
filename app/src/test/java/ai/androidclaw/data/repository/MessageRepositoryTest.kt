@@ -484,6 +484,63 @@ class MessageRepositoryTest {
         }
 
     @Test
+    fun `copy messages to session preserves transcript content and returns id mapping`() =
+        runTest {
+            database.sessionDao().insert(
+                SessionEntity(
+                    id = "fork",
+                    title = "Forked session",
+                    isMain = false,
+                    createdAt = 2L,
+                    updatedAt = 2L,
+                    archivedAt = null,
+                    summaryText = null,
+                ),
+            )
+            val first =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.User,
+                    content = "Original prompt",
+                    taskRunId = "run-1",
+                )
+            val second =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.ToolResult,
+                    content = "Tool output",
+                    providerMeta = """{"provider":"fake"}""",
+                    toolCallId = "call-1",
+                )
+
+            val result =
+                repository.copyMessagesToSession(
+                    sourceSessionId = "main",
+                    targetSessionId = "fork",
+                )
+            val copiedMessages = repository.getMessages("fork")
+
+            assertEquals(2, result.sourceMessageCount)
+            assertEquals(2, result.copiedMessageCount)
+            assertEquals(setOf(first.id, second.id), result.messageIdMap.keys)
+            assertEquals(
+                listOf("Original prompt", "Tool output"),
+                copiedMessages.map { message -> message.content },
+            )
+            assertEquals(listOf(MessageRole.User, MessageRole.ToolResult), copiedMessages.map { message -> message.role })
+            assertEquals("run-1", copiedMessages.first().taskRunId)
+            assertEquals("call-1", copiedMessages.last().toolCallId)
+            assertTrue(copiedMessages.none { message -> message.id == first.id || message.id == second.id })
+            assertEquals(
+                copiedMessages.map { message -> message.id },
+                listOf(
+                    result.messageIdMap.getValue(first.id),
+                    result.messageIdMap.getValue(second.id),
+                ),
+            )
+        }
+
+    @Test
     fun `add message bounds content metadata and reference ids before persistence`() =
         runTest {
             val longContent = "c".repeat(MESSAGE_CONTENT_MAX_CHARS + 25)

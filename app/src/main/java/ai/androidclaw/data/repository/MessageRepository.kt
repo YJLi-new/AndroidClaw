@@ -52,6 +52,12 @@ class MessageRepository(
         val after: List<ChatMessage>,
     )
 
+    data class CopyResult(
+        val sourceMessageCount: Int,
+        val copiedMessageCount: Int,
+        val messageIdMap: Map<String, String>,
+    )
+
     suspend fun addMessage(
         sessionId: String,
         role: MessageRole,
@@ -220,6 +226,49 @@ class MessageRepository(
 
     suspend fun deleteSessionMessages(sessionId: String) {
         dao.deleteBySessionId(sessionId)
+    }
+
+    suspend fun copyMessagesToSession(
+        sourceSessionId: String,
+        targetSessionId: String,
+    ): CopyResult {
+        if (sourceSessionId.isBlank() || targetSessionId.isBlank() || sourceSessionId == targetSessionId) {
+            return CopyResult(
+                sourceMessageCount = 0,
+                copiedMessageCount = 0,
+                messageIdMap = emptyMap(),
+            )
+        }
+        val sourceMessages = dao.getAllBySessionId(sourceSessionId)
+        if (sourceMessages.isEmpty()) {
+            return CopyResult(
+                sourceMessageCount = 0,
+                copiedMessageCount = 0,
+                messageIdMap = emptyMap(),
+            )
+        }
+        val messageIdMap = LinkedHashMap<String, String>(sourceMessages.size)
+        val copiedMessages =
+            sourceMessages.map { source ->
+                val copiedId = UUID.randomUUID().toString()
+                messageIdMap[source.id] = copiedId
+                MessageEntity(
+                    id = copiedId,
+                    sessionId = targetSessionId,
+                    role = source.role,
+                    content = source.content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS),
+                    createdAt = source.createdAt,
+                    providerMeta = source.providerMeta?.toBoundedMessageText(MESSAGE_PROVIDER_META_MAX_CHARS),
+                    toolCallId = source.toolCallId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
+                    taskRunId = source.taskRunId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
+                )
+            }
+        dao.insertAll(copiedMessages)
+        return CopyResult(
+            sourceMessageCount = sourceMessages.size,
+            copiedMessageCount = copiedMessages.size,
+            messageIdMap = messageIdMap,
+        )
     }
 }
 
