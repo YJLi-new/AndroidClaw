@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -1286,6 +1287,120 @@ private fun providerToolEntries(settingsDataStore: SettingsDataStore): List<Tool
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.configure",
+                    aliases = listOf("provider.configure", "providers.update", "provider.update"),
+                    description = "Update non-secret endpoint settings for a configurable model provider.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "baseUrl",
+                                description = "Provider base URL.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "modelId",
+                                description = "Provider model id.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "timeoutSeconds",
+                                description = "Provider timeout in seconds.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providerType =
+                if (identifier == null) {
+                    settings.providerType
+                } else {
+                    ProviderType.entries.firstOrNull { providerType ->
+                        providerType.matchesProviderIdentifier(identifier)
+                    } ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider $identifier was not found.",
+                        errorCode = "PROVIDER_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_NOT_FOUND")
+                                put("toolName", "providers.configure")
+                                put("providerId", identifier)
+                            },
+                    )
+                }
+            if (!providerType.requiresRemoteSettings) {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Provider ${providerType.displayName} does not have remote endpoint settings.",
+                    errorCode = "PROVIDER_NOT_CONFIGURABLE",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "PROVIDER_NOT_CONFIGURABLE")
+                            put("toolName", "providers.configure")
+                            put("providerId", providerType.providerId)
+                        },
+                )
+            }
+            val hasPatch =
+                arguments.optionalText("baseUrl") != null ||
+                    arguments.optionalText("modelId") != null ||
+                    arguments.optionalText("timeoutSeconds") != null
+            if (!hasPatch) {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "providers.configure requires baseUrl, modelId, or timeoutSeconds.",
+                    errorCode = "INVALID_ARGUMENTS",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "INVALID_ARGUMENTS")
+                            put("toolName", "providers.configure")
+                            put("field", "baseUrl|modelId|timeoutSeconds")
+                        },
+                )
+            }
+            val existingEndpoint = settings.endpointSettings(providerType)
+            val timeoutSeconds =
+                try {
+                    arguments.optionalProviderTimeoutSeconds() ?: existingEndpoint.timeoutSeconds
+                } catch (error: IllegalArgumentException) {
+                    return@Entry ToolExecutionResult.failure(
+                        summary = error.message ?: "providers.configure received an invalid timeoutSeconds.",
+                        errorCode = "INVALID_ARGUMENTS",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "INVALID_ARGUMENTS")
+                                put("toolName", "providers.configure")
+                                put("field", "timeoutSeconds")
+                            },
+                    )
+                }
+            val updatedSettings =
+                settings.withEndpointSettings(
+                    providerType = providerType,
+                    settings =
+                        ProviderEndpointSettings(
+                            baseUrl = arguments.optionalText("baseUrl") ?: existingEndpoint.baseUrl,
+                            modelId = arguments.optionalText("modelId") ?: existingEndpoint.modelId,
+                            timeoutSeconds = timeoutSeconds,
+                        ),
+                )
+            settingsDataStore.saveProviderSettings(updatedSettings)
+            val reloadedSettings = settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary = "Updated provider ${providerType.displayName} settings.",
+                payload =
+                    buildJsonObject {
+                        put("provider", providerType.toProviderPayload(reloadedSettings))
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.get",
                     aliases = listOf("provider.get"),
                     description = "Return one provider by id, storage value, or display name.",
@@ -2242,6 +2357,12 @@ private fun ProviderType.toProviderPayload(settings: ProviderSettingsSnapshot): 
             },
         )
     }
+
+private fun JsonObject.optionalProviderTimeoutSeconds(): Int? {
+    val value = optionalText("timeoutSeconds") ?: return null
+    return value.toIntOrNull()
+        ?: throw IllegalArgumentException("providers.configure received a non-numeric timeoutSeconds.")
+}
 
 private fun invalidToolDiscoveryArguments(
     toolName: String,

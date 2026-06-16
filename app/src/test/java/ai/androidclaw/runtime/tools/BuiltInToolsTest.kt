@@ -1403,6 +1403,51 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider configure updates non-secret endpoint settings`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.configure"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                            put("baseUrl", "https://proxy.example/v1")
+                            put("modelId", "deepseek-test")
+                            put("timeoutSeconds", 120)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val settings = settingsDataStore.settings.first()
+            assertEquals(ProviderType.OpenAiCompatible, settings.providerType)
+            val endpointSettings = settings.endpointSettings(ProviderType.DeepSeek)
+            assertEquals("https://proxy.example/v1", endpointSettings.baseUrl)
+            assertEquals("deepseek-test", endpointSettings.modelId)
+            assertEquals(120, endpointSettings.timeoutSeconds)
+            val provider = result.payload.getValue("provider").jsonObject
+            assertEquals("deepseek", provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals(
+                "false",
+                provider
+                    .getValue("selected")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "https://proxy.example/v1",
+                provider
+                    .getValue("endpointSettings")
+                    .jsonObject
+                    .getValue("baseUrl")
+                    .jsonPrimitive.content,
+            )
+        }
+
+    @Test
     fun `tools list and get expose typed descriptors`() =
         runTest {
             val registry = buildRegistry()

@@ -180,6 +180,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   id, storage value, enum name, or display name and returns the selected
   provider's non-secret metadata. Focused `BuiltInToolsTest`, ktlint, and the
   full offline fast loop passed.
+- 2026-06-16: Added `providers.configure` / `provider.configure` /
+  `providers.update` / `provider.update` for non-secret provider endpoint
+  changes. Agents can update base URL, model id, and timeout seconds for remote
+  providers without changing the currently selected provider or exposing stored
+  credentials. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
