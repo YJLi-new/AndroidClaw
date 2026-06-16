@@ -35,6 +35,20 @@ interface TaskDao {
     )
     suspend fun getEnabledTasksDueBefore(instant: Long): List<TaskEntity>
 
+    @Query(
+        """
+        SELECT * FROM tasks
+        WHERE name LIKE :queryPattern ESCAPE '\'
+           OR prompt LIKE :queryPattern ESCAPE '\'
+        ORDER BY nextRunAt IS NULL, nextRunAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchByText(
+        queryPattern: String,
+        limit: Int,
+    ): List<TaskEntity>
+
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun delete(id: String)
 }

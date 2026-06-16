@@ -667,6 +667,59 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks search returns name and prompt matches`() =
+        runTest {
+            val named =
+                taskRepository.createTask(
+                    name = "Project Alpha",
+                    prompt = "Daily status",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val prompted =
+                taskRepository.createTask(
+                    name = "Morning review",
+                    prompt = "Summarize Alpha milestones",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-11T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.createTask(
+                name = "Beta task",
+                prompt = "No match",
+                schedule = TaskSchedule.Once(Instant.parse("2026-03-12T00:00:00Z")),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = null,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.search"),
+                    arguments =
+                        buildJsonObject {
+                            put("query", "Alpha")
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("2", result.payload["resultCount"]?.jsonPrimitive?.content)
+            val taskIds =
+                result.payload
+                    .getValue("tasks")
+                    .jsonArray
+                    .map { item ->
+                        item.jsonObject
+                            .getValue("id")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals(listOf(named.id, prompted.id).sorted(), taskIds.sorted())
+        }
+
+    @Test
     fun `tasks runs returns bounded recent run history`() =
         runTest {
             val task =

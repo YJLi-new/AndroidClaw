@@ -22,6 +22,7 @@ internal const val TASK_TARGET_SESSION_ID_MAX_CHARS = 256
 internal const val TASK_RUN_ERROR_MESSAGE_MAX_CHARS = 1_000
 internal const val TASK_RUN_RESULT_SUMMARY_MAX_CHARS = 4_000
 internal const val TASK_RUN_QUERY_MAX_LIMIT = 100
+internal const val TASK_SEARCH_MAX_LIMIT = 200
 
 class TaskRepository(
     private val taskDao: TaskDao,
@@ -74,6 +75,18 @@ class TaskRepository(
         taskDao
             .getEnabledTasksDueBefore(instant.toEpochMilli())
             .mapNotNull(TaskEntity::toDomainOrNull)
+
+    suspend fun searchTasks(
+        query: String,
+        limit: Int,
+    ): List<Task> {
+        val queryPattern = query.toSqlLikeContainsPatternOrNull()
+        val boundedLimit = limit.coerceIn(0, TASK_SEARCH_MAX_LIMIT)
+        if (queryPattern == null || boundedLimit == 0) {
+            return emptyList()
+        }
+        return taskDao.searchByText(queryPattern, boundedLimit).mapNotNull(TaskEntity::toDomainOrNull)
+    }
 
     suspend fun deleteTask(id: String) {
         taskDao.delete(id)

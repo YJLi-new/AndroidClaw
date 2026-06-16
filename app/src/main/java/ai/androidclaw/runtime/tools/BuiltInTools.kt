@@ -2,6 +2,7 @@ package ai.androidclaw.runtime.tools
 
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
@@ -9,6 +10,7 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
+import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import android.app.Application
 import android.app.NotificationChannel
@@ -19,6 +21,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -1107,6 +1110,61 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.search",
+                    aliases = listOf("task.search"),
+                    description = "Search persisted automations by name or prompt text.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "query",
+                                required = true,
+                                description = "Task name or prompt text to search for.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum result count. Defaults to 20.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val query =
+                arguments.optionalText("query")
+                    ?: return@Entry invalidTaskArguments(
+                        toolName = "tasks.search",
+                        summary = "tasks.search requires a non-empty query.",
+                        field = "query",
+                    )
+            val limit =
+                arguments.optionalInt(
+                    field = "limit",
+                    defaultValue = TASK_SEARCH_DEFAULT_LIMIT,
+                )
+            val tasks = taskRepository.searchTasks(query = query, limit = limit)
+            ToolExecutionResult.success(
+                summary =
+                    if (tasks.isEmpty()) {
+                        "No tasks matched \"$query\"."
+                    } else {
+                        "Found ${tasks.size} task(s) matching \"$query\"."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("query", query)
+                        put("resultCount", tasks.size)
+                        put(
+                            "tasks",
+                            buildJsonArray {
+                                tasks.forEach { task ->
+                                    add(task.toTaskSearchPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.runs",
                     aliases = listOf("task.runs", "tasks.history", "task.history"),
                     description = "Return recent run history for a scheduled automation.",
@@ -1535,6 +1593,7 @@ private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
+private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 
 private fun String.toMessageSearchSnippet(): String =
@@ -1555,6 +1614,30 @@ private fun TaskRun.toTaskRunHistoryPayload() =
         put("errorCode", errorCode?.let(::JsonPrimitive) ?: JsonNull)
         put("errorMessage", errorMessage?.let(::JsonPrimitive) ?: JsonNull)
         put("outputMessageId", outputMessageId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun Task.toTaskSearchPayload(): JsonObject {
+    val promptSnippet = prompt.toMessageSearchSnippet()
+    return buildJsonObject {
+        put("id", id)
+        put("name", name)
+        put("enabled", enabled)
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("executionMode", executionMode.name)
+        put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("nextRunAtIso", nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("promptSnippet", promptSnippet)
+        put("promptLength", prompt.length)
+        put("promptTruncated", promptSnippet.length < prompt.length)
+    }
+}
+
+private fun TaskSchedule.toTaskSearchKind(): String =
+    when (this) {
+        is TaskSchedule.Once -> "once"
+        is TaskSchedule.Interval -> "interval"
+        is TaskSchedule.Cron -> "cron"
     }
 
 private fun kotlinx.serialization.json.JsonObject.optionalText(field: String): String? {

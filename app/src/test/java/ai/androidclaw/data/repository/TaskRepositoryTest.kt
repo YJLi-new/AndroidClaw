@@ -92,6 +92,50 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `search tasks matches names and prompts with literal wildcard text`() =
+        runTest {
+            val named =
+                repository.createTask(
+                    name = "Project Alpha",
+                    prompt = "Daily status",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(10L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val prompted =
+                repository.createTask(
+                    name = "Morning task",
+                    prompt = "Summarize Alpha milestones",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(20L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            val literal =
+                repository.createTask(
+                    name = "Escaped task",
+                    prompt = "Path is 100%_ready",
+                    schedule = TaskSchedule.Once(Instant.ofEpochMilli(30L)),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = "main",
+                )
+            repository.createTask(
+                name = "Beta notes",
+                prompt = "No matching text",
+                schedule = TaskSchedule.Once(Instant.ofEpochMilli(40L)),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = "main",
+            )
+
+            assertEquals(
+                listOf(named.id, prompted.id),
+                repository.searchTasks("Alpha", limit = 10).map { it.id },
+            )
+            assertEquals(listOf(literal.id), repository.searchTasks("%_", limit = 10).map { it.id })
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), repository.searchTasks("Alpha", limit = 0))
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), repository.searchTasks("   ", limit = 10))
+        }
+
+    @Test
     fun `due task filtering and task run lifecycle round trip through repository`() =
         runTest {
             val dueTask =

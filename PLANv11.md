@@ -125,6 +125,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   runs first with status/time/result/error/output-message metadata, and is
   covered by repository plus tool tests. Focused tests, ktlint, and the full
   offline fast loop passed.
+- 2026-06-16: Added `tasks.search` / `task.search` as a typed automation
+  discovery tool over persisted task names and prompts. It uses a bounded DAO
+  search with escaped SQL LIKE patterns, returns compact prompt snippets plus
+  schedule/enabled/target metadata instead of full prompts, and is covered by
+  repository plus tool tests. Focused tests, ktlint, and the full offline fast
+  loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.
