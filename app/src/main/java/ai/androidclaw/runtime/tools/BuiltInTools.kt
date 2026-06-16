@@ -2413,6 +2413,27 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.stats",
+                    aliases = listOf("task.stats", "automations.stats", "automation.stats"),
+                    description = "Return aggregate scheduler and automation-run statistics without loading every task.",
+                ),
+        ) { _, _ ->
+            val stats = taskRepository.getTaskStats(clock.instant())
+            ToolExecutionResult.success(
+                summary = "Loaded automation stats for ${stats.totalTaskCount} task(s) and ${stats.totalRunCount} run(s).",
+                payload =
+                    stats.toTaskStatsPayload(
+                        minimumBackgroundIntervalMinutes =
+                            schedulerCoordinator
+                                .capabilities()
+                                .minimumBackgroundInterval
+                                .toMinutes(),
+                    ),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.runs",
                     aliases = listOf("task.runs", "tasks.history", "task.history"),
                     description = "Return recent run history for a scheduled automation.",
@@ -3377,6 +3398,65 @@ private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): Json
         put("contentCharCount", contentCharCount)
         put("oldestMessageAtIso", oldestMessageAt.toString())
         put("newestMessageAtIso", newestMessageAt.toString())
+    }
+
+private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundIntervalMinutes: Long): JsonObject =
+    buildJsonObject {
+        put("supportsOnce", true)
+        put("supportsInterval", true)
+        put("supportsCron", true)
+        put("minimumBackgroundIntervalMinutes", minimumBackgroundIntervalMinutes)
+        put("taskCount", totalTaskCount)
+        put("enabledTaskCount", enabledTaskCount)
+        put("disabledTaskCount", disabledTaskCount)
+        put("scheduledTaskCount", scheduledTaskCount)
+        put("dueTaskCount", dueTaskCount)
+        put("nextEnabledRunAtIso", nextEnabledRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestTaskUpdatedAtIso", newestTaskUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("runCount", totalRunCount)
+        put("oldestRunScheduledAtIso", oldestRunScheduledAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestRunScheduledAtIso", newestRunScheduledAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put(
+            "scheduleKindStats",
+            buildJsonArray {
+                scheduleKindStats.forEach { stats ->
+                    add(
+                        buildJsonObject {
+                            put("scheduleKind", stats.scheduleKind)
+                            put("taskCount", stats.taskCount)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "executionModeStats",
+            buildJsonArray {
+                executionModeStats.forEach { stats ->
+                    add(
+                        buildJsonObject {
+                            put("executionMode", stats.executionMode.name)
+                            put("taskCount", stats.taskCount)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "runStatusStats",
+            buildJsonArray {
+                runStatusStats.forEach { stats ->
+                    add(
+                        buildJsonObject {
+                            put("status", stats.status.name)
+                            put("runCount", stats.runCount)
+                            put("oldestScheduledAtIso", stats.oldestScheduledAt.toString())
+                            put("newestScheduledAtIso", stats.newestScheduledAt.toString())
+                        },
+                    )
+                }
+            },
+        )
     }
 
 private fun TaskRun.toTaskRunHistoryPayload() =

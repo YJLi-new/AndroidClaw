@@ -1,7 +1,10 @@
 package ai.androidclaw.data.repository
 
 import ai.androidclaw.data.db.dao.TaskDao
+import ai.androidclaw.data.db.dao.TaskExecutionModeStatsRow
 import ai.androidclaw.data.db.dao.TaskRunDao
+import ai.androidclaw.data.db.dao.TaskRunStatusStatsRow
+import ai.androidclaw.data.db.dao.TaskScheduleKindStatsRow
 import ai.androidclaw.data.db.entity.TaskEntity
 import ai.androidclaw.data.db.entity.TaskRunEntity
 import ai.androidclaw.data.model.ScheduleSerializer
@@ -28,6 +31,39 @@ class TaskRepository(
     private val taskDao: TaskDao,
     private val taskRunDao: TaskRunDao,
 ) {
+    data class TaskStats(
+        val totalTaskCount: Long,
+        val enabledTaskCount: Long,
+        val disabledTaskCount: Long,
+        val scheduledTaskCount: Long,
+        val dueTaskCount: Long,
+        val nextEnabledRunAt: Instant?,
+        val newestTaskUpdatedAt: Instant?,
+        val scheduleKindStats: List<ScheduleKindStats>,
+        val executionModeStats: List<ExecutionModeStats>,
+        val totalRunCount: Long,
+        val oldestRunScheduledAt: Instant?,
+        val newestRunScheduledAt: Instant?,
+        val runStatusStats: List<RunStatusStats>,
+    )
+
+    data class ScheduleKindStats(
+        val scheduleKind: String,
+        val taskCount: Long,
+    )
+
+    data class ExecutionModeStats(
+        val executionMode: TaskExecutionMode,
+        val taskCount: Long,
+    )
+
+    data class RunStatusStats(
+        val status: TaskRunStatus,
+        val runCount: Long,
+        val oldestScheduledAt: Instant,
+        val newestScheduledAt: Instant,
+    )
+
     suspend fun createTask(
         name: String,
         prompt: String,
@@ -135,6 +171,26 @@ class TaskRepository(
             return emptyList()
         }
         return taskRunDao.getRecentByTaskId(taskId, boundedLimit).map(TaskRunEntity::toDomain)
+    }
+
+    suspend fun getTaskStats(now: Instant): TaskStats {
+        val taskStats = taskDao.getStats(now.toEpochMilli())
+        val runStats = taskRunDao.getStatusStats().map(TaskRunStatusStatsRow::toRunStatusStats)
+        return TaskStats(
+            totalTaskCount = taskStats.totalTaskCount,
+            enabledTaskCount = taskStats.enabledTaskCount,
+            disabledTaskCount = taskStats.disabledTaskCount,
+            scheduledTaskCount = taskStats.scheduledTaskCount,
+            dueTaskCount = taskStats.dueTaskCount,
+            nextEnabledRunAt = taskStats.nextEnabledRunAt?.let(Instant::ofEpochMilli),
+            newestTaskUpdatedAt = taskStats.newestTaskUpdatedAt?.let(Instant::ofEpochMilli),
+            scheduleKindStats = taskDao.getScheduleKindStats().map(TaskScheduleKindStatsRow::toScheduleKindStats),
+            executionModeStats = taskDao.getExecutionModeStats().map(TaskExecutionModeStatsRow::toExecutionModeStats),
+            totalRunCount = runStats.sumOf { stats -> stats.runCount },
+            oldestRunScheduledAt = runStats.minOfOrNull { stats -> stats.oldestScheduledAt },
+            newestRunScheduledAt = runStats.maxOfOrNull { stats -> stats.newestScheduledAt },
+            runStatusStats = runStats,
+        )
     }
 
     suspend fun trimRunsOlderThan(instant: Instant): Int = taskRunDao.deleteOlderThan(instant.toEpochMilli())
@@ -259,6 +315,26 @@ private fun String.toTaskRunStatus(): TaskRunStatus =
         "SKIPPED" -> TaskRunStatus.Skipped
         else -> TaskRunStatus.Failure
     }
+
+private fun TaskScheduleKindStatsRow.toScheduleKindStats(): TaskRepository.ScheduleKindStats =
+    TaskRepository.ScheduleKindStats(
+        scheduleKind = scheduleKind,
+        taskCount = taskCount,
+    )
+
+private fun TaskExecutionModeStatsRow.toExecutionModeStats(): TaskRepository.ExecutionModeStats =
+    TaskRepository.ExecutionModeStats(
+        executionMode = executionMode.toTaskExecutionMode(),
+        taskCount = taskCount,
+    )
+
+private fun TaskRunStatusStatsRow.toRunStatusStats(): TaskRepository.RunStatusStats =
+    TaskRepository.RunStatusStats(
+        status = status.toTaskRunStatus(),
+        runCount = runCount,
+        oldestScheduledAt = Instant.ofEpochMilli(oldestScheduledAt),
+        newestScheduledAt = Instant.ofEpochMilli(newestScheduledAt),
+    )
 
 private fun TaskSchedule.initialNextRun(now: Instant): Instant? =
     when (this) {

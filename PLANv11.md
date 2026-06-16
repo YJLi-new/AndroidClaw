@@ -249,6 +249,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
   history, and returns total message/content counts, oldest/newest timestamps,
   and per-role histograms for agent context planning. Focused repository/tool
   tests, ktlint, and the full offline fast loop passed.
+- 2026-06-16: Added `tasks.stats` / `task.stats` / `automations.stats` /
+  `automation.stats` as a lightweight Automation Contract aggregate tool. It
+  uses Room aggregate queries over tasks and task runs to report enabled,
+  disabled, scheduled, due, schedule-kind, execution-mode, and run-status
+  counts without loading every task/run payload. Focused repository/tool tests,
+  ktlint, and the full offline fast loop passed.
 
 - 2026-06-15: Adopted `PLANv11.md` as the active continuous hardening plan
   because all previous `PLANv*.md` files were archived under `docs/past_plans/`.

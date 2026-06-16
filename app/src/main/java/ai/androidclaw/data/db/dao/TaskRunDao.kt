@@ -50,6 +50,27 @@ interface TaskRunDao {
     )
     suspend fun getLatestByTaskId(taskId: String): TaskRunEntity?
 
+    @Query(
+        """
+        SELECT
+            status AS status,
+            COUNT(*) AS runCount,
+            MIN(scheduledAt) AS oldestScheduledAt,
+            MAX(scheduledAt) AS newestScheduledAt
+        FROM task_runs
+        GROUP BY status
+        ORDER BY status ASC
+        """,
+    )
+    suspend fun getStatusStats(): List<TaskRunStatusStatsRow>
+
     @Query("DELETE FROM task_runs WHERE scheduledAt < :timestamp")
     suspend fun deleteOlderThan(timestamp: Long): Int
 }
+
+data class TaskRunStatusStatsRow(
+    val status: String,
+    val runCount: Long,
+    val oldestScheduledAt: Long,
+    val newestScheduledAt: Long,
+)

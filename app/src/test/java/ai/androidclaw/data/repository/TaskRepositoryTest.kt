@@ -182,6 +182,78 @@ class TaskRepositoryTest {
         }
 
     @Test
+    fun `task stats aggregate task scheduling and run status state`() =
+        runTest {
+            database.taskDao().insert(
+                taskEntity(
+                    id = "due-task",
+                    scheduleKind = "once",
+                    executionMode = "MAIN_SESSION",
+                    enabled = true,
+                    nextRunAt = 1_000L,
+                    updatedAt = 1_500L,
+                ),
+            )
+            database.taskDao().insert(
+                taskEntity(
+                    id = "future-task",
+                    scheduleKind = "interval",
+                    executionMode = "ISOLATED_SESSION",
+                    enabled = true,
+                    nextRunAt = 10_000L,
+                    updatedAt = 2_500L,
+                ),
+            )
+            database.taskDao().insert(
+                taskEntity(
+                    id = "disabled-task",
+                    scheduleKind = "once",
+                    executionMode = "MAIN_SESSION",
+                    enabled = false,
+                    nextRunAt = 500L,
+                    updatedAt = 3_500L,
+                ),
+            )
+            database.taskRunDao().insert(
+                taskRunEntity(
+                    id = "success-run",
+                    taskId = "due-task",
+                    status = "SUCCESS",
+                    scheduledAt = 1_100L,
+                ),
+            )
+            database.taskRunDao().insert(
+                taskRunEntity(
+                    id = "failure-run",
+                    taskId = "future-task",
+                    status = "FAILURE",
+                    scheduledAt = 2_200L,
+                ),
+            )
+
+            val stats = repository.getTaskStats(Instant.ofEpochMilli(2_000L))
+            val kindStats = stats.scheduleKindStats.associate { item -> item.scheduleKind to item.taskCount }
+            val modeStats = stats.executionModeStats.associate { item -> item.executionMode to item.taskCount }
+            val runStats = stats.runStatusStats.associate { item -> item.status to item.runCount }
+
+            assertEquals(3L, stats.totalTaskCount)
+            assertEquals(2L, stats.enabledTaskCount)
+            assertEquals(1L, stats.disabledTaskCount)
+            assertEquals(3L, stats.scheduledTaskCount)
+            assertEquals(1L, stats.dueTaskCount)
+            assertEquals(Instant.ofEpochMilli(1_000L), stats.nextEnabledRunAt)
+            assertEquals(Instant.ofEpochMilli(3_500L), stats.newestTaskUpdatedAt)
+            assertEquals(mapOf("interval" to 1L, "once" to 2L), kindStats)
+            assertEquals(2L, modeStats.getValue(TaskExecutionMode.MainSession))
+            assertEquals(1L, modeStats.getValue(TaskExecutionMode.IsolatedSession))
+            assertEquals(2L, stats.totalRunCount)
+            assertEquals(Instant.ofEpochMilli(1_100L), stats.oldestRunScheduledAt)
+            assertEquals(Instant.ofEpochMilli(2_200L), stats.newestRunScheduledAt)
+            assertEquals(1L, runStats.getValue(TaskRunStatus.Success))
+            assertEquals(1L, runStats.getValue(TaskRunStatus.Failure))
+        }
+
+    @Test
     fun `get recent runs returns bounded newest-first history`() =
         runTest {
             val task =
@@ -576,10 +648,13 @@ private fun taskEntity(
     prompt: String = "This task was inserted directly.",
     scheduleKind: String = "once",
     scheduleSpec: String = """{"kind":"once","atEpochMillis":10}""",
+    executionMode: String = "MAIN_SESSION",
     targetSessionId: String? = "main",
+    enabled: Boolean = true,
     nextRunAt: Long? = 1L,
     failureCount: Int = 0,
     maxRetries: Int = 3,
+    updatedAt: Long = 1L,
 ): TaskEntity =
     TaskEntity(
         id = id,
@@ -587,16 +662,16 @@ private fun taskEntity(
         prompt = prompt,
         scheduleKind = scheduleKind,
         scheduleSpec = scheduleSpec,
-        executionMode = "MAIN_SESSION",
+        executionMode = executionMode,
         targetSessionId = targetSessionId,
-        enabled = true,
+        enabled = enabled,
         precise = false,
         nextRunAt = nextRunAt,
         lastRunAt = null,
         failureCount = failureCount,
         maxRetries = maxRetries,
         createdAt = 1L,
-        updatedAt = 1L,
+        updatedAt = updatedAt,
     )
 
 private fun invalidTaskEntity(
@@ -614,6 +689,7 @@ private fun invalidTaskEntity(
 private fun taskRunEntity(
     id: String,
     taskId: String,
+    status: String = "FAILURE",
     scheduledAt: Long = 10L,
     errorMessage: String? = null,
     resultSummary: String? = null,
@@ -621,7 +697,7 @@ private fun taskRunEntity(
     TaskRunEntity(
         id = id,
         taskId = taskId,
-        status = "FAILURE",
+        status = status,
         scheduledAt = scheduledAt,
         startedAt = scheduledAt,
         finishedAt = scheduledAt + 1L,

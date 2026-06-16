@@ -778,6 +778,86 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks stats returns aggregate scheduler and run state`() =
+        runTest {
+            val dueTask =
+                taskRepository.createTask(
+                    name = "Due task",
+                    prompt = "Run before now",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled task",
+                    prompt = "Stay disabled",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val futureTask =
+                taskRepository.createTask(
+                    name = "Future isolated task",
+                    prompt = "Run later",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                )
+            val successRun = taskRepository.recordRun(dueTask.id, scheduledAt = Instant.parse("2026-03-07T00:00:00Z"))
+            val failureRun = taskRepository.recordRun(futureTask.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            taskRepository.updateRun(successRun.copy(status = TaskRunStatus.Success))
+            taskRepository.updateRun(failureRun.copy(status = TaskRunStatus.Failure, errorCode = "TEST_FAILURE"))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.stats"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.success)
+            assertEquals("3", result.payload["taskCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["enabledTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["disabledTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["dueTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["runCount"]?.jsonPrimitive?.content)
+            val scheduleStats =
+                result.payload
+                    .getValue("scheduleKindStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("scheduleKind").jsonPrimitive.content to
+                            payload.getValue("taskCount").jsonPrimitive.content
+                    }
+            val executionStats =
+                result.payload
+                    .getValue("executionModeStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("executionMode").jsonPrimitive.content to
+                            payload.getValue("taskCount").jsonPrimitive.content
+                    }
+            val runStats =
+                result.payload
+                    .getValue("runStatusStats")
+                    .jsonArray
+                    .associate { item ->
+                        val payload = item.jsonObject
+                        payload.getValue("status").jsonPrimitive.content to
+                            payload.getValue("runCount").jsonPrimitive.content
+                    }
+            assertEquals("3", scheduleStats.getValue("once"))
+            assertEquals("2", executionStats.getValue("MainSession"))
+            assertEquals("1", executionStats.getValue("IsolatedSession"))
+            assertEquals("1", runStats.getValue("Success"))
+            assertEquals("1", runStats.getValue("Failure"))
+        }
+
+    @Test
     fun `tasks runs returns bounded recent run history`() =
         runTest {
             val task =

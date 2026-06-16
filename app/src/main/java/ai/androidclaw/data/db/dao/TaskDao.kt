@@ -49,6 +49,69 @@ interface TaskDao {
         limit: Int,
     ): List<TaskEntity>
 
+    @Query(
+        """
+        SELECT
+            COUNT(*) AS totalTaskCount,
+            COALESCE(SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END), 0) AS enabledTaskCount,
+            COALESCE(SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END), 0) AS disabledTaskCount,
+            COALESCE(SUM(CASE WHEN nextRunAt IS NOT NULL THEN 1 ELSE 0 END), 0) AS scheduledTaskCount,
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN enabled = 1 AND nextRunAt IS NOT NULL AND nextRunAt <= :nowMillis THEN 1
+                        ELSE 0
+                    END
+                ),
+                0
+            ) AS dueTaskCount,
+            MIN(CASE WHEN enabled = 1 THEN nextRunAt ELSE NULL END) AS nextEnabledRunAt,
+            MAX(updatedAt) AS newestTaskUpdatedAt
+        FROM tasks
+        """,
+    )
+    suspend fun getStats(nowMillis: Long): TaskStatsRow
+
+    @Query(
+        """
+        SELECT scheduleKind AS scheduleKind, COUNT(*) AS taskCount
+        FROM tasks
+        GROUP BY scheduleKind
+        ORDER BY scheduleKind ASC
+        """,
+    )
+    suspend fun getScheduleKindStats(): List<TaskScheduleKindStatsRow>
+
+    @Query(
+        """
+        SELECT executionMode AS executionMode, COUNT(*) AS taskCount
+        FROM tasks
+        GROUP BY executionMode
+        ORDER BY executionMode ASC
+        """,
+    )
+    suspend fun getExecutionModeStats(): List<TaskExecutionModeStatsRow>
+
     @Query("DELETE FROM tasks WHERE id = :id")
     suspend fun delete(id: String)
 }
+
+data class TaskStatsRow(
+    val totalTaskCount: Long,
+    val enabledTaskCount: Long,
+    val disabledTaskCount: Long,
+    val scheduledTaskCount: Long,
+    val dueTaskCount: Long,
+    val nextEnabledRunAt: Long?,
+    val newestTaskUpdatedAt: Long?,
+)
+
+data class TaskScheduleKindStatsRow(
+    val scheduleKind: String,
+    val taskCount: Long,
+)
+
+data class TaskExecutionModeStatsRow(
+    val executionMode: String,
+    val taskCount: Long,
+)
