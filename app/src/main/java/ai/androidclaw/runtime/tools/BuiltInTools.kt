@@ -7370,6 +7370,78 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.setup.matrix",
+                    aliases =
+                        listOf(
+                            "provider.setup.matrix",
+                            "providers.setup.all",
+                            "provider.setup.all",
+                            "providers.readiness",
+                            "providers.onboarding",
+                        ),
+                    description = "Return a read-only provider setup readiness matrix for all providers.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "includeRequirements",
+                                description = "Set false to omit per-provider requirement details. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit matrixMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val secretStatusAvailable = providerSecretStore != null
+            val entries =
+                ProviderType.entries.map { providerType ->
+                    val authState =
+                        providerType.toProviderAuthState(
+                            providerSecretStore = providerSecretStore,
+                            clock = clock,
+                        )
+                    ProviderSetupReadinessEntry(
+                        providerType = providerType,
+                        authState = authState,
+                        requirements =
+                            providerType.toProviderSetupRequirements(
+                                settings = settings,
+                                authState = authState,
+                                secretStatusAvailable = secretStatusAvailable,
+                            ),
+                    )
+                }
+            val includeRequirements = arguments.optionalBoolean("includeRequirements", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val matrixMarkdown =
+                if (includeMarkdown) {
+                    entries.toProviderSetupMatrixMarkdown(
+                        settings = settings,
+                        includeRequirements = includeRequirements,
+                        secretStatusAvailable = secretStatusAvailable,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    "Prepared setup readiness matrix for ${entries.size} provider(s); " +
+                        "${entries.count { entry -> entry.readyForUse }} ready.",
+                payload =
+                    entries.toProviderSetupMatrixPayload(
+                        settings = settings,
+                        includeRequirements = includeRequirements,
+                        includeMarkdown = includeMarkdown,
+                        matrixMarkdown = matrixMarkdown,
+                        secretStatusAvailable = secretStatusAvailable,
+                    ),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.auth.clear",
                     aliases =
                         listOf(
@@ -16314,6 +16386,21 @@ private data class ProviderSetupRequirement(
     val suggestedTool: String,
 )
 
+private data class ProviderSetupReadinessEntry(
+    val providerType: ProviderType,
+    val authState: ProviderAuthState,
+    val requirements: List<ProviderSetupRequirement>,
+) {
+    val setupStatus: String
+        get() = requirements.toProviderSetupStatus()
+
+    val authReady: Boolean
+        get() = authState.configuredForProviderAuthExample() == true && authState.oauthExpired != true
+
+    val readyForUse: Boolean
+        get() = requirements.isEmpty()
+}
+
 private fun ProviderType.toProviderSetupPayload(
     settings: ProviderSettingsSnapshot,
     authState: ProviderAuthState,
@@ -16396,6 +16483,192 @@ private fun ProviderType.toProviderSetupPayload(
         put("setupMarkdown", setupMarkdown?.let(::JsonPrimitive) ?: JsonNull)
     }
 }
+
+private fun List<ProviderSetupReadinessEntry>.toProviderSetupMatrixPayload(
+    settings: ProviderSettingsSnapshot,
+    includeRequirements: Boolean,
+    includeMarkdown: Boolean,
+    matrixMarkdown: String?,
+    secretStatusAvailable: Boolean,
+): JsonObject {
+    val statuses = map { entry -> entry.setupStatus }
+    return buildJsonObject {
+        put("providerCount", size)
+        put("includedProviderCount", size)
+        put("currentProviderId", settings.providerType.providerId)
+        put("currentProviderDisplayName", settings.providerType.displayName)
+        put("secretStatusAvailable", secretStatusAvailable)
+        put("readyProviderCount", count { entry -> entry.readyForUse })
+        put("needsAuthProviderCount", statuses.count { status -> status == "NEEDS_AUTH" })
+        put("needsEndpointProviderCount", statuses.count { status -> status == "NEEDS_ENDPOINT" })
+        put("needsAuthAndEndpointProviderCount", statuses.count { status -> status == "NEEDS_AUTH_AND_ENDPOINT" })
+        put("needsSetupProviderCount", count { entry -> !entry.readyForUse })
+        put("includeRequirements", includeRequirements)
+        put("includeMarkdown", includeMarkdown)
+        put("readOnly", true)
+        put("exampleOnly", true)
+        put("executesSetup", false)
+        put("mutatesSettings", false)
+        put("writesCredential", false)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("credentialValuesIncluded", false)
+        put(
+            "setupStatusStats",
+            buildJsonArray {
+                statuses
+                    .groupingBy { status -> status }
+                    .eachCount()
+                    .toList()
+                    .sortedBy { (status, _) -> status }
+                    .forEach { (status, count) ->
+                        add(namedCountPayload(nameField = "setupStatus", name = status, countField = "providerCount", count = count))
+                    }
+            },
+        )
+        put(
+            "readyProviderIds",
+            buildJsonArray {
+                this@toProviderSetupMatrixPayload
+                    .filter { entry -> entry.readyForUse }
+                    .forEach { entry -> add(JsonPrimitive(entry.providerType.providerId)) }
+            },
+        )
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                this@toProviderSetupMatrixPayload
+                    .flatMap { entry ->
+                        entry.providerType.toProviderSetupSuggestedTools(
+                            settings = settings,
+                            requirements = entry.requirements,
+                        )
+                    }.distinct()
+                    .forEach { toolName -> add(JsonPrimitive(toolName)) }
+            },
+        )
+        put(
+            "providers",
+            buildJsonArray {
+                this@toProviderSetupMatrixPayload.forEach { entry ->
+                    add(
+                        entry.toProviderSetupMatrixProviderPayload(
+                            settings = settings,
+                            includeRequirements = includeRequirements,
+                        ),
+                    )
+                }
+            },
+        )
+        put("matrixMarkdown", matrixMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun ProviderSetupReadinessEntry.toProviderSetupMatrixProviderPayload(
+    settings: ProviderSettingsSnapshot,
+    includeRequirements: Boolean,
+): JsonObject {
+    val endpointSettings = if (providerType.requiresRemoteSettings) settings.endpointSettings(providerType) else null
+    val endpointReady = endpointSettings == null || endpointSettings.isReadyProviderEndpointSettings()
+    return buildJsonObject {
+        put("providerId", providerType.providerId)
+        put("storageValue", providerType.storageValue)
+        put("displayName", providerType.displayName)
+        put("selected", settings.providerType == providerType)
+        put("protocolFamily", providerType.protocolFamily.name)
+        put("authMode", providerType.authMode.name)
+        put("requiresRemoteSettings", providerType.requiresRemoteSettings)
+        put("requiresCredential", providerType.requiresApiKey || providerType.usesOpenAiCodexOAuth)
+        put("requiresApiKey", providerType.requiresApiKey)
+        put("usesOpenAiCodexOAuth", providerType.usesOpenAiCodexOAuth)
+        put("authStatus", authState.status)
+        put("authReady", authReady)
+        put("endpointReady", endpointReady)
+        put("readyForUse", readyForUse)
+        put("setupStatus", setupStatus)
+        put("setupStepCount", requirements.size)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                providerType
+                    .toProviderSetupSuggestedTools(
+                        settings = settings,
+                        requirements = requirements,
+                    ).forEach { toolName -> add(JsonPrimitive(toolName)) }
+            },
+        )
+        put(
+            "requirements",
+            if (includeRequirements) {
+                buildJsonArray {
+                    requirements.forEach { requirement ->
+                        add(requirement.toProviderSetupRequirementPayload())
+                    }
+                }
+            } else {
+                JsonNull
+            },
+        )
+    }
+}
+
+private fun List<ProviderSetupReadinessEntry>.toProviderSetupMatrixMarkdown(
+    settings: ProviderSettingsSnapshot,
+    includeRequirements: Boolean,
+    secretStatusAvailable: Boolean,
+): String =
+    buildString {
+        appendLine("# Provider setup matrix")
+        appendLine()
+        appendLine("- Current provider: `${settings.providerType.providerId}` (${settings.providerType.displayName.toHandoffLine()})")
+        appendLine("- Providers included: ${this@toProviderSetupMatrixMarkdown.size}")
+        appendLine("- Ready providers: ${this@toProviderSetupMatrixMarkdown.count { entry -> entry.readyForUse }}")
+        appendLine("- Secret status available: $secretStatusAvailable")
+        appendLine("- Requirement details included: $includeRequirements")
+        appendLine("- Read-only: true")
+        appendLine("- Executes setup: false")
+        appendLine("- Mutates settings: false")
+        appendLine("- Writes credential: false")
+        appendLine("- Secret values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine()
+        appendLine("## Providers")
+        this@toProviderSetupMatrixMarkdown.forEach { entry ->
+            val endpointSettings =
+                if (entry.providerType.requiresRemoteSettings) {
+                    settings.endpointSettings(entry.providerType)
+                } else {
+                    null
+                }
+            val endpointReady = endpointSettings == null || endpointSettings.isReadyProviderEndpointSettings()
+            append("- `")
+            append(entry.providerType.providerId)
+            append("` selected=")
+            append(settings.providerType == entry.providerType)
+            append(" status=")
+            append(entry.setupStatus)
+            append(" auth=")
+            append(entry.authState.status)
+            append(" endpointReady=")
+            append(endpointReady)
+            append(" requirements=")
+            append(entry.requirements.size)
+            appendLine()
+            if (includeRequirements) {
+                entry.requirements.forEach { requirement ->
+                    append("  - ")
+                    append(requirement.code)
+                    append(": ")
+                    append(requirement.summary.toHandoffLine())
+                    appendLine()
+                }
+            }
+        }
+    }
 
 private fun ProviderEndpointSettings.isReadyProviderEndpointSettings(): Boolean =
     baseUrl.isValidProviderBaseUrl() &&

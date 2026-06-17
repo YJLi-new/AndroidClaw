@@ -7207,6 +7207,142 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider setup matrix summarizes provider readiness without secrets`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-matrix-secret")
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.readiness"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeRequirements", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-matrix-secret"))
+            assertEquals(ProviderType.entries.size.toString(), result.payload["providerCount"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.entries.size.toString(), result.payload["includedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["currentProviderId"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["readyProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["needsAuthProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["needsEndpointProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("6", result.payload["needsAuthAndEndpointProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("7", result.payload["needsSetupProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeRequirements"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["readOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["executesSetup"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["mutatesSettings"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesCredential"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["apiKeyValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("matrixMarkdown"))
+            val readyProviderIds =
+                result.payload
+                    .getValue("readyProviderIds")
+                    .jsonArray
+                    .map { provider -> provider.jsonPrimitive.content }
+            assertTrue(readyProviderIds.contains(ProviderType.Fake.providerId))
+            assertTrue(readyProviderIds.contains(ProviderType.DeepSeek.providerId))
+            val providers = result.payload.getValue("providers").jsonArray
+            assertEquals(ProviderType.entries.size, providers.size)
+            val deepSeek =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.DeepSeek.providerId
+                    }.jsonObject
+            assertEquals("true", deepSeek.getValue("selected").jsonPrimitive.content)
+            assertEquals("READY", deepSeek.getValue("setupStatus").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("readyForUse").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("authReady").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("endpointReady").jsonPrimitive.content)
+            assertEquals(JsonNull, deepSeek.getValue("requirements"))
+            val codex =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.OpenAiCodex.providerId
+                    }.jsonObject
+            assertEquals("NEEDS_AUTH", codex.getValue("setupStatus").jsonPrimitive.content)
+            assertEquals("false", codex.getValue("readyForUse").jsonPrimitive.content)
+            assertEquals("false", codex.getValue("authReady").jsonPrimitive.content)
+            assertEquals("true", codex.getValue("endpointReady").jsonPrimitive.content)
+        }
+
+    @Test
+    fun `provider setup matrix includes requirement details and markdown by default`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            val registry = buildRegistry(providerSecretStore = FakeProviderSecretStore())
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.setup.all"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("true", result.payload["includeRequirements"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            val providers = result.payload.getValue("providers").jsonArray
+            val openAiCompatible =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.OpenAiCompatible.providerId
+                    }.jsonObject
+            assertEquals("true", openAiCompatible.getValue("selected").jsonPrimitive.content)
+            assertEquals("NEEDS_AUTH_AND_ENDPOINT", openAiCompatible.getValue("setupStatus").jsonPrimitive.content)
+            val requirementCodes =
+                openAiCompatible
+                    .getValue("requirements")
+                    .jsonArray
+                    .map { requirement ->
+                        requirement.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertTrue(requirementCodes.contains("provider.auth.api_key_missing"))
+            assertTrue(requirementCodes.contains("provider.endpoint.model_id_missing"))
+            val suggestedTools =
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content }
+            assertTrue(suggestedTools.contains("providers.auth.example"))
+            assertTrue(suggestedTools.contains("providers.configure.example"))
+            assertTrue(suggestedTools.contains("providers.catalog"))
+            val markdown =
+                result.payload
+                    .getValue("matrixMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider setup matrix"))
+            assertTrue(markdown.contains("NEEDS_AUTH_AND_ENDPOINT"))
+        }
+
+    @Test
     fun `provider auth clear removes api key after confirmation without exposing secret`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()

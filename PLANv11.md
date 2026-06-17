@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.setup.matrix` /
+  `provider.setup.matrix` / `providers.setup.all` / `provider.setup.all` plus
+  readiness/onboarding aliases as a Provider/OAuth readiness-inventory
+  feature. Agents can now inspect all providers in one bounded read-only matrix
+  with per-provider READY / NEEDS_AUTH / NEEDS_ENDPOINT /
+  NEEDS_AUTH_AND_ENDPOINT status, ready and needs-setup counts, optional
+  requirement details, optional markdown, ready-provider ids, suggested
+  follow-up tools, and explicit executes-setup=false / mutates-settings=false /
+  writes-credential=false / secret/API-key/OAuth-token omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `providers.setup` /
   `provider.setup` / `providers.quickstart` / `provider.quickstart` plus
   readiness aliases as a Provider/OAuth setup-guide feature. Agents can now
