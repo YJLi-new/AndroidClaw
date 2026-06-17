@@ -584,6 +584,124 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions merge copies messages into active target and can archive source`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Merge source")
+            val targetSession = sessionRepository.createSession("Merge target")
+            messageRepository.addMessage(
+                sessionId = sourceSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Source prompt",
+            )
+            messageRepository.addMessage(
+                sessionId = sourceSession.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Source answer",
+            )
+            messageRepository.addMessage(
+                sessionId = targetSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Target prompt",
+            )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.merge", sessionId = targetSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("sourceSessionId", sourceSession.id)
+                            put("archiveSource", true)
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertEquals(1, messageRepository.getMessageCount(targetSession.id))
+            assertFalse(sessionRepository.getSession(sourceSession.id)?.archived ?: true)
+
+            val merged =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.merge", sessionId = targetSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("fromSessionId", sourceSession.id)
+                            put("archiveSource", true)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(merged.success)
+            assertEquals(sourceSession.id, merged.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals(targetSession.id, merged.payload["targetSessionId"]?.jsonPrimitive?.content)
+            assertEquals("2", merged.payload["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", merged.payload["copiedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("3", merged.payload["targetMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), merged.payload["copySummary"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), merged.payload["summaryCopied"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), merged.payload["archiveSource"]?.jsonPrimitive?.content)
+            assertTrue(sessionRepository.getSession(sourceSession.id)?.archived == true)
+            assertEquals(2, messageRepository.getMessageCount(sourceSession.id))
+            val targetMessages = messageRepository.getMessages(targetSession.id)
+            assertEquals(3, targetMessages.size)
+            assertTrue(targetMessages.any { message -> message.content == "Source prompt" })
+            assertTrue(targetMessages.any { message -> message.content == "Source answer" })
+            assertTrue(targetMessages.any { message -> message.content == "Target prompt" })
+        }
+
+    @Test
+    fun `sessions merge can copy summary and remap compaction boundary into target`() =
+        runTest {
+            val sourceSession = sessionRepository.createSession("Merge summarized source")
+            val targetSession = sessionRepository.createSession("Merge summarized target")
+            messageRepository.addMessage(
+                sessionId = sourceSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Summarized source prompt",
+            )
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = sourceSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Summarized source answer",
+                    toolCallId = "tool-summary",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = sourceSession.id,
+                summaryText = "Merged source summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.combine"),
+                    arguments =
+                        buildJsonObject {
+                            put("sourceSessionId", sourceSession.id)
+                            put("intoSessionId", targetSession.id)
+                            put("copySummary", true)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals("2", result.payload["copiedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["copySummary"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryCopied"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["compactionBoundaryCopied"]?.jsonPrimitive?.content)
+            val updatedTarget = requireNotNull(sessionRepository.getSession(targetSession.id))
+            val targetMessages = messageRepository.getMessages(targetSession.id)
+            assertEquals("Merged source summary", updatedTarget.summaryText)
+            assertNotNull(updatedTarget.compactedUntilMessageId)
+            assertTrue(updatedTarget.compactedUntilMessageId != boundary.id)
+            assertEquals(
+                targetMessages.single { message -> message.content == "Summarized source answer" }.id,
+                updatedTarget.compactedUntilMessageId,
+            )
+            assertEquals("tool-summary", targetMessages.last().toolCallId)
+        }
+
+    @Test
     fun `sessions clear requires confirmation and clears transcript while preserving session`() =
         runTest {
             val session = sessionRepository.createSession("Clear transcript")

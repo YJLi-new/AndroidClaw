@@ -1224,6 +1224,216 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.merge",
+                                    aliases =
+                                        listOf(
+                                            "session.merge",
+                                            "sessions.merge_into",
+                                            "session.merge_into",
+                                            "sessions.combine",
+                                            "session.combine",
+                                        ),
+                                    description = "Merge one session's transcript into another existing session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sourceSessionId",
+                                                description = "Session id to merge from. Defaults to the active session when targetSessionId is explicit.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "fromSessionId",
+                                                description = "Alias for sourceSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "targetSessionId",
+                                                description = "Session id to merge into. Defaults to the active session when sourceSessionId is explicit.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "intoSessionId",
+                                                description = "Alias for targetSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "copyMessages",
+                                                description = "Set false to merge metadata only. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "copySummary",
+                                                description = "Set true to copy source summary into an empty target summary slot. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "replaceSummary",
+                                                description = "Set true with copySummary to overwrite an existing target summary. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "archiveSource",
+                                                description = "Set true to archive the source session after merging. Requires confirm=CONFIRM.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must equal CONFIRM when archiveSource is true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val explicitSourceSessionId =
+                                arguments.optionalText("sourceSessionId")
+                                    ?: arguments.optionalText("fromSessionId")
+                            val explicitTargetSessionId =
+                                arguments.optionalText("targetSessionId")
+                                    ?: arguments.optionalText("intoSessionId")
+                            val sourceSessionId = explicitSourceSessionId ?: context.sessionId
+                            val targetSessionId = explicitTargetSessionId ?: context.sessionId
+                            if (sourceSessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "sessions.merge requires a sourceSessionId or active source session.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                            put("field", "sourceSessionId")
+                                        },
+                                )
+                            }
+                            if (targetSessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "sessions.merge requires a targetSessionId or active target session.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                            put("field", "targetSessionId")
+                                        },
+                                )
+                            }
+                            if (sourceSessionId == targetSessionId) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "sessions.merge source and target sessions must differ.",
+                                    errorCode = "INVALID_TARGET_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_TARGET_SESSION")
+                                            put("sourceSessionId", sourceSessionId)
+                                            put("targetSessionId", targetSessionId)
+                                        },
+                                )
+                            }
+                            val sourceSession =
+                                sessionRepository.getSession(sourceSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Source session $sourceSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sourceSessionId)
+                                                put("field", "sourceSessionId")
+                                            },
+                                    )
+                            val targetSession =
+                                sessionRepository.getSession(targetSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Target session $targetSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", targetSessionId)
+                                                put("field", "targetSessionId")
+                                            },
+                                    )
+                            val archiveSource = arguments.optionalBoolean("archiveSource")
+                            if (archiveSource && sourceSession.isMain) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "The main session cannot be archived after merge.",
+                                    errorCode = "MAIN_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MAIN_SESSION")
+                                            put("sourceSessionId", sourceSession.id)
+                                        },
+                                )
+                            }
+                            if (archiveSource && arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "Confirm source archival with confirm=CONFIRM.",
+                                    errorCode = "CONFIRMATION_REQUIRED",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "CONFIRMATION_REQUIRED")
+                                            put("sourceSessionId", sourceSession.id)
+                                            put("targetSessionId", targetSession.id)
+                                            put("field", "confirm")
+                                        },
+                                )
+                            }
+                            val copyMessages = arguments.optionalBoolean("copyMessages", defaultValue = true)
+                            val copyResult =
+                                if (copyMessages) {
+                                    messageRepository.copyMessagesToSession(
+                                        sourceSessionId = sourceSession.id,
+                                        targetSessionId = targetSession.id,
+                                    )
+                                } else {
+                                    MessageRepository.CopyResult(
+                                        sourceMessageCount = messageRepository.getMessageCount(sourceSession.id),
+                                        copiedMessageCount = 0,
+                                        messageIdMap = emptyMap(),
+                                    )
+                                }
+                            val copySummary = arguments.optionalBoolean("copySummary")
+                            val replaceSummary = arguments.optionalBoolean("replaceSummary")
+                            val copiedCompactionBoundaryId =
+                                sourceSession.compactedUntilMessageId
+                                    ?.let { boundaryId -> copyResult.messageIdMap[boundaryId] }
+                            val targetSummaryEmpty = targetSession.summaryText == null && targetSession.compactedUntilMessageId == null
+                            val summaryCopied =
+                                copySummary &&
+                                    (sourceSession.summaryText != null || copiedCompactionBoundaryId != null) &&
+                                    (replaceSummary || targetSummaryEmpty)
+                            if (summaryCopied) {
+                                sessionRepository.updateSummaryState(
+                                    id = targetSession.id,
+                                    summaryText = sourceSession.summaryText,
+                                    compactedUntilMessageId = copiedCompactionBoundaryId,
+                                )
+                            }
+                            if (archiveSource) {
+                                sessionRepository.archiveSession(sourceSession.id)
+                            }
+                            val updatedSourceSession = sessionRepository.getSession(sourceSession.id) ?: sourceSession
+                            val updatedTargetSession = sessionRepository.getSession(targetSession.id) ?: targetSession
+                            ToolExecutionResult.success(
+                                summary = "Merged session \"${sourceSession.title}\" into \"${updatedTargetSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sourceSessionId", updatedSourceSession.id)
+                                        put("sourceTitle", updatedSourceSession.title)
+                                        put("sourceArchived", updatedSourceSession.archived)
+                                        put("targetSessionId", updatedTargetSession.id)
+                                        put("targetTitle", updatedTargetSession.title)
+                                        put("targetArchived", updatedTargetSession.archived)
+                                        put("copyMessages", copyMessages)
+                                        put("sourceMessageCount", copyResult.sourceMessageCount)
+                                        put("copiedMessageCount", copyResult.copiedMessageCount)
+                                        put("targetMessageCount", messageRepository.getMessageCount(updatedTargetSession.id))
+                                        put("copySummary", copySummary)
+                                        put("replaceSummary", replaceSummary)
+                                        put("summaryCopied", summaryCopied)
+                                        put("targetHadSummary", !targetSummaryEmpty)
+                                        put("sourceSummaryLength", sourceSession.summaryText?.length ?: 0)
+                                        put("targetSummaryLength", updatedTargetSession.summaryText?.length ?: 0)
+                                        put("sourceCompactedUntilMessageId", sourceSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("targetCompactedUntilMessageId", updatedTargetSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("compactionBoundaryCopied", copiedCompactionBoundaryId != null)
+                                        put("archiveSource", archiveSource)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.search",
                                     aliases = listOf("message.search", "chat.search"),
                                     description = "Search active-session chat messages by content.",

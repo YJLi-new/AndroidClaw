@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.merge` / `session.merge` /
+  `sessions.merge_into` / `sessions.combine` plus singular aliases as a
+  Session Contract transcript-composition control. Agents can now copy one
+  session's messages into an active or specified target session, optionally
+  archive the source with `confirm=CONFIRM`, and optionally copy source summary
+  plus remapped compaction-boundary metadata into an empty or explicitly
+  replaced target summary slot. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 - 2026-06-17: Added `messages.create` / `message.create` /
   `messages.add` / `messages.append` plus chat-message append aliases as a
   Session Contract transcript-construction control. Agents can now append one
