@@ -471,6 +471,7 @@ internal fun createBuiltInToolRegistry(
                     addAll(
                         toolDiscoveryEntries(
                             toolRegistryProvider = { toolRegistry },
+                            clock = clock,
                         ),
                     )
                     eventLogRepository?.let { repository ->
@@ -7050,7 +7051,10 @@ private fun providerToolEntries(
         },
     )
 
-private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List<ToolRegistry.Entry> =
+private fun toolDiscoveryEntries(
+    toolRegistryProvider: () -> ToolRegistry,
+    clock: Clock,
+): List<ToolRegistry.Entry> =
     listOf(
         ToolRegistry.Entry(
             descriptor =
@@ -7064,6 +7068,140 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
             ToolExecutionResult.success(
                 summary = "Summarized ${tools.size} tool(s).",
                 payload = tools.toToolStatsPayload(),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tools.export",
+                    aliases =
+                        listOf(
+                            "tool.export",
+                            "tools.backup",
+                            "tool.backup",
+                            "tools.catalog.export",
+                            "tool.catalog.export",
+                        ),
+                    description = "Export bounded typed native tool descriptors and capability metadata.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "toolName",
+                                required = false,
+                                description = "Optional canonical tool name or alias to include only one tool.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "namespace",
+                                required = false,
+                                description = "Optional canonical namespace prefix before the first dot.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "availableOnly",
+                                description = "Set true to include only currently available tools. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeInputSchemas",
+                                description = "Set true to include bounded JSON input schemas. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum tool descriptors to include. Defaults to 100, max 200.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val requestedToolName = arguments.optionalText("toolName") ?: arguments.optionalText("name")
+            val namespaceFilter = arguments.optionalText("namespace")
+            val availableOnly = arguments.optionalBoolean("availableOnly", defaultValue = false)
+            val includeInputSchemas = arguments.optionalBoolean("includeInputSchemas", defaultValue = false)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_EXPORT_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_EXPORT_MAX_LIMIT)
+            val selectedTools =
+                if (requestedToolName == null) {
+                    tools
+                } else {
+                    listOf(
+                        toolRegistryProvider().findDescriptor(requestedToolName)
+                            ?: return@Entry ToolExecutionResult.failure(
+                                summary = "Tool $requestedToolName was not found.",
+                                errorCode = "TOOL_NOT_FOUND",
+                                payload =
+                                    buildJsonObject {
+                                        put("errorCode", "TOOL_NOT_FOUND")
+                                        put("toolName", requestedToolName)
+                                    },
+                            ),
+                    )
+                }
+            val candidates =
+                selectedTools.filter { tool ->
+                    (namespaceFilter == null || tool.toolNamespace().equals(namespaceFilter, ignoreCase = true)) &&
+                        (!availableOnly || tool.availability.status == ToolAvailabilityStatus.Available)
+                }
+            val includedTools = candidates.take(limit)
+            val exportMarkdown =
+                if (includeMarkdown) {
+                    includedTools.toToolExportMarkdown(
+                        totalToolCount = tools.size,
+                        candidateToolCount = candidates.size,
+                        requestedToolName = requestedToolName,
+                        namespaceFilter = namespaceFilter,
+                        availableOnly = availableOnly,
+                        includeInputSchemas = includeInputSchemas,
+                        limit = limit,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (requestedToolName == null) {
+                        "Prepared tool export with ${includedTools.size} of ${candidates.size} candidate tool(s)."
+                    } else {
+                        "Prepared tool export for ${includedTools.size} matching tool(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("exportFormat", TOOL_EXPORT_FORMAT)
+                        put("exportVersion", TOOL_EXPORT_VERSION)
+                        put("generatedAtIso", clock.instant().toString())
+                        put("toolCount", tools.size)
+                        put("candidateToolCount", candidates.size)
+                        put("includedToolCount", includedTools.size)
+                        put("omittedToolCount", (candidates.size - includedTools.size).coerceAtLeast(0))
+                        put("requestedToolName", requestedToolName?.let(::JsonPrimitive) ?: JsonNull)
+                        put("namespace", namespaceFilter?.let(::JsonPrimitive) ?: JsonNull)
+                        put("canonicalNamespace", candidates.firstOrNull()?.toolNamespace()?.let(::JsonPrimitive) ?: JsonNull)
+                        put("availableOnly", availableOnly)
+                        put("includeInputSchemas", includeInputSchemas)
+                        put("inputSchemasIncluded", includeInputSchemas)
+                        put("includeMarkdown", includeMarkdown)
+                        put("limit", limit)
+                        put("secretValuesIncluded", false)
+                        put("executionResultsIncluded", false)
+                        put("runtimeStateIncluded", false)
+                        put("availabilityIncluded", true)
+                        put("stats", tools.toToolStatsPayload())
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                includedTools.forEach { tool ->
+                                    add(tool.toToolExportPayload(includeInputSchema = includeInputSchemas))
+                                }
+                            },
+                        )
+                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
             )
         },
         ToolRegistry.Entry(
@@ -12169,6 +12307,10 @@ private const val TOOL_DOCTOR_CHECK_MAX_LIMIT = 20
 private const val TOOL_DOCTOR_DEFAULT_LIMIT = 20
 private const val TOOL_DOCTOR_MAX_LIMIT = 50
 private const val TOOL_DOCTOR_TEXT_MAX_CHARS = 500
+private const val TOOL_EXPORT_FORMAT = "androidclaw.tools.export.v1"
+private const val TOOL_EXPORT_VERSION = 1
+private const val TOOL_EXPORT_DEFAULT_LIMIT = 100
+private const val TOOL_EXPORT_MAX_LIMIT = 200
 private const val TOOL_HANDOFF_DEFAULT_LIMIT = 12
 private const val TOOL_HANDOFF_MAX_LIMIT = 30
 private const val TOOL_PERMISSIONS_DEFAULT_LIMIT = 50
@@ -14390,6 +14532,107 @@ private fun ToolDescriptor.toToolNamespaceMatchPayload(): JsonObject =
     }
 
 private fun ToolDescriptor.toolNamespace(): String = name.substringBefore(".", name)
+
+private fun ToolDescriptor.toToolExportPayload(includeInputSchema: Boolean): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("namespace", toolNamespace())
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("foregroundRequired", foregroundRequired)
+        put("aliasCount", aliases.size)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put("requiredPermissionCount", requiredPermissions.size)
+        put("secretValuesIncluded", false)
+        put("executionResultIncluded", false)
+        put("inputSchemaIncluded", includeInputSchema)
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+        put(
+            "arguments",
+            buildJsonArray {
+                arguments.forEach { argument ->
+                    add(argument.toToolArgumentPayload())
+                }
+            },
+        )
+        put(
+            "requiredPermissions",
+            buildJsonArray {
+                requiredPermissions.forEach { permission ->
+                    add(permission.toToolPermissionPayload())
+                }
+            },
+        )
+        put("inputSchema", if (includeInputSchema) inputSchema else JsonNull)
+    }
+
+private fun List<ToolDescriptor>.toToolExportMarkdown(
+    totalToolCount: Int,
+    candidateToolCount: Int,
+    requestedToolName: String?,
+    namespaceFilter: String?,
+    availableOnly: Boolean,
+    includeInputSchemas: Boolean,
+    limit: Int,
+): String {
+    val includedTools = this
+    return buildString {
+        appendLine("# Tools export")
+        appendLine()
+        appendLine("- Export format: $TOOL_EXPORT_FORMAT v$TOOL_EXPORT_VERSION")
+        appendLine("- Tools in registry: $totalToolCount")
+        appendLine("- Candidate tools after filters: $candidateToolCount")
+        appendLine("- Tools included: ${includedTools.size} of up to $limit")
+        appendLine("- Requested tool: ${requestedToolName?.toHandoffLine() ?: "none"}")
+        appendLine("- Namespace filter: ${namespaceFilter?.toHandoffLine() ?: "none"}")
+        appendLine("- Available only: $availableOnly")
+        appendLine("- Input schemas included: $includeInputSchemas")
+        appendLine("- Secret values included: false")
+        appendLine("- Execution results included: false")
+        appendLine()
+        appendLine("## Exported tools")
+        if (includedTools.isEmpty()) {
+            appendLine("_No tools included._")
+        } else {
+            includedTools.forEach { tool ->
+                appendLine(tool.toToolExportMarkdownLine(includeInputSchema = includeInputSchemas))
+            }
+        }
+    }
+}
+
+private fun ToolDescriptor.toToolExportMarkdownLine(includeInputSchema: Boolean): String =
+    buildString {
+        append("- `")
+        append(name.toHandoffLine())
+        append("` namespace=")
+        append(toolNamespace())
+        append(" availability=")
+        append(availability.status.name)
+        append(" args=")
+        append(arguments.size)
+        append(" requiredArgs=")
+        append(arguments.count { argument -> argument.required })
+        append(" permissions=")
+        append(requiredPermissions.size)
+        append(" inputSchemaIncluded=")
+        append(includeInputSchema)
+        if (aliases.isNotEmpty()) {
+            append(" aliases=")
+            append(aliases.size)
+        }
+        append(" - ")
+        append(description.toHandoffLine())
+    }
 
 private fun ToolDescriptor.toToolHandoffPayload(): JsonObject =
     buildJsonObject {

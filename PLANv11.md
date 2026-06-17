@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.export` /
+  `tool.export` / `tools.backup` / `tool.backup` plus catalog-export aliases
+  as a Tool Contract portability feature. Agents can now export bounded typed
+  native tool descriptors with stable export format/version, optional
+  single-tool focus, optional namespace and availability filtering, optional
+  input schemas, optional markdown, aggregate stats, and explicit secret-value,
+  execution-result, and runtime-state omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.import` /
   `skill.import` / `skills.restore` / `skill.restore` plus package-import
   aliases as the companion Skill Contract portability feature for
