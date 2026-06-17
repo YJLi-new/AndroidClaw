@@ -4484,6 +4484,127 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.commands",
+                                    aliases =
+                                        listOf(
+                                            "skill.commands",
+                                            "skills.slash",
+                                            "skill.slash",
+                                            "skills.command_index",
+                                            "skill.command_index",
+                                        ),
+                                    description = "List skill slash-command dispatch metadata without SKILL.md instruction bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum command entries to include. Defaults to 20, max 100.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeDisabled",
+                                                description = "Set true to include disabled skills. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeNonInvocable",
+                                                description = "Set true to include skills not marked user-invocable. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit commandsMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_COMMANDS_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_COMMANDS_MAX_LIMIT)
+                            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = false)
+                            val includeNonInvocable = arguments.optionalBoolean("includeNonInvocable", defaultValue = false)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val skills = bundledSkillsProvider()
+                            val commandSkills = skills.filter { skill -> skill.frontmatter != null }
+                            val candidates =
+                                commandSkills.filter { skill ->
+                                    val frontmatter = requireNotNull(skill.frontmatter)
+                                    (includeDisabled || skill.enabled) &&
+                                        (includeNonInvocable || frontmatter.userInvocable)
+                                }
+                            val commandNameCounts =
+                                candidates
+                                    .mapNotNull { skill -> skill.frontmatter?.name }
+                                    .groupingBy { commandName -> commandName }
+                                    .eachCount()
+                            val includedCommands = candidates.take(limit)
+                            val commandsMarkdown =
+                                if (includeMarkdown) {
+                                    includedCommands.toSkillCommandsMarkdown(
+                                        totalSkillCount = skills.size,
+                                        declaredCommandCount = commandSkills.size,
+                                        candidateCommandCount = candidates.size,
+                                        limit = limit,
+                                        includeDisabled = includeDisabled,
+                                        includeNonInvocable = includeNonInvocable,
+                                        commandNameCounts = commandNameCounts,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (includedCommands.isEmpty()) {
+                                        "No skill commands matched the filters."
+                                    } else {
+                                        "Loaded ${includedCommands.size} skill command(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("skillCount", skills.size)
+                                        put("declaredCommandCount", commandSkills.size)
+                                        put("candidateCommandCount", candidates.size)
+                                        put("includedCommandCount", includedCommands.size)
+                                        put("omittedCommandCount", (candidates.size - includedCommands.size).coerceAtLeast(0))
+                                        put("invocableCommandCount", candidates.count { skill -> skill.isSkillCommandInvocable() })
+                                        put(
+                                            "modelDispatchCommandCount",
+                                            candidates.count { skill -> skill.frontmatter?.commandDispatch == SkillCommandDispatch.Model },
+                                        )
+                                        put(
+                                            "toolDispatchCommandCount",
+                                            candidates.count { skill -> skill.frontmatter?.commandDispatch == SkillCommandDispatch.Tool },
+                                        )
+                                        put("duplicateCommandNameCount", commandNameCounts.count { (_, count) -> count > 1 })
+                                        put("duplicatedCommandCount", candidates.count { skill -> (commandNameCounts[skill.frontmatter?.name] ?: 0) > 1 })
+                                        put("limit", limit)
+                                        put("includeDisabled", includeDisabled)
+                                        put("includeNonInvocable", includeNonInvocable)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("instructionsOmitted", true)
+                                        put("secretValuesOmitted", true)
+                                        put(
+                                            "commands",
+                                            buildJsonArray {
+                                                includedCommands.forEach { skill ->
+                                                    add(
+                                                        skill.toSkillCommandPayload(
+                                                            duplicateCommandCount =
+                                                                commandNameCounts[skill.frontmatter?.name] ?: 1,
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                        put("commandsMarkdown", commandsMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.doctor",
                                     aliases =
                                         listOf(
@@ -10127,6 +10248,8 @@ private enum class MessagePageDirection(
 }
 
 private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
+private const val SKILL_COMMANDS_DEFAULT_LIMIT = 20
+private const val SKILL_COMMANDS_MAX_LIMIT = 100
 private const val SKILL_DOCTOR_DEFAULT_LIMIT = 20
 private const val SKILL_DOCTOR_MAX_LIMIT = 50
 private const val SKILL_DOCTOR_FIELD_LIST_LIMIT = 10
@@ -12298,6 +12421,132 @@ private fun SkillSnapshot.toSkillHandoffMarkdownLine(): String =
             append(error.toHandoffLine())
         }
     }
+
+private fun SkillSnapshot.isSkillCommandInvocable(): Boolean {
+    val frontmatter = frontmatter ?: return false
+    return enabled &&
+        frontmatter.userInvocable &&
+        resolutionState == SkillResolutionState.Effective &&
+        eligibility.status == SkillEligibilityStatus.Eligible
+}
+
+private fun SkillSnapshot.isSkillCommandModelReady(): Boolean {
+    val frontmatter = frontmatter ?: return false
+    return isSkillCommandInvocable() &&
+        frontmatter.commandDispatch == SkillCommandDispatch.Model &&
+        !frontmatter.disableModelInvocation
+}
+
+private fun SkillSnapshot.toSkillCommandPayload(duplicateCommandCount: Int): JsonObject {
+    val frontmatter = requireNotNull(frontmatter)
+    return buildJsonObject {
+        put("commandName", frontmatter.name)
+        put("slashCommand", "/${frontmatter.name}")
+        put("skillId", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("workspaceSessionId", workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("resolutionState", resolutionState.name)
+        put("shadowedBy", shadowedBy?.let(::JsonPrimitive) ?: JsonNull)
+        put("eligibilityStatus", eligibility.status.name)
+        put(
+            "eligibilityReasons",
+            buildJsonArray {
+                eligibility.reasons.forEach { reason -> add(JsonPrimitive(reason)) }
+            },
+        )
+        put("userInvocable", frontmatter.userInvocable)
+        put("invocable", isSkillCommandInvocable())
+        put("modelReady", isSkillCommandModelReady())
+        put("disableModelInvocation", frontmatter.disableModelInvocation)
+        put("commandDispatch", frontmatter.commandDispatch.name)
+        put("commandTool", frontmatter.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandArgMode", frontmatter.commandArgMode)
+        put("duplicateCommandCount", duplicateCommandCount)
+        put("description", frontmatter.description)
+        put("secretFieldCount", secretStatuses.size)
+        put("missingSecretFieldCount", secretStatuses.count { (_, configured) -> !configured })
+        put("configFieldCount", configStatuses.size)
+        put("missingConfigFieldCount", configStatuses.count { (_, configured) -> !configured })
+        put("parseError", parseError?.let(::JsonPrimitive) ?: JsonNull)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsOmitted", true)
+        put("secretValuesOmitted", true)
+    }
+}
+
+private fun List<SkillSnapshot>.toSkillCommandsMarkdown(
+    totalSkillCount: Int,
+    declaredCommandCount: Int,
+    candidateCommandCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+    includeNonInvocable: Boolean,
+    commandNameCounts: Map<String, Int>,
+): String {
+    val includedCommands = this
+    return buildString {
+        appendLine("# Skill commands")
+        appendLine()
+        appendLine("- Skills in inventory: $totalSkillCount")
+        appendLine("- Skills with command metadata: $declaredCommandCount")
+        appendLine("- Candidate commands after filters: $candidateCommandCount")
+        appendLine("- Commands included: ${includedCommands.size} of up to $limit")
+        appendLine("- Disabled skills included: $includeDisabled")
+        appendLine("- Non-user-invocable skills included: $includeNonInvocable")
+        appendLine("- SKILL.md instruction bodies omitted: true")
+        appendLine("- Secret values omitted: true")
+        appendLine()
+        appendLine("## Commands")
+        if (includedCommands.isEmpty()) {
+            appendLine("_No skill commands included._")
+        } else {
+            includedCommands.forEach { skill ->
+                val commandName = skill.frontmatter?.name.orEmpty()
+                appendLine(
+                    skill.toSkillCommandMarkdownLine(
+                        duplicateCommandCount = commandNameCounts[commandName] ?: 1,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+private fun SkillSnapshot.toSkillCommandMarkdownLine(duplicateCommandCount: Int): String {
+    val frontmatter = requireNotNull(frontmatter)
+    return buildString {
+        append("- `/")
+        append(frontmatter.name.toHandoffLine())
+        append("` skill=`")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(id.toHandoffLine())
+        append("` enabled=")
+        append(enabled)
+        append(" userInvocable=")
+        append(frontmatter.userInvocable)
+        append(" invocable=")
+        append(isSkillCommandInvocable())
+        append(" dispatch=")
+        append(frontmatter.commandDispatch.name)
+        frontmatter.commandTool?.let { toolName ->
+            append(" tool=`")
+            append(toolName.toHandoffLine())
+            append("`")
+        }
+        append(" argMode=")
+        append(frontmatter.commandArgMode.toHandoffLine())
+        append(" eligibility=")
+        append(eligibility.status.name)
+        if (duplicateCommandCount > 1) {
+            append(" duplicateCount=")
+            append(duplicateCommandCount)
+        }
+    }
+}
 
 private fun SkillSnapshot.toSkillDoctorIssues(): List<SkillDoctorIssue> =
     buildList {

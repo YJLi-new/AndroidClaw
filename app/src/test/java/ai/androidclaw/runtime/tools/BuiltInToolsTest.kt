@@ -7264,6 +7264,136 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills commands returns slash dispatch metadata without instructions`() =
+        runTest {
+            val hiddenInstructions = "FULL COMMAND SKILL BODY SHOULD NOT APPEAR"
+            val notifySkill =
+                skillSnapshot(
+                    id = "notify",
+                    name = "notify",
+                    commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                    commandTool = "notifications.post",
+                )
+            val internalSkillBase = skillSnapshot(id = "internal", name = "internal")
+            val internalSkill =
+                internalSkillBase.copy(
+                    frontmatter = requireNotNull(internalSkillBase.frontmatter).copy(userInvocable = false),
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "summarize", name = "summarize").copy(instructionsMd = hiddenInstructions),
+                            notifySkill,
+                            skillSnapshot(id = "notify-local", name = "notify"),
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false),
+                            internalSkill,
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.commands"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("5", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("5", result.payload["declaredCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["candidateCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["includedCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["invocableCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["modelDispatchCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["toolDispatchCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["duplicateCommandNameCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["duplicatedCommandCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeNonInvocable"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["instructionsOmitted"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["secretValuesOmitted"]?.jsonPrimitive?.content)
+            val commands =
+                result.payload
+                    .getValue("commands")
+                    .jsonArray
+                    .map { command -> command.jsonObject }
+            assertEquals(listOf("/summarize", "/notify", "/notify"), commands.map { it.getValue("slashCommand").jsonPrimitive.content })
+            val summarizeCommand = commands.first()
+            assertEquals("summarize", summarizeCommand.getValue("commandName").jsonPrimitive.content)
+            assertEquals("true", summarizeCommand.getValue("modelReady").jsonPrimitive.content)
+            assertEquals("true", summarizeCommand.getValue("invocable").jsonPrimitive.content)
+            val notifyCommands = commands.filter { command -> command.getValue("commandName").jsonPrimitive.content == "notify" }
+            assertEquals(2, notifyCommands.size)
+            assertTrue(notifyCommands.all { command -> command.getValue("duplicateCommandCount").jsonPrimitive.content == "2" })
+            assertEquals(
+                "notifications.post",
+                notifyCommands
+                    .first()
+                    .getValue("commandTool")
+                    .jsonPrimitive.content,
+            )
+            assertTrue(commands.all { command -> command.getValue("instructionsOmitted").jsonPrimitive.content == true.toString() })
+            assertTrue(commands.none { command -> command.containsKey("instructionsMd") })
+            val markdown =
+                result.payload
+                    .getValue("commandsMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skill commands"))
+            assertTrue(markdown.contains("/notify"))
+            assertFalse(result.payload.toString().contains(hiddenInstructions))
+            assertFalse(markdown.contains(hiddenInstructions))
+        }
+
+    @Test
+    fun `skills commands can include disabled and non invocable commands and omit markdown`() =
+        runTest {
+            val internalSkillBase = skillSnapshot(id = "internal", name = "internal")
+            val internalSkill =
+                internalSkillBase.copy(
+                    frontmatter = requireNotNull(internalSkillBase.frontmatter).copy(userInvocable = false),
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false),
+                            internalSkill,
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.slash"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", true)
+                            put("includeNonInvocable", true)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2", result.payload["candidateCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["includedCommandCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["invocableCommandCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeNonInvocable"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("commandsMarkdown"))
+            val commands =
+                result.payload
+                    .getValue("commands")
+                    .jsonArray
+                    .map { command -> command.jsonObject }
+            assertEquals(setOf("/disabled", "/internal"), commands.map { command -> command.getValue("slashCommand").jsonPrimitive.content }.toSet())
+            assertTrue(commands.all { command -> command.getValue("invocable").jsonPrimitive.content == false.toString() })
+            assertTrue(commands.none { command -> command.containsKey("instructionsMd") })
+        }
+
+    @Test
     fun `skills handoff returns bounded inventory metadata without instructions`() =
         runTest {
             val hiddenInstructions = "FULL SKILL BODY SHOULD NOT APPEAR IN HANDOFF"

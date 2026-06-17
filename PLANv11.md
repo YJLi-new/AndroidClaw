@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.commands` /
+  `skill.commands` / `skills.slash` / `skill.slash` plus command-index aliases
+  as a Skill Contract command inventory feature. Agents can now inspect
+  bounded slash-command dispatch metadata, invocability, model/tool dispatch
+  readiness, duplicate command names, optional disabled/non-user-invocable
+  entries, optional markdown, and explicit SKILL.md instruction/secret-value
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `tasks.agenda` /
   `task.agenda` / `automations.agenda` / `automation.agenda` plus handoff
   aliases as a compact Automation Contract agenda feature. Agents can now
