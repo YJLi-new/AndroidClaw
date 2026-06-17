@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.setup` /
+  `provider.setup` / `providers.quickstart` / `provider.quickstart` plus
+  readiness aliases as a Provider/OAuth setup-guide feature. Agents can now
+  inspect one provider's combined auth, endpoint, and selection readiness
+  without mutating settings or credentials, receive READY / NEEDS_AUTH /
+  NEEDS_ENDPOINT / NEEDS_AUTH_AND_ENDPOINT status, bounded setup requirements,
+  suggested follow-up tools, optional markdown, and explicit read-only /
+  executes-setup=false / mutates-settings=false / writes-credential=false /
+  secret/API-key/OAuth-token omission flags. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `providers.auth.example` /
   `provider.auth.example` / `providers.credentials.example` /
   `provider.credentials.example` plus login-example aliases as a Provider/OAuth

@@ -7278,6 +7278,98 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.setup",
+                    aliases =
+                        listOf(
+                            "provider.setup",
+                            "providers.quickstart",
+                            "provider.quickstart",
+                            "providers.ready",
+                            "provider.ready",
+                        ),
+                    description = "Return a read-only provider setup readiness guide across auth and endpoint requirements.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit setupMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providerType =
+                if (identifier == null) {
+                    settings.providerType
+                } else {
+                    ProviderType.entries.firstOrNull { providerType ->
+                        providerType.matchesProviderIdentifier(identifier)
+                    } ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider $identifier was not found.",
+                        errorCode = "PROVIDER_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_NOT_FOUND")
+                                put("toolName", "providers.setup")
+                                put("providerId", identifier)
+                            },
+                    )
+                }
+            val authState =
+                providerType.toProviderAuthState(
+                    providerSecretStore = providerSecretStore,
+                    clock = clock,
+                )
+            val requirements =
+                providerType.toProviderSetupRequirements(
+                    settings = settings,
+                    authState = authState,
+                    secretStatusAvailable = providerSecretStore != null,
+                )
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val setupMarkdown =
+                if (includeMarkdown) {
+                    providerType.toProviderSetupMarkdown(
+                        settings = settings,
+                        authState = authState,
+                        requirements = requirements,
+                        requestedProviderId = identifier,
+                        secretStatusAvailable = providerSecretStore != null,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (requirements.isEmpty()) {
+                        "Provider ${providerType.displayName} is ready."
+                    } else {
+                        "Provider ${providerType.displayName} needs ${requirements.size} setup step(s)."
+                    },
+                payload =
+                    providerType.toProviderSetupPayload(
+                        settings = settings,
+                        authState = authState,
+                        requirements = requirements,
+                        requestedProviderId = identifier,
+                        includeMarkdown = includeMarkdown,
+                        setupMarkdown = setupMarkdown,
+                        secretStatusAvailable = providerSecretStore != null,
+                    ),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.auth.clear",
                     aliases =
                         listOf(
@@ -16211,6 +16303,282 @@ private fun ProviderType.providerAuthExampleSetupSteps(): List<String> =
                 "No credential setup is required for $displayName.",
                 "Use providers.select if you want to make this provider current.",
             )
+    }
+
+private data class ProviderSetupRequirement(
+    val code: String,
+    val severity: String,
+    val field: String?,
+    val summary: String,
+    val action: String,
+    val suggestedTool: String,
+)
+
+private fun ProviderType.toProviderSetupPayload(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+    requirements: List<ProviderSetupRequirement>,
+    requestedProviderId: String?,
+    includeMarkdown: Boolean,
+    setupMarkdown: String?,
+    secretStatusAvailable: Boolean,
+): JsonObject {
+    val endpointSettings = if (requiresRemoteSettings) settings.endpointSettings(this) else null
+    val defaultEndpointSettings = if (requiresRemoteSettings) defaultEndpointSettings() else null
+    val authReady = authState.configuredForProviderAuthExample() == true && authState.oauthExpired != true
+    val endpointReady = endpointSettings == null || endpointSettings.isReadyProviderEndpointSettings()
+    val readyForUse = requirements.isEmpty()
+    return buildJsonObject {
+        put("requestedProviderId", requestedProviderId?.let(::JsonPrimitive) ?: JsonNull)
+        put("providerId", providerId)
+        put("storageValue", storageValue)
+        put("displayName", displayName)
+        put("selected", settings.providerType == this@toProviderSetupPayload)
+        put("currentProviderId", settings.providerType.providerId)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("requiresRemoteSettings", requiresRemoteSettings)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("requiresApiKey", requiresApiKey)
+        put("usesOpenAiCodexOAuth", usesOpenAiCodexOAuth)
+        put("secretStatusAvailable", secretStatusAvailable)
+        put("authStatus", authState.status)
+        put("authReady", authReady)
+        put("endpointReady", endpointReady)
+        put("readyForUse", readyForUse)
+        put("setupStatus", requirements.toProviderSetupStatus())
+        put("setupStepCount", requirements.size)
+        put("readOnly", true)
+        put("exampleOnly", true)
+        put("executesSetup", false)
+        put("mutatesSettings", false)
+        put("writesCredential", false)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("credentialValuesIncluded", false)
+        put("includeMarkdown", includeMarkdown)
+        put(
+            "endpointSettings",
+            endpointSettings?.let { settings ->
+                buildJsonObject {
+                    put("baseUrl", settings.baseUrl)
+                    put("modelId", settings.modelId)
+                    put("timeoutSeconds", settings.timeoutSeconds)
+                    put("baseUrlValid", settings.baseUrl.isValidProviderBaseUrl())
+                    put("modelIdPresent", settings.modelId.isNotBlank())
+                    put("timeoutValid", settings.timeoutSeconds in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS)
+                    put("usesDefaultBaseUrl", settings.baseUrl == defaultEndpointSettings?.baseUrl)
+                    put("usesDefaultModelId", settings.modelId == defaultEndpointSettings?.modelId)
+                    put("usesDefaultTimeoutSeconds", settings.timeoutSeconds == defaultEndpointSettings?.timeoutSeconds)
+                }
+            } ?: JsonNull,
+        )
+        put(
+            "requirements",
+            buildJsonArray {
+                requirements.forEach { requirement ->
+                    add(requirement.toProviderSetupRequirementPayload())
+                }
+            },
+        )
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                toProviderSetupSuggestedTools(
+                    settings = settings,
+                    requirements = requirements,
+                ).forEach { toolName ->
+                    add(JsonPrimitive(toolName))
+                }
+            },
+        )
+        put("setupMarkdown", setupMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun ProviderEndpointSettings.isReadyProviderEndpointSettings(): Boolean =
+    baseUrl.isValidProviderBaseUrl() &&
+        modelId.isNotBlank() &&
+        timeoutSeconds in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS
+
+private fun List<ProviderSetupRequirement>.toProviderSetupStatus(): String =
+    when {
+        isEmpty() -> "READY"
+        any { requirement -> requirement.code.startsWith("provider.auth.") } &&
+            any { requirement -> requirement.code.startsWith("provider.endpoint.") } -> "NEEDS_AUTH_AND_ENDPOINT"
+        any { requirement -> requirement.code.startsWith("provider.auth.") } -> "NEEDS_AUTH"
+        any { requirement -> requirement.code.startsWith("provider.endpoint.") } -> "NEEDS_ENDPOINT"
+        else -> "NEEDS_SETUP"
+    }
+
+private fun ProviderSetupRequirement.toProviderSetupRequirementPayload(): JsonObject =
+    buildJsonObject {
+        put("code", code)
+        put("severity", severity)
+        put("field", field?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", summary)
+        put("action", action)
+        put("suggestedTool", suggestedTool)
+    }
+
+private fun ProviderType.toProviderSetupSuggestedTools(
+    settings: ProviderSettingsSnapshot,
+    requirements: List<ProviderSetupRequirement>,
+): List<String> =
+    buildList {
+        add("providers.auth.status")
+        requirements
+            .map { requirement -> requirement.suggestedTool }
+            .filterTo(this) { toolName -> toolName.isNotBlank() }
+        if (settings.providerType != this@toProviderSetupSuggestedTools) {
+            add("providers.select")
+        }
+        add("providers.catalog")
+    }.distinct()
+
+private fun ProviderType.toProviderSetupRequirements(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+    secretStatusAvailable: Boolean,
+): List<ProviderSetupRequirement> =
+    buildList {
+        fun addRequirement(
+            code: String,
+            severity: String,
+            field: String?,
+            summary: String,
+            action: String,
+            suggestedTool: String,
+        ) {
+            add(
+                ProviderSetupRequirement(
+                    code = code,
+                    severity = severity,
+                    field = field,
+                    summary = summary.toProviderDoctorText(),
+                    action = action.toProviderDoctorText(),
+                    suggestedTool = suggestedTool,
+                ),
+            )
+        }
+
+        when {
+            !secretStatusAvailable && (requiresApiKey || usesOpenAiCodexOAuth) ->
+                addRequirement(
+                    code = "provider.auth.status_unknown",
+                    severity = "Warning",
+                    field = "credential",
+                    summary = "Credential status for $displayName cannot be inspected.",
+                    action = "Open Settings to verify credentials or wire provider credential storage.",
+                    suggestedTool = "providers.auth.example",
+                )
+            requiresApiKey && authState.apiKeyConfigured != true ->
+                addRequirement(
+                    code = "provider.auth.api_key_missing",
+                    severity = "Error",
+                    field = "api_key",
+                    summary = "Provider $displayName needs an API key.",
+                    action = "Use the Settings API-key field, then run providers.auth.status.",
+                    suggestedTool = "providers.auth.example",
+                )
+            usesOpenAiCodexOAuth && authState.oauthConfigured != true ->
+                addRequirement(
+                    code = "provider.auth.oauth_missing",
+                    severity = "Error",
+                    field = "oauth",
+                    summary = "Provider $displayName needs OpenAI Codex OAuth sign-in.",
+                    action = "Complete OpenAI Codex sign-in in Settings, then run providers.auth.status.",
+                    suggestedTool = "providers.auth.example",
+                )
+        }
+        if (authState.oauthExpired == true) {
+            addRequirement(
+                code = "provider.auth.oauth_expired",
+                severity = "Error",
+                field = "oauth",
+                summary = "Provider $displayName has expired OAuth credentials.",
+                action = "Repeat OpenAI Codex sign-in before using this provider.",
+                suggestedTool = "providers.auth.example",
+            )
+        }
+        if (requiresRemoteSettings) {
+            val endpointSettings = settings.endpointSettings(this@toProviderSetupRequirements)
+            if (!endpointSettings.baseUrl.isValidProviderBaseUrl()) {
+                addRequirement(
+                    code = "provider.endpoint.base_url_invalid",
+                    severity = "Error",
+                    field = "baseUrl",
+                    summary = "Provider $displayName needs a valid HTTP(S) base URL.",
+                    action = "Run providers.configure or inspect providers.configure.example.",
+                    suggestedTool = "providers.configure.example",
+                )
+            }
+            if (endpointSettings.modelId.isBlank()) {
+                addRequirement(
+                    code = "provider.endpoint.model_id_missing",
+                    severity = "Error",
+                    field = "modelId",
+                    summary = "Provider $displayName needs a model id.",
+                    action = "Run providers.configure with the model id or inspect providers.configure.example.",
+                    suggestedTool = "providers.configure.example",
+                )
+            }
+            if (endpointSettings.timeoutSeconds !in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS) {
+                addRequirement(
+                    code = "provider.endpoint.timeout_invalid",
+                    severity = "Error",
+                    field = "timeoutSeconds",
+                    summary = "Provider $displayName timeout is outside the supported range.",
+                    action = "Run providers.configure with a bounded timeout or reset provider defaults.",
+                    suggestedTool = "providers.configure.example",
+                )
+            }
+        }
+    }
+
+private fun ProviderType.toProviderSetupMarkdown(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+    requirements: List<ProviderSetupRequirement>,
+    requestedProviderId: String?,
+    secretStatusAvailable: Boolean,
+): String =
+    buildString {
+        appendLine("# Provider setup guide")
+        appendLine()
+        appendLine("- Provider: `$providerId` (${displayName.toHandoffLine()})")
+        appendLine("- Requested provider filter: ${requestedProviderId?.toHandoffLine() ?: "none"}")
+        appendLine("- Current provider: `${settings.providerType.providerId}`")
+        appendLine("- Status: ${requirements.toProviderSetupStatus()}")
+        appendLine("- Ready for use: ${requirements.isEmpty()}")
+        appendLine("- Auth status: ${authState.status}")
+        appendLine("- Secret status available: $secretStatusAvailable")
+        appendLine("- Read-only: true")
+        appendLine("- Executes setup: false")
+        appendLine("- Mutates settings: false")
+        appendLine("- Writes credential: false")
+        appendLine("- Secret values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine()
+        appendLine("## Requirements")
+        if (requirements.isEmpty()) {
+            appendLine("- None")
+        } else {
+            requirements.forEach { requirement ->
+                append("- ")
+                append(requirement.severity)
+                append(" `")
+                append(requirement.code)
+                append("`: ")
+                append(requirement.summary.toHandoffLine())
+                append(" Action: ")
+                append(requirement.action.toHandoffLine())
+                append(" Tool: `")
+                append(requirement.suggestedTool)
+                appendLine("`")
+            }
+        }
     }
 
 private data class ProviderDoctorIssue(

@@ -7055,6 +7055,158 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider setup guide reports ready configured provider without secrets`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-setup-secret")
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.quickstart"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-setup-secret"))
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["selected"]?.jsonPrimitive?.content)
+            assertEquals("Configured", result.payload["authStatus"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["authReady"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["endpointReady"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["readyForUse"]?.jsonPrimitive?.content)
+            assertEquals("READY", result.payload["setupStatus"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["setupStepCount"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["readOnly"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["executesSetup"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["mutatesSettings"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesCredential"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["apiKeyValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertTrue(
+                result.payload
+                    .getValue("requirements")
+                    .jsonArray
+                    .isEmpty(),
+            )
+            val endpointSettings = result.payload.getValue("endpointSettings").jsonObject
+            assertEquals(ProviderType.DeepSeek.defaultBaseUrl, endpointSettings.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals(ProviderType.DeepSeek.defaultModelId, endpointSettings.getValue("modelId").jsonPrimitive.content)
+            assertEquals("true", endpointSettings.getValue("baseUrlValid").jsonPrimitive.content)
+            assertEquals("true", endpointSettings.getValue("modelIdPresent").jsonPrimitive.content)
+            assertEquals(
+                listOf("providers.auth.status", "providers.catalog"),
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+            val markdown =
+                result.payload
+                    .getValue("setupMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider setup guide"))
+            assertTrue(markdown.contains("READY"))
+            assertFalse(markdown.contains("deepseek-setup-secret"))
+        }
+
+    @Test
+    fun `provider setup guide reports missing auth endpoint local and unknown provider safely`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCompatible),
+            )
+            val registry = buildRegistry(providerSecretStore = FakeProviderSecretStore())
+
+            val incomplete =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.ready"),
+                    arguments = buildJsonObject {},
+                )
+            val local =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.setup"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "fake")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.setup"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "missing-provider")
+                        },
+                )
+
+            assertTrue(incomplete.summary, incomplete.success)
+            assertEquals(ProviderType.OpenAiCompatible.providerId, incomplete.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("Missing", incomplete.payload["authStatus"]?.jsonPrimitive?.content)
+            assertEquals("false", incomplete.payload["authReady"]?.jsonPrimitive?.content)
+            assertEquals("false", incomplete.payload["endpointReady"]?.jsonPrimitive?.content)
+            assertEquals("false", incomplete.payload["readyForUse"]?.jsonPrimitive?.content)
+            assertEquals("NEEDS_AUTH_AND_ENDPOINT", incomplete.payload["setupStatus"]?.jsonPrimitive?.content)
+            val requirementCodes =
+                incomplete.payload
+                    .getValue("requirements")
+                    .jsonArray
+                    .map { requirement ->
+                        requirement.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertTrue(requirementCodes.contains("provider.auth.api_key_missing"))
+            assertTrue(requirementCodes.contains("provider.endpoint.model_id_missing"))
+            val suggestedTools =
+                incomplete.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content }
+            assertTrue(suggestedTools.contains("providers.auth.example"))
+            assertTrue(suggestedTools.contains("providers.configure.example"))
+            assertTrue(suggestedTools.contains("providers.catalog"))
+
+            assertTrue(local.summary, local.success)
+            assertEquals(ProviderType.Fake.providerId, local.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["selected"]?.jsonPrimitive?.content)
+            assertEquals("true", local.payload["readyForUse"]?.jsonPrimitive?.content)
+            assertEquals("READY", local.payload["setupStatus"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, local.payload.getValue("endpointSettings"))
+            assertEquals(JsonNull, local.payload.getValue("setupMarkdown"))
+            assertTrue(
+                local.payload
+                    .getValue("requirements")
+                    .jsonArray
+                    .isEmpty(),
+            )
+            assertEquals(
+                listOf("providers.auth.status", "providers.select", "providers.catalog"),
+                local.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+
+            assertFalse(missing.success)
+            assertEquals("PROVIDER_NOT_FOUND", missing.errorCode)
+            assertEquals("providers.setup", missing.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("missing-provider", missing.payload["providerId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `provider auth clear removes api key after confirmation without exposing secret`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()
