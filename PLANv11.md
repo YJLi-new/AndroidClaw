@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.export` /
+  `task.export` / `automations.export` / `automation.export` plus backup
+  aliases as an Automation Contract portability feature. Agents can now export
+  bounded automation definitions with stable export format/version, optional
+  disabled-task inclusion, full prompt omission by default, optional full prompt
+  inclusion for explicit backups, target-session metadata, schedule and
+  execution-mode stats, optional markdown, and explicit run-history/provider
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `messages.import` /
   `message.import` / `transcript.import` / `chat.import` plus
   session-message import alias as the companion Session Contract portability

@@ -3950,6 +3950,152 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks export omits prompts and run history by default`() =
+        runTest {
+            val targetSession = sessionRepository.createSession("Export target session")
+            val exportedTask =
+                taskRepository.createTask(
+                    name = "Exportable automation",
+                    prompt = "Sensitive export prompt body",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-08T00:00:00Z"),
+                            repeatEvery = Duration.ofHours(6),
+                        ),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = targetSession.id,
+                    precise = true,
+                    maxRetries = 5,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled export automation",
+                    prompt = "Disabled sensitive export prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-09T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val run =
+                taskRepository.recordRun(
+                    taskId = exportedTask.id,
+                    scheduledAt = Instant.parse("2026-03-08T06:00:00Z"),
+                )
+            taskRepository.updateRun(
+                run.copy(
+                    status = TaskRunStatus.Success,
+                    resultSummary = "Run history must not export",
+                ),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.tasks.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["totalTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["candidateTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["exportedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["promptsIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["runHistoryIncluded"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["targetSessionMetadataIncluded"]?.jsonPrimitive?.content)
+            val tasks =
+                result.payload
+                    .getValue("tasks")
+                    .jsonArray
+                    .map { task -> task.jsonObject }
+            val taskPayload = tasks.single { task -> task.getValue("taskId").jsonPrimitive.content == exportedTask.id }
+            assertEquals("Exportable automation", taskPayload.getValue("name").jsonPrimitive.content)
+            assertEquals("interval", taskPayload.getValue("scheduleKind").jsonPrimitive.content)
+            assertEquals("IsolatedSession", taskPayload.getValue("executionMode").jsonPrimitive.content)
+            assertEquals(JsonNull, taskPayload.getValue("prompt"))
+            assertEquals(false.toString(), taskPayload.getValue("promptIncluded").jsonPrimitive.content)
+            assertEquals(false.toString(), taskPayload.getValue("runHistoryIncluded").jsonPrimitive.content)
+            assertEquals(targetSession.id, taskPayload.getValue("targetSessionId").jsonPrimitive.content)
+            val targetPayload = taskPayload.getValue("targetSession").jsonObject
+            assertEquals("Export target session", targetPayload.getValue("title").jsonPrimitive.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Sensitive export prompt body"))
+            assertFalse(payloadText.contains("Disabled sensitive export prompt"))
+            assertFalse(payloadText.contains("Run history must not export"))
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Automation export"))
+            assertTrue(markdown.contains("Prompt bodies included: false"))
+            assertFalse(markdown.contains("Sensitive export prompt body"))
+        }
+
+    @Test
+    fun `tasks export can include prompts and filter disabled automations`() =
+        runTest {
+            val enabledTask =
+                taskRepository.createTask(
+                    name = "Enabled backup automation",
+                    prompt = "Prompt body intentionally exported",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled backup automation",
+                    prompt = "Disabled prompt should be filtered",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-11T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.backup"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", false)
+                            put("includePrompts", true)
+                            put("includeTargetSessionMetadata", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(false.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["promptsIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["targetSessionMetadataIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+            assertEquals("2", result.payload["totalTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["candidateTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportedTaskCount"]?.jsonPrimitive?.content)
+            val taskPayload =
+                result.payload
+                    .getValue("tasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(enabledTask.id, taskPayload.getValue("taskId").jsonPrimitive.content)
+            assertEquals("Prompt body intentionally exported", taskPayload.getValue("prompt").jsonPrimitive.content)
+            assertEquals(true.toString(), taskPayload.getValue("promptIncluded").jsonPrimitive.content)
+            assertEquals(JsonNull, taskPayload.getValue("targetSession"))
+            val payloadText = result.payload.toString()
+            assertTrue(payloadText.contains("Prompt body intentionally exported"))
+            assertFalse(payloadText.contains("Disabled backup automation"))
+            assertFalse(payloadText.contains("Disabled prompt should be filtered"))
+        }
+
+    @Test
     fun `tasks occurrences previews multiple scheduled run times without mutating task`() =
         runTest {
             val task =

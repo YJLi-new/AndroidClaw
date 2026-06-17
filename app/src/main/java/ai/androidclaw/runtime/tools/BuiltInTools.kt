@@ -8415,6 +8415,131 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.export",
+                    aliases =
+                        listOf(
+                            "task.export",
+                            "automations.export",
+                            "automation.export",
+                            "tasks.backup",
+                            "task.backup",
+                            "automations.backup",
+                            "automation.backup",
+                        ),
+                    description = "Export bounded automation definitions without run history.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum task count to export. Defaults to 50, max 100.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDisabled",
+                                description = "Set false to export only enabled automations. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includePrompts",
+                                description = "Set true to include full task prompts. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeTargetSessionMetadata",
+                                description = "Set false to omit resolved target-session title metadata. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_EXPORT_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_EXPORT_MAX_LIMIT)
+            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+            val includePrompts = arguments.optionalBoolean("includePrompts", defaultValue = false)
+            val includeTargetSessionMetadata = arguments.optionalBoolean("includeTargetSessionMetadata", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val allTasks = taskRepository.observeTasks().first()
+            val candidateTasks =
+                allTasks
+                    .asSequence()
+                    .filter { task -> includeDisabled || task.enabled }
+                    .sortedByDescending { task -> task.updatedAt }
+                    .toList()
+            val exportedTasks = candidateTasks.take(limit)
+            val targetSessionsById = mutableMapOf<String, Session?>()
+            if (includeTargetSessionMetadata) {
+                exportedTasks
+                    .mapNotNull(Task::targetSessionId)
+                    .distinct()
+                    .forEach { sessionId ->
+                        targetSessionsById[sessionId] = sessionRepository.getSession(sessionId)
+                    }
+            }
+            val exportMarkdown =
+                if (includeMarkdown) {
+                    exportedTasks.toTaskExportMarkdown(
+                        totalTaskCount = allTasks.size,
+                        candidateTaskCount = candidateTasks.size,
+                        limit = limit,
+                        includeDisabled = includeDisabled,
+                        includePrompts = includePrompts,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (exportedTasks.isEmpty()) {
+                        "Prepared empty automation export."
+                    } else {
+                        "Prepared automation export with ${exportedTasks.size} task definition(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("exportFormat", TASK_EXPORT_FORMAT)
+                        put("exportVersion", TASK_EXPORT_VERSION)
+                        put("generatedAtIso", clock.instant().toString())
+                        put("taskLimit", limit)
+                        put("totalTaskCount", allTasks.size)
+                        put("candidateTaskCount", candidateTasks.size)
+                        put("exportedTaskCount", exportedTasks.size)
+                        put("omittedTaskCount", (candidateTasks.size - exportedTasks.size).coerceAtLeast(0))
+                        put("includeDisabled", includeDisabled)
+                        put("disabledTaskCount", allTasks.count { task -> !task.enabled })
+                        put("promptsIncluded", includePrompts)
+                        put("promptBodiesIncluded", includePrompts)
+                        put("fullPromptBodiesIncluded", includePrompts)
+                        put("runHistoryIncluded", false)
+                        put("providerMetaIncluded", false)
+                        put("targetSessionMetadataIncluded", includeTargetSessionMetadata)
+                        put("includeMarkdown", includeMarkdown)
+                        put("scheduleKindStats", candidateTasks.toTaskExportScheduleStatsPayload())
+                        put("executionModeStats", candidateTasks.toTaskExportExecutionModeStatsPayload())
+                        put(
+                            "tasks",
+                            buildJsonArray {
+                                exportedTasks.forEach { task ->
+                                    add(
+                                        task.toTaskExportPayload(
+                                            includePrompt = includePrompts,
+                                            targetSession = targetSessionsById[task.targetSessionId],
+                                            includeTargetSessionMetadata = includeTargetSessionMetadata,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.disable_all",
                     aliases =
                         listOf(
@@ -11147,6 +11272,10 @@ private const val TASK_DUE_MAX_LIMIT = 50
 private const val TASK_DOCTOR_DEFAULT_LIMIT = 20
 private const val TASK_DOCTOR_MAX_LIMIT = 50
 private const val TASK_DOCTOR_TEXT_MAX_CHARS = 500
+private const val TASK_EXPORT_FORMAT = "androidclaw.tasks.export.v1"
+private const val TASK_EXPORT_VERSION = 1
+private const val TASK_EXPORT_DEFAULT_LIMIT = 50
+private const val TASK_EXPORT_MAX_LIMIT = 100
 private const val TASK_HANDOFF_DEFAULT_RUN_LIMIT = 5
 private const val TASK_HANDOFF_MAX_RUN_LIMIT = 20
 private const val TASK_OCCURRENCES_DEFAULT_LIMIT = 5
@@ -15119,6 +15248,131 @@ private fun SessionDoctorIssue.toSessionDoctorMarkdownLine(): String =
     }
 
 private fun String.toSessionDoctorText(): String = toHandoffLine().take(SESSION_DOCTOR_TEXT_MAX_CHARS)
+
+private fun Task.toTaskExportPayload(
+    includePrompt: Boolean,
+    targetSession: Session?,
+    includeTargetSessionMetadata: Boolean,
+): JsonObject =
+    buildJsonObject {
+        put("taskId", id)
+        put("sourceTaskId", id)
+        put("name", name)
+        put("enabled", enabled)
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("schedule", schedule.toPayload())
+        put("executionMode", executionMode.name)
+        put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("targetSessionMetadataIncluded", includeTargetSessionMetadata)
+        put("targetSessionMissing", includeTargetSessionMetadata && targetSessionId != null && targetSession == null)
+        put("targetSessionArchived", if (includeTargetSessionMetadata) targetSession?.archived?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
+        put(
+            "targetSession",
+            if (includeTargetSessionMetadata) {
+                targetSession?.let { session ->
+                    buildJsonObject {
+                        put("id", session.id)
+                        put("title", session.title)
+                        put("isMain", session.isMain)
+                        put("archived", session.archived)
+                    }
+                } ?: JsonNull
+            } else {
+                JsonNull
+            },
+        )
+        put("preciseRequested", precise)
+        put("nextRunAtIso", nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("failureCount", failureCount)
+        put("maxRetries", maxRetries)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("prompt", if (includePrompt) JsonPrimitive(prompt) else JsonNull)
+        put("promptLength", prompt.length)
+        put("promptIncluded", includePrompt)
+        put("promptBodyIncluded", includePrompt)
+        put("fullPromptBodyIncluded", includePrompt)
+        put("runHistoryIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun List<Task>.toTaskExportScheduleStatsPayload(): JsonArray =
+    buildJsonArray {
+        groupBy { task -> task.schedule.toTaskSearchKind() }
+            .toSortedMap()
+            .forEach { (scheduleKind, tasks) ->
+                add(
+                    buildJsonObject {
+                        put("scheduleKind", scheduleKind)
+                        put("taskCount", tasks.size)
+                    },
+                )
+            }
+    }
+
+private fun List<Task>.toTaskExportExecutionModeStatsPayload(): JsonArray =
+    buildJsonArray {
+        groupBy { task -> task.executionMode.name }
+            .toSortedMap()
+            .forEach { (executionMode, tasks) ->
+                add(
+                    buildJsonObject {
+                        put("executionMode", executionMode)
+                        put("taskCount", tasks.size)
+                    },
+                )
+            }
+    }
+
+private fun List<Task>.toTaskExportMarkdown(
+    totalTaskCount: Int,
+    candidateTaskCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+    includePrompts: Boolean,
+): String {
+    val exportedTasks = this
+    return buildString {
+        appendLine("# Automation export")
+        appendLine()
+        appendLine("- Format: $TASK_EXPORT_FORMAT")
+        appendLine("- Version: $TASK_EXPORT_VERSION")
+        appendLine("- Total automations: $totalTaskCount")
+        appendLine("- Candidate automations after filters: $candidateTaskCount")
+        appendLine("- Automations exported: ${exportedTasks.size} of up to $limit")
+        appendLine("- Disabled automations included: $includeDisabled")
+        appendLine("- Prompt bodies included: $includePrompts")
+        appendLine("- Run history included: false")
+        appendLine()
+        appendLine("## Automations")
+        if (exportedTasks.isEmpty()) {
+            appendLine("_No automations exported._")
+        } else {
+            exportedTasks.forEach { task ->
+                append("- `")
+                append(task.id.toHandoffLine())
+                append("` ")
+                append(task.name.toHandoffLine())
+                append(" enabled=")
+                append(task.enabled)
+                append(" schedule=")
+                append(task.schedule.toTaskSearchKind())
+                append(" mode=")
+                append(task.executionMode.name)
+                append(" next=")
+                append(task.nextRunAt ?: "none")
+                append(" prompt=")
+                if (includePrompts) {
+                    append(task.prompt.toHandoffLine())
+                } else {
+                    append("_omitted_")
+                }
+                appendLine()
+            }
+        }
+    }
+}
 
 private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundIntervalMinutes: Long): JsonObject =
     buildJsonObject {
