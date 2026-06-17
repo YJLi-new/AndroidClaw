@@ -43,6 +43,8 @@ internal data class TaskSchedulePreview(
     val nextRunAt: Instant?,
 )
 
+private const val TASK_BULK_MUTATION_PAYLOAD_MAX_ITEMS = 20
+
 internal sealed interface TaskToolParseResult<out T> {
     data class Success<T>(
         val value: T,
@@ -52,6 +54,23 @@ internal sealed interface TaskToolParseResult<out T> {
         val result: ToolExecutionResult,
     ) : TaskToolParseResult<Nothing>
 }
+
+internal fun List<Task>.toTaskBulkToggleJsonArray(): JsonArray =
+    buildJsonArray {
+        take(TASK_BULK_MUTATION_PAYLOAD_MAX_ITEMS).forEach { task ->
+            add(
+                buildJsonObject {
+                    put("id", task.id)
+                    put("name", task.name)
+                    put("enabled", task.enabled)
+                    put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                    put("updatedAtIso", task.updatedAt.toString())
+                },
+            )
+        }
+    }
+
+internal fun List<Task>.taskBulkToggleOmittedCount(): Int = (size - TASK_BULK_MUTATION_PAYLOAD_MAX_ITEMS).coerceAtLeast(0)
 
 internal suspend fun buildTaskPayload(
     task: Task,

@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.disable_all` / `task.disable_all` /
+  `tasks.pause_all` plus automation pause aliases and `tasks.enable_all` /
+  `task.enable_all` / `tasks.resume_all` plus automation resume aliases as an
+  Automation Contract bulk control. Agents can now pause every enabled
+  automation or resume every disabled automation only with `confirm=CONFIRM`,
+  while receiving bounded changed-task payloads and counts so global scheduler
+  state can be managed without one tool call per task. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `sessions.summary.update` /
   `session.summary.update` / `sessions.summary.set` /
   `session.summary.set` plus summary-clear aliases as a Session Contract

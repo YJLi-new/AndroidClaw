@@ -3814,6 +3814,106 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks disable all and enable all require confirmation and toggle persisted automations`() =
+        runTest {
+            val enabledTask =
+                taskRepository.createTask(
+                    name = "Enabled task",
+                    prompt = "Run enabled",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-08T00:00:00Z"),
+                            repeatEvery = java.time.Duration.ofMinutes(30),
+                        ),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled task",
+                    prompt = "Run disabled",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(
+                disabledTask.copy(
+                    enabled = false,
+                    updatedAt = Instant.parse("2026-03-08T00:00:00Z"),
+                ),
+            )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automations.pause_all"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertEquals(true, taskRepository.getTask(enabledTask.id)?.enabled)
+            assertEquals(false, taskRepository.getTask(disabledTask.id)?.enabled)
+
+            val paused =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automations.pause_all"),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(paused.success)
+            assertEquals("2", paused.payload["taskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", paused.payload["updatedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", paused.payload["unchangedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("0", paused.payload["updatedTasksOmitted"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), paused.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals(
+                enabledTask.id,
+                paused.payload
+                    .getValue("updatedTasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("id")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(false, taskRepository.getTask(enabledTask.id)?.enabled)
+            assertEquals(false, taskRepository.getTask(disabledTask.id)?.enabled)
+
+            val resumed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.resume_all"),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(resumed.success)
+            assertEquals("2", resumed.payload["updatedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("0", resumed.payload["unchangedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("0", resumed.payload["updatedTasksOmitted"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), resumed.payload["enabled"]?.jsonPrimitive?.content)
+            val resumedIds =
+                resumed.payload
+                    .getValue("updatedTasks")
+                    .jsonArray
+                    .map { item ->
+                        item.jsonObject
+                            .getValue("id")
+                            .jsonPrimitive
+                            .content
+                    }.sorted()
+            assertEquals(listOf(disabledTask.id, enabledTask.id).sorted(), resumedIds)
+            assertEquals(true, taskRepository.getTask(enabledTask.id)?.enabled)
+            assertEquals(true, taskRepository.getTask(disabledTask.id)?.enabled)
+        }
+
+    @Test
     fun `tasks disable and run_now manage work without changing the future schedule`() =
         runTest {
             val created =

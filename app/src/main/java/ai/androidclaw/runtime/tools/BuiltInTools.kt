@@ -5501,6 +5501,130 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.disable_all",
+                    aliases =
+                        listOf(
+                            "task.disable_all",
+                            "tasks.pause_all",
+                            "task.pause_all",
+                            "automations.pause_all",
+                            "automation.pause_all",
+                        ),
+                    description = "Disable every currently enabled automation after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Required as CONFIRM to pause all automations.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Confirm pausing all automations with confirm=CONFIRM.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "tasks.disable_all")
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val tasks = taskRepository.observeTasks().first()
+            val updatedAt = clock.instant()
+            val changedTasks = tasks.filter { task -> task.enabled }
+            val updatedTasks =
+                changedTasks.map { task ->
+                    val updatedTask =
+                        task.copy(
+                            enabled = false,
+                            updatedAt = updatedAt,
+                        )
+                    taskRepository.updateTask(updatedTask)
+                    schedulerCoordinator.cancelTask(updatedTask.id)
+                    taskRepository.getTask(updatedTask.id) ?: updatedTask
+                }
+            ToolExecutionResult.success(
+                summary = "Paused ${updatedTasks.size} automation(s).",
+                payload =
+                    buildJsonObject {
+                        put("updatedAtIso", updatedAt.toString())
+                        put("taskCount", tasks.size)
+                        put("updatedTaskCount", updatedTasks.size)
+                        put("unchangedTaskCount", tasks.size - changedTasks.size)
+                        put("updatedTasksOmitted", updatedTasks.taskBulkToggleOmittedCount())
+                        put("enabled", false)
+                        put("updatedTasks", updatedTasks.toTaskBulkToggleJsonArray())
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.enable_all",
+                    aliases =
+                        listOf(
+                            "task.enable_all",
+                            "tasks.resume_all",
+                            "task.resume_all",
+                            "automations.resume_all",
+                            "automation.resume_all",
+                        ),
+                    description = "Enable every currently disabled automation after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Required as CONFIRM to resume all automations.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Confirm resuming all automations with confirm=CONFIRM.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "tasks.enable_all")
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val tasks = taskRepository.observeTasks().first()
+            val updatedAt = clock.instant()
+            val changedTasks = tasks.filterNot { task -> task.enabled }
+            val updatedTasks =
+                changedTasks.map { task ->
+                    val updatedTask =
+                        task.copy(
+                            enabled = true,
+                            updatedAt = updatedAt,
+                        )
+                    taskRepository.updateTask(updatedTask)
+                    schedulerCoordinator.scheduleTask(updatedTask.id)
+                    taskRepository.getTask(updatedTask.id) ?: updatedTask
+                }
+            ToolExecutionResult.success(
+                summary = "Resumed ${updatedTasks.size} automation(s).",
+                payload =
+                    buildJsonObject {
+                        put("updatedAtIso", updatedAt.toString())
+                        put("taskCount", tasks.size)
+                        put("updatedTaskCount", updatedTasks.size)
+                        put("unchangedTaskCount", tasks.size - changedTasks.size)
+                        put("updatedTasksOmitted", updatedTasks.taskBulkToggleOmittedCount())
+                        put("enabled", true)
+                        put("updatedTasks", updatedTasks.toTaskBulkToggleJsonArray())
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.get",
                     aliases = listOf("task.get"),
                     description = "Return a canonical task payload and its latest run summary.",
