@@ -131,6 +131,150 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions export returns metadata summaries and message stats without transcript bodies`() =
+        runTest {
+            val active = sessionRepository.createSession("Session export active", isMain = true)
+            val archived = sessionRepository.createSession("Session export archived")
+            sessionRepository.updateSummaryState(
+                id = active.id,
+                summaryText = "Active session export summary",
+                compactedUntilMessageId = null,
+            )
+            sessionRepository.updateSummaryState(
+                id = archived.id,
+                summaryText = "Archived session export summary",
+                compactedUntilMessageId = null,
+            )
+            messageRepository.addMessage(
+                sessionId = active.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Active session export private body",
+                providerMeta = "Active provider metadata should stay omitted.",
+            )
+            messageRepository.addMessage(
+                sessionId = archived.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Archived session export private body",
+            )
+            sessionRepository.archiveSession(archived.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeArchived", true)
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.sessions.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeArchived"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["candidateSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["exportedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["omittedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["summaryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["messageStatsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["aggregateMessageCount"]?.jsonPrimitive?.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Active session export private body"))
+            assertFalse(payloadText.contains("Archived session export private body"))
+            assertFalse(payloadText.contains("Active provider metadata should stay omitted."))
+            val exportedSessions =
+                result.payload
+                    .getValue("sessions")
+                    .jsonArray
+                    .map { session -> session.jsonObject }
+            assertEquals(setOf(active.id, archived.id), exportedSessions.map { session -> session.getValue("sessionId").jsonPrimitive.content }.toSet())
+            val activeExport =
+                exportedSessions.single { session ->
+                    session.getValue("sessionId").jsonPrimitive.content == active.id
+                }
+            assertEquals("Session export active", activeExport.getValue("title").jsonPrimitive.content)
+            assertEquals("Active session export summary", activeExport.getValue("summaryText").jsonPrimitive.content)
+            assertEquals("false", activeExport.getValue("messagesIncluded").jsonPrimitive.content)
+            val activeMessageStats = activeExport.getValue("messageStats").jsonObject
+            assertEquals("1", activeMessageStats.getValue("messageCount").jsonPrimitive.content)
+            assertEquals(
+                listOf("User"),
+                activeMessageStats
+                    .getValue("roleStats")
+                    .jsonArray
+                    .map { roleStats ->
+                        roleStats.jsonObject
+                            .getValue("role")
+                            .jsonPrimitive
+                            .content
+                    },
+            )
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Session export"))
+            assertTrue(markdown.contains("Active session export summary"))
+            assertFalse(markdown.contains("Active session export private body"))
+        }
+
+    @Test
+    fun `sessions export can focus one session and omit summaries markdown`() =
+        runTest {
+            val session = sessionRepository.createSession("Focused session export")
+            sessionRepository.updateSummaryState(
+                id = session.id,
+                summaryText = "Focused session private summary",
+                compactedUntilMessageId = null,
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Focused session private body",
+            )
+            sessionRepository.createSession("Excluded session export")
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.backup"),
+                    arguments =
+                        buildJsonObject {
+                            put("sessionId", session.id)
+                            put("includeSummaries", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(session.id, result.payload["requestedSessionId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["candidateSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeSummaries"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["summaryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+            val exportedSession =
+                result.payload
+                    .getValue("sessions")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(session.id, exportedSession.getValue("sourceSessionId").jsonPrimitive.content)
+            assertEquals(JsonNull, exportedSession.getValue("summaryText"))
+            assertEquals("true", exportedSession.getValue("summaryOmitted").jsonPrimitive.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Focused session private summary"))
+            assertFalse(payloadText.contains("Focused session private body"))
+            assertFalse(payloadText.contains("Excluded session export"))
+        }
+
+    @Test
     fun `sessions create persists a new normal session`() =
         runTest {
             val registry = buildRegistry()

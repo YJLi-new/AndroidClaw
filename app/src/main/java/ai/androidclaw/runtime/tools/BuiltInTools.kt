@@ -763,6 +763,157 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.export",
+                                    aliases =
+                                        listOf(
+                                            "session.export",
+                                            "sessions.backup",
+                                            "session.backup",
+                                            "chat.sessions.export",
+                                            "chat.session.export",
+                                        ),
+                                    description = "Export bounded session metadata, summaries, and message statistics without transcript bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Optional session id or title to export. Defaults to recent sessions.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeArchived",
+                                                description = "Set false to omit archived sessions. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum session count. Defaults to 50, max 100.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeSummaries",
+                                                description = "Set false to omit summary text. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val requestedSessionId =
+                                arguments.optionalText("sessionId")
+                                    ?: arguments.optionalText("id")
+                                    ?: arguments.optionalText("title")
+                                    ?: arguments.optionalText("name")
+                            val includeArchived = arguments.optionalBoolean("includeArchived", defaultValue = true)
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SESSION_EXPORT_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SESSION_EXPORT_MAX_LIMIT)
+                            val includeSummaries = arguments.optionalBoolean("includeSummaries", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val activeSessions = sessionRepository.observeSessions().first()
+                            val archivedSessions = sessionRepository.observeArchivedSessions().first()
+                            val allSessions =
+                                (activeSessions + archivedSessions)
+                                    .distinctBy { session -> session.id }
+                                    .sortedByDescending { session -> session.updatedAt }
+                            val candidateSessions =
+                                if (requestedSessionId != null) {
+                                    listOf(
+                                        allSessions.findSessionByIdentifier(requestedSessionId)
+                                            ?: return@Entry ToolExecutionResult.failure(
+                                                summary = "Session $requestedSessionId was not found.",
+                                                errorCode = "MISSING_SESSION",
+                                                payload =
+                                                    buildJsonObject {
+                                                        put("errorCode", "MISSING_SESSION")
+                                                        put("toolName", "sessions.export")
+                                                        put("sessionId", requestedSessionId)
+                                                    },
+                                            ),
+                                    )
+                                } else if (includeArchived) {
+                                    allSessions
+                                } else {
+                                    activeSessions.sortedByDescending { session -> session.updatedAt }
+                                }
+                            val exportedSessions = candidateSessions.take(limit)
+                            val messageStatsBySessionId =
+                                exportedSessions.associate { session ->
+                                    session.id to messageRepository.getMessageStats(session.id)
+                                }
+                            val sessionStats = sessionRepository.getSessionStats()
+                            val exportMarkdown =
+                                if (includeMarkdown) {
+                                    exportedSessions.toSessionExportMarkdown(
+                                        requestedSessionId = requestedSessionId,
+                                        candidateSessionCount = candidateSessions.size,
+                                        limit = limit,
+                                        includeArchived = includeArchived,
+                                        includeSummaries = includeSummaries,
+                                        messageStatsBySessionId = messageStatsBySessionId,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (exportedSessions.isEmpty()) {
+                                        "Prepared empty session metadata export."
+                                    } else {
+                                        "Prepared session metadata export with ${exportedSessions.size} session(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("exportFormat", SESSION_EXPORT_FORMAT)
+                                        put("exportVersion", SESSION_EXPORT_VERSION)
+                                        put("requestedSessionId", requestedSessionId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("includeArchived", includeArchived)
+                                        put("limit", limit)
+                                        put("candidateSessionCount", candidateSessions.size)
+                                        put("exportedSessionCount", exportedSessions.size)
+                                        put("omittedSessionCount", (candidateSessions.size - exportedSessions.size).coerceAtLeast(0))
+                                        put("includeSummaries", includeSummaries)
+                                        put("summaryTextIncluded", includeSummaries)
+                                        put("summaryBodiesIncluded", includeSummaries)
+                                        put("messageBodiesIncluded", false)
+                                        put("fullMessageBodiesIncluded", false)
+                                        put("providerMetaIncluded", false)
+                                        put("messageStatsIncluded", true)
+                                        put("compactionBoundaryIdsIncluded", true)
+                                        put(
+                                            "aggregateMessageCount",
+                                            messageStatsBySessionId.values.sumOf { stats -> stats.totalMessageCount },
+                                        )
+                                        put(
+                                            "aggregateContentCharCount",
+                                            messageStatsBySessionId.values.sumOf { stats -> stats.totalContentCharCount },
+                                        )
+                                        put("stats", sessionStats.toSessionStatsPayload())
+                                        put(
+                                            "sessions",
+                                            buildJsonArray {
+                                                exportedSessions.forEach { session ->
+                                                    add(
+                                                        session.toSessionExportPayload(
+                                                            stats = messageStatsBySessionId.getValue(session.id),
+                                                            includeSummary = includeSummaries,
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.delete",
                                     aliases =
                                         listOf(
@@ -12450,6 +12601,10 @@ private const val SESSION_DOCTOR_LARGE_CONTENT_CHARS = 40_000L
 private const val SESSION_DOCTOR_LARGE_MESSAGE_COUNT = 100L
 private const val SESSION_DOCTOR_MAX_LIMIT = 50
 private const val SESSION_DOCTOR_TEXT_MAX_CHARS = 500
+private const val SESSION_EXPORT_FORMAT = "androidclaw.sessions.export.v1"
+private const val SESSION_EXPORT_VERSION = 1
+private const val SESSION_EXPORT_DEFAULT_LIMIT = 50
+private const val SESSION_EXPORT_MAX_LIMIT = 100
 private const val SESSION_HANDOFF_DEFAULT_RECENT_LIMIT = 8
 private const val SESSION_HANDOFF_MAX_RECENT_LIMIT = 20
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
@@ -17141,6 +17296,99 @@ private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): Json
         put("oldestMessageAtIso", oldestMessageAt.toString())
         put("newestMessageAtIso", newestMessageAt.toString())
     }
+
+private fun MessageRepository.SessionMessageStats.toSessionMessageStatsPayload(): JsonObject =
+    buildJsonObject {
+        put("messageCount", totalMessageCount)
+        put("contentCharCount", totalContentCharCount)
+        put("oldestMessageAtIso", oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestMessageAtIso", newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put(
+            "roleStats",
+            buildJsonArray {
+                roleStats.forEach { stats ->
+                    add(stats.toMessageRoleStatsPayload())
+                }
+            },
+        )
+    }
+
+private fun Session.toSessionExportPayload(
+    stats: MessageRepository.SessionMessageStats,
+    includeSummary: Boolean,
+): JsonObject =
+    buildJsonObject {
+        put("sessionId", id)
+        put("sourceSessionId", id)
+        put("title", title)
+        put("isMain", isMain)
+        put("archived", archived)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("summaryText", if (includeSummary) summaryText?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
+        put("summaryTextIncluded", includeSummary)
+        put("summaryBodyIncluded", includeSummary)
+        put("summaryLength", summaryText?.length ?: 0)
+        put("summaryOmitted", !includeSummary && summaryText != null)
+        put("compacted", compactedUntilMessageId != null)
+        put("compactedUntilMessageId", compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("messageBodiesIncluded", false)
+        put("fullMessageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+        put("messagesIncluded", false)
+        put("messageStats", stats.toSessionMessageStatsPayload())
+    }
+
+private fun List<Session>.toSessionExportMarkdown(
+    requestedSessionId: String?,
+    candidateSessionCount: Int,
+    limit: Int,
+    includeArchived: Boolean,
+    includeSummaries: Boolean,
+    messageStatsBySessionId: Map<String, MessageRepository.SessionMessageStats>,
+): String {
+    val exportedSessions = this
+    return buildString {
+        appendLine("# Session export")
+        appendLine()
+        appendLine("- Format: $SESSION_EXPORT_FORMAT")
+        appendLine("- Version: $SESSION_EXPORT_VERSION")
+        appendLine("- Requested session id: ${requestedSessionId?.toHandoffLine() ?: "none"}")
+        appendLine("- Include archived: $includeArchived")
+        appendLine("- Sessions exported: ${exportedSessions.size} of $candidateSessionCount candidate(s)")
+        appendLine("- Limit: $limit")
+        appendLine("- Summary text included: $includeSummaries")
+        appendLine("- Message bodies included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine()
+        appendLine("## Sessions")
+        if (exportedSessions.isEmpty()) {
+            appendLine("_No sessions exported._")
+        } else {
+            exportedSessions.forEach { session ->
+                val stats = messageStatsBySessionId.getValue(session.id)
+                append("- `")
+                append(session.title.toHandoffLine())
+                append("` id=`")
+                append(session.id)
+                append("` main=")
+                append(session.isMain)
+                append(" archived=")
+                append(session.archived)
+                append(" messages=")
+                append(stats.totalMessageCount)
+                append(" summaryLength=")
+                append(session.summaryText?.length ?: 0)
+                append(" compacted=")
+                append(session.compactedUntilMessageId != null)
+                appendLine()
+                if (includeSummaries && !session.summaryText.isNullOrBlank()) {
+                    appendLine("  - Summary: ${session.summaryText.toHandoffLine()}")
+                }
+            }
+        }
+    }
+}
 
 private fun Session.toSessionComparePayload(
     stats: MessageRepository.SessionMessageStats,

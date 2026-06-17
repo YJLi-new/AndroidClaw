@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.export` /
+  `session.export` / `sessions.backup` / `session.backup` plus chat-session
+  export aliases as a Session Contract portability feature. Agents can now
+  export bounded session metadata with stable export format/version, optional
+  single-session focus, optional archived-session inclusion, optional summary
+  text, message/count/role statistics, optional markdown, and explicit
+  transcript-body and provider-metadata omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `runtime.export` /
   `runtime.manifest` / `androidclaw.export` / `androidclaw.manifest` plus
   system manifest aliases as a versioned Runtime Contract capability feature.
