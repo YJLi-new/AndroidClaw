@@ -5838,6 +5838,114 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.occurrences",
+                    aliases =
+                        listOf(
+                            "task.occurrences",
+                            "tasks.schedule.occurrences",
+                            "task.schedule.occurrences",
+                            "automations.occurrences",
+                            "automation.occurrences",
+                        ),
+                    description = "Preview upcoming scheduled run times for one automation without mutating it.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Task identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum occurrence count. Defaults to 5, max 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "afterIso",
+                                description = "Optional exclusive ISO-8601 lower bound. Defaults to now.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.occurrences",
+                    summary = "tasks.occurrences requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.occurrences", taskId = taskId)
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_OCCURRENCES_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_OCCURRENCES_MAX_LIMIT)
+            val after =
+                arguments.optionalText("afterIso")?.let { rawAfterIso ->
+                    try {
+                        Instant.parse(rawAfterIso)
+                    } catch (_: DateTimeParseException) {
+                        return@Entry invalidTaskArguments(
+                            toolName = "tasks.occurrences",
+                            summary = "tasks.occurrences received an invalid afterIso.",
+                            field = "afterIso",
+                        )
+                    }
+                } ?: clock.instant()
+            val now = clock.instant()
+            val occurrences =
+                task.computeScheduledOccurrences(
+                    after = after,
+                    limit = limit,
+                    nextRunProvider = schedulerCoordinator.taskPlanner::nextScheduledRun,
+                )
+            ToolExecutionResult.success(
+                summary =
+                    if (occurrences.isEmpty()) {
+                        "No scheduled occurrences found for task ${task.name}."
+                    } else {
+                        "Loaded ${occurrences.size} scheduled occurrence(s) for task ${task.name}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("taskId", task.id)
+                        put("taskName", task.name)
+                        put("enabled", task.enabled)
+                        put("scheduleKind", task.schedule.toTaskSearchKind())
+                        put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("nowIso", now.toString())
+                        put("afterIso", after.toString())
+                        put("limit", limit)
+                        put("occurrenceCount", occurrences.size)
+                        put(
+                            "occurrences",
+                            buildJsonArray {
+                                occurrences.forEachIndexed { index, occurrence ->
+                                    add(
+                                        task.toScheduledOccurrencePayload(
+                                            occurrence = occurrence,
+                                            index = index,
+                                            after = after,
+                                            now = now,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.reschedule",
                     aliases =
                         listOf(
@@ -7493,6 +7601,8 @@ private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val TASK_DUE_DEFAULT_LIMIT = 20
 private const val TASK_DUE_MAX_LIMIT = 50
+private const val TASK_OCCURRENCES_DEFAULT_LIMIT = 5
+private const val TASK_OCCURRENCES_MAX_LIMIT = 20
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TASK_SNOOZE_DEFAULT_DELAY_MINUTES = 15L
@@ -8981,6 +9091,39 @@ private fun Task.toUpcomingTaskPayload(now: Instant): JsonObject {
         put("promptTruncated", promptSnippet.length < prompt.length)
     }
 }
+
+private fun Task.computeScheduledOccurrences(
+    after: Instant,
+    limit: Int,
+    nextRunProvider: (Task, Instant) -> Instant?,
+): List<Instant> {
+    val occurrences = mutableListOf<Instant>()
+    var cursor = after
+    for (index in 0 until limit.coerceAtLeast(0)) {
+        val nextRun = nextRunProvider(this, cursor) ?: break
+        if (!nextRun.isAfter(cursor)) {
+            break
+        }
+        occurrences += nextRun
+        cursor = nextRun
+    }
+    return occurrences
+}
+
+private fun Task.toScheduledOccurrencePayload(
+    occurrence: Instant,
+    index: Int,
+    after: Instant,
+    now: Instant,
+): JsonObject =
+    buildJsonObject {
+        put("index", index)
+        put("runAtIso", occurrence.toString())
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("dueAtNow", !occurrence.isAfter(now))
+        put("secondsAfterLowerBound", Duration.between(after, occurrence).seconds)
+        put("secondsFromNow", Duration.between(now, occurrence).seconds)
+    }
 
 private fun Task.toDueTaskPayload(now: Instant): JsonObject {
     val promptSnippet = prompt.toMessageSearchSnippet()

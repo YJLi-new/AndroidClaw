@@ -2684,6 +2684,73 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks occurrences previews multiple scheduled run times without mutating task`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Hourly digest",
+                    prompt = "Summarize recent events",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-08T00:00:00Z"),
+                            repeatEvery = Duration.ofHours(1),
+                        ),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.occurrences"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", task.id)
+                            put("limit", 3)
+                            put("afterIso", "2026-03-08T00:00:00Z")
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.occurrences"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", task.id)
+                            put("afterIso", "not-a-timestamp")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(task.id, result.payload["taskId"]?.jsonPrimitive?.content)
+            assertEquals("Hourly digest", result.payload["taskName"]?.jsonPrimitive?.content)
+            assertEquals("interval", result.payload["scheduleKind"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["nowIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["afterIso"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["occurrenceCount"]?.jsonPrimitive?.content)
+            val occurrences =
+                result.payload
+                    .getValue("occurrences")
+                    .jsonArray
+                    .map { item -> item.jsonObject }
+            assertEquals(
+                listOf(
+                    "2026-03-08T01:00:00Z",
+                    "2026-03-08T02:00:00Z",
+                    "2026-03-08T03:00:00Z",
+                ),
+                occurrences.map { occurrence -> occurrence.getValue("runAtIso").jsonPrimitive.content },
+            )
+            val firstOccurrence = occurrences.first()
+            assertEquals("0", firstOccurrence.getValue("index").jsonPrimitive.content)
+            assertEquals("3600", firstOccurrence.getValue("secondsAfterLowerBound").jsonPrimitive.content)
+            assertEquals("3600", firstOccurrence.getValue("secondsFromNow").jsonPrimitive.content)
+            assertEquals("false", firstOccurrence.getValue("dueAtNow").jsonPrimitive.content)
+            assertNull(taskRepository.getLatestRun(task.id))
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        }
+
+    @Test
     fun `tasks next returns upcoming enabled automations in next run order`() =
         runTest {
             val dueTask =

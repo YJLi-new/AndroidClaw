@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.occurrences` / `task.occurrences` /
+  `tasks.schedule.occurrences` / `task.schedule.occurrences` plus automation
+  aliases as an Automation Contract schedule-planning tool. Agents can now
+  preview a bounded sequence of future scheduled run times for one persisted
+  automation from an optional exclusive ISO lower bound without mutating the
+  task, recording runs, or enqueueing work. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `events.delete` / `event.delete` /
   `logs.delete` / `log.delete` plus remove aliases as a Tool Contract exact
   diagnostics retention control. Agents can now delete one local runtime event
