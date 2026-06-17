@@ -292,6 +292,153 @@ internal fun createBuiltInToolRegistry(
                             )
                         },
                     )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "runtime.doctor",
+                                    aliases =
+                                        listOf(
+                                            "health.doctor",
+                                            "runtime.check",
+                                            "androidclaw.doctor",
+                                            "system.doctor",
+                                        ),
+                                    description = "Return actionable runtime readiness diagnostics without mutating state or exposing secrets.",
+                                ),
+                        ) { context, _ ->
+                            val now = clock.instant()
+                            val settings = settingsDataStore.settings.first()
+                            val selectedProviderAuthState =
+                                settings.providerType.toProviderAuthState(
+                                    providerSecretStore = providerSecretStore,
+                                    clock = clock,
+                                )
+                            val sessionStats = sessionRepository.getSessionStats()
+                            val taskStats = taskRepository.getTaskStats(now)
+                            val memorySettings = settingsDataStore.memorySettingsSnapshot()
+                            val skills = bundledSkillsProvider()
+                            val tools = toolRegistry.descriptors()
+                            val schedulerCapabilities = schedulerCoordinator.capabilities()
+                            val issues =
+                                buildRuntimeDoctorIssues(
+                                    settings = settings,
+                                    providerAuthState = selectedProviderAuthState,
+                                    sessionStats = sessionStats,
+                                    taskStats = taskStats,
+                                    memoryEnabled = memorySettings.enabled,
+                                    memoryRepositoryAvailable = memoryRepository != null,
+                                    eventLogRepositoryAvailable = eventLogRepository != null,
+                                    skills = skills,
+                                    tools = tools,
+                                )
+                            val status = issues.toRuntimeDoctorStatus()
+                            ToolExecutionResult.success(
+                                summary =
+                                    when (status) {
+                                        "OK" -> "Runtime doctor found no readiness issues."
+                                        "WARN" -> "Runtime doctor found ${issues.size} non-blocking issue(s)."
+                                        else -> "Runtime doctor found ${issues.count { issue -> issue.severity == "Error" }} blocking issue(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("generatedAtIso", now.toString())
+                                        put("status", status)
+                                        put("issueCount", issues.size)
+                                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                                        put("secretValuesIncluded", false)
+                                        put("requestedSessionId", context.sessionId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put(
+                                            "issues",
+                                            buildJsonArray {
+                                                issues.forEach { issue ->
+                                                    add(issue.toRuntimeDoctorPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "checks",
+                                            buildJsonObject {
+                                                put(
+                                                    "provider",
+                                                    buildJsonObject {
+                                                        put("providerId", settings.providerType.providerId)
+                                                        put("displayName", settings.providerType.displayName)
+                                                        put("authStatus", selectedProviderAuthState.status)
+                                                        put("requiresCredential", settings.providerType.requiresApiKey || settings.providerType.usesOpenAiCodexOAuth)
+                                                        put("requiresRemoteSettings", settings.providerType.requiresRemoteSettings)
+                                                        put(
+                                                            "endpointSettings",
+                                                            if (settings.providerType.requiresRemoteSettings) {
+                                                                val endpointSettings = settings.endpointSettings(settings.providerType)
+                                                                buildJsonObject {
+                                                                    put("baseUrlConfigured", endpointSettings.baseUrl.isNotBlank())
+                                                                    put("modelIdConfigured", endpointSettings.modelId.isNotBlank())
+                                                                    put("timeoutSeconds", endpointSettings.timeoutSeconds)
+                                                                }
+                                                            } else {
+                                                                JsonNull
+                                                            },
+                                                        )
+                                                    },
+                                                )
+                                                put("sessions", sessionStats.toRuntimeDoctorSessionCheckPayload())
+                                                put("automations", taskStats.toRuntimeDoctorTaskCheckPayload())
+                                                put(
+                                                    "memory",
+                                                    buildJsonObject {
+                                                        put("enabled", memorySettings.enabled)
+                                                        put("repositoryAvailable", memoryRepository != null)
+                                                        put("ownerUserIdIncluded", false)
+                                                    },
+                                                )
+                                                put(
+                                                    "skills",
+                                                    buildJsonObject {
+                                                        put("skillCount", skills.size)
+                                                        put("enabledSkillCount", skills.count { skill -> skill.enabled })
+                                                        put("parseErrorCount", skills.count { skill -> skill.parseError != null })
+                                                        put("ineligibleSkillCount", skills.count { skill -> skill.eligibility.status != SkillEligibilityStatus.Eligible })
+                                                    },
+                                                )
+                                                put(
+                                                    "tools",
+                                                    buildJsonObject {
+                                                        put("toolCount", tools.size)
+                                                        put("availableToolCount", tools.count { tool -> tool.availability.status == ToolAvailabilityStatus.Available })
+                                                        put("unavailableToolCount", tools.count { tool -> tool.availability.status == ToolAvailabilityStatus.Unavailable })
+                                                        put("permissionRequiredToolCount", tools.count { tool -> tool.availability.status == ToolAvailabilityStatus.PermissionRequired })
+                                                        put("foregroundRequiredToolCount", tools.count { tool -> tool.foregroundRequired })
+                                                    },
+                                                )
+                                                put(
+                                                    "scheduler",
+                                                    buildJsonObject {
+                                                        put("minimumBackgroundIntervalMinutes", schedulerCapabilities.minimumBackgroundInterval.toMinutes())
+                                                        put("supportsExactAlarms", schedulerCapabilities.supportsExactAlarms)
+                                                        put(
+                                                            "supportedKinds",
+                                                            buildJsonArray {
+                                                                schedulerCapabilities.supportedKinds.forEach { kind ->
+                                                                    add(JsonPrimitive(kind))
+                                                                }
+                                                            },
+                                                        )
+                                                    },
+                                                )
+                                                put(
+                                                    "events",
+                                                    buildJsonObject {
+                                                        put("repositoryAvailable", eventLogRepository != null)
+                                                    },
+                                                )
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
                     addAll(
                         providerToolEntries(
                             settingsDataStore = settingsDataStore,
@@ -8429,6 +8576,217 @@ private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 private val TOOL_VALIDATE_RESERVED_ARGUMENT_FIELDS = setOf("toolName", "name", "arguments")
+
+private data class RuntimeDoctorIssue(
+    val id: String,
+    val severity: String,
+    val area: String,
+    val summary: String,
+    val action: String,
+)
+
+private fun buildRuntimeDoctorIssues(
+    settings: ProviderSettingsSnapshot,
+    providerAuthState: ProviderAuthState,
+    sessionStats: SessionRepository.SessionStats,
+    taskStats: TaskRepository.TaskStats,
+    memoryEnabled: Boolean,
+    memoryRepositoryAvailable: Boolean,
+    eventLogRepositoryAvailable: Boolean,
+    skills: List<SkillSnapshot>,
+    tools: List<ToolDescriptor>,
+): List<RuntimeDoctorIssue> =
+    buildList {
+        val selectedProvider = settings.providerType
+        when (providerAuthState.status) {
+            "Missing" ->
+                add(
+                    RuntimeDoctorIssue(
+                        id = "provider.auth.missing",
+                        severity = "Error",
+                        area = "provider",
+                        summary = "Selected provider ${selectedProvider.displayName} is missing credentials.",
+                        action = "Configure the provider credential or select a local/no-auth provider.",
+                    ),
+                )
+            "Unknown" ->
+                if (selectedProvider.requiresApiKey || selectedProvider.usesOpenAiCodexOAuth) {
+                    add(
+                        RuntimeDoctorIssue(
+                            id = "provider.auth.unknown",
+                            severity = "Warning",
+                            area = "provider",
+                            summary = "Selected provider ${selectedProvider.displayName} credential status is unknown.",
+                            action = "Wire a ProviderSecretStore or verify credentials before remote calls.",
+                        ),
+                    )
+                }
+        }
+        if (selectedProvider.requiresRemoteSettings) {
+            val endpointSettings = settings.endpointSettings(selectedProvider)
+            if (endpointSettings.baseUrl.isBlank()) {
+                add(
+                    RuntimeDoctorIssue(
+                        id = "provider.endpoint.base_url_blank",
+                        severity = "Error",
+                        area = "provider",
+                        summary = "Selected provider ${selectedProvider.displayName} has a blank base URL.",
+                        action = "Run providers.configure with a non-empty baseUrl.",
+                    ),
+                )
+            }
+            if (endpointSettings.modelId.isBlank()) {
+                add(
+                    RuntimeDoctorIssue(
+                        id = "provider.endpoint.model_id_blank",
+                        severity = "Error",
+                        area = "provider",
+                        summary = "Selected provider ${selectedProvider.displayName} has a blank model id.",
+                        action = "Run providers.configure with a non-empty modelId.",
+                    ),
+                )
+            }
+            if (endpointSettings.timeoutSeconds <= 0) {
+                add(
+                    RuntimeDoctorIssue(
+                        id = "provider.endpoint.timeout_invalid",
+                        severity = "Error",
+                        area = "provider",
+                        summary = "Selected provider ${selectedProvider.displayName} has a non-positive timeout.",
+                        action = "Run providers.configure with timeoutSeconds greater than zero.",
+                    ),
+                )
+            }
+        }
+        when {
+            sessionStats.mainSessionCount == 0L ->
+                add(
+                    RuntimeDoctorIssue(
+                        id = "sessions.main.missing",
+                        severity = "Warning",
+                        area = "sessions",
+                        summary = "No main session is currently persisted.",
+                        action = "Open chat or create the main session before relying on main-session automations.",
+                    ),
+                )
+            sessionStats.mainSessionCount > 1L ->
+                add(
+                    RuntimeDoctorIssue(
+                        id = "sessions.main.duplicate",
+                        severity = "Error",
+                        area = "sessions",
+                        summary = "More than one main session is persisted.",
+                        action = "Keep exactly one main session and archive or repair duplicates.",
+                    ),
+                )
+        }
+        if (taskStats.dueTaskCount > 0L) {
+            add(
+                RuntimeDoctorIssue(
+                    id = "automations.due_backlog",
+                    severity = "Warning",
+                    area = "automations",
+                    summary = "${taskStats.dueTaskCount} enabled automation(s) are currently due.",
+                    action = "Let WorkManager run due automations or inspect tasks.due.",
+                ),
+            )
+        }
+        if (memoryEnabled && !memoryRepositoryAvailable) {
+            add(
+                RuntimeDoctorIssue(
+                    id = "memory.repository_unavailable",
+                    severity = "Error",
+                    area = "memory",
+                    summary = "Memory is enabled but the memory repository is unavailable.",
+                    action = "Wire MemoryRepository before enabling local memory.",
+                ),
+            )
+        }
+        val parseErrorCount = skills.count { skill -> skill.parseError != null }
+        if (parseErrorCount > 0) {
+            add(
+                RuntimeDoctorIssue(
+                    id = "skills.parse_errors",
+                    severity = "Warning",
+                    area = "skills",
+                    summary = "$parseErrorCount skill(s) have parse errors.",
+                    action = "Run skills.stats or skills.get for affected skills and fix their SKILL.md frontmatter.",
+                ),
+            )
+        }
+        val ineligibleSkillCount = skills.count { skill -> skill.eligibility.status != SkillEligibilityStatus.Eligible }
+        if (ineligibleSkillCount > 0) {
+            add(
+                RuntimeDoctorIssue(
+                    id = "skills.ineligible",
+                    severity = "Warning",
+                    area = "skills",
+                    summary = "$ineligibleSkillCount skill(s) are not currently eligible.",
+                    action = "Run skills.stats or skills.list to inspect missing tools, invalid skills, or bridge-only skills.",
+                ),
+            )
+        }
+        val availableToolCount = tools.count { tool -> tool.availability.status == ToolAvailabilityStatus.Available }
+        if (tools.isEmpty() || availableToolCount == 0) {
+            add(
+                RuntimeDoctorIssue(
+                    id = "tools.none_available",
+                    severity = "Error",
+                    area = "tools",
+                    summary = "No typed native tools are currently available.",
+                    action = "Inspect tool registry wiring and tool availability providers.",
+                ),
+            )
+        }
+        if (!eventLogRepositoryAvailable) {
+            add(
+                RuntimeDoctorIssue(
+                    id = "events.repository_unavailable",
+                    severity = "Warning",
+                    area = "events",
+                    summary = "Runtime event logging is unavailable.",
+                    action = "Wire EventLogRepository to retain local diagnostics.",
+                ),
+            )
+        }
+    }
+
+private fun List<RuntimeDoctorIssue>.toRuntimeDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun RuntimeDoctorIssue.toRuntimeDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("area", area)
+        put("summary", summary)
+        put("action", action)
+    }
+
+private fun SessionRepository.SessionStats.toRuntimeDoctorSessionCheckPayload(): JsonObject =
+    buildJsonObject {
+        put("sessionCount", totalSessionCount)
+        put("activeSessionCount", activeSessionCount)
+        put("archivedSessionCount", archivedSessionCount)
+        put("mainSessionCount", mainSessionCount)
+        put("summarizedSessionCount", summarizedSessionCount)
+        put("compactedSessionCount", compactedSessionCount)
+    }
+
+private fun TaskRepository.TaskStats.toRuntimeDoctorTaskCheckPayload(): JsonObject =
+    buildJsonObject {
+        put("taskCount", totalTaskCount)
+        put("enabledTaskCount", enabledTaskCount)
+        put("disabledTaskCount", disabledTaskCount)
+        put("scheduledTaskCount", scheduledTaskCount)
+        put("dueTaskCount", dueTaskCount)
+        put("runCount", totalRunCount)
+        put("nextEnabledRunAtIso", nextEnabledRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+    }
 
 private suspend fun MemoryRepository?.toRuntimeMemorySectionPayload(settingsDataStore: SettingsDataStore): JsonObject {
     if (this == null) {

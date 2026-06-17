@@ -6837,6 +6837,109 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `runtime doctor reports ok when core runtime is ready`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.Fake),
+            )
+            val mainSession = sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context =
+                        ToolExecutionContext.internal(
+                            requestedName = "runtime.doctor",
+                            sessionId = mainSession.id,
+                        ),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("OK", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["errorCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["warningCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            val checks = result.payload.getValue("checks").jsonObject
+            assertEquals(
+                ProviderType.Fake.providerId,
+                checks
+                    .getValue("provider")
+                    .jsonObject
+                    .getValue("providerId")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "1",
+                checks
+                    .getValue("sessions")
+                    .jsonObject
+                    .getValue("mainSessionCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertTrue(
+                checks
+                    .getValue("tools")
+                    .jsonObject
+                    .getValue("availableToolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() > 0,
+            )
+        }
+
+    @Test
+    fun `runtime doctor reports actionable missing provider credential issue`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            sessionRepository.getOrCreateMainSession()
+            val registry = buildRegistry(providerSecretStore = FakeProviderSecretStore())
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "androidclaw.doctor"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("ERROR", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["errorCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            val providerCheck =
+                result.payload
+                    .getValue("checks")
+                    .jsonObject
+                    .getValue("provider")
+                    .jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, providerCheck.getValue("providerId").jsonPrimitive.content)
+            assertEquals("Missing", providerCheck.getValue("authStatus").jsonPrimitive.content)
+            val issue =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .first { item ->
+                        item.jsonObject
+                            .getValue("id")
+                            .jsonPrimitive
+                            .content == "provider.auth.missing"
+                    }.jsonObject
+            assertEquals("Error", issue.getValue("severity").jsonPrimitive.content)
+            assertEquals("provider", issue.getValue("area").jsonPrimitive.content)
+            assertTrue(
+                issue
+                    .getValue("action")
+                    .jsonPrimitive
+                    .content
+                    .contains("credential"),
+            )
+        }
+
+    @Test
     fun `runtime handoff returns compact cross contract state without secrets or heavy content`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()

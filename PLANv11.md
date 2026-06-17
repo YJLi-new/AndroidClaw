@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `runtime.doctor` /
+  `health.doctor` / `runtime.check` / `androidclaw.doctor` plus system alias
+  as a read-only readiness diagnostic. Agents can now inspect provider auth and
+  endpoint readiness, main-session invariants, due automation backlog, memory
+  repository wiring, skill parse/eligibility issues, tool availability, and
+  scheduler/event-log wiring with OK/WARN/ERROR status and actionable
+  remediation messages without mutating state or exposing secrets. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `runtime.handoff` /
   `runtime.snapshot` / `androidclaw.handoff` / `androidclaw.snapshot` plus
   system aliases as a top-level context-transfer feature. Agents can now
