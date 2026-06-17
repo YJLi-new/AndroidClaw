@@ -4,6 +4,16 @@ import android.content.ContentResolver
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
+import org.yaml.snakeyaml.Yaml
 import java.io.File
 import java.io.InputStream
 import java.util.UUID
@@ -93,6 +103,43 @@ class LocalSkillImporter(
             }
         }
 
+    internal suspend fun importSkillDocuments(entries: List<SkillPackageImportEntry>): SkillImportResult =
+        withContext(Dispatchers.IO) {
+            val localRoot = skillStorage.localSkillsDir.apply { mkdirs() }
+            val replaced = mutableListOf<String>()
+            val imported = mutableListOf<String>()
+            entries.forEach { entry ->
+                val rawDocument = entry.toSkillMarkdownDocument()
+                when (val parsed = parser.parse(rawDocument)) {
+                    is SkillParseResult.Success -> {
+                        val installDirName =
+                            parsed.document.frontmatter
+                                .skillKey()
+                                .toSkillStorageSegment(fallbackPrefix = "skill")
+                        val existing = File(localRoot, installDirName).requireChildOf(localRoot)
+                        val stage = File(localRoot, ".$installDirName-${UUID.randomUUID()}").requireChildOf(localRoot)
+                        stage.deleteRecursively()
+                        stage.mkdirs()
+                        File(stage, "SKILL.md").writeText(rawDocument)
+                        if (existing.exists()) {
+                            replaced += parsed.document.frontmatter.name
+                            existing.deleteRecursively()
+                        }
+                        check(stage.renameTo(existing)) {
+                            "Unable to install skill ${parsed.document.frontmatter.name}."
+                        }
+                        imported += parsed.document.frontmatter.name
+                    }
+                    is SkillParseResult.Failure -> error("Invalid imported SKILL.md for ${entry.frontmatter.name}: ${parsed.error}")
+                }
+            }
+
+            SkillImportResult(
+                importedSkillNames = imported,
+                replacedSkillNames = replaced.distinct(),
+            )
+        }
+
     private fun extractArchive(
         inputStream: InputStream,
         scratchDir: File,
@@ -150,6 +197,78 @@ class LocalSkillImporter(
         const val MAX_TOTAL_UNCOMPRESSED_BYTES = 10L * 1024L * 1024L
     }
 }
+
+private fun SkillPackageImportEntry.toSkillMarkdownDocument(): String {
+    val frontmatterYaml =
+        skillYaml.dump(frontmatter.toSkillYamlMap()).trimEnd()
+    return buildString {
+        appendLine("---")
+        appendLine(frontmatterYaml)
+        appendLine("---")
+        appendLine()
+        append(instructionsMd.trim())
+        if (!endsWith("\n")) {
+            appendLine()
+        }
+    }
+}
+
+private val skillYaml = Yaml()
+
+private fun SkillFrontmatter.toSkillYamlMap(): Map<String, Any?> =
+    linkedMapOf<String, Any?>().apply {
+        put("name", name)
+        put("description", description)
+        homepage?.let { put("homepage", it) }
+        put("user-invocable", userInvocable)
+        put("disable-model-invocation", disableModelInvocation)
+        put(
+            "command-dispatch",
+            when (commandDispatch) {
+                SkillCommandDispatch.Model -> "model"
+                SkillCommandDispatch.Tool -> "tool"
+            },
+        )
+        commandTool?.let { put("command-tool", it) }
+        put("command-arg-mode", commandArgMode)
+        metadata?.takeUnless { it is JsonNull }?.let { put("metadata", it.toSkillYamlValue()) }
+        unknownFields.forEach { (field, value) ->
+            if (field !in knownSkillYamlFields) {
+                put(field, value.toSkillYamlValue())
+            }
+        }
+    }
+
+private val knownSkillYamlFields =
+    setOf(
+        "name",
+        "description",
+        "homepage",
+        "user-invocable",
+        "disable-model-invocation",
+        "command-dispatch",
+        "command-tool",
+        "command-arg-mode",
+        "metadata",
+    )
+
+private fun JsonElement.toSkillYamlValue(): Any? =
+    when (this) {
+        JsonNull -> null
+        is JsonObject ->
+            entries.associate { (key, value) ->
+                key to value.toSkillYamlValue()
+            }
+        is JsonArray -> map { value -> value.toSkillYamlValue() }
+        is JsonPrimitive ->
+            when {
+                isString -> content
+                booleanOrNull != null -> booleanOrNull
+                longOrNull != null -> longOrNull
+                doubleOrNull != null -> doubleOrNull
+                else -> contentOrNull
+            }
+    }
 
 private fun File.requireChildOf(root: File): File {
     val canonicalRoot = root.canonicalFile

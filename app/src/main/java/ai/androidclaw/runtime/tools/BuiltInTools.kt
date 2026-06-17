@@ -38,6 +38,9 @@ import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillConfigField
 import ai.androidclaw.runtime.skills.SkillConfigurationSnapshot
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
+import ai.androidclaw.runtime.skills.SkillFrontmatter
+import ai.androidclaw.runtime.skills.SkillImportResult
+import ai.androidclaw.runtime.skills.SkillPackageImportEntry
 import ai.androidclaw.runtime.skills.SkillResolutionState
 import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
@@ -88,6 +91,12 @@ internal fun createBuiltInToolRegistry(
     },
     skillSecretClearer: suspend (SkillSnapshot, String) -> SkillConfigurationSnapshot = { skill, envName ->
         skill.toDefaultConfigurationSnapshot().withClearedSecretField(envName)
+    },
+    skillPackageImporter: suspend (List<SkillPackageImportEntry>, Boolean, Boolean) -> SkillImportResult = { entries, _, _ ->
+        SkillImportResult(
+            importedSkillNames = entries.map { entry -> entry.frontmatter.name },
+            replacedSkillNames = emptyList(),
+        )
     },
     providerSecretStore: ProviderSecretStore? = null,
     messageRepository: MessageRepository,
@@ -5344,6 +5353,193 @@ internal fun createBuiltInToolRegistry(
                                             },
                                         )
                                         put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "skills.import",
+                                    aliases =
+                                        listOf(
+                                            "skill.import",
+                                            "skills.restore",
+                                            "skill.restore",
+                                            "skills.package.import",
+                                            "skill.package.import",
+                                        ),
+                                    description = "Import non-secret skill definitions from a skills.export payload.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skills",
+                                                description = "Array of exported skill entries, or pass export.skills.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "export",
+                                                description = "Optional skills.export payload containing a skills array.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum skill entries to scan. Defaults to 20, max 50.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeDisabled",
+                                                description = "Set false to skip disabled source skill entries. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "enableImported",
+                                                description = "Set true to enable imported skills that were enabled in the source. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "importConfigValues",
+                                                description = "Set true to restore non-secret config values when present. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "dryRun",
+                                                description = "Set true to preview importable skills without writing. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must be CONFIRM unless dryRun=true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val dryRun = arguments.optionalBoolean("dryRun", defaultValue = false)
+                            if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry missingSkillImportConfirmationResult()
+                            }
+                            val rawEntries =
+                                when (val parsedEntries = arguments.skillImportEntries()) {
+                                    is SkillImportEntriesParseResult.Failure -> return@Entry parsedEntries.result
+                                    is SkillImportEntriesParseResult.Success -> parsedEntries.entries
+                                }
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_IMPORT_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_IMPORT_MAX_LIMIT)
+                            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+                            val enableImported = arguments.optionalBoolean("enableImported", defaultValue = false)
+                            val importConfigValues = arguments.optionalBoolean("importConfigValues", defaultValue = false)
+                            val scannedEntries = rawEntries.take(limit)
+                            val candidates = mutableListOf<SkillImportCandidate>()
+                            val skipped = mutableListOf<SkillImportSkippedEntry>()
+                            scannedEntries.forEachIndexed { sourceIndex, element ->
+                                when (val parsedCandidate = element.toSkillImportCandidate(sourceIndex = sourceIndex)) {
+                                    is SkillImportCandidateParseResult.Candidate -> {
+                                        if (!includeDisabled && !parsedCandidate.candidate.sourceEnabled) {
+                                            skipped +=
+                                                SkillImportSkippedEntry(
+                                                    sourceIndex = sourceIndex,
+                                                    code = "skills.import.disabled_skipped",
+                                                    summary = "Disabled skill entry skipped because includeDisabled=false.",
+                                                )
+                                        } else {
+                                            candidates += parsedCandidate.candidate
+                                        }
+                                    }
+                                    is SkillImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+                                }
+                            }
+                            val importResult =
+                                if (dryRun || candidates.isEmpty()) {
+                                    SkillImportResult(
+                                        importedSkillNames = emptyList(),
+                                        replacedSkillNames = emptyList(),
+                                    )
+                                } else {
+                                    skillPackageImporter(
+                                        candidates.map(SkillImportCandidate::entry),
+                                        enableImported,
+                                        importConfigValues,
+                                    )
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (dryRun) {
+                                        "Prepared dry-run skill import with ${candidates.size} importable skill(s)."
+                                    } else {
+                                        "Imported ${importResult.importedSkillNames.size} skill(s); skipped ${skipped.size}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("importFormat", SKILL_IMPORT_FORMAT)
+                                        put("importVersion", SKILL_IMPORT_VERSION)
+                                        put("acceptedExportFormat", SKILL_EXPORT_FORMAT)
+                                        put("acceptedExportVersion", SKILL_EXPORT_VERSION)
+                                        put("receivedSkillCount", rawEntries.size)
+                                        put("scannedSkillCount", scannedEntries.size)
+                                        put("omittedInputSkillCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                                        put("importableSkillCount", candidates.size)
+                                        put("importedSkillCount", importResult.importedSkillNames.size)
+                                        put("skippedSkillCount", skipped.size)
+                                        put("invalidSkillCount", skipped.count { entry -> entry.code.startsWith("skills.import.invalid") })
+                                        put("disabledSkillSkippedCount", skipped.count { entry -> entry.code == "skills.import.disabled_skipped" })
+                                        put("replacedSkillCount", importResult.replacedSkillNames.size)
+                                        put("limit", limit)
+                                        put("includeDisabled", includeDisabled)
+                                        put("enableImported", enableImported)
+                                        put("importConfigValues", importConfigValues)
+                                        put("dryRun", dryRun)
+                                        put("secretValuesImported", false)
+                                        put("secretValuesIncluded", false)
+                                        put("secretStatusesImported", false)
+                                        put("rawFrontmatterImported", false)
+                                        put("baseDirImported", false)
+                                        put("instructionsOmittedFromResult", true)
+                                        put(
+                                            "candidateSkills",
+                                            buildJsonArray {
+                                                candidates.forEach { candidate ->
+                                                    add(candidate.toSkillImportCandidatePayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "importedSkillNames",
+                                            buildJsonArray {
+                                                importResult.importedSkillNames.forEach { name ->
+                                                    add(JsonPrimitive(name))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "replacedSkillNames",
+                                            buildJsonArray {
+                                                importResult.replacedSkillNames.forEach { name ->
+                                                    add(JsonPrimitive(name))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "importedSkills",
+                                            buildJsonArray {
+                                                if (!dryRun) {
+                                                    candidates.forEach { candidate ->
+                                                        add(
+                                                            candidate.toSkillImportedPayload(
+                                                                enableImported = enableImported,
+                                                                importConfigValues = importConfigValues,
+                                                                replacedSkillNames = importResult.replacedSkillNames,
+                                                            ),
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "skippedSkills",
+                                            buildJsonArray {
+                                                skipped.forEach { skippedEntry ->
+                                                    add(skippedEntry.toSkillImportSkippedPayload())
+                                                }
+                                            },
+                                        )
                                     },
                             )
                         },
@@ -11927,6 +12123,10 @@ private const val SKILL_EXPORT_VERSION = 1
 private const val SKILL_EXPORT_DEFAULT_LIMIT = 20
 private const val SKILL_EXPORT_MAX_LIMIT = 50
 private const val SKILL_EXPORT_INSTRUCTIONS_MAX_CHARS = 20_000
+private const val SKILL_IMPORT_FORMAT = "androidclaw.skills.import.v1"
+private const val SKILL_IMPORT_VERSION = 1
+private const val SKILL_IMPORT_DEFAULT_LIMIT = 20
+private const val SKILL_IMPORT_MAX_LIMIT = 50
 private const val SKILL_HANDOFF_DEFAULT_LIMIT = 8
 private const val SKILL_HANDOFF_MAX_LIMIT = 20
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
@@ -12019,6 +12219,51 @@ private data class SkillDoctorIssue(
     val missingConfigPaths: List<String> = emptyList(),
     val omittedMissingConfigPathCount: Int = 0,
 )
+
+private data class SkillImportCandidate(
+    val sourceIndex: Int,
+    val sourceSkillId: String?,
+    val sourceSkillKey: String,
+    val sourceEnabled: Boolean,
+    val frontmatter: SkillFrontmatter,
+    val instructionsMd: String,
+    val configValues: Map<String, String?>,
+) {
+    val entry: SkillPackageImportEntry =
+        SkillPackageImportEntry(
+            sourceIndex = sourceIndex,
+            frontmatter = frontmatter,
+            instructionsMd = instructionsMd,
+            sourceEnabled = sourceEnabled,
+            configValues = configValues,
+        )
+}
+
+private data class SkillImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private sealed interface SkillImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : SkillImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : SkillImportEntriesParseResult
+}
+
+private sealed interface SkillImportCandidateParseResult {
+    data class Candidate(
+        val candidate: SkillImportCandidate,
+    ) : SkillImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: SkillImportSkippedEntry,
+    ) : SkillImportCandidateParseResult
+}
 
 private data class TaskDoctorIssue(
     val id: String,
@@ -14729,6 +14974,227 @@ private fun SkillSnapshot.toSkillHandoffMarkdownLine(): String =
             append(" parseError=")
             append(error.toHandoffLine())
         }
+    }
+
+private fun JsonObject.skillImportEntries(): SkillImportEntriesParseResult {
+    val directEntries = this["skills"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("skills")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("skills")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return SkillImportEntriesParseResult.Failure(
+            missingSkillImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(SkillImportEntriesParseResult::Success)
+        ?: SkillImportEntriesParseResult.Failure(invalidSkillImportEntriesResult())
+}
+
+private fun JsonElement.toSkillImportCandidate(sourceIndex: Int): SkillImportCandidateParseResult {
+    val objectValue =
+        this as? JsonObject ?: return skillImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "skills.import.invalid_entry",
+            summary = "Import entry must be a skill object.",
+        )
+    val frontmatterObject =
+        objectValue["frontmatter"] as? JsonObject ?: return skillImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "skills.import.invalid_missing_frontmatter",
+            summary = "Import entry skipped because frontmatter is missing.",
+        )
+    val frontmatter =
+        frontmatterObject.toSkillImportFrontmatter()
+            ?: return skillImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "skills.import.invalid_frontmatter",
+                summary = "Import entry skipped because frontmatter is incomplete or invalid.",
+            )
+    val instructionsElement = objectValue["instructionsMd"]
+    val instructionsMd =
+        if (instructionsElement == null || instructionsElement is JsonNull) {
+            return skillImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "skills.import.invalid_missing_instructions",
+                summary = "Import entry skipped because SKILL.md instructions are missing.",
+            )
+        } else {
+            val primitive =
+                instructionsElement as? JsonPrimitive ?: return skillImportSkipped(
+                    sourceIndex = sourceIndex,
+                    code = "skills.import.invalid_instructions",
+                    summary = "Import entry skipped because SKILL.md instructions are not text.",
+                )
+            primitive.contentOrNull.orEmpty()
+        }
+    val configValues = objectValue.skillImportConfigValues()
+    return SkillImportCandidateParseResult.Candidate(
+        SkillImportCandidate(
+            sourceIndex = sourceIndex,
+            sourceSkillId = objectValue.optionalText("id") ?: objectValue.optionalText("skillId"),
+            sourceSkillKey = objectValue.optionalText("skillKey") ?: frontmatter.name,
+            sourceEnabled = objectValue.optionalBoolean("enabled", defaultValue = true),
+            frontmatter = frontmatter,
+            instructionsMd = instructionsMd,
+            configValues = configValues,
+        ),
+    )
+}
+
+private fun JsonObject.toSkillImportFrontmatter(): SkillFrontmatter? {
+    val name = optionalText("name") ?: return null
+    val description = optionalText("description") ?: return null
+    val rawDispatch = optionalText("commandDispatch") ?: optionalText("command-dispatch") ?: "Model"
+    val commandDispatch =
+        when (rawDispatch.lowercase().replace("-", "_")) {
+            "model" -> SkillCommandDispatch.Model
+            "tool" -> SkillCommandDispatch.Tool
+            else -> return null
+        }
+    return SkillFrontmatter(
+        name = name,
+        description = description,
+        homepage = optionalRawText("homepage"),
+        userInvocable =
+            optionalBoolean(
+                field = "userInvocable",
+                defaultValue = optionalBoolean("user-invocable", defaultValue = true),
+            ),
+        disableModelInvocation =
+            optionalBoolean(
+                field = "disableModelInvocation",
+                defaultValue = optionalBoolean("disable-model-invocation", defaultValue = false),
+            ),
+        commandDispatch = commandDispatch,
+        commandTool = optionalRawText("commandTool") ?: optionalRawText("command-tool"),
+        commandArgMode = optionalText("commandArgMode") ?: optionalText("command-arg-mode") ?: "raw",
+        metadata = this["metadata"]?.takeUnless { it is JsonNull },
+        unknownFields =
+            (this["unknownFields"] as? JsonObject)
+                ?.filterKeys { field -> field.isNotBlank() }
+                .orEmpty(),
+    )
+}
+
+private fun JsonObject.skillImportConfigValues(): Map<String, String?> {
+    val configuration = this["configuration"] as? JsonObject ?: return emptyMap()
+    val fields = configuration["configFields"] as? JsonArray ?: return emptyMap()
+    return fields
+        .mapNotNull { fieldElement ->
+            val field = fieldElement as? JsonObject ?: return@mapNotNull null
+            val path = field.optionalText("path") ?: return@mapNotNull null
+            val valueElement = field["value"]
+            val value =
+                when (valueElement) {
+                    null,
+                    JsonNull,
+                    -> null
+                    is JsonPrimitive -> valueElement.contentOrNull
+                    else -> null
+                }
+            if (value == null) {
+                null
+            } else {
+                path to value
+            }
+        }.toMap()
+}
+
+private fun skillImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): SkillImportCandidateParseResult.Skipped =
+    SkillImportCandidateParseResult.Skipped(
+        SkillImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun missingSkillImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import skills, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_SKILL_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_SKILL_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingSkillImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide a skills array or an export object containing skills to import.",
+        errorCode = "MISSING_SKILL_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_SKILL_IMPORT_ENTRIES")
+                put("field", "skills")
+            },
+    )
+
+private fun invalidSkillImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Skill import entries must be an array.",
+        errorCode = "INVALID_SKILL_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_SKILL_IMPORT_ENTRIES")
+                put("field", "skills")
+            },
+    )
+
+private fun SkillImportCandidate.toSkillImportCandidatePayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceSkillId", sourceSkillId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceSkillKey", sourceSkillKey)
+        put("sourceEnabled", sourceEnabled)
+        put("skillKey", sourceSkillKey)
+        put("name", frontmatter.name)
+        put("description", frontmatter.description)
+        put("userInvocable", frontmatter.userInvocable)
+        put("disableModelInvocation", frontmatter.disableModelInvocation)
+        put("commandDispatch", frontmatter.commandDispatch.name)
+        put("commandTool", frontmatter.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandArgMode", frontmatter.commandArgMode)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsOmitted", true)
+        put("configValueCount", configValues.size)
+        put("secretValuesImported", false)
+        put("secretValuesIncluded", false)
+        put("rawFrontmatterImported", false)
+        put("baseDirImported", false)
+    }
+
+private fun SkillImportCandidate.toSkillImportedPayload(
+    enableImported: Boolean,
+    importConfigValues: Boolean,
+    replacedSkillNames: List<String>,
+): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceSkillId", sourceSkillId?.let(::JsonPrimitive) ?: JsonNull)
+        put("skillKey", sourceSkillKey)
+        put("name", frontmatter.name)
+        put("enabled", enableImported && sourceEnabled)
+        put("sourceEnabled", sourceEnabled)
+        put("replaced", frontmatter.name in replacedSkillNames)
+        put("configValuesImported", importConfigValues)
+        put("configValueCount", if (importConfigValues) configValues.size else 0)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsOmitted", true)
+        put("secretValuesImported", false)
+        put("secretValuesIncluded", false)
+        put("rawFrontmatterImported", false)
+        put("baseDirImported", false)
+    }
+
+private fun SkillImportSkippedEntry.toSkillImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
     }
 
 private fun SkillSnapshot.toSkillExportPayload(

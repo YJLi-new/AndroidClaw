@@ -32,6 +32,8 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -9306,6 +9308,221 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills import dry run previews importable skills without writing`() =
+        runTest {
+            var importCalled = false
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.skills.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "skills",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("id", "ready")
+                                    put("skillKey", "ready")
+                                    put("enabled", true)
+                                    put("instructionsMd", "Dry-run imported body")
+                                    put("frontmatter", skillFrontmatterPayload(name = "ready"))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("id", "disabled")
+                                    put("skillKey", "disabled")
+                                    put("enabled", false)
+                                    put("instructionsMd", "Disabled body")
+                                    put("frontmatter", skillFrontmatterPayload(name = "disabled"))
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("id", "missing-body")
+                                    put("skillKey", "missing-body")
+                                    put("enabled", true)
+                                    put("frontmatter", skillFrontmatterPayload(name = "missing-body"))
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry =
+                buildRegistry(
+                    skillPackageImporter = { entries, enableImported, importConfigValues ->
+                        importCalled = true
+                        ai.androidclaw.runtime.skills.SkillImportResult(
+                            importedSkillNames = entries.map { entry -> entry.frontmatter.name },
+                            replacedSkillNames = emptyList(),
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("dryRun", true)
+                            put("includeDisabled", false)
+                            put("enableImported", true)
+                            put("importConfigValues", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertFalse(importCalled)
+            assertEquals("androidclaw.skills.import.v1", result.payload["importFormat"]?.jsonPrimitive?.content)
+            assertEquals("androidclaw.skills.export.v1", result.payload["acceptedExportFormat"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["receivedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importableSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["skippedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["disabledSkillSkippedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["invalidSkillCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesImported"]?.jsonPrimitive?.content)
+            val candidate =
+                result.payload
+                    .getValue("candidateSkills")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("ready", candidate.getValue("name").jsonPrimitive.content)
+            assertEquals("Dry-run imported body".length.toString(), candidate.getValue("instructionsLength").jsonPrimitive.content)
+            assertEquals(true.toString(), candidate.getValue("instructionsOmitted").jsonPrimitive.content)
+            val skippedCodes =
+                result.payload
+                    .getValue("skippedSkills")
+                    .jsonArray
+                    .map { skipped ->
+                        skipped.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(skippedCodes.contains("skills.import.disabled_skipped"))
+            assertTrue(skippedCodes.contains("skills.import.invalid_missing_instructions"))
+        }
+
+    @Test
+    fun `skills import confirms non secret skill restore with config opt in`() =
+        runTest {
+            var capturedEntries: List<ai.androidclaw.runtime.skills.SkillPackageImportEntry> = emptyList()
+            var capturedEnableImported: Boolean? = null
+            var capturedImportConfigValues: Boolean? = null
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.skills.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "skills",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("id", "configurable")
+                                    put("skillKey", "configurable")
+                                    put("enabled", true)
+                                    put("instructionsMd", "Confirmed imported body")
+                                    put(
+                                        "frontmatter",
+                                        skillFrontmatterPayload(
+                                            name = "configurable",
+                                            commandDispatch = "Tool",
+                                            commandTool = "tools.echo",
+                                        ),
+                                    )
+                                    put(
+                                        "configuration",
+                                        buildJsonObject {
+                                            put(
+                                                "configFields",
+                                                buildJsonArray {
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("path", "endpoint")
+                                                            put("value", "https://skills-import.example")
+                                                        },
+                                                    )
+                                                },
+                                            )
+                                            put(
+                                                "secretFields",
+                                                buildJsonArray {
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("envName", "API_TOKEN")
+                                                            put("configured", true)
+                                                        },
+                                                    )
+                                                },
+                                            )
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry =
+                buildRegistry(
+                    skillPackageImporter = { entries, enableImported, importConfigValues ->
+                        capturedEntries = entries
+                        capturedEnableImported = enableImported
+                        capturedImportConfigValues = importConfigValues
+                        ai.androidclaw.runtime.skills.SkillImportResult(
+                            importedSkillNames = entries.map { entry -> entry.frontmatter.name },
+                            replacedSkillNames = listOf("configurable"),
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("confirm", "CONFIRM")
+                            put("enableImported", true)
+                            put("importConfigValues", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(true, capturedEnableImported)
+            assertEquals(true, capturedImportConfigValues)
+            assertEquals(1, capturedEntries.size)
+            val importedEntry = capturedEntries.single()
+            assertEquals(0, importedEntry.sourceIndex)
+            assertEquals("configurable", importedEntry.frontmatter.name)
+            assertEquals(ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool, importedEntry.frontmatter.commandDispatch)
+            assertEquals("tools.echo", importedEntry.frontmatter.commandTool)
+            assertEquals("Confirmed imported body", importedEntry.instructionsMd)
+            assertEquals(true, importedEntry.sourceEnabled)
+            assertEquals("https://skills-import.example", importedEntry.configValues.getValue("endpoint"))
+            assertEquals("1", result.payload["importableSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["replacedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesImported"]?.jsonPrimitive?.content)
+            val importedSkill =
+                result.payload
+                    .getValue("importedSkills")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("configurable", importedSkill.getValue("name").jsonPrimitive.content)
+            assertEquals(true.toString(), importedSkill.getValue("enabled").jsonPrimitive.content)
+            assertEquals(true.toString(), importedSkill.getValue("replaced").jsonPrimitive.content)
+            assertEquals("1", importedSkill.getValue("configValueCount").jsonPrimitive.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Confirmed imported body"))
+            assertFalse(payloadText.contains("secret-value"))
+            assertFalse(payloadText.contains("asset://skills"))
+        }
+
+    @Test
     fun `skills doctor reports actionable issues without instructions`() =
         runTest {
             val hiddenInstructions = "FULL SECRET BODY SHOULD NOT APPEAR IN DOCTOR"
@@ -12827,6 +13044,16 @@ class BuiltInToolsTest {
                     ),
             )
         },
+        skillPackageImporter: suspend (
+            List<ai.androidclaw.runtime.skills.SkillPackageImportEntry>,
+            Boolean,
+            Boolean,
+        ) -> ai.androidclaw.runtime.skills.SkillImportResult = { entries, _, _ ->
+            ai.androidclaw.runtime.skills.SkillImportResult(
+                importedSkillNames = entries.map { entry -> entry.frontmatter.name },
+                replacedSkillNames = emptyList(),
+            )
+        },
         providerSecretStore: ProviderSecretStore? = null,
     ): ToolRegistry =
         createBuiltInToolRegistry(
@@ -12841,6 +13068,7 @@ class BuiltInToolsTest {
             skillConfigurationReader = skillConfigurationReader,
             skillConfigurationUpdater = skillConfigurationUpdater,
             skillSecretClearer = skillSecretClearer,
+            skillPackageImporter = skillPackageImporter,
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,
@@ -12925,3 +13153,21 @@ private fun skillSnapshot(
         instructionsMd = "Do work",
         eligibility = eligibility,
     )
+
+private fun skillFrontmatterPayload(
+    name: String,
+    commandDispatch: String = "Model",
+    commandTool: String? = null,
+): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("description", "Description for $name")
+        put("homepage", JsonNull)
+        put("userInvocable", true)
+        put("disableModelInvocation", false)
+        put("commandDispatch", commandDispatch)
+        put("commandTool", commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandArgMode", "raw")
+        put("metadata", JsonNull)
+        put("unknownFields", buildJsonObject {})
+    }

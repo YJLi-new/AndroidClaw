@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.import` /
+  `skill.import` / `skills.restore` / `skill.restore` plus package-import
+  aliases as the companion Skill Contract portability feature for
+  `skills.export`. Agents can now dry-run or confirm import of bounded
+  exported skill definitions into local skill storage, skip disabled source
+  entries when requested, keep imported skills disabled by default unless
+  `enableImported=true`, optionally restore non-secret config values, preserve
+  secret omission, and receive explicit raw-frontmatter/base-dir omission
+  flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `skills.export` /
   `skill.export` / `skills.backup` / `skill.backup` plus package-export
   aliases as a Skill Contract portability feature. Agents can now export

@@ -142,6 +142,13 @@ class AppContainer(
                         ?: skill
                 skillManagerRef.readConfiguration(reloadedSkill)
             },
+            skillPackageImporter = { entries, enableImported, importConfigValues ->
+                skillManagerRef.importSkillPackage(
+                    entries = entries,
+                    enableImported = enableImported,
+                    importConfigValues = importConfigValues,
+                )
+            },
             providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,

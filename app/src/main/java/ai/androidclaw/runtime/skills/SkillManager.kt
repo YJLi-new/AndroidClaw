@@ -88,6 +88,37 @@ class SkillManager(
         return result
     }
 
+    suspend fun importSkillPackage(
+        entries: List<SkillPackageImportEntry>,
+        enableImported: Boolean,
+        importConfigValues: Boolean,
+    ): SkillImportResult {
+        val result = localSkillImporter.importSkillDocuments(entries)
+        cacheMutex.withLock {
+            syncLocalSource()
+            entries.forEach { entry ->
+                val skillKey = entry.frontmatter.skillKey()
+                val installDirName = skillKey.toSkillStorageSegment(fallbackPrefix = "skill")
+                val skillId =
+                    buildSourceId(
+                        sourceType = SkillSourceType.Local,
+                        localId = installDirName,
+                    )
+                skillRepository.setEnabled(
+                    id = skillId,
+                    enabled = enableImported && entry.sourceEnabled,
+                )
+                if (importConfigValues) {
+                    entry.configValues.forEach { (path, value) ->
+                        skillConfigStore.writeConfig(skillKey, path, value)
+                    }
+                }
+            }
+            invalidateCachesLocked()
+        }
+        return result
+    }
+
     suspend fun readSkillConfiguration(skill: SkillSnapshot): SkillConfigurationSnapshot {
         val frontmatter =
             skill.frontmatter ?: return SkillConfigurationSnapshot(

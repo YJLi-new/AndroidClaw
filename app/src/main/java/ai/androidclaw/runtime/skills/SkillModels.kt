@@ -79,6 +79,14 @@ data class SkillConfigurationSnapshot(
     val recoveryMessage: String? = null,
 )
 
+data class SkillPackageImportEntry(
+    val sourceIndex: Int,
+    val frontmatter: SkillFrontmatter,
+    val instructionsMd: String,
+    val sourceEnabled: Boolean,
+    val configValues: Map<String, String?> = emptyMap(),
+)
+
 data class SkillSecretField(
     val envName: String,
     val configured: Boolean,

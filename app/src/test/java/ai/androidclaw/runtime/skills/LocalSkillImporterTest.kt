@@ -95,6 +95,45 @@ class LocalSkillImporterTest {
             assertEquals(listOf("safe_skill"), installedDirectories.map(File::getName))
             assertTrue(installedSkill.readText().contains("Second body."))
         }
+
+    @Test
+    fun `import skill documents writes generated skill markdown and replaces by skill key`() =
+        runTest {
+            val entry =
+                SkillPackageImportEntry(
+                    sourceIndex = 0,
+                    frontmatter =
+                        SkillFrontmatter(
+                            name = "document_skill",
+                            description = "Imported from skills.export",
+                            homepage = null,
+                            userInvocable = true,
+                            disableModelInvocation = false,
+                            commandDispatch = SkillCommandDispatch.Tool,
+                            commandTool = "tools.echo",
+                            commandArgMode = "raw",
+                            metadata = null,
+                            unknownFields = emptyMap(),
+                        ),
+                    instructionsMd = "Document body.",
+                    sourceEnabled = true,
+                )
+
+            val firstImport = importer.importSkillDocuments(listOf(entry))
+            val secondImport = importer.importSkillDocuments(listOf(entry.copy(instructionsMd = "Replacement body.")))
+
+            val installedSkill = File(storage.localSkillsDir, "document_skill/SKILL.md")
+
+            assertEquals(listOf("document_skill"), firstImport.importedSkillNames)
+            assertEquals(emptyList<String>(), firstImport.replacedSkillNames)
+            assertEquals(listOf("document_skill"), secondImport.importedSkillNames)
+            assertEquals(listOf("document_skill"), secondImport.replacedSkillNames)
+            assertTrue(installedSkill.isFile)
+            val document = installedSkill.readText()
+            assertTrue(document.contains("name: document_skill"))
+            assertTrue(document.contains("command-tool: tools.echo"))
+            assertTrue(document.contains("Replacement body."))
+        }
 }
 
 private fun skillArchiveBytes(
