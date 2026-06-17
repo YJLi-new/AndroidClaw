@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.catalog` /
+  `provider.catalog` / `providers.models` / `provider.models` plus endpoint
+  aliases as a Provider/OAuth catalog feature. Agents can now inspect bounded
+  provider default/current base URLs, model ids, timeout settings, selection
+  state, remote/auth metadata, customization flags, optional markdown, and
+  explicit secret/OAuth-token omission flags. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.commands` /
   `skill.commands` / `skills.slash` / `skill.slash` plus command-index aliases
   as a Skill Contract command inventory feature. Agents can now inspect

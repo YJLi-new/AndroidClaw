@@ -5678,6 +5678,164 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider catalog exposes default and current endpoints without secrets`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-catalog-secret")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "codex-catalog-access-secret",
+                    refreshToken = "codex-catalog-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-07T00:00:00Z").toEpochMilli(),
+                    profileName = "Catalog",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.DeepSeek)
+                    .withEndpointSettings(
+                        providerType = ProviderType.DeepSeek,
+                        settings =
+                            ProviderType.DeepSeek
+                                .defaultEndpointSettings()
+                                .copy(
+                                    baseUrl = "https://catalog.example/v1",
+                                    modelId = "deepseek-catalog",
+                                    timeoutSeconds = 33,
+                                ),
+                    ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.models"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-catalog-secret"))
+            assertFalse(payloadText.contains("codex-catalog-access-secret"))
+            assertFalse(payloadText.contains("codex-catalog-refresh-secret"))
+            assertEquals(
+                ProviderType.entries.size.toString(),
+                result.payload
+                    .getValue("providerCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                ProviderType.entries.size.toString(),
+                result.payload
+                    .getValue("includedProviderCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                ProviderType.DeepSeek.providerId,
+                result.payload
+                    .getValue("currentProviderId")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            val providers = result.payload.getValue("providers").jsonArray
+            val deepSeek =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.DeepSeek.providerId
+                    }.jsonObject
+            assertEquals("true", deepSeek.getValue("selected").jsonPrimitive.content)
+            val endpointCatalog = deepSeek.getValue("endpointCatalog").jsonObject
+            assertEquals(ProviderType.DeepSeek.defaultBaseUrl, endpointCatalog.getValue("defaultBaseUrl").jsonPrimitive.content)
+            assertEquals(ProviderType.DeepSeek.defaultModelId, endpointCatalog.getValue("defaultModelId").jsonPrimitive.content)
+            assertEquals("https://catalog.example/v1", endpointCatalog.getValue("currentBaseUrl").jsonPrimitive.content)
+            assertEquals("deepseek-catalog", endpointCatalog.getValue("currentModelId").jsonPrimitive.content)
+            assertEquals("33", endpointCatalog.getValue("currentTimeoutSeconds").jsonPrimitive.content)
+            assertEquals("false", endpointCatalog.getValue("usesDefaultBaseUrl").jsonPrimitive.content)
+            assertEquals("false", endpointCatalog.getValue("usesDefaultModelId").jsonPrimitive.content)
+            assertEquals("false", endpointCatalog.getValue("usesDefaultTimeoutSeconds").jsonPrimitive.content)
+            assertEquals("true", endpointCatalog.getValue("customBaseUrl").jsonPrimitive.content)
+            assertEquals("true", endpointCatalog.getValue("customModelId").jsonPrimitive.content)
+            assertEquals("true", endpointCatalog.getValue("customTimeout").jsonPrimitive.content)
+            val fake =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.Fake.providerId
+                    }.jsonObject
+            assertEquals(JsonNull, fake.getValue("endpointCatalog"))
+            val markdown =
+                result.payload
+                    .getValue("catalogMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider catalog"))
+            assertTrue(markdown.contains("deepseek-catalog"))
+            assertFalse(markdown.contains("deepseek-catalog-secret"))
+        }
+
+    @Test
+    fun `provider catalog can focus one provider and omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.endpoints"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "OpenAI Codex")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.catalog"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "missing-provider")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("OpenAI Codex", result.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                (ProviderType.entries.size - 1).toString(),
+                result.payload
+                    .getValue("omittedProviderCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("catalogMarkdown"))
+            val provider =
+                result.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(ProviderType.OpenAiCodex.providerId, provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals("false", provider.getValue("selected").jsonPrimitive.content)
+            val endpointCatalog = provider.getValue("endpointCatalog").jsonObject
+            assertEquals(ProviderType.OpenAiCodex.defaultBaseUrl, endpointCatalog.getValue("defaultBaseUrl").jsonPrimitive.content)
+            assertEquals(ProviderType.OpenAiCodex.defaultModelId, endpointCatalog.getValue("currentModelId").jsonPrimitive.content)
+            assertEquals("true", endpointCatalog.getValue("usesDefaultBaseUrl").jsonPrimitive.content)
+            assertEquals("true", endpointCatalog.getValue("usesDefaultModelId").jsonPrimitive.content)
+            assertFalse(missing.success)
+            assertEquals("PROVIDER_NOT_FOUND", missing.errorCode)
+        }
+
+    @Test
     fun `provider doctor reports selected provider issues without secrets`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()
