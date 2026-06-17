@@ -470,6 +470,8 @@ internal fun createBuiltInToolRegistry(
                             memoryToolEntries(
                                 settingsDataStore = settingsDataStore,
                                 memoryRepository = repository,
+                                sessionRepository = sessionRepository,
+                                messageRepository = messageRepository,
                             ),
                         )
                     }

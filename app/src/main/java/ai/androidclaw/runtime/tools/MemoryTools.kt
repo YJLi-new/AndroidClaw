@@ -2,8 +2,12 @@ package ai.androidclaw.runtime.tools
 
 import ai.androidclaw.data.MemorySettingsSnapshot
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MemoryItem
+import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.repository.MemoryRepository
+import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.data.repository.SessionRepository
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -16,6 +20,8 @@ import kotlinx.serialization.json.put
 internal fun memoryToolEntries(
     settingsDataStore: SettingsDataStore,
     memoryRepository: MemoryRepository,
+    sessionRepository: SessionRepository,
+    messageRepository: MessageRepository,
 ): List<ToolRegistry.Entry> =
     listOf(
         ToolRegistry.Entry(
@@ -122,6 +128,62 @@ internal fun memoryToolEntries(
                 settingsDataStore = settingsDataStore,
                 memoryRepository = memoryRepository,
                 limit = limit,
+                includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "memory.provenance",
+                    aliases =
+                        listOf(
+                            "memories.provenance",
+                            "memory.trace",
+                            "memories.trace",
+                            "memory.context",
+                            "memories.context",
+                        ),
+                    description = "Resolve one memory's source session and source-message snippets without exposing owner ids or provider metadata.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "id",
+                                required = true,
+                                description = "Memory identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMemoryText",
+                                description = "Set false to omit the memory text. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeSourceSnippets",
+                                description = "Set false to omit source message snippets. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit provenanceMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.memorySettingsSnapshot()
+            if (!settings.enabled) {
+                return@Entry memoryDisabledResult()
+            }
+            val id =
+                arguments.memoryId()
+                    ?: return@Entry missingMemoryIdResult("Provide a memory id to inspect provenance.")
+            val memory =
+                memoryRepository.get(
+                    ownerUserId = settings.installUserId,
+                    id = id,
+                ) ?: return@Entry memoryNotFoundResult(id)
+            memoryProvenanceResult(
+                memory = memory,
+                sessionRepository = sessionRepository,
+                messageRepository = messageRepository,
+                includeMemoryText = arguments.optionalBoolean("includeMemoryText", defaultValue = true),
+                includeSourceSnippets = arguments.optionalBoolean("includeSourceSnippets", defaultValue = true),
                 includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
             )
         },
@@ -696,6 +758,8 @@ internal fun memoryToolEntries(
             executeMemoryCommand(
                 settingsDataStore = settingsDataStore,
                 memoryRepository = memoryRepository,
+                sessionRepository = sessionRepository,
+                messageRepository = messageRepository,
                 context = context,
                 command = arguments.optionalText("command").orEmpty(),
             )
@@ -705,6 +769,8 @@ internal fun memoryToolEntries(
 private suspend fun executeMemoryCommand(
     settingsDataStore: SettingsDataStore,
     memoryRepository: MemoryRepository,
+    sessionRepository: SessionRepository,
+    messageRepository: MessageRepository,
     context: ToolExecutionContext,
     command: String,
 ): ToolExecutionResult {
@@ -918,6 +984,25 @@ private suspend fun executeMemoryCommand(
                 emptySummary = "No deleted memories found.",
                 nonEmptySummary = "Found deleted memories.",
             )
+
+        "provenance", "trace", "context" -> {
+            if (rest.isBlank()) {
+                return missingMemoryIdResult("Provide a memory id after /memory $verb.")
+            }
+            val memory =
+                memoryRepository.get(
+                    ownerUserId = settings.installUserId,
+                    id = rest,
+                ) ?: return memoryNotFoundResult(rest)
+            memoryProvenanceResult(
+                memory = memory,
+                sessionRepository = sessionRepository,
+                messageRepository = messageRepository,
+                includeMemoryText = true,
+                includeSourceSnippets = true,
+                includeMarkdown = true,
+            )
+        }
 
         "get" -> {
             if (rest.isBlank()) {
@@ -1249,6 +1334,105 @@ private suspend fun memoryHandoffResult(
     )
 }
 
+private suspend fun memoryProvenanceResult(
+    memory: MemoryItem,
+    sessionRepository: SessionRepository,
+    messageRepository: MessageRepository,
+    includeMemoryText: Boolean,
+    includeSourceSnippets: Boolean,
+    includeMarkdown: Boolean,
+): ToolExecutionResult {
+    val sourceSession = memory.sourceSessionId?.let { sessionId -> sessionRepository.getSession(sessionId) }
+    val sourceMessagesById = messageRepository.getMessagesByIds(memory.sourceMessageIds)
+    val sourceMessages =
+        memory.sourceMessageIds.map { sourceMessageId ->
+            MemorySourceMessageReference(
+                sourceMessageId = sourceMessageId,
+                message = sourceMessagesById[sourceMessageId],
+            )
+        }
+    val missingSourceMessageIds =
+        sourceMessages
+            .filter { reference -> reference.message == null }
+            .map(MemorySourceMessageReference::sourceMessageId)
+    val crossSessionSourceMessageCount =
+        memory.sourceSessionId?.let { sourceSessionId ->
+            sourceMessages.count { reference ->
+                val message = reference.message
+                message != null && message.sessionId != sourceSessionId
+            }
+        } ?: 0
+    val provenanceMarkdown =
+        if (includeMarkdown) {
+            memory.toMemoryProvenanceMarkdown(
+                sourceSession = sourceSession,
+                sourceMessages = sourceMessages,
+                missingSourceMessageIds = missingSourceMessageIds,
+                crossSessionSourceMessageCount = crossSessionSourceMessageCount,
+                includeMemoryText = includeMemoryText,
+                includeSourceSnippets = includeSourceSnippets,
+            )
+        } else {
+            null
+        }
+    return ToolExecutionResult.success(
+        summary =
+            if (memory.sourceSessionId == null && memory.sourceMessageIds.isEmpty()) {
+                "Prepared provenance for memory ${memory.id} with no source references."
+            } else {
+                "Prepared provenance for memory ${memory.id} with ${sourceMessagesById.size} resolved source message(s)."
+            },
+        payload =
+            buildJsonObject {
+                put("id", memory.id)
+                put("sourceType", memory.sourceType)
+                put("createdAt", memory.createdAt.toString())
+                put("updatedAt", memory.updatedAt.toString())
+                put("deletedAt", memory.deletedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                put("textLength", memory.text.length)
+                put("text", if (includeMemoryText) JsonPrimitive(memory.text) else JsonNull)
+                put("memoryTextIncluded", includeMemoryText)
+                put("ownerUserIdIncluded", false)
+                put("sourceSessionId", memory.sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+                put("sourceSessionMissing", memory.sourceSessionId != null && sourceSession == null)
+                put("sourceSession", sourceSession?.toMemorySourceSessionPayload() ?: JsonNull)
+                put("sourceMessageCount", memory.sourceMessageIds.size)
+                put("resolvedSourceMessageCount", sourceMessagesById.size)
+                put("missingSourceMessageCount", missingSourceMessageIds.size)
+                put("crossSessionSourceMessageCount", crossSessionSourceMessageCount)
+                put("sourceMessageSnippetsIncluded", includeSourceSnippets)
+                put("fullMessageBodiesIncluded", false)
+                put("providerMetaIncluded", false)
+                put("includeMarkdown", includeMarkdown)
+                put(
+                    "sourceMessageIds",
+                    buildJsonArray {
+                        memory.sourceMessageIds.forEach { sourceMessageId ->
+                            add(JsonPrimitive(sourceMessageId))
+                        }
+                    },
+                )
+                put(
+                    "missingSourceMessageIds",
+                    buildJsonArray {
+                        missingSourceMessageIds.forEach { sourceMessageId ->
+                            add(JsonPrimitive(sourceMessageId))
+                        }
+                    },
+                )
+                put(
+                    "sourceMessages",
+                    buildJsonArray {
+                        sourceMessages.forEach { reference ->
+                            add(reference.toMemorySourceMessagePayload(includeSourceSnippets))
+                        }
+                    },
+                )
+                put("provenanceMarkdown", provenanceMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+            },
+    )
+}
+
 private fun memoryDisabledResult(): ToolExecutionResult =
     ToolExecutionResult.failure(
         summary = "Memory is disabled. Enable it in Settings before using memory tools.",
@@ -1257,6 +1441,17 @@ private fun memoryDisabledResult(): ToolExecutionResult =
             buildJsonObject {
                 put("errorCode", "MEMORY_DISABLED")
                 put("enabled", false)
+            },
+    )
+
+private fun memoryNotFoundResult(id: String): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Memory $id was not found.",
+        errorCode = "MEMORY_NOT_FOUND",
+        payload =
+            buildJsonObject {
+                put("id", id)
+                put("errorCode", "MEMORY_NOT_FOUND")
             },
     )
 
@@ -1437,6 +1632,11 @@ private data class MemoryDoctorIssue(
     val summary: String,
     val action: String,
     val detail: String? = null,
+)
+
+private data class MemorySourceMessageReference(
+    val sourceMessageId: String,
+    val message: ChatMessage?,
 )
 
 private fun buildMemoryDoctorIssues(
@@ -1677,6 +1877,135 @@ private fun MemoryDoctorIssue.toMemoryDoctorMarkdownLine(): String =
 
 private fun String.toMemoryDoctorText(): String = toMemoryHandoffLine().take(MEMORY_DOCTOR_TEXT_MAX_CHARS)
 
+private fun Session.toMemorySourceSessionPayload(): JsonObject =
+    buildJsonObject {
+        put("sessionId", id)
+        put("title", title)
+        put("isMain", isMain)
+        put("archived", archived)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("hasSummary", summaryText != null)
+        put("summaryLength", summaryText?.length ?: 0)
+        put("summaryTextIncluded", false)
+    }
+
+private fun MemorySourceMessageReference.toMemorySourceMessagePayload(includeSourceSnippet: Boolean): JsonObject {
+    val resolvedMessage = message
+    return if (resolvedMessage == null) {
+        buildJsonObject {
+            put("sourceMessageId", sourceMessageId)
+            put("messageId", sourceMessageId)
+            put("resolved", false)
+            put("missing", true)
+            put("contentSnippet", JsonNull)
+            put("messageBodyIncluded", false)
+            put("providerMetaIncluded", false)
+        }
+    } else {
+        resolvedMessage.toMemorySourceMessagePayload(
+            sourceMessageId = sourceMessageId,
+            includeSourceSnippet = includeSourceSnippet,
+        )
+    }
+}
+
+private fun ChatMessage.toMemorySourceMessagePayload(
+    sourceMessageId: String,
+    includeSourceSnippet: Boolean,
+): JsonObject {
+    val contentSnippet = content.toMemorySourceSnippet()
+    return buildJsonObject {
+        put("sourceMessageId", sourceMessageId)
+        put("messageId", id)
+        put("resolved", true)
+        put("missing", false)
+        put("sessionId", sessionId)
+        put("role", role.name)
+        put("createdAtIso", createdAt.toString())
+        put("contentSnippet", if (includeSourceSnippet) JsonPrimitive(contentSnippet) else JsonNull)
+        put("contentLength", content.length)
+        put("contentTruncated", contentSnippet.length < content.length)
+        put("messageBodyIncluded", false)
+        put("providerMetaIncluded", false)
+        put("hasProviderMeta", providerMeta != null)
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun MemoryItem.toMemoryProvenanceMarkdown(
+    sourceSession: Session?,
+    sourceMessages: List<MemorySourceMessageReference>,
+    missingSourceMessageIds: List<String>,
+    crossSessionSourceMessageCount: Int,
+    includeMemoryText: Boolean,
+    includeSourceSnippets: Boolean,
+): String =
+    buildString {
+        appendLine("# Memory provenance")
+        appendLine()
+        appendLine("- Memory id: `$id`")
+        appendLine("- Source type: ${sourceType.toMemoryHandoffLine()}")
+        appendLine("- Source session id: ${sourceSessionId?.toMemoryHandoffLine() ?: "none"}")
+        appendLine("- Source session missing: ${sourceSessionId != null && sourceSession == null}")
+        appendLine("- Source messages resolved: ${sourceMessages.count { reference -> reference.message != null }} of ${sourceMessages.size}")
+        appendLine("- Missing source messages: ${missingSourceMessageIds.size}")
+        appendLine("- Cross-session source messages: $crossSessionSourceMessageCount")
+        appendLine("- Owner user id included: false")
+        appendLine("- Memory text included: $includeMemoryText")
+        appendLine("- Source snippets included: $includeSourceSnippets")
+        appendLine("- Full message bodies included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine()
+        appendLine("## Memory")
+        appendLine(if (includeMemoryText) text.toMemoryHandoffLine() else "_Memory text omitted._")
+        appendLine()
+        appendLine("## Source session")
+        if (sourceSession == null) {
+            appendLine(if (sourceSessionId == null) "_No source session recorded._" else "_Source session not found._")
+        } else {
+            append("- `")
+            append(sourceSession.id.toMemoryHandoffLine())
+            append("` ")
+            append(sourceSession.title.toMemoryHandoffLine())
+            append(" archived=")
+            appendLine(sourceSession.archived)
+        }
+        appendLine()
+        appendLine("## Source messages")
+        if (sourceMessages.isEmpty()) {
+            appendLine("_No source messages recorded._")
+        } else {
+            sourceMessages.forEach { reference ->
+                val sourceMessage = reference.message
+                append("- `")
+                append(reference.sourceMessageId.toMemoryHandoffLine())
+                append("` ")
+                if (sourceMessage == null) {
+                    appendLine("missing")
+                } else {
+                    append(sourceMessage.role.name)
+                    append(" session=")
+                    append(sourceMessage.sessionId.toMemoryHandoffLine())
+                    append(": ")
+                    if (includeSourceSnippets) {
+                        appendLine(sourceMessage.content.toMemorySourceSnippet().toMemoryHandoffLine())
+                    } else {
+                        appendLine("_Snippet omitted._")
+                    }
+                }
+            }
+        }
+    }
+
+private fun String.toMemorySourceSnippet(): String =
+    if (length <= MEMORY_SOURCE_SNIPPET_MAX_CHARS) {
+        this
+    } else {
+        take(MEMORY_SOURCE_SNIPPET_MAX_CHARS)
+    }
+
 private fun memoryHandoffMarkdown(
     stats: MemoryRepository.MemoryStats,
     memories: List<MemoryItem>,
@@ -1843,6 +2172,8 @@ private fun JsonObject.sourceSessionIdOrContext(context: ToolExecutionContext): 
         ?: optionalText("sessionId")
         ?: context.sessionId?.trim()?.ifBlank { null }
 
+private fun JsonObject.memoryId(): String? = optionalText("id") ?: optionalText("memoryId")
+
 private fun JsonObject.sourceMessageId(): String? =
     optionalText("sourceMessageId")
         ?.toSourceMessageIdOrNull()
@@ -1955,3 +2286,4 @@ private const val MEMORY_DOCTOR_MAX_LIMIT = 50
 private const val MEMORY_DOCTOR_TEXT_MAX_CHARS = 500
 private const val MEMORY_HANDOFF_DEFAULT_LIMIT = 8
 private const val MEMORY_HANDOFF_MAX_LIMIT = 20
+private const val MEMORY_SOURCE_SNIPPET_MAX_CHARS = 500

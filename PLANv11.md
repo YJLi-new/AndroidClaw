@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.provenance` /
+  `memories.provenance` / `memory.trace` / `memory.context` aliases plus
+  `/memory provenance <id>` command dispatch as a Memory Contract context
+  feature. Agents can now inspect one memory's source session and source
+  message references with resolved/missing counts, optional memory text,
+  optional source-message snippets, optional markdown, and explicit owner-id,
+  full-message-body, and provider-metadata omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.handoff` /
   `message.handoff` / `messages.snapshot` / `message.snapshot` plus transcript
   aliases as a compact transcript context-transfer tool. Agents can now hand

@@ -9532,6 +9532,155 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory provenance resolves source session and message snippets without owner or full bodies`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val session = sessionRepository.createSession("Memory provenance transcript")
+            val sourceUserMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "First source fact",
+                )
+            val sourceAssistantMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Assistant source context",
+                )
+            val memory =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User prefers source-linked memories.",
+                        sourceSessionId = session.id,
+                        sourceMessageIds = listOf(sourceUserMessage.id, "missing-source-message", sourceAssistantMessage.id),
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+
+            val directProvenance =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.trace"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", memory.id)
+                        },
+                )
+            val commandProvenance =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "provenance ${memory.id}")
+                        },
+                )
+
+            assertTrue(directProvenance.summary, directProvenance.success)
+            assertEquals(memory.id, directProvenance.payload["id"]?.jsonPrimitive?.content)
+            assertEquals("User prefers source-linked memories.", directProvenance.payload["text"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), directProvenance.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), directProvenance.payload["ownerUserIdIncluded"]?.jsonPrimitive?.content)
+            assertFalse(directProvenance.payload.containsKey("ownerUserId"))
+            assertFalse(directProvenance.payload.toString().contains(ownerUserId))
+            assertEquals(session.id, directProvenance.payload["sourceSessionId"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), directProvenance.payload["sourceSessionMissing"]?.jsonPrimitive?.content)
+            val sourceSession = directProvenance.payload.getValue("sourceSession").jsonObject
+            assertEquals("Memory provenance transcript", sourceSession.getValue("title").jsonPrimitive.content)
+            assertEquals(false.toString(), sourceSession.getValue("summaryTextIncluded").jsonPrimitive.content)
+            assertEquals("3", directProvenance.payload["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", directProvenance.payload["resolvedSourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("1", directProvenance.payload["missingSourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("0", directProvenance.payload["crossSessionSourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), directProvenance.payload["sourceMessageSnippetsIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), directProvenance.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), directProvenance.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            val sourceMessages =
+                directProvenance.payload
+                    .getValue("sourceMessages")
+                    .jsonArray
+                    .map { sourceMessage -> sourceMessage.jsonObject }
+            assertEquals(3, sourceMessages.size)
+            assertEquals(sourceUserMessage.id, sourceMessages[0].getValue("messageId").jsonPrimitive.content)
+            assertEquals("User", sourceMessages[0].getValue("role").jsonPrimitive.content)
+            assertEquals("First source fact", sourceMessages[0].getValue("contentSnippet").jsonPrimitive.content)
+            assertEquals("missing-source-message", sourceMessages[1].getValue("messageId").jsonPrimitive.content)
+            assertEquals(true.toString(), sourceMessages[1].getValue("missing").jsonPrimitive.content)
+            assertEquals(sourceAssistantMessage.id, sourceMessages[2].getValue("messageId").jsonPrimitive.content)
+            assertEquals("Assistant", sourceMessages[2].getValue("role").jsonPrimitive.content)
+            assertTrue(sourceMessages.none { sourceMessage -> sourceMessage.containsKey("content") })
+            assertTrue(sourceMessages.none { sourceMessage -> sourceMessage.containsKey("providerMeta") })
+            val markdown =
+                directProvenance.payload
+                    .getValue("provenanceMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Memory provenance"))
+            assertTrue(markdown.contains("Memory provenance transcript"))
+            assertTrue(markdown.contains("First source fact"))
+            assertTrue(commandProvenance.success)
+            assertEquals(memory.id, commandProvenance.payload["id"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `memory provenance can omit memory text source snippets and markdown`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val session = sessionRepository.createSession("Private provenance transcript")
+            val sourceMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Do not leak source body",
+                )
+            val memory =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "Do not leak memory text",
+                        sourceSessionId = session.id,
+                        sourceMessageIds = listOf(sourceMessage.id),
+                    ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.context"),
+                    arguments =
+                        buildJsonObject {
+                            put("id", memory.id)
+                            put("includeMemoryText", false)
+                            put("includeSourceSnippets", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(JsonNull, result.payload.getValue("text"))
+            assertEquals(false.toString(), result.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["sourceMessageSnippetsIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("provenanceMarkdown"))
+            val sourceMessagePayload =
+                result.payload
+                    .getValue("sourceMessages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(sourceMessage.id, sourceMessagePayload.getValue("messageId").jsonPrimitive.content)
+            assertEquals(JsonNull, sourceMessagePayload.getValue("contentSnippet"))
+            assertFalse(sourceMessagePayload.containsKey("content"))
+            assertFalse(sourceMessagePayload.containsKey("providerMeta"))
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Do not leak memory text"))
+            assertFalse(payloadText.contains("Do not leak source body"))
+            assertFalse(payloadText.contains(ownerUserId))
+        }
+
+    @Test
     fun `memory update replaces exact memory text through tool and command`() =
         runTest {
             val registry = buildRegistry()
