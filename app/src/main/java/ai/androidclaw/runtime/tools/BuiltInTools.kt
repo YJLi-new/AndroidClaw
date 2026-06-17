@@ -1,5 +1,7 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.MAX_PROVIDER_TIMEOUT_SECONDS
+import ai.androidclaw.data.MIN_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.ProviderAuthMode
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSecretStore
@@ -51,6 +53,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.net.URI
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -4801,6 +4804,163 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.doctor",
+                    aliases =
+                        listOf(
+                            "provider.doctor",
+                            "providers.check",
+                            "provider.check",
+                            "providers.health",
+                            "provider.health",
+                        ),
+                    description = "Return actionable provider and OAuth diagnostics without secret values.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeAll",
+                                description = "Set true to inspect every provider. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum diagnostic issues to include. Defaults to 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val includeAll = arguments.optionalBoolean("includeAll", defaultValue = false)
+            val inspectedProviders =
+                when {
+                    identifier != null ->
+                        listOf(
+                            ProviderType.entries.firstOrNull { providerType ->
+                                providerType.matchesProviderIdentifier(identifier)
+                            } ?: return@Entry ToolExecutionResult.failure(
+                                summary = "Provider $identifier was not found.",
+                                errorCode = "PROVIDER_NOT_FOUND",
+                                payload =
+                                    buildJsonObject {
+                                        put("errorCode", "PROVIDER_NOT_FOUND")
+                                        put("toolName", "providers.doctor")
+                                        put("providerId", identifier)
+                                    },
+                            ),
+                        )
+                    includeAll -> ProviderType.entries
+                    else -> listOf(settings.providerType)
+                }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = PROVIDER_DOCTOR_DEFAULT_LIMIT,
+                    ).coerceIn(0, PROVIDER_DOCTOR_MAX_LIMIT)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val providersWithAuth =
+                inspectedProviders.map { providerType ->
+                    providerType to
+                        providerType.toProviderAuthState(
+                            providerSecretStore = providerSecretStore,
+                            clock = clock,
+                        )
+                }
+            val issues =
+                providersWithAuth.flatMap { (providerType, authState) ->
+                    providerType.toProviderDoctorIssues(
+                        settings = settings,
+                        authState = authState,
+                        secretStatusAvailable = providerSecretStore != null,
+                    )
+                }
+            val includedIssues = issues.take(limit)
+            val status = issues.toProviderDoctorStatus()
+            val doctorMarkdown =
+                if (includeMarkdown) {
+                    includedIssues.toProviderDoctorMarkdown(
+                        status = status,
+                        currentProvider = settings.providerType,
+                        inspectedProviderCount = inspectedProviders.size,
+                        issueCount = issues.size,
+                        limit = limit,
+                        includeAll = includeAll,
+                        requestedProviderId = identifier,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        issues.isEmpty() ->
+                            "Provider doctor found no issues across ${inspectedProviders.size} inspected provider(s)."
+                        includedIssues.size == issues.size ->
+                            "Provider doctor found ${issues.size} issue(s) across ${inspectedProviders.size} inspected provider(s)."
+                        else ->
+                            "Provider doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("status", status)
+                        put("providerCount", ProviderType.entries.size)
+                        put("inspectedProviderCount", inspectedProviders.size)
+                        put("omittedProviderCount", ProviderType.entries.size - inspectedProviders.size)
+                        put("currentProviderId", settings.providerType.providerId)
+                        put("currentProviderDisplayName", settings.providerType.displayName)
+                        put("requestedProviderId", identifier?.let(::JsonPrimitive) ?: JsonNull)
+                        put("includeAll", includeAll)
+                        put("secretStatusAvailable", providerSecretStore != null)
+                        put("secretValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put("issueCount", issues.size)
+                        put("includedIssueCount", includedIssues.size)
+                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                        put("limit", limit)
+                        put("includeMarkdown", includeMarkdown)
+                        put(
+                            "stats",
+                            settings.toProviderStatsPayload(
+                                providerSecretStore = providerSecretStore,
+                                clock = clock,
+                            ),
+                        )
+                        put(
+                            "providers",
+                            buildJsonArray {
+                                providersWithAuth.forEach { (providerType, authState) ->
+                                    add(providerType.toProviderDoctorPayload(settings = settings, authState = authState))
+                                }
+                            },
+                        )
+                        put(
+                            "issues",
+                            buildJsonArray {
+                                includedIssues.forEach { issue ->
+                                    add(issue.toProviderDoctorPayload())
+                                }
+                            },
+                        )
+                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.handoff",
                     aliases =
                         listOf(
@@ -8754,6 +8914,9 @@ private const val MESSAGE_CONTEXT_DEFAULT_RADIUS = 3
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
+private const val PROVIDER_DOCTOR_DEFAULT_LIMIT = 20
+private const val PROVIDER_DOCTOR_MAX_LIMIT = 50
+private const val PROVIDER_DOCTOR_TEXT_MAX_CHARS = 500
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
@@ -9252,6 +9415,19 @@ private data class ProviderAuthState(
     val oauthProfileConfigured: Boolean?,
 )
 
+private data class ProviderDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val providerId: String,
+    val displayName: String,
+    val selected: Boolean,
+    val authStatus: String,
+    val summary: String,
+    val action: String,
+    val detail: String? = null,
+)
+
 private fun ProviderType.toProviderHandoffPayload(
     settings: ProviderSettingsSnapshot,
     authState: ProviderAuthState,
@@ -9344,6 +9520,246 @@ private fun ProviderType.toProviderHandoffMarkdownLine(
             append(endpointSettings.timeoutSeconds)
         }
     }
+
+private fun ProviderType.toProviderDoctorPayload(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+): JsonObject {
+    val endpointSettings = if (requiresRemoteSettings) settings.endpointSettings(this) else null
+    return buildJsonObject {
+        put("storageValue", storageValue)
+        put("providerId", providerId)
+        put("displayName", displayName)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("selected", settings.providerType == this@toProviderDoctorPayload)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("requiresRemoteSettings", requiresRemoteSettings)
+        put("authStatus", authState.status)
+        put("apiKeyConfigured", authState.apiKeyConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthConfigured", authState.oauthConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthExpired", authState.oauthExpired?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthProfileConfigured", authState.oauthProfileConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("secretValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put(
+            "endpointSettings",
+            if (endpointSettings != null) {
+                buildJsonObject {
+                    put("baseUrl", endpointSettings.baseUrl)
+                    put("modelId", endpointSettings.modelId)
+                    put("timeoutSeconds", endpointSettings.timeoutSeconds)
+                    put("baseUrlValid", endpointSettings.baseUrl.isValidProviderBaseUrl())
+                    put("modelIdPresent", endpointSettings.modelId.isNotBlank())
+                    put(
+                        "timeoutValid",
+                        endpointSettings.timeoutSeconds in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS,
+                    )
+                }
+            } else {
+                JsonNull
+            },
+        )
+    }
+}
+
+private fun ProviderType.toProviderDoctorIssues(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+    secretStatusAvailable: Boolean,
+): List<ProviderDoctorIssue> =
+    buildList {
+        fun addIssue(
+            severity: String,
+            code: String,
+            summary: String,
+            action: String,
+            detail: String? = null,
+        ) {
+            add(
+                ProviderDoctorIssue(
+                    id = "$providerId:$code",
+                    severity = severity,
+                    code = code,
+                    providerId = providerId,
+                    displayName = displayName,
+                    selected = settings.providerType == this@toProviderDoctorIssues,
+                    authStatus = authState.status,
+                    summary = summary.toProviderDoctorText(),
+                    action = action.toProviderDoctorText(),
+                    detail = detail?.toProviderDoctorText(),
+                ),
+            )
+        }
+
+        when (authState.status) {
+            "Missing" ->
+                addIssue(
+                    severity = "Error",
+                    code =
+                        if (usesOpenAiCodexOAuth) {
+                            "provider.auth.oauth_missing"
+                        } else {
+                            "provider.auth.api_key_missing"
+                        },
+                    summary = "Provider $displayName is missing required credentials.",
+                    action =
+                        if (usesOpenAiCodexOAuth) {
+                            "Complete OpenAI Codex OAuth sign-in or select a different provider."
+                        } else {
+                            "Configure an API key for this provider or select a provider that does not require credentials."
+                        },
+                )
+            "Unknown" ->
+                if (!secretStatusAvailable && (requiresApiKey || usesOpenAiCodexOAuth)) {
+                    addIssue(
+                        severity = "Warning",
+                        code = "provider.auth.status_unknown",
+                        summary = "Provider $displayName credential status cannot be inspected.",
+                        action = "Wire ProviderSecretStore before relying on provider readiness diagnostics.",
+                    )
+                }
+        }
+        if (authState.oauthExpired == true) {
+            addIssue(
+                severity = "Error",
+                code = "provider.auth.oauth_expired",
+                summary = "Provider $displayName has an expired OAuth credential.",
+                action = "Refresh or repeat OpenAI Codex OAuth sign-in before using this provider.",
+            )
+        }
+        if (usesOpenAiCodexOAuth && authState.oauthConfigured == true && authState.oauthProfileConfigured == false) {
+            addIssue(
+                severity = "Warning",
+                code = "provider.auth.oauth_profile_missing",
+                summary = "Provider $displayName OAuth credential lacks profile metadata.",
+                action = "Reauthenticate if account identity is needed for support or diagnostics.",
+            )
+        }
+        if (requiresRemoteSettings) {
+            val endpointSettings = settings.endpointSettings(this@toProviderDoctorIssues)
+            when {
+                endpointSettings.baseUrl.isBlank() ->
+                    addIssue(
+                        severity = "Error",
+                        code = "provider.endpoint.base_url_blank",
+                        summary = "Provider $displayName has a blank base URL.",
+                        action = "Run providers.configure with a valid HTTPS baseUrl or reset provider defaults.",
+                    )
+                !endpointSettings.baseUrl.isValidProviderBaseUrl() ->
+                    addIssue(
+                        severity = "Error",
+                        code = "provider.endpoint.base_url_invalid",
+                        summary = "Provider $displayName base URL is not a valid HTTP(S) URL.",
+                        action = "Run providers.configure with a valid HTTPS baseUrl or reset provider defaults.",
+                        detail = endpointSettings.baseUrl,
+                    )
+            }
+            if (endpointSettings.modelId.isBlank()) {
+                addIssue(
+                    severity = "Error",
+                    code = "provider.endpoint.model_id_blank",
+                    summary = "Provider $displayName has a blank model id.",
+                    action = "Run providers.configure with the modelId to use for chat completions.",
+                )
+            }
+            if (endpointSettings.timeoutSeconds !in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS) {
+                addIssue(
+                    severity = "Error",
+                    code = "provider.endpoint.timeout_invalid",
+                    summary = "Provider $displayName timeout is outside the supported range.",
+                    action = "Run providers.configure with timeoutSeconds between $MIN_PROVIDER_TIMEOUT_SECONDS and $MAX_PROVIDER_TIMEOUT_SECONDS.",
+                    detail = "timeoutSeconds=${endpointSettings.timeoutSeconds}",
+                )
+            }
+        }
+    }
+
+private fun List<ProviderDoctorIssue>.toProviderDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun ProviderDoctorIssue.toProviderDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("providerId", providerId)
+        put("displayName", displayName)
+        put("selected", selected)
+        put("authStatus", authStatus)
+        put("summary", summary)
+        put("action", action)
+        put("detail", detail?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<ProviderDoctorIssue>.toProviderDoctorMarkdown(
+    status: String,
+    currentProvider: ProviderType,
+    inspectedProviderCount: Int,
+    issueCount: Int,
+    limit: Int,
+    includeAll: Boolean,
+    requestedProviderId: String?,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Provider doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Current provider: `${currentProvider.providerId}` (${currentProvider.displayName.toHandoffLine()})")
+        appendLine("- Requested provider filter: ${requestedProviderId?.toHandoffLine() ?: "none"}")
+        appendLine("- Include all providers: $includeAll")
+        appendLine("- Providers inspected: $inspectedProviderCount")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Limit: $limit")
+        appendLine("- Secret values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No provider issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toProviderDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun ProviderDoctorIssue.toProviderDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(providerId.toHandoffLine())
+        append("` code=")
+        append(code)
+        append(": ")
+        append(summary.toHandoffLine())
+        detail?.let { detail ->
+            append(" detail=")
+            append(detail.toHandoffLine())
+        }
+        append(" Action: ")
+        append(action.toHandoffLine())
+    }
+
+private fun String.toProviderDoctorText(): String = toHandoffLine().take(PROVIDER_DOCTOR_TEXT_MAX_CHARS)
+
+private fun String.isValidProviderBaseUrl(): Boolean {
+    val parsed =
+        runCatching {
+            URI(this)
+        }.getOrNull() ?: return false
+    val scheme = parsed.scheme?.lowercase() ?: return false
+    return (scheme == "http" || scheme == "https") && !parsed.host.isNullOrBlank()
+}
 
 private suspend fun ProviderSettingsSnapshot.toProviderStatsPayload(
     providerSecretStore: ProviderSecretStore?,

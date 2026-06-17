@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.doctor` /
+  `provider.doctor` / `providers.check` / `provider.check` plus health aliases
+  as a dedicated Provider/OAuth diagnostics tool. Agents can now inspect the
+  selected provider, a named provider, or all providers for missing API keys,
+  unknown secret-store state, expired OpenAI Codex OAuth credentials, missing
+  OAuth profile metadata, invalid base URLs, blank model ids, and invalid
+  timeouts with OK/WARN/ERROR status, bounded issue payloads, optional
+  markdown, and explicit secret/token omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.doctor` /
   `task.doctor` / `tasks.check` / `task.check` plus automation aliases as a
   dedicated Automation Contract diagnostics tool. Agents can now scan enabled

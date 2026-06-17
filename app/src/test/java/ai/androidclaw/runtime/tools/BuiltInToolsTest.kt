@@ -5114,6 +5114,246 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider doctor reports selected provider issues without secrets`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "doctor-access-secret",
+                    refreshToken = "doctor-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli(),
+                    email = "doctor@example.test",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.OpenAiCompatible)
+                    .withEndpointSettings(
+                        providerType = ProviderType.OpenAiCompatible,
+                        settings =
+                            ProviderType.OpenAiCompatible
+                                .defaultEndpointSettings()
+                                .copy(
+                                    baseUrl = "ftp://bad.example/v1",
+                                    modelId = "",
+                                    timeoutSeconds = 42,
+                                ),
+                    ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.check"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("doctor-access-secret"))
+            assertFalse(payloadText.contains("doctor-refresh-secret"))
+            assertEquals(
+                "ERROR",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("inspectedProviderCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                ProviderType.OpenAiCompatible.providerId,
+                result.payload
+                    .getValue("currentProviderId")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "3",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("secretValuesIncluded")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("oauthTokenValuesIncluded")
+                    .jsonPrimitive.content,
+            )
+            val provider =
+                result.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("openai-compatible", provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals("Missing", provider.getValue("authStatus").jsonPrimitive.content)
+            assertEquals(
+                "false",
+                provider
+                    .getValue("endpointSettings")
+                    .jsonObject
+                    .getValue("baseUrlValid")
+                    .jsonPrimitive.content,
+            )
+            val issueCodes =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue ->
+                        issue.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(issueCodes.contains("provider.auth.api_key_missing"))
+            assertTrue(issueCodes.contains("provider.endpoint.base_url_invalid"))
+            assertTrue(issueCodes.contains("provider.endpoint.model_id_blank"))
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider doctor"))
+            assertTrue(markdown.contains("provider.endpoint.base_url_invalid"))
+            assertFalse(markdown.contains("doctor-access-secret"))
+        }
+
+    @Test
+    fun `provider doctor reports expired oauth without token values`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "expired-access-secret",
+                    refreshToken = "expired-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-07T00:00:00Z").toEpochMilli(),
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCodex),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "openai-codex")
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("expired-access-secret"))
+            assertFalse(payloadText.contains("expired-refresh-secret"))
+            assertEquals(
+                "ERROR",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            val issueCodes =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue ->
+                        issue.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(issueCodes.contains("provider.auth.oauth_expired"))
+            assertTrue(issueCodes.contains("provider.auth.oauth_profile_missing"))
+            val provider =
+                result.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Configured", provider.getValue("authStatus").jsonPrimitive.content)
+            assertEquals("true", provider.getValue("oauthExpired").jsonPrimitive.content)
+        }
+
+    @Test
+    fun `provider doctor can inspect selected local provider and omit markdown`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.Fake),
+            )
+            val registry = buildRegistry(providerSecretStore = null)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.health"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "OK",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("inspectedProviderCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "0",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "fake",
+                result.payload
+                    .getValue("currentProviderId")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("secretStatusAvailable")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertTrue(
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .isEmpty(),
+            )
+        }
+
+    @Test
     fun `provider handoff returns compact auth and endpoint metadata without secrets`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()
