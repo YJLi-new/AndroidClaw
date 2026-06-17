@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Promoted event diagnostics into the `runtime.portability` /
+  `runtime.backup.plan` / `runtime.restore.plan` playbook as a first-class
+  portable component. The playbook now reports nine components, includes
+  `events.export` after memory export, includes `events.import` as the final
+  restore step, exposes event diagnostic format ids and restore metadata, and
+  records event-log counts plus markdown guidance while still omitting raw
+  event details by default. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `events.import` /
   `event.import` / `logs.import` / `diagnostics.import` plus restore aliases
   as the companion diagnostics portability feature for `events.export`. Agents

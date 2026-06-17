@@ -574,6 +574,7 @@ internal fun createBuiltInToolRegistry(
                                         sessionStats = sessionStats,
                                         taskStats = taskStats,
                                         memorySection = memorySection,
+                                        eventSection = eventSection,
                                         skillCount = skills.size,
                                         enabledSkillCount = skills.count { skill -> skill.enabled },
                                         toolCount = tools.size,
@@ -639,6 +640,7 @@ internal fun createBuiltInToolRegistry(
                                                 add(JsonPrimitive("Export runtime.portability or runtime.export first to record the app capability surface."))
                                                 add(JsonPrimitive("Export sessions before per-session transcripts so imported messages can target restored session shells."))
                                                 add(JsonPrimitive("Import providers and skills before automations that may depend on provider settings or skill dispatch."))
+                                                add(JsonPrimitive("Import event diagnostics last because they are troubleshooting context, not runtime prerequisites."))
                                                 add(JsonPrimitive("Component import tools require confirm=CONFIRM unless dryRun=true."))
                                                 add(JsonPrimitive("Credential values, OAuth tokens, provider metadata, and large content bodies are intentionally omitted by this playbook."))
                                             },
@@ -13466,7 +13468,7 @@ private const val RUNTIME_EXPORT_FORMAT = "androidclaw.runtime.export.v1"
 private const val RUNTIME_EXPORT_VERSION = 1
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
-private const val RUNTIME_PORTABILITY_COMPONENT_COUNT = 8
+private const val RUNTIME_PORTABILITY_COMPONENT_COUNT = 9
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
 private const val SESSION_DOCTOR_CHECK_MAX_LIMIT = 20
@@ -14168,6 +14170,7 @@ private fun runtimePortabilityExportOrderPayload(): JsonArray =
         add(runtimePortabilityStepPayload(step = 6, toolName = "messages.export", format = MESSAGE_EXPORT_FORMAT, scope = "Per-session transcripts"))
         add(runtimePortabilityStepPayload(step = 7, toolName = "tasks.export", format = TASK_EXPORT_FORMAT, scope = "Scheduled automations"))
         add(runtimePortabilityStepPayload(step = 8, toolName = "memory.export", format = "androidclaw.memory.export.v1", scope = "Local memory"))
+        add(runtimePortabilityStepPayload(step = 9, toolName = "events.export", format = EVENT_EXPORT_FORMAT, scope = "Event diagnostics"))
     }
 
 private fun runtimePortabilityRestoreOrderPayload(): JsonArray =
@@ -14178,6 +14181,7 @@ private fun runtimePortabilityRestoreOrderPayload(): JsonArray =
         add(runtimePortabilityStepPayload(step = 4, toolName = "messages.import", format = MESSAGE_IMPORT_FORMAT, scope = "Per-session transcripts"))
         add(runtimePortabilityStepPayload(step = 5, toolName = "tasks.import", format = TASK_IMPORT_FORMAT, scope = "Scheduled automations"))
         add(runtimePortabilityStepPayload(step = 6, toolName = "memory.import", format = "androidclaw.memory.import.v1", scope = "Local memory"))
+        add(runtimePortabilityStepPayload(step = 7, toolName = "events.import", format = EVENT_IMPORT_FORMAT, scope = "Event diagnostics"))
     }
 
 private fun runtimePortabilityStepPayload(
@@ -14291,6 +14295,18 @@ private fun runtimePortabilityComponentsPayload(): JsonArray =
                 notes = "Local memory can be portable, but owner ids, source message bodies, and provider metadata are omitted.",
             ),
         )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "events",
+                contract = "Tools",
+                exportTool = "events.export",
+                exportFormat = EVENT_EXPORT_FORMAT,
+                importTool = "events.import",
+                importFormat = EVENT_IMPORT_FORMAT,
+                restoreSupported = true,
+                notes = "Bounded event diagnostics are portable; details are omitted unless explicitly requested.",
+            ),
+        )
     }
 
 private fun runtimePortabilityComponentPayload(
@@ -14328,6 +14344,7 @@ private fun buildRuntimePortabilityMarkdown(
     sessionStats: SessionRepository.SessionStats,
     taskStats: TaskRepository.TaskStats,
     memorySection: JsonObject,
+    eventSection: JsonObject,
     skillCount: Int,
     enabledSkillCount: Int,
     toolCount: Int,
@@ -14354,6 +14371,10 @@ private fun buildRuntimePortabilityMarkdown(
                 "enabled=${memorySection.optionalText("enabled") ?: "unknown"} " +
                 "active=${memorySection.optionalText("activeMemoryCount") ?: "unknown"}",
         )
+        appendLine(
+            "- Event diagnostics: available=${eventSection.optionalText("available") ?: "unknown"} " +
+                "count=${eventSection.optionalText("eventCount") ?: "unknown"}",
+        )
         appendLine()
         appendLine("## Recommended export order")
         appendLine("1. `runtime.export` - capture host invariants and contract stats.")
@@ -14364,6 +14385,7 @@ private fun buildRuntimePortabilityMarkdown(
         appendLine("6. `messages.export` - capture per-session transcript windows when needed.")
         appendLine("7. `tasks.export` - capture scheduled automations after target sessions are known.")
         appendLine("8. `memory.export` - capture local memory last because it may reference sessions/messages.")
+        appendLine("9. `events.export` - capture bounded event diagnostics last for troubleshooting context.")
         appendLine()
         appendLine("## Recommended restore order")
         appendLine("1. `providers.import`")
@@ -14372,6 +14394,7 @@ private fun buildRuntimePortabilityMarkdown(
         appendLine("4. `messages.import`")
         appendLine("5. `tasks.import`")
         appendLine("6. `memory.import`")
+        appendLine("7. `events.import`")
     }
 
 private fun buildRuntimeExportMarkdown(

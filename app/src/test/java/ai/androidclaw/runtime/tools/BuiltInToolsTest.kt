@@ -11031,7 +11031,7 @@ class BuiltInToolsTest {
             assertTrue(result.summary, result.success)
             assertEquals("true", result.payload["backupSupported"]?.jsonPrimitive?.content)
             assertEquals("true", result.payload["restoreSupported"]?.jsonPrimitive?.content)
-            assertEquals("8", result.payload["componentCount"]?.jsonPrimitive?.content)
+            assertEquals("9", result.payload["componentCount"]?.jsonPrimitive?.content)
             assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
             assertEquals("false", result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
             assertEquals("false", result.payload["taskPromptBodiesIncluded"]?.jsonPrimitive?.content)
@@ -11042,6 +11042,13 @@ class BuiltInToolsTest {
             assertEquals("1", counts.getValue("taskCount").jsonPrimitive.content)
             assertEquals("1", counts.getValue("skillCount").jsonPrimitive.content)
             assertEquals("1", counts.getValue("activeMemoryCount").jsonPrimitive.content)
+            assertTrue(
+                counts
+                    .getValue("eventCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() >= 1,
+            )
             val exportOrder =
                 result.payload
                     .getValue("recommendedExportOrder")
@@ -11055,6 +11062,7 @@ class BuiltInToolsTest {
             assertEquals("runtime.export", exportOrder.first())
             assertTrue(exportOrder.indexOf("sessions.export") < exportOrder.indexOf("messages.export"))
             assertTrue(exportOrder.indexOf("tasks.export") < exportOrder.indexOf("memory.export"))
+            assertTrue(exportOrder.indexOf("memory.export") < exportOrder.indexOf("events.export"))
             val restoreOrder =
                 result.payload
                     .getValue("recommendedRestoreOrder")
@@ -11068,6 +11076,7 @@ class BuiltInToolsTest {
             assertEquals("providers.import", restoreOrder.first())
             assertTrue(restoreOrder.indexOf("sessions.import") < restoreOrder.indexOf("messages.import"))
             assertTrue(restoreOrder.indexOf("messages.import") < restoreOrder.indexOf("tasks.import"))
+            assertTrue(restoreOrder.indexOf("memory.import") < restoreOrder.indexOf("events.import"))
             val components =
                 result.payload
                     .getValue("components")
@@ -11081,6 +11090,11 @@ class BuiltInToolsTest {
             assertEquals("tools.export", toolsComponent.getValue("exportTool").jsonPrimitive.content)
             assertEquals(JsonNull, toolsComponent.getValue("importTool"))
             assertEquals("false", toolsComponent.getValue("restoreSupported").jsonPrimitive.content)
+            val eventsComponent = components.single { component -> component.getValue("key").jsonPrimitive.content == "events" }
+            assertEquals("androidclaw.events.export.v1", eventsComponent.getValue("exportFormat").jsonPrimitive.content)
+            assertEquals("events.import", eventsComponent.getValue("importTool").jsonPrimitive.content)
+            assertEquals("androidclaw.events.import.v1", eventsComponent.getValue("importFormat").jsonPrimitive.content)
+            assertEquals("true", eventsComponent.getValue("restoreSupported").jsonPrimitive.content)
             val payloadText = result.payload.toString()
             assertFalse(payloadText.contains(ownerUserId))
             assertFalse(payloadText.contains("Portability task prompt should not appear."))
@@ -11094,6 +11108,8 @@ class BuiltInToolsTest {
             assertTrue(markdown.contains("# AndroidClaw portability playbook"))
             assertTrue(markdown.contains("runtime.export"))
             assertTrue(markdown.contains("providers.import"))
+            assertTrue(markdown.contains("events.export"))
+            assertTrue(markdown.contains("events.import"))
             assertFalse(markdown.contains("Portability task prompt should not appear."))
         }
 
@@ -11115,7 +11131,7 @@ class BuiltInToolsTest {
             assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
             assertEquals("false", result.payload["componentPayloadsIncluded"]?.jsonPrimitive?.content)
             assertEquals(JsonNull, result.payload.getValue("portabilityMarkdown"))
-            assertEquals("8", result.payload["componentCount"]?.jsonPrimitive?.content)
+            assertEquals("9", result.payload["componentCount"]?.jsonPrimitive?.content)
         }
 
     @Test
