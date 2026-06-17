@@ -5905,6 +5905,99 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.command.example",
+                                    aliases =
+                                        listOf(
+                                            "skill.command.example",
+                                            "skills.slash.example",
+                                            "skill.slash.example",
+                                            "skills.command.sample",
+                                            "skill.command.sample",
+                                        ),
+                                    description = "Return a safe slash-command invocation example without executing the command.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "commandName",
+                                                required = false,
+                                                description = "Command name, slash command, skill id, skill key, or display name.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = false,
+                                                description = "Alternative exact skill id/key/display name.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit exampleMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.optionalText("commandName")
+                                    ?: arguments.optionalText("command")
+                                    ?: arguments.optionalText("skillId")
+                                    ?: arguments.optionalText("id")
+                                    ?: arguments.optionalText("name")
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.command.example",
+                                        summary = "skills.command.example requires a non-empty commandName or skillId.",
+                                        field = "commandName",
+                                    )
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val skills = bundledSkillsProvider()
+                            val commandSkills = skills.filter { skill -> skill.frontmatter != null }
+                            val normalizedIdentifier = identifier.removePrefix("/").trim()
+                            val matches =
+                                commandSkills.filter { skill ->
+                                    val frontmatter = requireNotNull(skill.frontmatter)
+                                    frontmatter.name.equals(normalizedIdentifier, ignoreCase = true) ||
+                                        skill.id.equals(normalizedIdentifier, ignoreCase = true) ||
+                                        skill.skillKey.equals(normalizedIdentifier, ignoreCase = true) ||
+                                        skill.displayName.equals(normalizedIdentifier, ignoreCase = true)
+                                }
+                            val selectedSkill =
+                                matches
+                                    .sortedWith(
+                                        compareByDescending<SkillSnapshot> { skill -> skill.isSkillCommandInvocable() }
+                                            .thenBy { skill -> skill.displayName },
+                                    ).firstOrNull()
+                                    ?: return@Entry skillNotFoundResult(
+                                        toolName = "skills.command.example",
+                                        skillId = identifier,
+                                    )
+                            val frontmatter = requireNotNull(selectedSkill.frontmatter)
+                            val commandNameCounts =
+                                commandSkills
+                                    .mapNotNull { skill -> skill.frontmatter?.name }
+                                    .groupingBy { commandName -> commandName }
+                                    .eachCount()
+                            val duplicateCommandCount = commandNameCounts[frontmatter.name] ?: 1
+                            val exampleMarkdown =
+                                if (includeMarkdown) {
+                                    selectedSkill.toSkillCommandExampleMarkdown(
+                                        duplicateCommandCount = duplicateCommandCount,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary = "Prepared slash-command example for /${frontmatter.name} without executing it.",
+                                payload =
+                                    selectedSkill.toSkillCommandExamplePayload(
+                                        requestedCommand = identifier,
+                                        duplicateCommandCount = duplicateCommandCount,
+                                        includeMarkdown = includeMarkdown,
+                                        exampleMarkdown = exampleMarkdown,
+                                    ),
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.doctor",
                                     aliases =
                                         listOf(
@@ -18076,6 +18169,93 @@ private fun SkillSnapshot.toSkillCommandMarkdownLine(duplicateCommandCount: Int)
         }
     }
 }
+
+private fun SkillSnapshot.toSkillCommandExamplePayload(
+    requestedCommand: String,
+    duplicateCommandCount: Int,
+    includeMarkdown: Boolean,
+    exampleMarkdown: String?,
+): JsonObject {
+    val frontmatter = requireNotNull(frontmatter)
+    return buildJsonObject {
+        put("requestedCommand", requestedCommand)
+        put("commandName", frontmatter.name)
+        put("slashCommand", "/${frontmatter.name}")
+        put("exampleInvocation", frontmatter.toSkillCommandExampleInvocation())
+        put("exampleArgument", frontmatter.toSkillCommandExampleArgument())
+        put("exampleOnly", true)
+        put("executesCommand", false)
+        put("includeMarkdown", includeMarkdown)
+        put("skillId", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("workspaceSessionId", workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("resolutionState", resolutionState.name)
+        put("eligibilityStatus", eligibility.status.name)
+        put("userInvocable", frontmatter.userInvocable)
+        put("invocable", isSkillCommandInvocable())
+        put("modelReady", isSkillCommandModelReady())
+        put("commandDispatch", frontmatter.commandDispatch.name)
+        put("commandTool", frontmatter.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandArgMode", frontmatter.commandArgMode)
+        put("toolDispatchReady", frontmatter.commandDispatch == SkillCommandDispatch.Tool && !frontmatter.commandTool.isNullOrBlank())
+        put("suggestedToolExample", "tools.example")
+        put("suggestedToolName", frontmatter.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("duplicateCommandCount", duplicateCommandCount)
+        put("description", frontmatter.description)
+        put("instructionsOmitted", true)
+        put("secretValuesIncluded", false)
+        put("secretValuesOmitted", true)
+        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun SkillSnapshot.toSkillCommandExampleMarkdown(duplicateCommandCount: Int): String {
+    val frontmatter = requireNotNull(frontmatter)
+    return buildString {
+        appendLine("# Skill command example")
+        appendLine()
+        appendLine("- Command: `/${frontmatter.name.toHandoffLine()}`")
+        appendLine("- Skill: `${displayName.toHandoffLine()}`")
+        appendLine("- Dispatch: ${frontmatter.commandDispatch.name}")
+        appendLine("- Argument mode: ${frontmatter.commandArgMode.toHandoffLine()}")
+        appendLine("- Invocable now: ${isSkillCommandInvocable()}")
+        appendLine("- Example only: true")
+        appendLine("- Executes command: false")
+        appendLine("- SKILL.md instructions omitted: true")
+        appendLine("- Secret values included: false")
+        if (duplicateCommandCount > 1) {
+            appendLine("- Duplicate command count: $duplicateCommandCount")
+        }
+        frontmatter.commandTool?.let { toolName ->
+            appendLine("- Tool-dispatch target: `$toolName`")
+            appendLine("- Suggested next step: `tools.example` for `$toolName`")
+        }
+        appendLine()
+        appendLine("```text")
+        appendLine(frontmatter.toSkillCommandExampleInvocation())
+        appendLine("```")
+    }
+}
+
+private fun SkillFrontmatter.toSkillCommandExampleInvocation(): String {
+    val argument = toSkillCommandExampleArgument()
+    return if (argument.isBlank()) {
+        "/$name"
+    } else {
+        "/$name $argument"
+    }
+}
+
+private fun SkillFrontmatter.toSkillCommandExampleArgument(): String =
+    when (commandArgMode.trim().lowercase()) {
+        "none", "empty", "no_args", "no-args" -> ""
+        "json" -> "{\"input\":\"Example request\"}"
+        "tool", "object" -> "{\"query\":\"Example request\"}"
+        else -> "Example request"
+    }
 
 private fun SkillSnapshot.toSkillDoctorIssues(): List<SkillDoctorIssue> =
     buildList {

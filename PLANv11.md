@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.command.example` /
+  `skill.command.example` / `skills.slash.example` / `skill.slash.example`
+  plus command-sample aliases as a Skill Contract usability feature. Agents can
+  now request a safe slash-command invocation skeleton by command name, slash
+  command, skill id, skill key, or display name, see model/tool dispatch
+  readiness, duplicate command counts, tool-dispatch targets with a suggested
+  `tools.example` follow-up, optional markdown, and explicit example-only /
+  executes-command=false / instruction-body and secret omission flags without
+  invoking the skill command. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `tools.example` /
   `tool.example` / `tools.invoke.example` / `tool.invoke.example` plus sample
   aliases as a Tool Contract usability feature. Agents can now ask for a safe

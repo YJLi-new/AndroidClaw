@@ -9418,6 +9418,103 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills command example returns safe model slash invocation without instructions`() =
+        runTest {
+            val hiddenInstructions = "COMMAND EXAMPLE INSTRUCTIONS MUST STAY OMITTED"
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "summarize",
+                                name = "summarize",
+                                commandArgMode = "json",
+                            ).copy(instructionsMd = hiddenInstructions),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.slash.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("commandName", "/summarize")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("/summarize", result.payload["requestedCommand"]?.jsonPrimitive?.content)
+            assertEquals("summarize", result.payload["commandName"]?.jsonPrimitive?.content)
+            assertEquals("/summarize", result.payload["slashCommand"]?.jsonPrimitive?.content)
+            assertEquals("{\"input\":\"Example request\"}", result.payload["exampleArgument"]?.jsonPrimitive?.content)
+            assertEquals("/summarize {\"input\":\"Example request\"}", result.payload["exampleInvocation"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["executesCommand"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["modelReady"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["invocable"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["instructionsOmitted"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains(hiddenInstructions))
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skill command example"))
+            assertTrue(markdown.contains("/summarize"))
+            assertFalse(markdown.contains(hiddenInstructions))
+        }
+
+    @Test
+    fun `skills command example reports tool dispatch target duplicate count and missing commands`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "notify-tool",
+                                name = "notify",
+                                commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                                commandTool = "notifications.post",
+                            ),
+                            skillSnapshot(id = "notify-model", name = "notify"),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.command.sample"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "notify-tool")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.command.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("commandName", "missing-command")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("notify-tool", result.payload["requestedCommand"]?.jsonPrimitive?.content)
+            assertEquals("notify", result.payload["commandName"]?.jsonPrimitive?.content)
+            assertEquals("Tool", result.payload["commandDispatch"]?.jsonPrimitive?.content)
+            assertEquals("notifications.post", result.payload["commandTool"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["toolDispatchReady"]?.jsonPrimitive?.content)
+            assertEquals("tools.example", result.payload["suggestedToolExample"]?.jsonPrimitive?.content)
+            assertEquals("notifications.post", result.payload["suggestedToolName"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["duplicateCommandCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exampleMarkdown"))
+            assertFalse(missing.success)
+            assertEquals("SKILL_NOT_FOUND", missing.errorCode)
+        }
+
+    @Test
     fun `skills handoff returns bounded inventory metadata without instructions`() =
         runTest {
             val hiddenInstructions = "FULL SKILL BODY SHOULD NOT APPEAR IN HANDOFF"
@@ -14460,6 +14557,7 @@ private fun skillSnapshot(
     enabled: Boolean = true,
     commandDispatch: ai.androidclaw.runtime.skills.SkillCommandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Model,
     commandTool: String? = null,
+    commandArgMode: String = "raw",
     eligibility: ai.androidclaw.runtime.skills.SkillEligibility =
         ai.androidclaw.runtime.skills.SkillEligibility(
             ai.androidclaw.runtime.skills.SkillEligibilityStatus.Eligible,
@@ -14480,7 +14578,7 @@ private fun skillSnapshot(
                 disableModelInvocation = false,
                 commandDispatch = commandDispatch,
                 commandTool = commandTool,
-                commandArgMode = "raw",
+                commandArgMode = commandArgMode,
                 metadata = null,
                 unknownFields = emptyMap(),
             ),
