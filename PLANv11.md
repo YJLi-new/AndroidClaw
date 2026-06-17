@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.export` /
+  `skill.export` / `skills.backup` / `skill.backup` plus package-export
+  aliases as a Skill Contract portability feature. Agents can now export
+  bounded non-secret skill definitions with stable export format/version,
+  optional single-skill focus, optional disabled-skill filtering, bounded
+  SKILL.md instruction bodies, optional non-secret config values, optional
+  markdown, and explicit secret-value/base-dir/raw-frontmatter omission flags.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `providers.import` /
   `provider.import` / `providers.restore` / `provider.restore` plus settings
   import aliases as the companion Provider/OAuth portability feature for

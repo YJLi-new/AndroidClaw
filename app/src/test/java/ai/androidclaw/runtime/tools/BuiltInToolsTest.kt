@@ -9138,6 +9138,174 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills export includes instructions and non secret config values without secrets`() =
+        runTest {
+            val configSkill =
+                skillSnapshot(
+                    id = "configurable",
+                    name = "configurable",
+                    commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                    commandTool = "tools.echo",
+                ).copy(
+                    instructionsMd = "Use this exported skill body.",
+                    secretStatuses = mapOf("API_TOKEN" to true),
+                    configStatuses = mapOf("endpoint" to true),
+                )
+            var inspectedSkillId: String? = null
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(configSkill),
+                    skillConfigurationReader = { skill ->
+                        inspectedSkillId = skill.id
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                            secretFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillSecretField(
+                                        envName = "API_TOKEN",
+                                        configured = true,
+                                    ),
+                                ),
+                            configFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillConfigField(
+                                        path = "endpoint",
+                                        value = "https://skills-export.example",
+                                    ),
+                                ),
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.backup"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "configurable")
+                            put("includeConfigValues", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("configurable", inspectedSkillId)
+            assertEquals("androidclaw.skills.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["candidateSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeInstructions"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeConfigValues"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["baseDirIncluded"]?.jsonPrimitive?.content)
+            val exportedSkill =
+                result.payload
+                    .getValue("skills")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("configurable", exportedSkill.getValue("id").jsonPrimitive.content)
+            assertEquals("Use this exported skill body.", exportedSkill.getValue("instructionsMd").jsonPrimitive.content)
+            assertEquals(true.toString(), exportedSkill.getValue("instructionsIncluded").jsonPrimitive.content)
+            assertEquals(false.toString(), exportedSkill.getValue("secretValuesIncluded").jsonPrimitive.content)
+            assertEquals(JsonNull, exportedSkill.getValue("baseDir"))
+            val frontmatter = exportedSkill.getValue("frontmatter").jsonObject
+            assertEquals("configurable", frontmatter.getValue("name").jsonPrimitive.content)
+            assertEquals("Tool", frontmatter.getValue("commandDispatch").jsonPrimitive.content)
+            val configuration = exportedSkill.getValue("configuration").jsonObject
+            val secretField =
+                configuration
+                    .getValue("secretFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("API_TOKEN", secretField.getValue("envName").jsonPrimitive.content)
+            assertFalse(secretField.containsKey("value"))
+            val configField =
+                configuration
+                    .getValue("configFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("endpoint", configField.getValue("path").jsonPrimitive.content)
+            assertEquals("https://skills-export.example", configField.getValue("value").jsonPrimitive.content)
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skills export"))
+            assertTrue(markdown.contains("configurable"))
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("asset://skills"))
+            assertFalse(payloadText.contains("secret-value"))
+        }
+
+    @Test
+    fun `skills export can omit disabled skills instructions config values and markdown`() =
+        runTest {
+            var configurationReadCount = 0
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "ready", name = "ready").copy(
+                                instructionsMd = "READY BODY SHOULD NOT APPEAR",
+                            ),
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false).copy(
+                                instructionsMd = "DISABLED BODY SHOULD NOT APPEAR",
+                            ),
+                        ),
+                    skillConfigurationReader = { skill ->
+                        configurationReadCount += 1
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", false)
+                            put("includeInstructions", false)
+                            put("includeConfigValues", false)
+                            put("includeMarkdown", false)
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(0, configurationReadCount)
+            assertEquals("2", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["candidateSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeInstructions"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeConfigValues"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+            val exportedSkill =
+                result.payload
+                    .getValue("skills")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("ready", exportedSkill.getValue("id").jsonPrimitive.content)
+            assertEquals(JsonNull, exportedSkill.getValue("instructionsMd"))
+            assertEquals(JsonNull, exportedSkill.getValue("configuration"))
+            assertEquals(false.toString(), exportedSkill.getValue("configValuesIncluded").jsonPrimitive.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("READY BODY SHOULD NOT APPEAR"))
+            assertFalse(payloadText.contains("DISABLED BODY SHOULD NOT APPEAR"))
+        }
+
+    @Test
     fun `skills doctor reports actionable issues without instructions`() =
         runTest {
             val hiddenInstructions = "FULL SECRET BODY SHOULD NOT APPEAR IN DOCTOR"

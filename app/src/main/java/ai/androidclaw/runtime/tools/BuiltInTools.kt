@@ -5208,6 +5208,150 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.export",
+                                    aliases =
+                                        listOf(
+                                            "skill.export",
+                                            "skills.backup",
+                                            "skill.backup",
+                                            "skills.package.export",
+                                            "skill.package.export",
+                                        ),
+                                    description = "Export bounded non-secret skill definitions and optional config values.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = false,
+                                                description = "Optional skill id, key, or display name to include only one skill.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum skill entries to include. Defaults to 20, max 50.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeDisabled",
+                                                description = "Set false to omit disabled skills. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeInstructions",
+                                                description = "Set false to omit bounded SKILL.md instruction bodies. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeConfigValues",
+                                                description = "Set true to include non-secret skill config values. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier = arguments.skillIdentifier()
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_EXPORT_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_EXPORT_MAX_LIMIT)
+                            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+                            val includeInstructions = arguments.optionalBoolean("includeInstructions", defaultValue = true)
+                            val includeConfigValues = arguments.optionalBoolean("includeConfigValues", defaultValue = false)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val skills = bundledSkillsProvider()
+                            val selectedSkills =
+                                if (identifier == null) {
+                                    skills
+                                } else {
+                                    listOf(
+                                        skills.findByIdentifier(identifier)
+                                            ?: return@Entry skillNotFoundResult(
+                                                toolName = "skills.export",
+                                                skillId = identifier,
+                                            ),
+                                    )
+                                }
+                            val candidates =
+                                if (includeDisabled) {
+                                    selectedSkills
+                                } else {
+                                    selectedSkills.filter { skill -> skill.enabled }
+                                }
+                            val includedSkills = candidates.take(limit)
+                            val configurations =
+                                if (includeConfigValues) {
+                                    includedSkills.associate { skill ->
+                                        skill.id to skillConfigurationReader(skill)
+                                    }
+                                } else {
+                                    emptyMap()
+                                }
+                            val exportMarkdown =
+                                if (includeMarkdown) {
+                                    includedSkills.toSkillExportMarkdown(
+                                        totalSkillCount = skills.size,
+                                        candidateSkillCount = candidates.size,
+                                        limit = limit,
+                                        includeDisabled = includeDisabled,
+                                        includeInstructions = includeInstructions,
+                                        includeConfigValues = includeConfigValues,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (identifier == null) {
+                                        "Prepared skill export with ${includedSkills.size} of ${candidates.size} candidate skill(s)."
+                                    } else {
+                                        "Prepared skill export for ${includedSkills.size} matching skill(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("exportFormat", SKILL_EXPORT_FORMAT)
+                                        put("exportVersion", SKILL_EXPORT_VERSION)
+                                        put("generatedAtIso", clock.instant().toString())
+                                        put("skillCount", skills.size)
+                                        put("candidateSkillCount", candidates.size)
+                                        put("includedSkillCount", includedSkills.size)
+                                        put("omittedSkillCount", (candidates.size - includedSkills.size).coerceAtLeast(0))
+                                        put("requestedSkillId", identifier?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("limit", limit)
+                                        put("includeDisabled", includeDisabled)
+                                        put("includeInstructions", includeInstructions)
+                                        put("includeConfigValues", includeConfigValues)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("instructionsMaxChars", SKILL_EXPORT_INSTRUCTIONS_MAX_CHARS)
+                                        put("secretValuesIncluded", false)
+                                        put("secretValuesOmitted", true)
+                                        put("secretStatusesIncluded", true)
+                                        put("configValuesIncluded", includeConfigValues)
+                                        put("baseDirIncluded", false)
+                                        put("rawFrontmatterIncluded", false)
+                                        put("stats", skills.toSkillStatsPayload())
+                                        put(
+                                            "skills",
+                                            buildJsonArray {
+                                                includedSkills.forEach { skill ->
+                                                    add(
+                                                        skill.toSkillExportPayload(
+                                                            includeInstructions = includeInstructions,
+                                                            configuration = configurations[skill.id],
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.get",
                                     aliases = listOf("skill.get"),
                                     description = "Return detailed metadata and instructions for one bundled skill.",
@@ -11778,6 +11922,11 @@ private const val SKILL_DOCTOR_DEFAULT_LIMIT = 20
 private const val SKILL_DOCTOR_MAX_LIMIT = 50
 private const val SKILL_DOCTOR_FIELD_LIST_LIMIT = 10
 private const val SKILL_DOCTOR_TEXT_MAX_CHARS = 500
+private const val SKILL_EXPORT_FORMAT = "androidclaw.skills.export.v1"
+private const val SKILL_EXPORT_VERSION = 1
+private const val SKILL_EXPORT_DEFAULT_LIMIT = 20
+private const val SKILL_EXPORT_MAX_LIMIT = 50
+private const val SKILL_EXPORT_INSTRUCTIONS_MAX_CHARS = 20_000
 private const val SKILL_HANDOFF_DEFAULT_LIMIT = 8
 private const val SKILL_HANDOFF_MAX_LIMIT = 20
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
@@ -14576,6 +14725,177 @@ private fun SkillSnapshot.toSkillHandoffMarkdownLine(): String =
             append(" - ")
             append(description.toHandoffLine())
         }
+        parseError?.let { error ->
+            append(" parseError=")
+            append(error.toHandoffLine())
+        }
+    }
+
+private fun SkillSnapshot.toSkillExportPayload(
+    includeInstructions: Boolean,
+    configuration: SkillConfigurationSnapshot?,
+): JsonObject {
+    val instructionsSnippet =
+        if (instructionsMd.length <= SKILL_EXPORT_INSTRUCTIONS_MAX_CHARS) {
+            instructionsMd
+        } else {
+            instructionsMd.take(SKILL_EXPORT_INSTRUCTIONS_MAX_CHARS)
+        }
+    return buildJsonObject {
+        put("id", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("workspaceSessionId", workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("resolutionState", resolutionState.name)
+        put("shadowedBy", shadowedBy?.let(::JsonPrimitive) ?: JsonNull)
+        put("eligibilityStatus", eligibility.status.name)
+        put(
+            "eligibilityReasons",
+            buildJsonArray {
+                eligibility.reasons.forEach { reason -> add(JsonPrimitive(reason)) }
+            },
+        )
+        put("parseError", parseError?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "frontmatter",
+            frontmatter?.let { metadata ->
+                buildJsonObject {
+                    put("name", metadata.name)
+                    put("description", metadata.description)
+                    put("homepage", metadata.homepage?.let(::JsonPrimitive) ?: JsonNull)
+                    put("userInvocable", metadata.userInvocable)
+                    put("disableModelInvocation", metadata.disableModelInvocation)
+                    put("commandDispatch", metadata.commandDispatch.name)
+                    put("commandTool", metadata.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+                    put("commandArgMode", metadata.commandArgMode)
+                    put("metadata", metadata.metadata ?: JsonNull)
+                    put(
+                        "unknownFields",
+                        buildJsonObject {
+                            metadata.unknownFields.forEach { (field, value) ->
+                                put(field, value)
+                            }
+                        },
+                    )
+                }
+            } ?: JsonNull,
+        )
+        put(
+            "secretStatuses",
+            buildJsonArray {
+                secretStatuses.forEach { (envName, configured) ->
+                    add(
+                        buildJsonObject {
+                            put("envName", envName)
+                            put("configured", configured)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "configStatuses",
+            buildJsonArray {
+                configStatuses.forEach { (path, configured) ->
+                    add(
+                        buildJsonObject {
+                            put("path", path)
+                            put("configured", configured)
+                        },
+                    )
+                }
+            },
+        )
+        put("configuration", configuration?.toSkillConfigurationPayload() ?: JsonNull)
+        put("configValuesIncluded", configuration != null)
+        put("secretValuesIncluded", false)
+        put("secretValuesOmitted", true)
+        put("baseDirIncluded", false)
+        put("baseDir", JsonNull)
+        put("rawFrontmatterIncluded", false)
+        put("rawFrontmatter", JsonNull)
+        put("instructionsIncluded", includeInstructions)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsTruncated", includeInstructions && instructionsSnippet.length < instructionsMd.length)
+        put("instructionsMd", if (includeInstructions) JsonPrimitive(instructionsSnippet) else JsonNull)
+    }
+}
+
+private fun List<SkillSnapshot>.toSkillExportMarkdown(
+    totalSkillCount: Int,
+    candidateSkillCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+    includeInstructions: Boolean,
+    includeConfigValues: Boolean,
+): String {
+    val includedSkills = this
+    return buildString {
+        appendLine("# Skills export")
+        appendLine()
+        appendLine("- Skills in inventory: $totalSkillCount")
+        appendLine("- Candidate skills after filters: $candidateSkillCount")
+        appendLine("- Skills included: ${includedSkills.size} of up to $limit")
+        appendLine("- Disabled skills included: $includeDisabled")
+        appendLine("- SKILL.md instruction bodies included: $includeInstructions")
+        appendLine("- Non-secret config values included: $includeConfigValues")
+        appendLine("- Secret values included: false")
+        appendLine("- Base directories included: false")
+        appendLine()
+        appendLine("## Exported skills")
+        if (includedSkills.isEmpty()) {
+            appendLine("_No skills included._")
+        } else {
+            includedSkills.forEach { skill ->
+                appendLine(
+                    skill.toSkillExportMarkdownLine(
+                        includeInstructions = includeInstructions,
+                        includeConfigValues = includeConfigValues,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+private fun SkillSnapshot.toSkillExportMarkdownLine(
+    includeInstructions: Boolean,
+    includeConfigValues: Boolean,
+): String =
+    buildString {
+        append("- `")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(id.toHandoffLine())
+        append("` key=`")
+        append(skillKey.toHandoffLine())
+        append("` enabled=")
+        append(enabled)
+        append(" source=")
+        append(sourceType.name)
+        append(" eligibility=")
+        append(eligibility.status.name)
+        append(" resolution=")
+        append(resolutionState.name)
+        append(" instructionsIncluded=")
+        append(includeInstructions)
+        append(" configValuesIncluded=")
+        append(includeConfigValues)
+        frontmatter?.commandDispatch?.let { dispatch ->
+            append(" dispatch=")
+            append(dispatch.name)
+        }
+        frontmatter?.commandTool?.let { toolName ->
+            append(" tool=`")
+            append(toolName.toHandoffLine())
+            append("`")
+        }
+        append(" secretFields=")
+        append(secretStatuses.size)
+        append(" configFields=")
+        append(configStatuses.size)
         parseError?.let { error ->
             append(" parseError=")
             append(error.toHandoffLine())
