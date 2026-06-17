@@ -11782,6 +11782,198 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events import dry run previews importable diagnostics without writing details`() =
+        runTest {
+            val registry = buildRegistry()
+            val export =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.events.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "events",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("id", "source-event-1")
+                                    put("timestampIso", "2026-03-07T10:00:00Z")
+                                    put("category", "Provider")
+                                    put("level", "Error")
+                                    put("message", "Imported provider offline")
+                                    put("details", "{\"secret\":\"network-timeout\"}")
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("id", "source-event-2")
+                                    put("timestampIso", "2026-03-07T10:01:00Z")
+                                    put("category", "Tool")
+                                    put("level", "Warn")
+                                    put("message", "Imported tool warning")
+                                    put("details", "{\"secret\":\"tool-warning\"}")
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("id", "source-event-invalid")
+                                    put("category", "Skill")
+                                    put("level", "Warn")
+                                },
+                            )
+                        },
+                    )
+                }
+
+            val missingConfirmation =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", export)
+                        },
+                )
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", export)
+                            put("dryRun", true)
+                            put("importDetails", false)
+                            put("includeDetails", false)
+                        },
+                )
+
+            assertFalse(missingConfirmation.success)
+            assertEquals("MISSING_EVENT_IMPORT_CONFIRMATION", missingConfirmation.errorCode)
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.events.import.v1", result.payload["importFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importVersion"]?.jsonPrimitive?.content)
+            assertEquals("androidclaw.events.export.v1", result.payload["acceptedExportFormat"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["importDetails"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["detailsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["receivedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["scannedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importableEventCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["skippedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["invalidEventCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["detailsImportableCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["detailsImportedCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["sourceEventIdsPreserved"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["sourceTimestampsPreserved"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains("network-timeout"))
+            assertFalse(result.payload.toString().contains("tool-warning"))
+            val importableEvents =
+                result.payload
+                    .getValue("importableEvents")
+                    .jsonArray
+                    .map { entry -> entry.jsonObject }
+            assertEquals(
+                listOf("source-event-1", "source-event-2"),
+                importableEvents.map { entry ->
+                    entry.getValue("sourceEventId").jsonPrimitive.content
+                },
+            )
+            assertEquals(JsonNull, importableEvents.first().getValue("details"))
+            val skipped =
+                result.payload
+                    .getValue("skippedEvents")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("2", skipped.getValue("sourceIndex").jsonPrimitive.content)
+            assertEquals("events.import.invalid_missing_message", skipped.getValue("code").jsonPrimitive.content)
+            val recentMessages =
+                eventLogRepository
+                    .observeRecent(limit = 20)
+                    .first()
+                    .map { event -> event.message }
+            assertFalse(recentMessages.contains("Imported provider offline"))
+            assertFalse(recentMessages.contains("Imported tool warning"))
+        }
+
+    @Test
+    fun `events import confirmed writes new local diagnostics and imports details only when requested`() =
+        runTest {
+            val registry = buildRegistry()
+            val sourceEvents =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("id", "source-event-error")
+                            put("timestampIso", "2026-03-07T11:00:00Z")
+                            put("category", "Provider")
+                            put("level", "Error")
+                            put("message", "Restored provider offline")
+                            put("details", "{\"diagnostic\":\"network timeout\"}")
+                        },
+                    )
+                    add(
+                        buildJsonObject {
+                            put("id", "source-event-warn")
+                            put("timestampIso", "2026-03-07T11:01:00Z")
+                            put("category", "Tool")
+                            put("level", "Warn")
+                            put("message", "Restored tool warning")
+                        },
+                    )
+                }
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "diagnostics.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("events", sourceEvents)
+                            put("confirm", "CONFIRM")
+                            put("importDetails", true)
+                            put("includeDetails", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("false", result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["importDetails"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["detailsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importableEventCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["skippedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["detailsImportedCount"]?.jsonPrimitive?.content)
+            val importedEvents =
+                result.payload
+                    .getValue("importedEvents")
+                    .jsonArray
+                    .map { entry -> entry.jsonObject }
+            val providerImport = importedEvents.first()
+            assertEquals("source-event-error", providerImport.getValue("sourceEventId").jsonPrimitive.content)
+            assertEquals("Provider", providerImport.getValue("category").jsonPrimitive.content)
+            assertEquals("Error", providerImport.getValue("level").jsonPrimitive.content)
+            assertEquals("Restored provider offline", providerImport.getValue("message").jsonPrimitive.content)
+            assertEquals(
+                "{\"diagnostic\":\"network timeout\"}",
+                providerImport.getValue("details").jsonPrimitive.content,
+            )
+            assertTrue(
+                providerImport.getValue("newEventId").jsonPrimitive.content !=
+                    providerImport.getValue("sourceEventId").jsonPrimitive.content,
+            )
+            assertEquals("false", providerImport.getValue("sourceEventIdPreserved").jsonPrimitive.content)
+            assertEquals("false", providerImport.getValue("sourceTimestampPreserved").jsonPrimitive.content)
+            assertEquals("true", providerImport.getValue("detailsImported").jsonPrimitive.content)
+            val restoredMessages =
+                eventLogRepository
+                    .observeRecent(limit = 20)
+                    .first()
+                    .filter { event ->
+                        event.message == "Restored provider offline" ||
+                            event.message == "Restored tool warning"
+                    }
+            assertEquals(2, restoredMessages.size)
+            assertTrue(restoredMessages.any { event -> event.details?.contains("network timeout") == true })
+        }
+
+    @Test
     fun `events handoff returns bounded recent diagnostics without raw details`() =
         runTest {
             val registry = buildRegistry()

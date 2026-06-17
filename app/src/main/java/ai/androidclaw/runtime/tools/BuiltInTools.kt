@@ -9297,6 +9297,169 @@ private fun eventToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "events.import",
+                    aliases =
+                        listOf(
+                            "event.import",
+                            "logs.import",
+                            "log.import",
+                            "diagnostics.import",
+                            "events.restore",
+                            "logs.restore",
+                        ),
+                    description = "Import bounded event diagnostics exported by events.export.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "events",
+                                description = "Array of exported event objects, or pass export.events.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "export",
+                                description = "Optional events.export payload containing an events array.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum events to scan. Defaults to 50, max 100.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "importDetails",
+                                description = "Set true to import bounded event details. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDetails",
+                                description = "Set true to include imported details in result payload. Defaults to importDetails.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "dryRun",
+                                description = "Set true to preview importable events without writing. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM unless dryRun=true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val dryRun = arguments.optionalBoolean("dryRun", defaultValue = false)
+            if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry missingEventImportConfirmationResult()
+            }
+            val rawEntries =
+                when (val parsedEntries = arguments.eventImportEntries()) {
+                    is EventImportEntriesParseResult.Failure -> return@Entry parsedEntries.result
+                    is EventImportEntriesParseResult.Success -> parsedEntries.entries
+                }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = EVENT_IMPORT_DEFAULT_LIMIT,
+                    ).coerceIn(0, EVENT_IMPORT_MAX_LIMIT)
+            val importDetails = arguments.optionalBoolean("importDetails", defaultValue = false)
+            val includeDetails = arguments.optionalBoolean("includeDetails", defaultValue = importDetails)
+            val scannedEntries = rawEntries.take(limit)
+            val candidates = mutableListOf<EventImportCandidate>()
+            val skipped = mutableListOf<EventImportSkippedEntry>()
+            scannedEntries.forEachIndexed { sourceIndex, element ->
+                when (val parsedCandidate = element.toEventImportCandidate(sourceIndex = sourceIndex)) {
+                    is EventImportCandidateParseResult.Candidate -> candidates += parsedCandidate.candidate
+                    is EventImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+                }
+            }
+            val importedEvents =
+                if (dryRun) {
+                    emptyList()
+                } else {
+                    candidates.map { candidate ->
+                        EventImportedItem(
+                            candidate = candidate,
+                            event =
+                                eventLogRepository.log(
+                                    category = candidate.category,
+                                    level = candidate.level,
+                                    message = candidate.message,
+                                    details = candidate.details.takeIf { importDetails },
+                                ),
+                            detailsImported = importDetails && !candidate.details.isNullOrBlank(),
+                        )
+                    }
+                }
+            val eventCountAfter = eventLogRepository.count()
+            ToolExecutionResult.success(
+                summary =
+                    if (dryRun) {
+                        "Prepared dry-run event diagnostics import with ${candidates.size} importable event(s)."
+                    } else {
+                        "Imported ${importedEvents.size} event diagnostic(s); skipped ${skipped.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("importFormat", EVENT_IMPORT_FORMAT)
+                        put("importVersion", EVENT_IMPORT_VERSION)
+                        put("acceptedExportFormat", EVENT_EXPORT_FORMAT)
+                        put("acceptedExportVersion", EVENT_EXPORT_VERSION)
+                        put("eventLimit", limit)
+                        put("importLimit", limit)
+                        put("dryRun", dryRun)
+                        put("importDetails", importDetails)
+                        put("includeDetails", includeDetails)
+                        put("detailsImported", importDetails)
+                        put("detailsIncluded", includeDetails && importDetails)
+                        put("secretValuesIncluded", false)
+                        put("apiKeyValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put("providerMetaImported", false)
+                        put("providerMetaIncluded", false)
+                        put("messageBodiesImported", false)
+                        put("messageBodiesIncluded", false)
+                        put("sourceEventIdsPreserved", false)
+                        put("sourceTimestampsPreserved", false)
+                        put("receivedEventCount", rawEntries.size)
+                        put("scannedEventCount", scannedEntries.size)
+                        put("omittedInputEventCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                        put("importableEventCount", candidates.size)
+                        put("importedEventCount", importedEvents.size)
+                        put("skippedEventCount", skipped.size)
+                        put("invalidEventCount", skipped.count { entry -> entry.code.startsWith("events.import.invalid") })
+                        put("detailsImportableCount", candidates.count { candidate -> !candidate.details.isNullOrBlank() })
+                        put("detailsImportedCount", importedEvents.count { imported -> imported.detailsImported })
+                        put("eventCountAfter", eventCountAfter)
+                        put(
+                            "importableEvents",
+                            buildJsonArray {
+                                candidates.forEach { candidate ->
+                                    add(
+                                        candidate.toEventImportCandidatePayload(
+                                            includeDetails = includeDetails && importDetails,
+                                            importDetails = importDetails,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put(
+                            "importedEvents",
+                            buildJsonArray {
+                                importedEvents.forEach { imported ->
+                                    add(imported.toEventImportedPayload(includeDetails = includeDetails && importDetails))
+                                }
+                            },
+                        )
+                        put(
+                            "skippedEvents",
+                            buildJsonArray {
+                                skipped.forEach { skippedEvent ->
+                                    add(skippedEvent.toEventImportSkippedPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "events.handoff",
                     aliases =
                         listOf(
@@ -9750,6 +9913,194 @@ private fun List<EventLogEntry>.toEventLevelCountsPayload(): JsonArray =
                 )
             }
         }
+    }
+
+private fun JsonObject.eventImportEntries(): EventImportEntriesParseResult {
+    val directEntries = this["events"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("events")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("events")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return EventImportEntriesParseResult.Failure(
+            missingEventImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(EventImportEntriesParseResult::Success)
+        ?: EventImportEntriesParseResult.Failure(invalidEventImportEntriesResult())
+}
+
+private fun JsonElement.toEventImportCandidate(sourceIndex: Int): EventImportCandidateParseResult {
+    val objectValue =
+        this as? JsonObject ?: return eventImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "events.import.invalid_entry",
+            summary = "Import entry must be an event object.",
+        )
+    val rawCategory =
+        objectValue.optionalText("category")
+            ?: return eventImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "events.import.invalid_missing_category",
+                summary = "Import entry skipped because category is missing.",
+            )
+    val category =
+        parseEventCategory(rawCategory)
+            ?: return eventImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "events.import.invalid_category",
+                summary = "Import entry skipped because category is unsupported.",
+            )
+    val rawLevel =
+        objectValue.optionalText("level")
+            ?: return eventImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "events.import.invalid_missing_level",
+                summary = "Import entry skipped because level is missing.",
+            )
+    val level =
+        parseEventLevel(rawLevel)
+            ?: return eventImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "events.import.invalid_level",
+                summary = "Import entry skipped because level is unsupported.",
+            )
+    val message =
+        objectValue.optionalRawText("message")
+            ?: objectValue.optionalRawText("summary")
+            ?: return eventImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "events.import.invalid_missing_message",
+                summary = "Import entry skipped because message is missing or blank.",
+            )
+    return EventImportCandidateParseResult.Candidate(
+        EventImportCandidate(
+            sourceIndex = sourceIndex,
+            sourceEventId =
+                objectValue.optionalEventSourceId("sourceEventId")
+                    ?: objectValue.optionalEventSourceId("eventId")
+                    ?: objectValue.optionalEventSourceId("id"),
+            sourceTimestampIso =
+                objectValue.optionalText("timestampIso")
+                    ?: objectValue.optionalText("timestamp"),
+            category = category,
+            level = level,
+            message = message,
+            details = objectValue.optionalRawText("details"),
+        ),
+    )
+}
+
+private fun eventImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): EventImportCandidateParseResult.Skipped =
+    EventImportCandidateParseResult.Skipped(
+        EventImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun missingEventImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import events, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_EVENT_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_EVENT_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingEventImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide an events array or an export object containing events to import.",
+        errorCode = "MISSING_EVENT_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_EVENT_IMPORT_ENTRIES")
+                put("field", "events")
+            },
+    )
+
+private fun invalidEventImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Event import entries must be an array.",
+        errorCode = "INVALID_EVENT_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_EVENT_IMPORT_ENTRIES")
+                put("field", "events")
+            },
+    )
+
+private fun EventImportCandidate.toEventImportCandidatePayload(
+    includeDetails: Boolean,
+    importDetails: Boolean,
+): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceEventId", sourceEventId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceTimestampIso", sourceTimestampIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("category", category.name)
+        put("level", level.name)
+        put("message", message.take(EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS))
+        put("messageTruncated", message.length > EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS)
+        put(
+            "details",
+            if (includeDetails) {
+                details
+                    ?.take(EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS)
+                    ?.let(::JsonPrimitive)
+                    ?: JsonNull
+            } else {
+                JsonNull
+            },
+        )
+        put("detailsImported", importDetails && !details.isNullOrBlank())
+        put("detailsIncluded", includeDetails)
+        put("sourceEventIdPreserved", false)
+        put("sourceTimestampPreserved", false)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun EventImportedItem.toEventImportedPayload(includeDetails: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", candidate.sourceIndex)
+        put("sourceEventId", candidate.sourceEventId?.let(::JsonPrimitive) ?: JsonNull)
+        put("newEventId", event.id)
+        put("eventId", event.id)
+        put("sourceTimestampIso", candidate.sourceTimestampIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("timestampIso", event.timestamp.toString())
+        put("category", event.category.name)
+        put("level", event.level.name)
+        put("message", event.message.take(EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS))
+        put("messageTruncated", event.message.length > EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS)
+        put(
+            "details",
+            if (includeDetails) {
+                event.details
+                    ?.take(EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS)
+                    ?.let(::JsonPrimitive)
+                    ?: JsonNull
+            } else {
+                JsonNull
+            },
+        )
+        put("detailsImported", detailsImported)
+        put("detailsIncluded", includeDetails)
+        put("sourceEventIdPreserved", false)
+        put("sourceTimestampPreserved", false)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun EventImportSkippedEntry.toEventImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
     }
 
 private fun EventLogEntry.toEventLogPayload(includeDetails: Boolean): JsonObject =
@@ -13073,6 +13424,10 @@ private const val EVENT_EXPORT_DEFAULT_LIMIT = 50
 private const val EVENT_EXPORT_MAX_LIMIT = 100
 private const val EVENT_HANDOFF_DEFAULT_LIMIT = 12
 private const val EVENT_HANDOFF_MAX_LIMIT = 50
+private const val EVENT_IMPORT_FORMAT = "androidclaw.events.import.v1"
+private const val EVENT_IMPORT_VERSION = 1
+private const val EVENT_IMPORT_DEFAULT_LIMIT = 50
+private const val EVENT_IMPORT_MAX_LIMIT = 100
 private const val EVENT_LOG_DEFAULT_LIMIT = 20
 private const val EVENT_LOG_MAX_LIMIT = 50
 private const val EVENT_LOG_SCAN_LIMIT = 200
@@ -13226,6 +13581,48 @@ private data class EventDoctorIssue(
     val summary: String,
     val action: String,
 )
+
+private data class EventImportCandidate(
+    val sourceIndex: Int,
+    val sourceEventId: String?,
+    val sourceTimestampIso: String?,
+    val category: EventCategory,
+    val level: EventLevel,
+    val message: String,
+    val details: String?,
+)
+
+private data class EventImportedItem(
+    val candidate: EventImportCandidate,
+    val event: EventLogEntry,
+    val detailsImported: Boolean,
+)
+
+private data class EventImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private sealed interface EventImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : EventImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : EventImportEntriesParseResult
+}
+
+private sealed interface EventImportCandidateParseResult {
+    data class Candidate(
+        val candidate: EventImportCandidate,
+    ) : EventImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: EventImportSkippedEntry,
+    ) : EventImportCandidateParseResult
+}
 
 private data class RuntimeDoctorIssue(
     val id: String,
@@ -19820,6 +20217,11 @@ private fun kotlinx.serialization.json.JsonObject.optionalInt(
 private fun JsonObject.optionalMessageReferenceId(field: String): String? =
     optionalText(field)
         ?.take(MESSAGE_REFERENCE_ID_MAX_CHARS)
+        ?.ifBlank { null }
+
+private fun JsonObject.optionalEventSourceId(field: String): String? =
+    optionalText(field)
+        ?.take(EVENT_LOG_FILTER_MAX_CHARS)
         ?.ifBlank { null }
 
 private fun JsonObject.optionalMessageRole(field: String): MessageRole? =

@@ -23,8 +23,8 @@ class EventLogRepository(
         level: EventLevel,
         message: String,
         details: String? = null,
-    ) {
-        dao.insert(
+    ): EventLogEntry {
+        val entity =
             EventLogEntity(
                 id = UUID.randomUUID().toString(),
                 timestamp = Instant.now().toEpochMilli(),
@@ -32,8 +32,9 @@ class EventLogRepository(
                 level = level.toStorage(),
                 message = message.toBoundedLogText(EVENT_LOG_MESSAGE_MAX_CHARS),
                 detailsJson = details?.toBoundedLogText(EVENT_LOG_DETAILS_MAX_CHARS),
-            ),
-        )
+            )
+        dao.insert(entity)
+        return entity.toDomain()
     }
 
     fun observeRecent(limit: Int = 100): Flow<List<EventLogEntry>> {

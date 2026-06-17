@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `events.import` /
+  `event.import` / `logs.import` / `diagnostics.import` plus restore aliases
+  as the companion diagnostics portability feature for `events.export`. Agents
+  can now dry-run or confirm import of bounded exported diagnostics, skip
+  invalid event entries, import details only when requested, write local log
+  entries with new ids/timestamps, and receive explicit source-id and
+  source-timestamp non-preservation plus detail, secret, provider-metadata, and
+  message-body omission flags. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `events.export` /
   `event.export` / `logs.export` / `diagnostics.export` plus backup aliases
   as a diagnostics portability feature. Agents can now export bounded recent
