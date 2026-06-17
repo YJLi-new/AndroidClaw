@@ -5963,6 +5963,149 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks create example returns safe examples without creating automation`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create.example"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["generatedAtIso"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("requestedScheduleKind"))
+            assertEquals("3", result.payload["scheduleKindCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["executesTaskCreation"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["createsAutomation"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["schedulesWork"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["mutatesTasks"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["examplePromptIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["userPromptBodyIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetadataIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["runHistoryIncluded"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("once", "interval", "cron"),
+                result.payload
+                    .getValue("supportedScheduleKinds")
+                    .jsonArray
+                    .map { kind -> kind.jsonPrimitive.content },
+            )
+            assertEquals(
+                listOf("tasks.preview", "tasks.preview.occurrences", "tasks.create", "tasks.agenda"),
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+            val examples =
+                result.payload
+                    .getValue("examples")
+                    .jsonArray
+                    .map { example -> example.jsonObject }
+            assertEquals(listOf("once", "interval", "cron"), examples.map { example -> example.getValue("scheduleKind").jsonPrimitive.content })
+            val onceArguments =
+                examples
+                    .single { example -> example.getValue("scheduleKind").jsonPrimitive.content == "once" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals(
+                "tasks.create",
+                examples
+                    .first()
+                    .getValue("toolName")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals("Example one-time automation", onceArguments.getValue("name").jsonPrimitive.content)
+            assertEquals("once", onceArguments.getValue("scheduleKind").jsonPrimitive.content)
+            assertEquals("2026-03-09T00:00:00Z", onceArguments.getValue("atIso").jsonPrimitive.content)
+            assertEquals("MAIN_SESSION", onceArguments.getValue("executionMode").jsonPrimitive.content)
+            assertEquals("main", onceArguments.getValue("targetSessionAlias").jsonPrimitive.content)
+            val intervalArguments =
+                examples
+                    .single { example -> example.getValue("scheduleKind").jsonPrimitive.content == "interval" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals("2026-03-08T00:15:00Z", intervalArguments.getValue("anchorAtIso").jsonPrimitive.content)
+            assertEquals("60", intervalArguments.getValue("repeatEveryMinutes").jsonPrimitive.content)
+            val cronArguments =
+                examples
+                    .single { example -> example.getValue("scheduleKind").jsonPrimitive.content == "cron" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals("0 9 * * *", cronArguments.getValue("cronExpression").jsonPrimitive.content)
+            assertEquals("UTC", cronArguments.getValue("timezone").jsonPrimitive.content)
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Task create examples"))
+            assertTrue(markdown.contains("\"scheduleKind\":\"once\""))
+        }
+
+    @Test
+    fun `tasks create example can focus schedule kind and omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.schedule.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "interval")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.create.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "weekly")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("interval", result.payload["requestedScheduleKind"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["scheduleKindCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exampleMarkdown"))
+            val example =
+                result.payload
+                    .getValue("examples")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("interval", example.getValue("scheduleKind").jsonPrimitive.content)
+            assertEquals(
+                listOf("anchorAtIso", "repeatEveryMinutes"),
+                example
+                    .getValue("scheduleFields")
+                    .jsonArray
+                    .map { field -> field.jsonPrimitive.content },
+            )
+            val arguments = example.getValue("exampleArguments").jsonObject
+            assertEquals("2026-03-08T00:15:00Z", arguments.getValue("anchorAtIso").jsonPrimitive.content)
+            assertEquals("60", arguments.getValue("repeatEveryMinutes").jsonPrimitive.content)
+            assertFalse(arguments.containsKey("atIso"))
+            assertFalse(arguments.containsKey("cronExpression"))
+            val previewArguments = example.getValue("previewArguments").jsonObject
+            assertEquals(setOf("scheduleKind", "anchorAtIso", "repeatEveryMinutes"), previewArguments.keys)
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+            assertEquals("tasks.create.example", invalid.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("scheduleKind", invalid.payload["field"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tasks create resolves current session alias and schedules work`() =
         runTest {
             val currentSession = sessionRepository.createSession("Current session")

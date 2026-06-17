@@ -60,6 +60,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.net.URI
@@ -13896,6 +13897,77 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor = taskCreateExampleDescriptor(),
+        ) { _, arguments ->
+            val requestedKind =
+                arguments.optionalText("scheduleKind")
+                    ?: arguments.optionalText("kind")
+            val selectedKinds =
+                taskCreateExampleScheduleKinds(requestedKind)
+                    ?: return@Entry invalidTaskArguments(
+                        toolName = "tasks.create.example",
+                        summary =
+                            "tasks.create.example supports scheduleKind once, interval, cron, or all.",
+                        field = "scheduleKind",
+                    )
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val generatedAt = clock.instant()
+            val examples =
+                buildJsonArray {
+                    selectedKinds.forEach { scheduleKind ->
+                        add(taskCreateExamplePayload(scheduleKind = scheduleKind, now = generatedAt))
+                    }
+                }
+            val exampleMarkdown =
+                if (includeMarkdown) {
+                    taskCreateExampleMarkdown(
+                        requestedKind = requestedKind,
+                        examples = examples,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary = "Prepared ${selectedKinds.size} task creation example(s) without creating automation.",
+                payload =
+                    buildJsonObject {
+                        put("generatedAtIso", generatedAt.toString())
+                        put("requestedScheduleKind", requestedKind?.let(::JsonPrimitive) ?: JsonNull)
+                        put("scheduleKindCount", selectedKinds.size)
+                        put("supportedScheduleKinds", TASK_CREATE_EXAMPLE_SCHEDULE_KINDS.toToolStringArrayPayload())
+                        put(
+                            "supportedExecutionModes",
+                            listOf("MAIN_SESSION", "ISOLATED_SESSION").toToolStringArrayPayload(),
+                        )
+                        put("supportedTargetSessionAliases", listOf("main", "current").toToolStringArrayPayload())
+                        put("defaultExecutionMode", "MAIN_SESSION")
+                        put("defaultTargetSessionAlias", "main")
+                        put("includeMarkdown", includeMarkdown)
+                        put("exampleOnly", true)
+                        put("executesTaskCreation", false)
+                        put("createsAutomation", false)
+                        put("schedulesWork", false)
+                        put("mutatesTasks", false)
+                        put("examplePromptIncluded", true)
+                        put("userPromptBodyIncluded", false)
+                        put("secretValuesIncluded", false)
+                        put("providerMetadataIncluded", false)
+                        put("runHistoryIncluded", false)
+                        put(
+                            "suggestedTools",
+                            listOf(
+                                "tasks.preview",
+                                "tasks.preview.occurrences",
+                                "tasks.create",
+                                "tasks.agenda",
+                            ).toToolStringArrayPayload(),
+                        )
+                        put("examples", examples)
+                        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskCreateDescriptor(),
         ) { context, arguments ->
             val spec =
@@ -14192,6 +14264,32 @@ private fun taskCreateDescriptor(): ToolDescriptor =
         arguments = taskMutationArguments(requiredTaskId = false),
     )
 
+private fun taskCreateExampleDescriptor(): ToolDescriptor =
+    ToolDescriptor(
+        name = "tasks.create.example",
+        aliases =
+            listOf(
+                "task.create.example",
+                "tasks.schedule.example",
+                "task.schedule.example",
+                "tasks.automation.example",
+                "automation.create.example",
+                "automations.create.example",
+            ),
+        description = "Return safe example arguments for creating scheduled automations without creating them.",
+        arguments =
+            listOf(
+                ToolArgumentSpec(
+                    name = "scheduleKind",
+                    description = "Optional once | interval | cron filter. Omit or use all for all examples.",
+                ),
+                ToolArgumentSpec(
+                    name = "includeMarkdown",
+                    description = "Set false to omit exampleMarkdown. Defaults to true.",
+                ),
+            ),
+    )
+
 private fun taskUpdateDescriptor(): ToolDescriptor =
     ToolDescriptor(
         name = "tasks.update",
@@ -14283,6 +14381,134 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
         add(ToolArgumentSpec(name = "targetSessionAlias", description = "main | current"))
         add(ToolArgumentSpec(name = "precise", description = "true | false"))
         add(ToolArgumentSpec(name = "maxRetries", description = "Non-negative retry count"))
+    }
+
+private val TASK_CREATE_EXAMPLE_SCHEDULE_KINDS = listOf("once", "interval", "cron")
+
+private fun taskCreateExampleScheduleKinds(requestedKind: String?): List<String>? {
+    val normalized = requestedKind?.lowercase()?.replace("-", "_")
+    return when (normalized) {
+        null, "all", "any", "*" -> TASK_CREATE_EXAMPLE_SCHEDULE_KINDS
+        "once", "interval", "cron" -> listOf(normalized)
+        else -> null
+    }
+}
+
+private fun taskCreateExamplePayload(
+    scheduleKind: String,
+    now: Instant,
+): JsonObject =
+    buildJsonObject {
+        put("scheduleKind", scheduleKind)
+        put("toolName", "tasks.create")
+        put("alias", "task.create")
+        put("exampleOnly", true)
+        put("executesTaskCreation", false)
+        put("createsAutomation", false)
+        put("schedulesWork", false)
+        put("mutatesTasks", false)
+        put(
+            "requiredFields",
+            listOf("name", "prompt", "scheduleKind").toToolStringArrayPayload(),
+        )
+        put(
+            "scheduleFields",
+            taskCreateExampleScheduleFields(scheduleKind).toToolStringArrayPayload(),
+        )
+        put(
+            "optionalFields",
+            listOf(
+                "executionMode",
+                "targetSessionId",
+                "targetSessionAlias",
+                "precise",
+                "maxRetries",
+            ).toToolStringArrayPayload(),
+        )
+        put("exampleArguments", taskCreateExampleArguments(scheduleKind = scheduleKind, now = now))
+        put("previewArguments", taskCreatePreviewArguments(scheduleKind = scheduleKind, now = now))
+    }
+
+private fun taskCreateExampleScheduleFields(scheduleKind: String): List<String> =
+    when (scheduleKind) {
+        "once" -> listOf("atIso")
+        "interval" -> listOf("anchorAtIso", "repeatEveryMinutes")
+        "cron" -> listOf("cronExpression", "timezone")
+        else -> emptyList()
+    }
+
+private fun taskCreateExampleArguments(
+    scheduleKind: String,
+    now: Instant,
+): JsonObject =
+    buildJsonObject {
+        put("name", taskCreateExampleName(scheduleKind))
+        put("prompt", "Example prompt to run when this automation fires.")
+        put("scheduleKind", scheduleKind)
+        put("executionMode", "MAIN_SESSION")
+        put("targetSessionAlias", "main")
+        put("precise", false)
+        put("maxRetries", 3)
+        taskCreateExampleScheduleFields(scheduleKind = scheduleKind, now = now)
+    }
+
+private fun taskCreatePreviewArguments(
+    scheduleKind: String,
+    now: Instant,
+): JsonObject =
+    buildJsonObject {
+        put("scheduleKind", scheduleKind)
+        taskCreateExampleScheduleFields(scheduleKind = scheduleKind, now = now)
+    }
+
+private fun kotlinx.serialization.json.JsonObjectBuilder.taskCreateExampleScheduleFields(
+    scheduleKind: String,
+    now: Instant,
+) {
+    when (scheduleKind) {
+        "once" -> put("atIso", now.plus(Duration.ofDays(1)).toString())
+        "interval" -> {
+            put("anchorAtIso", now.plus(Duration.ofMinutes(15)).toString())
+            put("repeatEveryMinutes", 60)
+        }
+        "cron" -> {
+            put("cronExpression", "0 9 * * *")
+            put("timezone", "UTC")
+        }
+    }
+}
+
+private fun taskCreateExampleName(scheduleKind: String): String =
+    when (scheduleKind) {
+        "once" -> "Example one-time automation"
+        "interval" -> "Example interval automation"
+        "cron" -> "Example cron automation"
+        else -> "Example automation"
+    }
+
+private fun taskCreateExampleMarkdown(
+    requestedKind: String?,
+    examples: JsonArray,
+): String =
+    buildString {
+        appendLine("# Task create examples")
+        appendLine()
+        appendLine("- Requested schedule kind: ${requestedKind?.toHandoffLine() ?: "all"}")
+        appendLine("- Example only: true")
+        appendLine("- Creates automation: false")
+        appendLine("- Schedules work: false")
+        appendLine("- Suggested flow: `tasks.preview` then `tasks.create`.")
+        appendLine()
+        examples.forEach { example ->
+            val exampleObject = example.jsonObject
+            val scheduleKind = exampleObject.getValue("scheduleKind").jsonPrimitive.content
+            appendLine("## $scheduleKind")
+            appendLine()
+            appendLine("```json")
+            appendLine(exampleObject.getValue("exampleArguments").toString())
+            appendLine("```")
+            appendLine()
+        }
     }
 
 private const val COMPACT_SUMMARY_MAX_CHARS = 4_000

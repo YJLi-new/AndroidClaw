@@ -71,6 +71,18 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.create.example` /
+  `task.create.example` / `tasks.schedule.example` /
+  `task.schedule.example` plus automation example aliases as an Automation
+  Contract usability feature. Agents can now request safe once / interval /
+  cron creation examples without creating tasks, scheduling WorkManager work,
+  mutating automation state, or exposing user prompt bodies, provider metadata,
+  secrets, or run history. The payload includes example and preview arguments,
+  supported schedule kinds, execution modes, target-session aliases, suggested
+  follow-up tools, optional markdown, and explicit example-only /
+  executes-task-creation=false / creates-automation=false / schedules-work=false
+  / mutates-tasks=false flags. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `skills.setup.matrix` /
   `skill.setup.matrix` / `skills.setup.all` / `skill.setup.all` plus
   readiness/onboarding aliases as a Skill Contract readiness-inventory feature.
