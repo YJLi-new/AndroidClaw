@@ -29,6 +29,9 @@ interface EventLogDao {
     )
     suspend fun getById(id: String): EventLogEntity?
 
+    @Query("DELETE FROM event_logs")
+    suspend fun deleteAll(): Int
+
     @Query("DELETE FROM event_logs WHERE timestamp < :timestamp")
     suspend fun deleteOlderThan(timestamp: Long): Int
 

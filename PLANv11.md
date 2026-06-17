@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `events.clear` / `event.clear` / `logs.clear` /
+  `log.clear` as a Tool Contract diagnostics retention control. Agents can now
+  clear local runtime event logs only with `confirm=CONFIRM`, receiving a
+  deleted-count payload while the registry still records the completion event
+  for auditability. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `tasks.run.delete` / `task.run.delete` /
   `tasks.run.remove` plus automation run-delete aliases as an Automation
   Contract exact run-history retention control. Agents can now delete one

@@ -6348,6 +6348,67 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events clear deletes all existing diagnostics after explicit confirmation`() =
+        runTest {
+            val registry = buildRegistry()
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "first-event",
+                    timestamp = 1L,
+                    category = "system",
+                    level = "info",
+                    message = "First event",
+                    detailsJson = null,
+                ),
+            )
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "second-event",
+                    timestamp = 2L,
+                    category = "tool",
+                    level = "warn",
+                    message = "Second event",
+                    detailsJson = null,
+                ),
+            )
+
+            val rejected =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "no")
+                        },
+                )
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(rejected.success)
+            assertEquals("CONFIRMATION_REQUIRED", rejected.errorCode)
+            assertTrue(cleared.success)
+            val deletedCount =
+                cleared.payload
+                    .getValue("deletedCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt()
+            assertTrue(deletedCount >= 2)
+            val remainingIds =
+                eventLogRepository
+                    .observeRecent(limit = 20)
+                    .first()
+                    .map { event -> event.id }
+            assertFalse(remainingIds.contains("first-event"))
+            assertFalse(remainingIds.contains("second-event"))
+        }
+
+    @Test
     fun `events trim deletes old diagnostics after explicit confirmation`() =
         runTest {
             val registry = buildRegistry()

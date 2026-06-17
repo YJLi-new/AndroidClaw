@@ -5265,6 +5265,43 @@ private fun eventToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "events.clear",
+                    aliases = listOf("event.clear", "logs.clear", "log.clear"),
+                    description = "Delete all local event logs after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                required = true,
+                                description = "Must be CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Pass confirm=CONFIRM to clear local event logs.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "events.clear")
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val deletedCount = eventLogRepository.clearAll()
+            ToolExecutionResult.success(
+                summary = "Cleared $deletedCount event log(s).",
+                payload =
+                    buildJsonObject {
+                        put("deletedCount", deletedCount)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "events.trim",
                     aliases = listOf("event.trim", "logs.trim", "log.trim"),
                     description = "Delete local event logs older than an ISO-8601 cutoff after explicit confirmation.",
