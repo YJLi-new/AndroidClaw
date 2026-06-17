@@ -531,6 +531,127 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "runtime.portability",
+                                    aliases =
+                                        listOf(
+                                            "runtime.backup.plan",
+                                            "runtime.restore.plan",
+                                            "androidclaw.portability",
+                                            "androidclaw.backup.plan",
+                                            "system.portability",
+                                        ),
+                                    description =
+                                        "Return a safe AndroidClaw backup and restore playbook across portable runtime contracts.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit portabilityMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val now = clock.instant()
+                            val settings = settingsDataStore.settings.first()
+                            val sessionStats = sessionRepository.getSessionStats()
+                            val taskStats = taskRepository.getTaskStats(now)
+                            val memorySection =
+                                memoryRepository.toRuntimeMemorySectionPayload(
+                                    settingsDataStore = settingsDataStore,
+                                )
+                            val eventSection = eventLogRepository.toRuntimeEventSectionPayload()
+                            val skills = bundledSkillsProvider()
+                            val tools = toolRegistry.descriptors()
+                            val components = runtimePortabilityComponentsPayload()
+                            val exportOrder = runtimePortabilityExportOrderPayload()
+                            val restoreOrder = runtimePortabilityRestoreOrderPayload()
+                            val portabilityMarkdown =
+                                if (includeMarkdown) {
+                                    buildRuntimePortabilityMarkdown(
+                                        generatedAt = now,
+                                        providerType = settings.providerType,
+                                        sessionStats = sessionStats,
+                                        taskStats = taskStats,
+                                        memorySection = memorySection,
+                                        skillCount = skills.size,
+                                        enabledSkillCount = skills.count { skill -> skill.enabled },
+                                        toolCount = tools.size,
+                                        availableToolCount =
+                                            tools.count { tool ->
+                                                tool.availability.status == ToolAvailabilityStatus.Available
+                                            },
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary = "Prepared AndroidClaw portability playbook across backup and restore tools.",
+                                payload =
+                                    buildJsonObject {
+                                        put("generatedAtIso", now.toString())
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("backupSupported", true)
+                                        put("restoreSupported", true)
+                                        put("componentCount", RUNTIME_PORTABILITY_COMPONENT_COUNT)
+                                        put("secretValuesIncluded", false)
+                                        put("apiKeyValuesIncluded", false)
+                                        put("oauthTokenValuesIncluded", false)
+                                        put("messageBodiesIncluded", false)
+                                        put("taskPromptBodiesIncluded", false)
+                                        put("skillInstructionBodiesIncluded", false)
+                                        put("memoryTextIncluded", false)
+                                        put("eventDetailsIncluded", false)
+                                        put("componentPayloadsIncluded", false)
+                                        put("desktopRuntimeRequired", false)
+                                        put("desktopRuntimeStateIncluded", false)
+                                        put("phoneIsHost", true)
+                                        put("currentProviderId", settings.providerType.providerId)
+                                        put(
+                                            "counts",
+                                            buildJsonObject {
+                                                put("sessionCount", sessionStats.totalSessionCount)
+                                                put("activeSessionCount", sessionStats.activeSessionCount)
+                                                put("archivedSessionCount", sessionStats.archivedSessionCount)
+                                                put("taskCount", taskStats.totalTaskCount)
+                                                put("enabledTaskCount", taskStats.enabledTaskCount)
+                                                put("taskRunCount", taskStats.totalRunCount)
+                                                put("skillCount", skills.size)
+                                                put("enabledSkillCount", skills.count { skill -> skill.enabled })
+                                                put("toolCount", tools.size)
+                                                put(
+                                                    "availableToolCount",
+                                                    tools.count { tool -> tool.availability.status == ToolAvailabilityStatus.Available },
+                                                )
+                                                put("memoryAvailable", memorySection["available"] ?: JsonNull)
+                                                put("memoryEnabled", memorySection["enabled"] ?: JsonNull)
+                                                put("activeMemoryCount", memorySection["activeMemoryCount"] ?: JsonNull)
+                                                put("eventLogAvailable", eventSection["available"] ?: JsonNull)
+                                                put("eventCount", eventSection["eventCount"] ?: JsonNull)
+                                            },
+                                        )
+                                        put("recommendedExportOrder", exportOrder)
+                                        put("recommendedRestoreOrder", restoreOrder)
+                                        put("components", components)
+                                        put(
+                                            "notes",
+                                            buildJsonArray {
+                                                add(JsonPrimitive("Export runtime.portability or runtime.export first to record the app capability surface."))
+                                                add(JsonPrimitive("Export sessions before per-session transcripts so imported messages can target restored session shells."))
+                                                add(JsonPrimitive("Import providers and skills before automations that may depend on provider settings or skill dispatch."))
+                                                add(JsonPrimitive("Component import tools require confirm=CONFIRM unless dryRun=true."))
+                                                add(JsonPrimitive("Credential values, OAuth tokens, provider metadata, and large content bodies are intentionally omitted by this playbook."))
+                                            },
+                                        )
+                                        put("portabilityMarkdown", portabilityMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "runtime.doctor",
                                     aliases =
                                         listOf(
@@ -12788,6 +12909,7 @@ private const val RUNTIME_EXPORT_FORMAT = "androidclaw.runtime.export.v1"
 private const val RUNTIME_EXPORT_VERSION = 1
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
+private const val RUNTIME_PORTABILITY_COMPONENT_COUNT = 8
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
 private const val SESSION_DOCTOR_CHECK_MAX_LIMIT = 20
@@ -13435,6 +13557,222 @@ private fun runtimeExportOmissionsPayload(): JsonObject =
         put("oauthTokenValuesIncluded", false)
         put("providerCredentialValuesIncluded", false)
         put("desktopRuntimeStateIncluded", false)
+    }
+
+private fun runtimePortabilityExportOrderPayload(): JsonArray =
+    buildJsonArray {
+        add(runtimePortabilityStepPayload(step = 1, toolName = "runtime.export", format = RUNTIME_EXPORT_FORMAT, scope = "Runtime manifest"))
+        add(runtimePortabilityStepPayload(step = 2, toolName = "providers.export", format = PROVIDER_EXPORT_FORMAT, scope = "Provider endpoints"))
+        add(runtimePortabilityStepPayload(step = 3, toolName = "skills.export", format = SKILL_EXPORT_FORMAT, scope = "Skill definitions"))
+        add(runtimePortabilityStepPayload(step = 4, toolName = "tools.export", format = TOOL_EXPORT_FORMAT, scope = "Typed tool catalog"))
+        add(runtimePortabilityStepPayload(step = 5, toolName = "sessions.export", format = SESSION_EXPORT_FORMAT, scope = "Session shells"))
+        add(runtimePortabilityStepPayload(step = 6, toolName = "messages.export", format = MESSAGE_EXPORT_FORMAT, scope = "Per-session transcripts"))
+        add(runtimePortabilityStepPayload(step = 7, toolName = "tasks.export", format = TASK_EXPORT_FORMAT, scope = "Scheduled automations"))
+        add(runtimePortabilityStepPayload(step = 8, toolName = "memory.export", format = "androidclaw.memory.export.v1", scope = "Local memory"))
+    }
+
+private fun runtimePortabilityRestoreOrderPayload(): JsonArray =
+    buildJsonArray {
+        add(runtimePortabilityStepPayload(step = 1, toolName = "providers.import", format = PROVIDER_IMPORT_FORMAT, scope = "Provider endpoints"))
+        add(runtimePortabilityStepPayload(step = 2, toolName = "skills.import", format = SKILL_IMPORT_FORMAT, scope = "Skill definitions"))
+        add(runtimePortabilityStepPayload(step = 3, toolName = "sessions.import", format = SESSION_IMPORT_FORMAT, scope = "Session shells"))
+        add(runtimePortabilityStepPayload(step = 4, toolName = "messages.import", format = MESSAGE_IMPORT_FORMAT, scope = "Per-session transcripts"))
+        add(runtimePortabilityStepPayload(step = 5, toolName = "tasks.import", format = TASK_IMPORT_FORMAT, scope = "Scheduled automations"))
+        add(runtimePortabilityStepPayload(step = 6, toolName = "memory.import", format = "androidclaw.memory.import.v1", scope = "Local memory"))
+    }
+
+private fun runtimePortabilityStepPayload(
+    step: Int,
+    toolName: String,
+    format: String,
+    scope: String,
+): JsonObject =
+    buildJsonObject {
+        put("step", step)
+        put("toolName", toolName)
+        put("format", format)
+        put("scope", scope)
+    }
+
+private fun runtimePortabilityComponentsPayload(): JsonArray =
+    buildJsonArray {
+        add(
+            runtimePortabilityComponentPayload(
+                key = "runtime",
+                contract = "Runtime",
+                exportTool = "runtime.export",
+                exportFormat = RUNTIME_EXPORT_FORMAT,
+                importTool = null,
+                importFormat = null,
+                restoreSupported = false,
+                notes = "Records host invariants and contract stats; restore is delegated to component import tools.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "providers",
+                contract = "Providers/OAuth",
+                exportTool = "providers.export",
+                exportFormat = PROVIDER_EXPORT_FORMAT,
+                importTool = "providers.import",
+                importFormat = PROVIDER_IMPORT_FORMAT,
+                restoreSupported = true,
+                notes = "Endpoint settings are portable; API keys, OAuth tokens, and credential state are never included.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "skills",
+                contract = "Skills",
+                exportTool = "skills.export",
+                exportFormat = SKILL_EXPORT_FORMAT,
+                importTool = "skills.import",
+                importFormat = SKILL_IMPORT_FORMAT,
+                restoreSupported = true,
+                notes = "Skill definitions and optional non-secret config are portable; secrets remain omitted.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "tools",
+                contract = "Tools",
+                exportTool = "tools.export",
+                exportFormat = TOOL_EXPORT_FORMAT,
+                importTool = null,
+                importFormat = null,
+                restoreSupported = false,
+                notes = "Typed native tools are built into the APK; the catalog is export-only capability metadata.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "sessions",
+                contract = "Sessions",
+                exportTool = "sessions.export",
+                exportFormat = SESSION_EXPORT_FORMAT,
+                importTool = "sessions.import",
+                importFormat = SESSION_IMPORT_FORMAT,
+                restoreSupported = true,
+                notes = "Session shells and summaries are portable; transcript bodies are handled by messages export/import.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "messages",
+                contract = "Sessions",
+                exportTool = "messages.export",
+                exportFormat = MESSAGE_EXPORT_FORMAT,
+                importTool = "messages.import",
+                importFormat = MESSAGE_IMPORT_FORMAT,
+                restoreSupported = true,
+                notes = "Run per session when full transcript windows are needed; provider metadata is omitted.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "automations",
+                contract = "Automations",
+                exportTool = "tasks.export",
+                exportFormat = TASK_EXPORT_FORMAT,
+                importTool = "tasks.import",
+                importFormat = TASK_IMPORT_FORMAT,
+                restoreSupported = true,
+                notes = "Schedules and execution modes are portable; run history and provider state are omitted.",
+            ),
+        )
+        add(
+            runtimePortabilityComponentPayload(
+                key = "memory",
+                contract = "Memory",
+                exportTool = "memory.export",
+                exportFormat = "androidclaw.memory.export.v1",
+                importTool = "memory.import",
+                importFormat = "androidclaw.memory.import.v1",
+                restoreSupported = true,
+                notes = "Local memory can be portable, but owner ids, source message bodies, and provider metadata are omitted.",
+            ),
+        )
+    }
+
+private fun runtimePortabilityComponentPayload(
+    key: String,
+    contract: String,
+    exportTool: String,
+    exportFormat: String,
+    importTool: String?,
+    importFormat: String?,
+    restoreSupported: Boolean,
+    notes: String,
+): JsonObject =
+    buildJsonObject {
+        put("key", key)
+        put("contract", contract)
+        put("exportTool", exportTool)
+        put("exportFormat", exportFormat)
+        put("importTool", importTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("importFormat", importFormat?.let(::JsonPrimitive) ?: JsonNull)
+        put("backupSupported", true)
+        put("restoreSupported", restoreSupported)
+        put("importRequiresConfirmation", restoreSupported)
+        put("dryRunSupported", restoreSupported)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("messageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+        put("notes", notes)
+    }
+
+private fun buildRuntimePortabilityMarkdown(
+    generatedAt: Instant,
+    providerType: ProviderType,
+    sessionStats: SessionRepository.SessionStats,
+    taskStats: TaskRepository.TaskStats,
+    memorySection: JsonObject,
+    skillCount: Int,
+    enabledSkillCount: Int,
+    toolCount: Int,
+    availableToolCount: Int,
+): String =
+    buildString {
+        appendLine("# AndroidClaw portability playbook")
+        appendLine()
+        appendLine("- Generated: $generatedAt")
+        appendLine("- Runtime model: Android-native single-APK host")
+        appendLine("- Current provider: `${providerType.providerId}` (${providerType.displayName.toHandoffLine()})")
+        appendLine("- Secret values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine("- Component payloads included: false")
+        appendLine("- Desktop runtime required: false")
+        appendLine()
+        appendLine("## Current counts")
+        appendLine("- Sessions: total=${sessionStats.totalSessionCount} active=${sessionStats.activeSessionCount} archived=${sessionStats.archivedSessionCount}")
+        appendLine("- Automations: total=${taskStats.totalTaskCount} enabled=${taskStats.enabledTaskCount} runs=${taskStats.totalRunCount}")
+        appendLine("- Skills: total=$skillCount enabled=$enabledSkillCount")
+        appendLine("- Tools: total=$toolCount available=$availableToolCount")
+        appendLine(
+            "- Memory: available=${memorySection.optionalText("available") ?: "unknown"} " +
+                "enabled=${memorySection.optionalText("enabled") ?: "unknown"} " +
+                "active=${memorySection.optionalText("activeMemoryCount") ?: "unknown"}",
+        )
+        appendLine()
+        appendLine("## Recommended export order")
+        appendLine("1. `runtime.export` - capture host invariants and contract stats.")
+        appendLine("2. `providers.export` - capture non-secret provider endpoints.")
+        appendLine("3. `skills.export` - capture skill definitions before automation restore.")
+        appendLine("4. `tools.export` - capture typed tool capability catalog.")
+        appendLine("5. `sessions.export` - capture session shells and summaries.")
+        appendLine("6. `messages.export` - capture per-session transcript windows when needed.")
+        appendLine("7. `tasks.export` - capture scheduled automations after target sessions are known.")
+        appendLine("8. `memory.export` - capture local memory last because it may reference sessions/messages.")
+        appendLine()
+        appendLine("## Recommended restore order")
+        appendLine("1. `providers.import`")
+        appendLine("2. `skills.import`")
+        appendLine("3. `sessions.import`")
+        appendLine("4. `messages.import`")
+        appendLine("5. `tasks.import`")
+        appendLine("6. `memory.import`")
     }
 
 private fun buildRuntimeExportMarkdown(

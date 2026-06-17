@@ -71,6 +71,17 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `runtime.portability` /
+  `runtime.backup.plan` / `runtime.restore.plan` / `androidclaw.portability`
+  plus system portability aliases as a Runtime Contract coordination feature.
+  Agents can now inspect a safe backup/restore playbook across runtime,
+  providers, skills, tools, sessions, messages, automations, and memory with
+  recommended export/restore order, supported format ids and tool names,
+  current aggregate counts, optional markdown, dry-run/confirmation guidance,
+  and explicit secret, OAuth token, message body, prompt body, skill
+  instruction, memory text, event detail, component-payload, and desktop
+  runtime omission flags. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `sessions.import` /
   `session.import` / `sessions.restore` / `session.restore` plus chat-session
   import aliases as the companion Session Contract portability feature for

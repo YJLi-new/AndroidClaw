@@ -10991,6 +10991,134 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `runtime portability returns backup restore playbook without component payloads or secrets`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val session = sessionRepository.createSession("Portability session", isMain = true)
+            taskRepository.createTask(
+                name = "Portability task",
+                prompt = "Portability task prompt should not appear.",
+                schedule = TaskSchedule.Once(Instant.now().plus(Duration.ofDays(1))),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = session.id,
+            )
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "Portability memory text should not appear.",
+                sourceSessionId = session.id,
+            )
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "Portability event",
+                details = "Portability event details should not appear.",
+            )
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(skillSnapshot(id = "portability-skill", name = "portability-skill")),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "runtime.backup.plan"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("true", result.payload["backupSupported"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["restoreSupported"]?.jsonPrimitive?.content)
+            assertEquals("8", result.payload["componentCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["taskPromptBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["componentPayloadsIncluded"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["currentProviderId"]?.jsonPrimitive?.content)
+            val counts = result.payload.getValue("counts").jsonObject
+            assertEquals("1", counts.getValue("sessionCount").jsonPrimitive.content)
+            assertEquals("1", counts.getValue("taskCount").jsonPrimitive.content)
+            assertEquals("1", counts.getValue("skillCount").jsonPrimitive.content)
+            assertEquals("1", counts.getValue("activeMemoryCount").jsonPrimitive.content)
+            val exportOrder =
+                result.payload
+                    .getValue("recommendedExportOrder")
+                    .jsonArray
+                    .map { item ->
+                        item.jsonObject
+                            .getValue("toolName")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals("runtime.export", exportOrder.first())
+            assertTrue(exportOrder.indexOf("sessions.export") < exportOrder.indexOf("messages.export"))
+            assertTrue(exportOrder.indexOf("tasks.export") < exportOrder.indexOf("memory.export"))
+            val restoreOrder =
+                result.payload
+                    .getValue("recommendedRestoreOrder")
+                    .jsonArray
+                    .map { item ->
+                        item.jsonObject
+                            .getValue("toolName")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals("providers.import", restoreOrder.first())
+            assertTrue(restoreOrder.indexOf("sessions.import") < restoreOrder.indexOf("messages.import"))
+            assertTrue(restoreOrder.indexOf("messages.import") < restoreOrder.indexOf("tasks.import"))
+            val components =
+                result.payload
+                    .getValue("components")
+                    .jsonArray
+                    .map { component -> component.jsonObject }
+            val sessionsComponent = components.single { component -> component.getValue("key").jsonPrimitive.content == "sessions" }
+            assertEquals("androidclaw.sessions.export.v1", sessionsComponent.getValue("exportFormat").jsonPrimitive.content)
+            assertEquals("sessions.import", sessionsComponent.getValue("importTool").jsonPrimitive.content)
+            assertEquals("true", sessionsComponent.getValue("restoreSupported").jsonPrimitive.content)
+            val toolsComponent = components.single { component -> component.getValue("key").jsonPrimitive.content == "tools" }
+            assertEquals("tools.export", toolsComponent.getValue("exportTool").jsonPrimitive.content)
+            assertEquals(JsonNull, toolsComponent.getValue("importTool"))
+            assertEquals("false", toolsComponent.getValue("restoreSupported").jsonPrimitive.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains(ownerUserId))
+            assertFalse(payloadText.contains("Portability task prompt should not appear."))
+            assertFalse(payloadText.contains("Portability memory text should not appear."))
+            assertFalse(payloadText.contains("Portability event details should not appear."))
+            val markdown =
+                result.payload
+                    .getValue("portabilityMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# AndroidClaw portability playbook"))
+            assertTrue(markdown.contains("runtime.export"))
+            assertTrue(markdown.contains("providers.import"))
+            assertFalse(markdown.contains("Portability task prompt should not appear."))
+        }
+
+    @Test
+    fun `runtime portability can omit markdown through system alias`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "system.portability"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["componentPayloadsIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("portabilityMarkdown"))
+            assertEquals("8", result.payload["componentCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `runtime handoff returns compact cross contract state without secrets or heavy content`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()
