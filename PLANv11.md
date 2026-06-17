@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.agenda` /
+  `task.agenda` / `automations.agenda` / `automation.agenda` plus handoff
+  aliases as a compact Automation Contract agenda feature. Agents can now
+  prepare bounded due and future automation sections with aggregate scheduler
+  stats, target-session state, scheduling precision metadata, optional prompt
+  snippets, optional markdown, and explicit prompt-body omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `memory.provenance` /
   `memories.provenance` / `memory.trace` / `memory.context` aliases plus
   `/memory provenance <id>` command dispatch as a Memory Contract context

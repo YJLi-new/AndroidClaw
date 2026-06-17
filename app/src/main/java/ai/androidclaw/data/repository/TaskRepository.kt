@@ -141,6 +141,21 @@ class TaskRepository(
             .take(boundedLimit)
     }
 
+    suspend fun getFutureEnabledTasksAfter(
+        instant: Instant,
+        limit: Int,
+    ): List<Task> {
+        val boundedLimit = limit.coerceIn(0, TASK_SEARCH_MAX_LIMIT)
+        if (boundedLimit == 0) {
+            return emptyList()
+        }
+        return taskDao
+            .getFutureEnabledTasksAfter(
+                instant = instant.toEpochMilli(),
+                limit = boundedLimit,
+            ).mapNotNull(TaskEntity::toDomainOrNull)
+    }
+
     suspend fun searchTasks(
         query: String,
         limit: Int,

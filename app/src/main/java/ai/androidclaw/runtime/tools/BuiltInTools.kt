@@ -28,6 +28,7 @@ import ai.androidclaw.runtime.scheduler.NextRunCalculator
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.scheduler.TaskSchedule
+import ai.androidclaw.runtime.scheduler.precisionMode
 import ai.androidclaw.runtime.scheduler.schedulingDecision
 import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
@@ -8473,6 +8474,130 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.agenda",
+                    aliases =
+                        listOf(
+                            "task.agenda",
+                            "automations.agenda",
+                            "automation.agenda",
+                            "tasks.schedule.handoff",
+                            "automations.handoff",
+                        ),
+                    description = "Prepare a compact automation agenda with due and upcoming tasks without prompt bodies.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum due and upcoming task count per section. Defaults to 10, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includePromptSnippets",
+                                description = "Set false to omit prompt snippets. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit agendaMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_AGENDA_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_AGENDA_MAX_LIMIT)
+            val includePromptSnippets = arguments.optionalBoolean("includePromptSnippets", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val now = clock.instant()
+            val dueTasks = taskRepository.getEnabledTasksDueBefore(instant = now, limit = limit)
+            val upcomingTasks = taskRepository.getFutureEnabledTasksAfter(instant = now, limit = limit)
+            val agendaTasks = (dueTasks + upcomingTasks).distinctBy(Task::id)
+            val targetSessions =
+                agendaTasks
+                    .mapNotNull { task -> task.targetSessionId }
+                    .distinct()
+                    .associateWith { sessionId -> sessionRepository.getSession(sessionId) }
+            val diagnostics = schedulerCoordinator.diagnostics()
+            val stats = taskRepository.getTaskStats(now)
+            val minimumBackgroundIntervalMinutes =
+                schedulerCoordinator
+                    .capabilities()
+                    .minimumBackgroundInterval
+                    .toMinutes()
+            val agendaMarkdown =
+                if (includeMarkdown) {
+                    stats.toTaskAgendaMarkdown(
+                        dueTasks = dueTasks,
+                        upcomingTasks = upcomingTasks,
+                        limit = limit,
+                        includePromptSnippets = includePromptSnippets,
+                        minimumBackgroundIntervalMinutes = minimumBackgroundIntervalMinutes,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        dueTasks.isEmpty() && upcomingTasks.isEmpty() -> "Prepared empty automation agenda."
+                        dueTasks.isEmpty() -> "Prepared automation agenda with ${upcomingTasks.size} upcoming task(s)."
+                        upcomingTasks.isEmpty() -> "Prepared automation agenda with ${dueTasks.size} due task(s)."
+                        else -> "Prepared automation agenda with ${dueTasks.size} due and ${upcomingTasks.size} upcoming task(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("nowIso", now.toString())
+                        put("limit", limit)
+                        put("dueReturnedCount", dueTasks.size)
+                        put("upcomingReturnedCount", upcomingTasks.size)
+                        put("agendaTaskCount", agendaTasks.size)
+                        put("includePromptSnippets", includePromptSnippets)
+                        put("includeMarkdown", includeMarkdown)
+                        put("promptBodiesIncluded", false)
+                        put(
+                            "stats",
+                            stats.toTaskStatsPayload(
+                                minimumBackgroundIntervalMinutes = minimumBackgroundIntervalMinutes,
+                            ),
+                        )
+                        put(
+                            "dueTasks",
+                            buildJsonArray {
+                                dueTasks.forEach { task ->
+                                    add(
+                                        task.toTaskAgendaPayload(
+                                            now = now,
+                                            targetSession = task.targetSessionId?.let { sessionId -> targetSessions[sessionId] },
+                                            diagnostics = diagnostics,
+                                            includePromptSnippet = includePromptSnippets,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put(
+                            "upcomingTasks",
+                            buildJsonArray {
+                                upcomingTasks.forEach { task ->
+                                    add(
+                                        task.toTaskAgendaPayload(
+                                            now = now,
+                                            targetSession = task.targetSessionId?.let { sessionId -> targetSessions[sessionId] },
+                                            diagnostics = diagnostics,
+                                            includePromptSnippet = includePromptSnippets,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put("agendaMarkdown", agendaMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.doctor",
                     aliases =
                         listOf(
@@ -10011,6 +10136,8 @@ private const val SKILL_HANDOFF_MAX_LIMIT = 20
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
+private const val TASK_AGENDA_DEFAULT_LIMIT = 10
+private const val TASK_AGENDA_MAX_LIMIT = 50
 private const val TASK_DUE_DEFAULT_LIMIT = 20
 private const val TASK_DUE_MAX_LIMIT = 50
 private const val TASK_DOCTOR_DEFAULT_LIMIT = 20
@@ -13718,6 +13845,144 @@ private fun Task.toTaskHandoffMarkdown(
             }
         }
     }
+
+private fun TaskRepository.TaskStats.toTaskAgendaMarkdown(
+    dueTasks: List<Task>,
+    upcomingTasks: List<Task>,
+    limit: Int,
+    includePromptSnippets: Boolean,
+    minimumBackgroundIntervalMinutes: Long,
+): String =
+    buildString {
+        appendLine("# Automation agenda")
+        appendLine()
+        appendLine("- Automations: $totalTaskCount")
+        appendLine("- Enabled: $enabledTaskCount")
+        appendLine("- Disabled: $disabledTaskCount")
+        appendLine("- Due now: $dueTaskCount")
+        appendLine("- Next enabled run: ${nextEnabledRunAt ?: "none"}")
+        appendLine("- Minimum background interval minutes: $minimumBackgroundIntervalMinutes")
+        appendLine("- Due tasks included: ${dueTasks.size} of up to $limit")
+        appendLine("- Upcoming tasks included: ${upcomingTasks.size} of up to $limit")
+        appendLine("- Prompt snippets included: $includePromptSnippets")
+        appendLine("- Prompt bodies included: false")
+        appendLine()
+        appendLine("## Due automations")
+        if (dueTasks.isEmpty()) {
+            appendLine("_No due enabled automations included._")
+        } else {
+            dueTasks.forEach { task ->
+                appendLine(task.toTaskAgendaMarkdownLine(includePromptSnippets = includePromptSnippets))
+            }
+        }
+        appendLine()
+        appendLine("## Upcoming automations")
+        if (upcomingTasks.isEmpty()) {
+            appendLine("_No future enabled automations included._")
+        } else {
+            upcomingTasks.forEach { task ->
+                appendLine(task.toTaskAgendaMarkdownLine(includePromptSnippets = includePromptSnippets))
+            }
+        }
+    }
+
+private fun Task.toTaskAgendaMarkdownLine(includePromptSnippets: Boolean): String =
+    buildString {
+        append("- `")
+        append(id.toHandoffLine())
+        append("` ")
+        append(name.toHandoffLine())
+        append(" next=")
+        append(nextRunAt ?: "none")
+        append(" schedule=")
+        append(schedule.toTaskSearchKind())
+        append(" mode=")
+        append(executionMode.name)
+        targetSessionId?.let { sessionId ->
+            append(" target=")
+            append(sessionId.toHandoffLine())
+        }
+        append(" prompt=")
+        if (includePromptSnippets) {
+            append(prompt.toMessageSearchSnippet().toHandoffLine())
+        } else {
+            append("_omitted_")
+        }
+    }
+
+private fun Task.toTaskAgendaPayload(
+    now: Instant,
+    targetSession: Session?,
+    diagnostics: SchedulerDiagnostics,
+    includePromptSnippet: Boolean,
+): JsonObject {
+    val promptSnippet = prompt.toMessageSearchSnippet()
+    val nextRun = nextRunAt
+    val due = nextRun?.isAfter(now) == false
+    val decision = schedulingDecision(diagnostics)
+    val preciseWarnings = userVisiblePreciseWarnings(diagnostics)
+    return buildJsonObject {
+        put("id", id)
+        put("name", name)
+        put("enabled", enabled)
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("schedule", schedule.toPayload())
+        put("executionMode", executionMode.name)
+        put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("targetSessionMissing", targetSessionId != null && targetSession == null)
+        put("targetSessionArchived", targetSession?.archived?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "targetSession",
+            targetSession?.let { session ->
+                buildJsonObject {
+                    put("id", session.id)
+                    put("title", session.title)
+                    put("isMain", session.isMain)
+                    put("archived", session.archived)
+                }
+            } ?: JsonNull,
+        )
+        put("preciseRequested", precise)
+        put("precisionMode", precisionMode.name)
+        put("effectiveSchedulingPath", decision.path.name)
+        put("degradedReason", decision.degradedReason?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "precisionWarnings",
+            buildJsonArray {
+                preciseWarnings.forEach { warning ->
+                    add(JsonPrimitive(warning))
+                }
+            },
+        )
+        put("nextRunAtIso", nextRun?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("due", due)
+        put(
+            "secondsOverdue",
+            nextRun
+                ?.takeIf { due }
+                ?.let { Duration.between(it, now).seconds.coerceAtLeast(0) }
+                ?.let(::JsonPrimitive)
+                ?: JsonNull,
+        )
+        put(
+            "secondsUntilRun",
+            nextRun
+                ?.let { Duration.between(now, it).seconds }
+                ?.let(::JsonPrimitive)
+                ?: JsonNull,
+        )
+        put("failureCount", failureCount)
+        put("maxRetries", maxRetries)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("promptIncluded", includePromptSnippet)
+        put("promptSnippet", if (includePromptSnippet) JsonPrimitive(promptSnippet) else JsonNull)
+        put("promptLength", prompt.length)
+        put("promptTruncated", if (includePromptSnippet) promptSnippet.length < prompt.length else false)
+        put("promptBodyIncluded", false)
+    }
+}
 
 private fun TaskRun.toTaskRunMarkdownLine(): String =
     buildString {

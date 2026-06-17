@@ -3154,6 +3154,143 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks agenda returns due and upcoming automation context without prompt bodies`() =
+        runTest {
+            val targetSession = sessionRepository.createSession("Agenda target")
+            val dueTask =
+                taskRepository.createTask(
+                    name = "Due agenda automation",
+                    prompt = "Run due agenda with details",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = targetSession.id,
+                )
+            val futureTask =
+                taskRepository.createTask(
+                    name = "Future agenda automation",
+                    prompt = "Run future agenda with details",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled agenda automation",
+                    prompt = "Do not include in agenda sections",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automations.agenda"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["nowIso"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["limit"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["dueReturnedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["upcomingReturnedCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["agendaTaskCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includePromptSnippets"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["promptBodiesIncluded"]?.jsonPrimitive?.content)
+            val stats = result.payload.getValue("stats").jsonObject
+            assertEquals("3", stats.getValue("taskCount").jsonPrimitive.content)
+            assertEquals("2", stats.getValue("enabledTaskCount").jsonPrimitive.content)
+            assertEquals("1", stats.getValue("disabledTaskCount").jsonPrimitive.content)
+            assertEquals("1", stats.getValue("dueTaskCount").jsonPrimitive.content)
+            val duePayload =
+                result.payload
+                    .getValue("dueTasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(dueTask.id, duePayload.getValue("id").jsonPrimitive.content)
+            assertEquals("Due agenda automation", duePayload.getValue("name").jsonPrimitive.content)
+            assertEquals(true.toString(), duePayload.getValue("due").jsonPrimitive.content)
+            assertEquals("86400", duePayload.getValue("secondsOverdue").jsonPrimitive.content)
+            assertEquals(targetSession.id, duePayload.getValue("targetSessionId").jsonPrimitive.content)
+            assertEquals(
+                "Agenda target",
+                duePayload
+                    .getValue("targetSession")
+                    .jsonObject
+                    .getValue("title")
+                    .jsonPrimitive.content,
+            )
+            assertEquals("Run due agenda with details", duePayload.getValue("promptSnippet").jsonPrimitive.content)
+            assertEquals(false.toString(), duePayload.getValue("promptBodyIncluded").jsonPrimitive.content)
+            assertFalse(duePayload.containsKey("prompt"))
+            val upcomingPayload =
+                result.payload
+                    .getValue("upcomingTasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(futureTask.id, upcomingPayload.getValue("id").jsonPrimitive.content)
+            assertEquals(false.toString(), upcomingPayload.getValue("due").jsonPrimitive.content)
+            assertEquals("172800", upcomingPayload.getValue("secondsUntilRun").jsonPrimitive.content)
+            assertEquals("Run future agenda with details", upcomingPayload.getValue("promptSnippet").jsonPrimitive.content)
+            assertFalse(upcomingPayload.containsKey("prompt"))
+            val markdown =
+                result.payload
+                    .getValue("agendaMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Automation agenda"))
+            assertTrue(markdown.contains("Due agenda automation"))
+            assertTrue(markdown.contains("Future agenda automation"))
+            assertFalse(markdown.contains("Disabled agenda automation"))
+        }
+
+    @Test
+    fun `tasks agenda can omit prompt snippets and markdown`() =
+        runTest {
+            taskRepository.createTask(
+                name = "Private agenda automation",
+                prompt = "Do not leak agenda prompt",
+                schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = null,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.agenda"),
+                    arguments =
+                        buildJsonObject {
+                            put("includePromptSnippets", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(false.toString(), result.payload["includePromptSnippets"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["promptBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("agendaMarkdown"))
+            val upcomingPayload =
+                result.payload
+                    .getValue("upcomingTasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(JsonNull, upcomingPayload.getValue("promptSnippet"))
+            assertEquals(false.toString(), upcomingPayload.getValue("promptIncluded").jsonPrimitive.content)
+            assertEquals(false.toString(), upcomingPayload.getValue("promptBodyIncluded").jsonPrimitive.content)
+            assertFalse(upcomingPayload.containsKey("prompt"))
+            assertFalse(result.payload.toString().contains("Do not leak agenda prompt"))
+        }
+
+    @Test
     fun `tasks doctor reports actionable issues without prompts`() =
         runTest {
             val hiddenPrompt = "FULL AUTOMATION PROMPT SHOULD NOT APPEAR IN DOCTOR"

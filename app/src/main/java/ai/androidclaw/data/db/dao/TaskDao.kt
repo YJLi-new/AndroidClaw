@@ -61,6 +61,19 @@ interface TaskDao {
     @Query(
         """
         SELECT * FROM tasks
+        WHERE enabled = 1 AND nextRunAt IS NOT NULL AND nextRunAt > :instant
+        ORDER BY nextRunAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getFutureEnabledTasksAfter(
+        instant: Long,
+        limit: Int,
+    ): List<TaskEntity>
+
+    @Query(
+        """
+        SELECT * FROM tasks
         WHERE name LIKE :queryPattern ESCAPE '\'
            OR prompt LIKE :queryPattern ESCAPE '\'
         ORDER BY nextRunAt IS NULL, nextRunAt ASC
