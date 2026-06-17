@@ -8586,6 +8586,203 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.timeline",
+                    aliases =
+                        listOf(
+                            "task.timeline",
+                            "tasks.calendar",
+                            "task.calendar",
+                            "automations.timeline",
+                            "automation.timeline",
+                            "automations.calendar",
+                            "automation.calendar",
+                        ),
+                    description = "Return a global upcoming automation occurrence timeline without mutating tasks.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum global occurrence count. Defaults to 20, max 100.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "perTaskLimit",
+                                description = "Maximum occurrences generated per task. Defaults to 5, max 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "afterIso",
+                                description = "Optional exclusive ISO-8601 lower bound. Defaults to now.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "beforeIso",
+                                description = "Optional inclusive ISO-8601 upper bound.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDisabled",
+                                description = "Set true to include disabled automations. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includePromptSnippets",
+                                description = "Set false to omit prompt snippets. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit timelineMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val now = clock.instant()
+            val after =
+                arguments.optionalText("afterIso")?.let { rawAfterIso ->
+                    try {
+                        Instant.parse(rawAfterIso)
+                    } catch (_: DateTimeParseException) {
+                        return@Entry invalidTaskArguments(
+                            toolName = "tasks.timeline",
+                            summary = "tasks.timeline received an invalid afterIso.",
+                            field = "afterIso",
+                        )
+                    }
+                } ?: now
+            val before =
+                arguments.optionalText("beforeIso")?.let { rawBeforeIso ->
+                    try {
+                        Instant.parse(rawBeforeIso)
+                    } catch (_: DateTimeParseException) {
+                        return@Entry invalidTaskArguments(
+                            toolName = "tasks.timeline",
+                            summary = "tasks.timeline received an invalid beforeIso.",
+                            field = "beforeIso",
+                        )
+                    }
+                }
+            if (before != null && !before.isAfter(after)) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.timeline",
+                    summary = "tasks.timeline requires beforeIso to be after afterIso.",
+                    field = "beforeIso",
+                )
+            }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_TIMELINE_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_TIMELINE_MAX_LIMIT)
+            val perTaskLimit =
+                arguments
+                    .optionalInt(
+                        field = "perTaskLimit",
+                        defaultValue = TASK_TIMELINE_DEFAULT_PER_TASK_LIMIT,
+                    ).coerceIn(0, TASK_TIMELINE_MAX_PER_TASK_LIMIT)
+            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = false)
+            val includePromptSnippets = arguments.optionalBoolean("includePromptSnippets", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val allTasks = taskRepository.observeTasks().first()
+            val candidateTasks =
+                allTasks.filter { task ->
+                    includeDisabled || task.enabled
+                }
+            val generatedOccurrences =
+                if (limit == 0 || perTaskLimit == 0) {
+                    emptyList()
+                } else {
+                    candidateTasks.flatMap { task ->
+                        task.schedule
+                            .computeScheduledOccurrences(
+                                after = after,
+                                limit = perTaskLimit,
+                            ).filter { occurrence ->
+                                before == null || !occurrence.isAfter(before)
+                            }.mapIndexed { taskOccurrenceIndex, occurrence ->
+                                TaskTimelineOccurrence(
+                                    task = task,
+                                    runAt = occurrence,
+                                    taskOccurrenceIndex = taskOccurrenceIndex,
+                                )
+                            }
+                    }
+                }
+            val timelineOccurrences =
+                generatedOccurrences
+                    .sortedWith(
+                        compareBy<TaskTimelineOccurrence> { occurrence -> occurrence.runAt }
+                            .thenBy { occurrence -> occurrence.task.name }
+                            .thenBy { occurrence -> occurrence.task.id }
+                            .thenBy { occurrence -> occurrence.taskOccurrenceIndex },
+                    ).take(limit)
+            val targetSessions =
+                timelineOccurrences
+                    .mapNotNull { occurrence -> occurrence.task.targetSessionId }
+                    .distinct()
+                    .associateWith { sessionId -> sessionRepository.getSession(sessionId) }
+            val timelineMarkdown =
+                if (includeMarkdown) {
+                    timelineOccurrences.toTaskTimelineMarkdown(
+                        now = now,
+                        after = after,
+                        before = before,
+                        limit = limit,
+                        perTaskLimit = perTaskLimit,
+                        candidateTaskCount = candidateTasks.size,
+                        generatedOccurrenceCount = generatedOccurrences.size,
+                        includeDisabled = includeDisabled,
+                        includePromptSnippets = includePromptSnippets,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (timelineOccurrences.isEmpty()) {
+                        "Prepared empty automation timeline."
+                    } else {
+                        "Prepared automation timeline with ${timelineOccurrences.size} occurrence(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("nowIso", now.toString())
+                        put("afterIso", after.toString())
+                        put("beforeIso", before?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("limit", limit)
+                        put("perTaskLimit", perTaskLimit)
+                        put("includeDisabled", includeDisabled)
+                        put("includePromptSnippets", includePromptSnippets)
+                        put("includeMarkdown", includeMarkdown)
+                        put("promptBodiesIncluded", false)
+                        put("totalTaskCount", allTasks.size)
+                        put("candidateTaskCount", candidateTasks.size)
+                        put("candidateEnabledTaskCount", candidateTasks.count { task -> task.enabled })
+                        put("candidateDisabledTaskCount", candidateTasks.count { task -> !task.enabled })
+                        put("generatedOccurrenceCount", generatedOccurrences.size)
+                        put("occurrenceCount", timelineOccurrences.size)
+                        put("includedTaskCount", timelineOccurrences.map { occurrence -> occurrence.task.id }.distinct().size)
+                        put("omittedOccurrenceCount", (generatedOccurrences.size - timelineOccurrences.size).coerceAtLeast(0))
+                        put(
+                            "occurrences",
+                            buildJsonArray {
+                                timelineOccurrences.forEachIndexed { index, occurrence ->
+                                    add(
+                                        occurrence.toTaskTimelinePayload(
+                                            index = index,
+                                            after = after,
+                                            now = now,
+                                            targetSession =
+                                                occurrence.task.targetSessionId
+                                                    ?.let { sessionId -> targetSessions[sessionId] },
+                                            includePromptSnippet = includePromptSnippets,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put("timelineMarkdown", timelineMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.reschedule",
                     aliases =
                         listOf(
@@ -10536,6 +10733,10 @@ private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
 private const val TASK_SEARCH_DEFAULT_LIMIT = 20
 private const val TASK_SNOOZE_DEFAULT_DELAY_MINUTES = 15L
 private const val TASK_SNOOZE_MAX_DELAY_MINUTES = 10_080L
+private const val TASK_TIMELINE_DEFAULT_LIMIT = 20
+private const val TASK_TIMELINE_DEFAULT_PER_TASK_LIMIT = 5
+private const val TASK_TIMELINE_MAX_LIMIT = 100
+private const val TASK_TIMELINE_MAX_PER_TASK_LIMIT = 20
 private const val TASK_UPCOMING_DEFAULT_LIMIT = 20
 private const val TASK_UPCOMING_MAX_LIMIT = 50
 private const val TOOL_ARGUMENTS_DEFAULT_LIMIT = 50
@@ -14792,6 +14993,122 @@ private fun TaskSchedule.toScheduledOccurrencePayload(
         put("dueAtNow", !occurrence.isAfter(now))
         put("secondsAfterLowerBound", Duration.between(after, occurrence).seconds)
         put("secondsFromNow", Duration.between(now, occurrence).seconds)
+    }
+
+private data class TaskTimelineOccurrence(
+    val task: Task,
+    val runAt: Instant,
+    val taskOccurrenceIndex: Int,
+)
+
+private fun TaskTimelineOccurrence.toTaskTimelinePayload(
+    index: Int,
+    after: Instant,
+    now: Instant,
+    targetSession: Session?,
+    includePromptSnippet: Boolean,
+): JsonObject {
+    val promptSnippet = task.prompt.toMessageSearchSnippet()
+    return buildJsonObject {
+        put("index", index)
+        put("taskOccurrenceIndex", taskOccurrenceIndex)
+        put("taskId", task.id)
+        put("taskName", task.name)
+        put("taskEnabled", task.enabled)
+        put("scheduleKind", task.schedule.toTaskSearchKind())
+        put("executionMode", task.executionMode.name)
+        put("targetSessionId", task.targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("targetSessionMissing", task.targetSessionId != null && targetSession == null)
+        put("targetSessionArchived", targetSession?.archived?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "targetSession",
+            targetSession?.let { session ->
+                buildJsonObject {
+                    put("id", session.id)
+                    put("title", session.title)
+                    put("isMain", session.isMain)
+                    put("archived", session.archived)
+                }
+            } ?: JsonNull,
+        )
+        put("runAtIso", runAt.toString())
+        put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", task.lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("dueAtNow", !runAt.isAfter(now))
+        put("secondsAfterLowerBound", Duration.between(after, runAt).seconds)
+        put("secondsFromNow", Duration.between(now, runAt).seconds)
+        put("promptIncluded", includePromptSnippet)
+        put("promptSnippet", if (includePromptSnippet) JsonPrimitive(promptSnippet) else JsonNull)
+        put("promptLength", task.prompt.length)
+        put("promptTruncated", if (includePromptSnippet) promptSnippet.length < task.prompt.length else false)
+        put("promptBodyIncluded", false)
+    }
+}
+
+private fun List<TaskTimelineOccurrence>.toTaskTimelineMarkdown(
+    now: Instant,
+    after: Instant,
+    before: Instant?,
+    limit: Int,
+    perTaskLimit: Int,
+    candidateTaskCount: Int,
+    generatedOccurrenceCount: Int,
+    includeDisabled: Boolean,
+    includePromptSnippets: Boolean,
+): String =
+    buildString {
+        appendLine("# Automation timeline")
+        appendLine()
+        appendLine("- Now: $now")
+        appendLine("- After: $after")
+        appendLine("- Before: ${before ?: "none"}")
+        appendLine("- Candidate automations: $candidateTaskCount")
+        appendLine("- Generated occurrences: $generatedOccurrenceCount")
+        appendLine("- Occurrences included: ${this@toTaskTimelineMarkdown.size} of up to $limit")
+        appendLine("- Per-task occurrence cap: $perTaskLimit")
+        appendLine("- Disabled automations included: $includeDisabled")
+        appendLine("- Prompt snippets included: $includePromptSnippets")
+        appendLine("- Prompt bodies included: false")
+        appendLine()
+        appendLine("## Occurrences")
+        if (this@toTaskTimelineMarkdown.isEmpty()) {
+            appendLine("_No scheduled occurrences included._")
+        } else {
+            this@toTaskTimelineMarkdown.forEachIndexed { index, occurrence ->
+                appendLine(occurrence.toTaskTimelineMarkdownLine(index = index, includePromptSnippets = includePromptSnippets))
+            }
+        }
+    }
+
+private fun TaskTimelineOccurrence.toTaskTimelineMarkdownLine(
+    index: Int,
+    includePromptSnippets: Boolean,
+): String =
+    buildString {
+        append("- ")
+        append(index)
+        append(" at=")
+        append(runAt)
+        append(" task=`")
+        append(task.id.toHandoffLine())
+        append("` ")
+        append(task.name.toHandoffLine())
+        append(" enabled=")
+        append(task.enabled)
+        append(" schedule=")
+        append(task.schedule.toTaskSearchKind())
+        append(" mode=")
+        append(task.executionMode.name)
+        task.targetSessionId?.let { sessionId ->
+            append(" target=")
+            append(sessionId.toHandoffLine())
+        }
+        append(" prompt=")
+        if (includePromptSnippets) {
+            append(task.prompt.toMessageSearchSnippet().toHandoffLine())
+        } else {
+            append("_omitted_")
+        }
     }
 
 private fun Task.toDueTaskPayload(now: Instant): JsonObject {

@@ -3760,6 +3760,196 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks timeline returns global scheduled occurrences without prompt bodies`() =
+        runTest {
+            val targetSession = sessionRepository.createSession("Timeline target")
+            val intervalTask =
+                taskRepository.createTask(
+                    name = "Hourly timeline automation",
+                    prompt = "Hidden hourly timeline prompt",
+                    schedule =
+                        TaskSchedule.Interval(
+                            anchorAt = Instant.parse("2026-03-08T00:00:00Z"),
+                            repeatEvery = Duration.ofHours(1),
+                        ),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = targetSession.id,
+                )
+            val onceTask =
+                taskRepository.createTask(
+                    name = "One-shot timeline automation",
+                    prompt = "Hidden one-shot timeline prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T01:30:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                )
+            val laterTask =
+                taskRepository.createTask(
+                    name = "Later timeline automation",
+                    prompt = "Hidden later timeline prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T04:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled timeline automation",
+                    prompt = "Hidden disabled timeline prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T00:30:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automations.timeline"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 4)
+                            put("perTaskLimit", 3)
+                            put("includePromptSnippets", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["nowIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["afterIso"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("beforeIso"))
+            assertEquals("4", result.payload["limit"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["perTaskLimit"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includePromptSnippets"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["promptBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("4", result.payload["totalTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["candidateTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("5", result.payload["generatedOccurrenceCount"]?.jsonPrimitive?.content)
+            assertEquals("4", result.payload["occurrenceCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["includedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["omittedOccurrenceCount"]?.jsonPrimitive?.content)
+            val occurrences =
+                result.payload
+                    .getValue("occurrences")
+                    .jsonArray
+                    .map { item -> item.jsonObject }
+            assertEquals(
+                listOf(
+                    intervalTask.id,
+                    onceTask.id,
+                    intervalTask.id,
+                    intervalTask.id,
+                ),
+                occurrences.map { occurrence -> occurrence.getValue("taskId").jsonPrimitive.content },
+            )
+            assertEquals(
+                listOf(
+                    "2026-03-08T01:00:00Z",
+                    "2026-03-08T01:30:00Z",
+                    "2026-03-08T02:00:00Z",
+                    "2026-03-08T03:00:00Z",
+                ),
+                occurrences.map { occurrence -> occurrence.getValue("runAtIso").jsonPrimitive.content },
+            )
+            val firstOccurrence = occurrences.first()
+            assertEquals("0", firstOccurrence.getValue("index").jsonPrimitive.content)
+            assertEquals("0", firstOccurrence.getValue("taskOccurrenceIndex").jsonPrimitive.content)
+            assertEquals("3600", firstOccurrence.getValue("secondsFromNow").jsonPrimitive.content)
+            assertEquals(targetSession.id, firstOccurrence.getValue("targetSessionId").jsonPrimitive.content)
+            assertEquals(
+                "Timeline target",
+                firstOccurrence
+                    .getValue("targetSession")
+                    .jsonObject
+                    .getValue("title")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(JsonNull, firstOccurrence.getValue("promptSnippet"))
+            assertEquals(false.toString(), firstOccurrence.getValue("promptIncluded").jsonPrimitive.content)
+            assertEquals(false.toString(), firstOccurrence.getValue("promptBodyIncluded").jsonPrimitive.content)
+            assertTrue(
+                occurrences.none { occurrence ->
+                    occurrence.getValue("taskId").jsonPrimitive.content == disabledTask.id ||
+                        occurrence.getValue("taskId").jsonPrimitive.content == laterTask.id
+                },
+            )
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Hidden hourly timeline prompt"))
+            assertFalse(payloadText.contains("Hidden one-shot timeline prompt"))
+            val markdown =
+                result.payload
+                    .getValue("timelineMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Automation timeline"))
+            assertTrue(markdown.contains("Hourly timeline automation"))
+            assertTrue(markdown.contains("One-shot timeline automation"))
+            assertFalse(markdown.contains("Hidden hourly timeline prompt"))
+        }
+
+    @Test
+    fun `tasks timeline can include disabled tasks and validate bounds`() =
+        runTest {
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled calendar automation",
+                    prompt = "Disabled timeline prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-08T00:30:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            taskRepository.createTask(
+                name = "Enabled calendar automation",
+                prompt = "Enabled timeline prompt",
+                schedule = TaskSchedule.Once(Instant.parse("2026-03-08T01:00:00Z")),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = null,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.calendar"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 5)
+                            put("includeDisabled", true)
+                            put("beforeIso", "2026-03-08T00:45:00Z")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val invalidBefore =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.timeline"),
+                    arguments =
+                        buildJsonObject {
+                            put("afterIso", "2026-03-08T02:00:00Z")
+                            put("beforeIso", "2026-03-08T01:00:00Z")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(true.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["candidateTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["candidateDisabledTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["occurrenceCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("timelineMarkdown"))
+            val occurrence =
+                result.payload
+                    .getValue("occurrences")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(disabledTask.id, occurrence.getValue("taskId").jsonPrimitive.content)
+            assertEquals(false.toString(), occurrence.getValue("taskEnabled").jsonPrimitive.content)
+            assertEquals("2026-03-08T00:30:00Z", occurrence.getValue("runAtIso").jsonPrimitive.content)
+            assertFalse(invalidBefore.success)
+            assertEquals("INVALID_ARGUMENTS", invalidBefore.errorCode)
+        }
+
+    @Test
     fun `tasks next returns upcoming enabled automations in next run order`() =
         runTest {
             val dueTask =

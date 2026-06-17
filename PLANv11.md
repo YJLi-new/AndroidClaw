@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.timeline` /
+  `task.timeline` / `tasks.calendar` / `task.calendar` plus automation
+  timeline/calendar aliases as a global Automation Contract planning feature.
+  Agents can now inspect a bounded cross-task schedule timeline with global
+  and per-task occurrence caps, optional lower/upper ISO bounds, optional
+  disabled-task inclusion, target-session metadata, optional markdown, and
+  explicit prompt-body omission flags without mutating tasks or enqueueing
+  work. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `providers.auth.clear` /
   `provider.auth.clear` / `providers.credentials.clear` /
   `provider.credentials.clear` plus logout/sign-out aliases as a confirmed
