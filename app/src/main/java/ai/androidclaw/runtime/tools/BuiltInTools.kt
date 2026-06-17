@@ -6631,6 +6631,71 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "tasks.runs.trim",
+                    aliases =
+                        listOf(
+                            "task.runs.trim",
+                            "tasks.runs.prune",
+                            "task.runs.prune",
+                            "automations.runs.trim",
+                            "automation.runs.trim",
+                        ),
+                    description = "Delete automation run-history rows older than an ISO-8601 cutoff after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "olderThanIso",
+                                description = "ISO-8601 cutoff. Runs scheduled before this instant are deleted.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val olderThanIso =
+                arguments.optionalText("olderThanIso")
+                    ?: return@Entry invalidTaskArguments(
+                        toolName = "tasks.runs.trim",
+                        summary = "tasks.runs.trim requires a non-empty olderThanIso.",
+                        field = "olderThanIso",
+                    )
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Pass confirm=CONFIRM to trim old automation run history.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "tasks.runs.trim")
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val cutoff =
+                try {
+                    Instant.parse(olderThanIso)
+                } catch (_: DateTimeParseException) {
+                    return@Entry invalidTaskArguments(
+                        toolName = "tasks.runs.trim",
+                        summary = "tasks.runs.trim received an invalid olderThanIso.",
+                        field = "olderThanIso",
+                    )
+                }
+            val deletedCount = taskRepository.trimRunsOlderThan(cutoff)
+            ToolExecutionResult.success(
+                summary = "Trimmed $deletedCount automation run(s) older than $cutoff.",
+                payload =
+                    buildJsonObject {
+                        put("olderThanIso", cutoff.toString())
+                        put("deletedCount", deletedCount)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskDuplicateDescriptor(),
         ) { _, arguments ->
             val taskId =

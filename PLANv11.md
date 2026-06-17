@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.runs.trim` / `task.runs.trim` /
+  `tasks.runs.prune` plus automation run-history trim aliases as an Automation
+  Contract retention control. Agents can now delete task-run history scheduled
+  before an explicit ISO-8601 cutoff only with `confirm=CONFIRM`, preserving
+  boundary-and-newer runs while returning deleted counts for local history
+  maintenance. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `tasks.disable_all` / `task.disable_all` /
   `tasks.pause_all` plus automation pause aliases and `tasks.enable_all` /
   `task.enable_all` / `tasks.resume_all` plus automation resume aliases as an

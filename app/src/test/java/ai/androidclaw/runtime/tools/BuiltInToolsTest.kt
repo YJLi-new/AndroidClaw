@@ -3411,6 +3411,53 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks runs trim requires confirmation and deletes old run history`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Trim run history",
+                    prompt = "Trim old runs",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val oldRun = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-01T00:00:00Z"))
+            val boundaryRun = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-05T00:00:00Z"))
+            val newRun = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-06T00:00:00Z"))
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automations.runs.trim"),
+                    arguments =
+                        buildJsonObject {
+                            put("olderThanIso", "2026-03-05T00:00:00Z")
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertNotNull(taskRepository.getRun(oldRun.id))
+
+            val trimmed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.runs.prune"),
+                    arguments =
+                        buildJsonObject {
+                            put("olderThanIso", "2026-03-05T00:00:00Z")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(trimmed.success)
+            assertEquals("2026-03-05T00:00:00Z", trimmed.payload["olderThanIso"]?.jsonPrimitive?.content)
+            assertEquals("1", trimmed.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertNull(taskRepository.getRun(oldRun.id))
+            assertNotNull(taskRepository.getRun(boundaryRun.id))
+            assertNotNull(taskRepository.getRun(newRun.id))
+        }
+
+    @Test
     fun `tasks duplicate creates a disabled copy by default`() =
         runTest {
             val targetSession = sessionRepository.createSession("Automation target")
