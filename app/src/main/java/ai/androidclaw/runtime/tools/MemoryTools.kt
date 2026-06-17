@@ -8,6 +8,8 @@ import ai.androidclaw.data.model.Session
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
@@ -239,6 +241,74 @@ internal fun memoryToolEntries(
                 includeDeleted = arguments.optionalBoolean("includeDeleted", defaultValue = false),
                 includeText = arguments.optionalBoolean("includeText", defaultValue = true),
                 includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "memory.import",
+                    aliases =
+                        listOf(
+                            "memories.import",
+                            "memory.ingest",
+                            "memories.ingest",
+                            "memory.restore_export",
+                            "memories.restore_export",
+                        ),
+                    description = "Import a bounded set of local memory entries from a portable export payload.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "memories",
+                                description = "Array of exported memory entries, or pass export.memories.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "export",
+                                description = "Optional memory.export payload containing a memories array.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum entries to scan. Defaults to 50, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDeleted",
+                                description = "Set true to import deleted export entries as active memories. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeText",
+                                description = "Set false to omit memory text from the import result payload. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "dryRun",
+                                description = "Set true to preview importable entries without writing memories. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM unless dryRun=true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MEMORY_IMPORT_DEFAULT_LIMIT,
+                            maxValue = MEMORY_IMPORT_MAX_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            memoryImportResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                arguments = arguments,
+                limit = limit,
+                includeDeleted = arguments.optionalBoolean("includeDeleted", defaultValue = false),
+                includeText = arguments.optionalBoolean("includeText", defaultValue = true),
+                dryRun = arguments.optionalBoolean("dryRun", defaultValue = false),
             )
         },
         ToolRegistry.Entry(
@@ -1700,6 +1770,132 @@ private suspend fun memoryExportResult(
     )
 }
 
+private suspend fun memoryImportResult(
+    settingsDataStore: SettingsDataStore,
+    memoryRepository: MemoryRepository,
+    arguments: JsonObject,
+    limit: Int,
+    includeDeleted: Boolean,
+    includeText: Boolean,
+    dryRun: Boolean,
+): ToolExecutionResult {
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    if (!settings.enabled) {
+        return memoryDisabledResult()
+    }
+    if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+        return missingMemoryImportConfirmationResult()
+    }
+    val rawEntries =
+        when (val parsedEntries = arguments.memoryImportEntries()) {
+            is MemoryImportEntriesParseResult.Failure -> return parsedEntries.result
+            is MemoryImportEntriesParseResult.Success -> parsedEntries.entries
+        }
+    val scannedEntries = rawEntries.take(limit)
+    val candidates = mutableListOf<MemoryImportCandidate>()
+    val skipped = mutableListOf<MemoryImportSkippedEntry>()
+    scannedEntries.forEachIndexed { sourceIndex, element ->
+        when (
+            val parsedCandidate =
+                element.toMemoryImportCandidate(
+                    sourceIndex = sourceIndex,
+                    includeDeleted = includeDeleted,
+                )
+        ) {
+            is MemoryImportCandidateParseResult.Candidate -> candidates += parsedCandidate.candidate
+            is MemoryImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+        }
+    }
+    val activeMemoryCountBefore = memoryRepository.countActive(settings.installUserId)
+    val importedMemories =
+        if (dryRun) {
+            emptyList()
+        } else {
+            candidates.mapNotNull { candidate ->
+                memoryRepository
+                    .remember(
+                        ownerUserId = settings.installUserId,
+                        text = candidate.text,
+                        sourceSessionId = candidate.sourceSessionId,
+                        sourceMessageIds = candidate.sourceMessageIds,
+                        sourceType = candidate.sourceType,
+                    )?.let { memory ->
+                        MemoryImportedItem(
+                            candidate = candidate,
+                            memory = memory,
+                        )
+                    }
+            }
+        }
+    val activeMemoryCountAfter =
+        if (dryRun) {
+            activeMemoryCountBefore
+        } else {
+            memoryRepository.countActive(settings.installUserId)
+        }
+    return ToolExecutionResult.success(
+        summary =
+            if (dryRun) {
+                "Prepared dry-run memory import with ${candidates.size} importable memory item(s)."
+            } else {
+                "Imported ${importedMemories.size} memory item(s); skipped ${skipped.size}."
+            },
+        payload =
+            buildJsonObject {
+                put("enabled", true)
+                put("scope", "local-device")
+                put("acceptedExportFormat", MEMORY_EXPORT_FORMAT)
+                put("acceptedExportVersion", MEMORY_EXPORT_VERSION)
+                put("memoryLimit", limit)
+                put("importLimit", limit)
+                put("dryRun", dryRun)
+                put("includeDeleted", includeDeleted)
+                put("includeText", includeText)
+                put("memoryTextIncluded", includeText)
+                put("ownerUserIdIncluded", false)
+                put("fullMessageBodiesIncluded", false)
+                put("providerMetaIncluded", false)
+                put("receivedMemoryCount", rawEntries.size)
+                put("scannedMemoryCount", scannedEntries.size)
+                put("omittedInputMemoryCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                put("importableMemoryCount", candidates.size)
+                put("importedMemoryCount", importedMemories.size)
+                put("skippedMemoryCount", skipped.size)
+                put("invalidMemoryCount", skipped.count { entry -> entry.code.startsWith("memory.import.invalid") })
+                put("deletedMemorySkippedCount", skipped.count { entry -> entry.code == "memory.import.deleted_skipped" })
+                put("sourceTypeAdjustedCount", candidates.count(MemoryImportCandidate::sourceTypeAdjusted))
+                put("deletedEntryImportableCount", candidates.count(MemoryImportCandidate::importedFromDeleted))
+                put("activeMemoryCountBefore", activeMemoryCountBefore)
+                put("activeMemoryCountAfter", activeMemoryCountAfter)
+                put("newActiveMemoryCountDelta", activeMemoryCountAfter - activeMemoryCountBefore)
+                put(
+                    "candidateMemories",
+                    buildJsonArray {
+                        candidates.forEach { candidate ->
+                            add(candidate.toMemoryImportCandidatePayload(includeText = includeText))
+                        }
+                    },
+                )
+                put(
+                    "importedMemories",
+                    buildJsonArray {
+                        importedMemories.forEach { importedItem ->
+                            add(importedItem.toMemoryImportedPayload(includeText = includeText))
+                        }
+                    },
+                )
+                put(
+                    "skippedMemories",
+                    buildJsonArray {
+                        skipped.forEach { skippedEntry ->
+                            add(skippedEntry.toMemoryImportSkippedPayload())
+                        }
+                    },
+                )
+            },
+    )
+}
+
 private suspend fun memoryProvenanceResult(
     memory: MemoryItem,
     sessionRepository: SessionRepository,
@@ -1818,6 +2014,39 @@ private fun memoryNotFoundResult(id: String): ToolExecutionResult =
             buildJsonObject {
                 put("id", id)
                 put("errorCode", "MEMORY_NOT_FOUND")
+            },
+    )
+
+private fun missingMemoryImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import memories, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_MEMORY_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingMemoryImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide a memories array or an export object containing memories to import.",
+        errorCode = "MISSING_MEMORY_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MEMORY_IMPORT_ENTRIES")
+                put("field", "memories")
+            },
+    )
+
+private fun invalidMemoryImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Memory import entries must be an array.",
+        errorCode = "INVALID_MEMORY_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_MEMORY_IMPORT_ENTRIES")
+                put("field", "memories")
             },
     )
 
@@ -2003,6 +2232,27 @@ private data class MemoryDoctorIssue(
 private data class MemorySourceMessageReference(
     val sourceMessageId: String,
     val message: ChatMessage?,
+)
+
+private data class MemoryImportCandidate(
+    val sourceIndex: Int,
+    val text: String,
+    val sourceSessionId: String?,
+    val sourceMessageIds: List<String>,
+    val sourceType: String,
+    val sourceTypeAdjusted: Boolean,
+    val importedFromDeleted: Boolean,
+)
+
+private data class MemoryImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private data class MemoryImportedItem(
+    val candidate: MemoryImportCandidate,
+    val memory: MemoryItem,
 )
 
 private fun buildMemoryDoctorIssues(
@@ -2554,6 +2804,71 @@ private fun MemoryItem.toMemoryExportPayload(includeText: Boolean): JsonObject =
         put("providerMetaIncluded", false)
     }
 
+private fun MemoryImportCandidate.toMemoryImportCandidatePayload(includeText: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("status", if (importedFromDeleted) "DeletedSource" else "ActiveSource")
+        put("sourceType", sourceType)
+        put("sourceTypeAdjusted", sourceTypeAdjusted)
+        put("importedFromDeleted", importedFromDeleted)
+        put("sourceSessionId", sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceMessageCount", sourceMessageIds.size)
+        put(
+            "sourceMessageIds",
+            buildJsonArray {
+                sourceMessageIds.forEach { sourceMessageId ->
+                    add(JsonPrimitive(sourceMessageId))
+                }
+            },
+        )
+        put("textLength", text.length)
+        put("text", if (includeText) JsonPrimitive(text) else JsonNull)
+        put("memoryTextIncluded", includeText)
+        put("ownerUserIdIncluded", false)
+        put("fullMessageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun MemoryImportedItem.toMemoryImportedPayload(includeText: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", candidate.sourceIndex)
+        put("id", memory.id)
+        put("status", memory.memoryTimelineStatus())
+        put("sourceType", memory.sourceType)
+        put("sourceTypeAdjusted", candidate.sourceTypeAdjusted)
+        put("importedFromDeleted", candidate.importedFromDeleted)
+        put("sourceSessionId", memory.sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceMessageCount", memory.sourceMessageIds.size)
+        put(
+            "sourceMessageIds",
+            buildJsonArray {
+                memory.sourceMessageIds.forEach { sourceMessageId ->
+                    add(JsonPrimitive(sourceMessageId))
+                }
+            },
+        )
+        put("createdAt", memory.createdAt.toString())
+        put("updatedAt", memory.updatedAt.toString())
+        put("deletedAt", memory.deletedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("textLength", memory.text.length)
+        put("text", if (includeText) JsonPrimitive(memory.text) else JsonNull)
+        put("memoryTextIncluded", includeText)
+        put("ownerUserIdIncluded", false)
+        put("fullMessageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun MemoryImportSkippedEntry.toMemoryImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
+        put("ownerUserIdIncluded", false)
+        put("memoryTextIncluded", false)
+        put("fullMessageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
 private fun memoryHandoffMarkdown(
     stats: MemoryRepository.MemoryStats,
     memories: List<MemoryItem>,
@@ -2732,6 +3047,108 @@ private fun String.toSourceMessageIdOrNull(): String? =
         .take(MemoryRepository.MAX_SOURCE_MESSAGE_ID_CHARS)
         .ifBlank { null }
 
+private fun JsonObject.memoryImportEntries(): MemoryImportEntriesParseResult {
+    val directEntries = this["memories"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("memories")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("memories")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return MemoryImportEntriesParseResult.Failure(
+            missingMemoryImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(MemoryImportEntriesParseResult::Success)
+        ?: MemoryImportEntriesParseResult.Failure(invalidMemoryImportEntriesResult())
+}
+
+private fun JsonElement.toMemoryImportCandidate(
+    sourceIndex: Int,
+    includeDeleted: Boolean,
+): MemoryImportCandidateParseResult {
+    val objectValue = this as? JsonObject
+    if (objectValue == null) {
+        val text =
+            (this as? JsonPrimitive)
+                ?.contentOrNull
+                ?.trim()
+                ?.ifBlank { null }
+                ?: return memoryImportSkipped(
+                    sourceIndex = sourceIndex,
+                    code = "memory.import.invalid_entry",
+                    summary = "Import entry must be an object or non-blank text.",
+                )
+        return MemoryImportCandidateParseResult.Candidate(
+            MemoryImportCandidate(
+                sourceIndex = sourceIndex,
+                text = text,
+                sourceSessionId = null,
+                sourceMessageIds = emptyList(),
+                sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+                sourceTypeAdjusted = false,
+                importedFromDeleted = false,
+            ),
+        )
+    }
+    val deleted = objectValue.importDeleted()
+    if (deleted && !includeDeleted) {
+        return memoryImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "memory.import.deleted_skipped",
+            summary = "Deleted export entry skipped because includeDeleted=false.",
+        )
+    }
+    val text =
+        objectValue.optionalText("text")
+            ?: return memoryImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "memory.import.invalid_missing_text",
+                summary = "Import entry skipped because text is missing or blank.",
+            )
+    val rawSourceType = objectValue.optionalText("sourceType") ?: MemoryRepository.SOURCE_TYPE_MANUAL
+    val sourceType = normalizeMemorySourceType(rawSourceType) ?: MemoryRepository.SOURCE_TYPE_MANUAL
+    return MemoryImportCandidateParseResult.Candidate(
+        MemoryImportCandidate(
+            sourceIndex = sourceIndex,
+            text = text,
+            sourceSessionId = objectValue.optionalText("sourceSessionId"),
+            sourceMessageIds = objectValue.importSourceMessageIds(),
+            sourceType = sourceType,
+            sourceTypeAdjusted = sourceType != rawSourceType,
+            importedFromDeleted = deleted,
+        ),
+    )
+}
+
+private fun memoryImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): MemoryImportCandidateParseResult.Skipped =
+    MemoryImportCandidateParseResult.Skipped(
+        MemoryImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun JsonObject.importDeleted(): Boolean =
+    optionalBoolean("deleted", defaultValue = false) ||
+        (this["deletedAt"] != null && this["deletedAt"] != JsonNull)
+
+private fun JsonObject.importSourceMessageIds(): List<String> {
+    val sourceMessageIds = mutableListOf<String>()
+    (this["sourceMessageIds"] as? JsonArray)
+        ?.forEach { element ->
+            (element as? JsonPrimitive)
+                ?.contentOrNull
+                ?.toSourceMessageIdOrNull()
+                ?.let(sourceMessageIds::add)
+        }
+    sourceMessageId()?.let(sourceMessageIds::add)
+    return sourceMessageIds
+        .distinct()
+        .take(MemoryRepository.MAX_SOURCE_MESSAGE_IDS)
+}
+
 private sealed interface MemorySourceTypeParseResult {
     data class Success(
         val value: String,
@@ -2796,6 +3213,26 @@ private sealed interface MemoryExportCommandParseResult {
     data class Failure(
         val result: ToolExecutionResult,
     ) : MemoryExportCommandParseResult
+}
+
+private sealed interface MemoryImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : MemoryImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : MemoryImportEntriesParseResult
+}
+
+private sealed interface MemoryImportCandidateParseResult {
+    data class Candidate(
+        val candidate: MemoryImportCandidate,
+    ) : MemoryImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: MemoryImportSkippedEntry,
+    ) : MemoryImportCandidateParseResult
 }
 
 private fun JsonObject.parseMemoryLimit(
@@ -2993,4 +3430,6 @@ private const val MEMORY_EXPORT_FORMAT = "androidclaw.memory.export.v1"
 private const val MEMORY_EXPORT_VERSION = 1
 private const val MEMORY_EXPORT_DEFAULT_LIMIT = 50
 private const val MEMORY_EXPORT_MAX_LIMIT = 50
+private const val MEMORY_IMPORT_DEFAULT_LIMIT = 50
+private const val MEMORY_IMPORT_MAX_LIMIT = 50
 private const val MEMORY_SOURCE_SNIPPET_MAX_CHARS = 500

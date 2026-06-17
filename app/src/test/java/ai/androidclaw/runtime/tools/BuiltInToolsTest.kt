@@ -32,6 +32,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -11339,6 +11340,172 @@ class BuiltInToolsTest {
             assertEquals("2", commandExport.payload["exportedMemoryCount"]?.jsonPrimitive?.content)
             assertFalse(disabled.success)
             assertEquals("MEMORY_DISABLED", disabled.errorCode)
+        }
+
+    @Test
+    fun `memory import stores confirmed export memories without owner or text when omitted`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                            put("limit", 10)
+                            put("includeDeleted", true)
+                            put("includeText", false)
+                            put(
+                                "memories",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("text", "User wants imported active memory stored.")
+                                            put("sourceType", "manual")
+                                            put("sourceSessionId", "session-import-active")
+                                            put(
+                                                "sourceMessageIds",
+                                                buildJsonArray {
+                                                    add(kotlinx.serialization.json.JsonPrimitive("message-import-active"))
+                                                },
+                                            )
+                                        },
+                                    )
+                                    add(
+                                        buildJsonObject {
+                                            put("text", "User wants imported deleted memory reactivated only when requested.")
+                                            put("sourceType", "automatic")
+                                            put("sourceSessionId", "session-import-deleted")
+                                            put(
+                                                "sourceMessageIds",
+                                                buildJsonArray {
+                                                    add(kotlinx.serialization.json.JsonPrimitive("message-import-deleted"))
+                                                },
+                                            )
+                                            put("deleted", true)
+                                            put("deletedAt", "2026-03-07T00:00:00Z")
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("10", result.payload["importLimit"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["ownerUserIdIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["receivedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importableMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["skippedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["deletedEntryImportableCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["activeMemoryCountAfter"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains(ownerUserId))
+            assertFalse(result.payload.toString().contains("imported active memory stored"))
+            assertFalse(result.payload.toString().contains("imported deleted memory reactivated"))
+            val importedMemories =
+                result.payload
+                    .getValue("importedMemories")
+                    .jsonArray
+                    .map { memory -> memory.jsonObject }
+            assertEquals(2, importedMemories.size)
+            assertTrue(importedMemories.all { memory -> memory.getValue("text") == JsonNull })
+            assertTrue(importedMemories.none { memory -> memory.containsKey("ownerUserId") })
+            val importedDeletedSource =
+                importedMemories.single { memory ->
+                    memory.getValue("importedFromDeleted").jsonPrimitive.content == true.toString()
+                }
+            assertEquals("Active", importedDeletedSource["status"]?.jsonPrimitive?.content)
+            assertEquals("automatic", importedDeletedSource["sourceType"]?.jsonPrimitive?.content)
+            assertEquals("1", importedDeletedSource["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("message-import-deleted"),
+                importedDeletedSource
+                    .getValue("sourceMessageIds")
+                    .jsonArray
+                    .map { sourceMessageId -> sourceMessageId.jsonPrimitive.content },
+            )
+            val activeMemories = memoryRepository.listRecent(ownerUserId, limit = 10)
+            assertEquals(2, activeMemories.size)
+            assertTrue(activeMemories.any { memory -> memory.text == "User wants imported active memory stored." })
+            assertTrue(activeMemories.any { memory -> memory.text == "User wants imported deleted memory reactivated only when requested." })
+        }
+
+    @Test
+    fun `memory import dry run previews without confirmation and write import requires confirmation`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val importPayload =
+                buildJsonObject {
+                    put(
+                        "export",
+                        buildJsonObject {
+                            put("exportFormat", "androidclaw.memory.export.v1")
+                            put(
+                                "memories",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("text", "User wants dry run import previewed.")
+                                            put("sourceType", "manual")
+                                        },
+                                    )
+                                    add(
+                                        buildJsonObject {
+                                            put("text", "User wants deleted dry run import skipped.")
+                                            put("sourceType", "automatic")
+                                            put("deleted", true)
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                }
+
+            val dryRun =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.ingest"),
+                    arguments =
+                        buildJsonObject {
+                            importPayload.forEach { key, value -> put(key, value) }
+                            put("dryRun", true)
+                        },
+                )
+            val missingConfirmation =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.import"),
+                    arguments = importPayload,
+                )
+
+            assertTrue(dryRun.summary, dryRun.success)
+            assertEquals("true", dryRun.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals("2", dryRun.payload["receivedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", dryRun.payload["importableMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("0", dryRun.payload["importedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", dryRun.payload["skippedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", dryRun.payload["deletedMemorySkippedCount"]?.jsonPrimitive?.content)
+            assertEquals("0", dryRun.payload["activeMemoryCountAfter"]?.jsonPrimitive?.content)
+            val skipped =
+                dryRun.payload
+                    .getValue("skippedMemories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("memory.import.deleted_skipped", skipped["code"]?.jsonPrimitive?.content)
+            assertEquals(0, memoryRepository.countActive(ownerUserId))
+            assertFalse(missingConfirmation.success)
+            assertEquals("MISSING_MEMORY_IMPORT_CONFIRMATION", missingConfirmation.errorCode)
+            assertEquals(0, memoryRepository.countActive(ownerUserId))
         }
 
     @Test

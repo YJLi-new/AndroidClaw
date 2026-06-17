@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.import` /
+  `memories.import` / `memory.ingest` / `memories.ingest` plus export-restore
+  aliases as the companion Memory Contract portability feature for
+  `memory.export`. Agents can now import a bounded `memories` array or
+  `export.memories` payload with explicit `confirm=CONFIRM`, dry-run preview,
+  optional deleted-entry reactivation, source/provenance preservation,
+  source-type normalization, and explicit owner-id/message-body/provider
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `memory.export` /
   `memories.export` / `memory.backup` / `memories.backup` plus dump aliases
   as a Memory Contract portability feature. Agents can now prepare a bounded
