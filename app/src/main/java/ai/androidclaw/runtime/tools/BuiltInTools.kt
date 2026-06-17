@@ -5070,6 +5070,63 @@ private fun eventToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "events.delete",
+                    aliases = listOf("event.delete", "logs.delete", "log.delete", "events.remove", "event.remove"),
+                    description = "Delete one local runtime event log by id after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "eventId",
+                                required = true,
+                                description = "Event log identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                required = true,
+                                description = "Must be CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val eventId =
+                arguments.optionalText("eventId")
+                    ?: return@Entry invalidEventArguments(
+                        summary = "events.delete requires a non-empty eventId.",
+                        field = "eventId",
+                        toolName = "events.delete",
+                    )
+            val event =
+                eventLogRepository.get(eventId)
+                    ?: return@Entry eventNotFoundResult(eventId)
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Pass confirm=CONFIRM to delete event ${event.id}.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "events.delete")
+                            put("eventId", event.id)
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val deletedCount = eventLogRepository.delete(event.id)
+            ToolExecutionResult.success(
+                summary = "Deleted event ${event.id}.",
+                payload =
+                    buildJsonObject {
+                        put("deletedEventId", event.id)
+                        put("category", event.category.name)
+                        put("level", event.level.name)
+                        put("timestampIso", event.timestamp.toString())
+                        put("deletedCount", deletedCount)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "events.search",
                     aliases = listOf("event.search", "logs.search", "log.search"),
                     description = "Search bounded recent runtime event logs for local diagnostics.",

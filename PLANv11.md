@@ -71,6 +71,12 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `events.delete` / `event.delete` /
+  `logs.delete` / `log.delete` plus remove aliases as a Tool Contract exact
+  diagnostics retention control. Agents can now delete one local runtime event
+  log by id only with `confirm=CONFIRM`, preserving neighboring diagnostics
+  while returning deleted event metadata and count. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `events.clear` / `event.clear` / `logs.clear` /
   `log.clear` as a Tool Contract diagnostics retention control. Agents can now
   clear local runtime event logs only with `confirm=CONFIRM`, receiving a

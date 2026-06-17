@@ -53,6 +53,8 @@ class EventLogRepository(
         return dao.getById(id.trim())?.toDomain()
     }
 
+    suspend fun delete(id: String): Int = dao.deleteById(id.trim())
+
     suspend fun clearAll(): Int = dao.deleteAll()
 
     suspend fun trimOlderThan(instant: Instant): Int = dao.deleteOlderThan(instant.toEpochMilli())

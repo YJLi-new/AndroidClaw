@@ -6176,6 +6176,62 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events delete requires confirmation and deletes only requested diagnostic`() =
+        runTest {
+            val registry = buildRegistry()
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "delete-event",
+                    timestamp = 1_000L,
+                    category = "tool",
+                    level = "warn",
+                    message = "Delete this event",
+                    detailsJson = null,
+                ),
+            )
+            database.eventLogDao().insert(
+                EventLogEntity(
+                    id = "keep-event",
+                    timestamp = 2_000L,
+                    category = "system",
+                    level = "info",
+                    message = "Keep this event",
+                    detailsJson = null,
+                ),
+            )
+
+            val rejected =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "event.delete"),
+                    arguments =
+                        buildJsonObject {
+                            put("eventId", "delete-event")
+                            put("confirm", "no")
+                        },
+                )
+            val deleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.delete"),
+                    arguments =
+                        buildJsonObject {
+                            put("eventId", "delete-event")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(rejected.success)
+            assertEquals("CONFIRMATION_REQUIRED", rejected.errorCode)
+            assertTrue(deleted.success)
+            assertEquals("delete-event", deleted.payload["deletedEventId"]?.jsonPrimitive?.content)
+            assertEquals("Tool", deleted.payload["category"]?.jsonPrimitive?.content)
+            assertEquals("Warn", deleted.payload["level"]?.jsonPrimitive?.content)
+            assertEquals("1970-01-01T00:00:01Z", deleted.payload["timestampIso"]?.jsonPrimitive?.content)
+            assertEquals("1", deleted.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertNull(eventLogRepository.get("delete-event"))
+            assertNotNull(eventLogRepository.get("keep-event"))
+        }
+
+    @Test
     fun `events search finds recent diagnostics with filters and optional details`() =
         runTest {
             val registry = buildRegistry()
