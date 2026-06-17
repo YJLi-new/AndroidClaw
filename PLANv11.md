@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `events.doctor` /
+  `event.doctor` / `logs.doctor` / `log.doctor` plus health/check aliases as
+  a dedicated local event-log diagnostics tool. Agents can now scan recent
+  runtime events by optional category for warning/error events, aggregate
+  category/level counts, bounded event checks, actionable category-specific
+  remediation, optional markdown, and explicit raw-details omission flags.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.doctor` /
   `message.doctor` / `messages.health` / `message.health` plus transcript
   aliases as a dedicated transcript diagnostics tool. Agents can now inspect

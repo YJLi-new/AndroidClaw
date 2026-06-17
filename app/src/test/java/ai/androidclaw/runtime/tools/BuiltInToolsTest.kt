@@ -8630,6 +8630,156 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events doctor reports warning and error diagnostics without raw details`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "System started",
+                details = "{\"secret\":\"system-detail\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"secret\":\"network-timeout\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Tool,
+                level = EventLevel.Warn,
+                message = "Tool permission blocked",
+                details = "{\"secret\":\"permission-detail\"}",
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("scanLimit", 20)
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("ERROR", result.payload["status"]?.jsonPrimitive?.content)
+            assertTrue(
+                result.payload
+                    .getValue("totalEventCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() >= 3,
+            )
+            assertTrue(
+                result.payload
+                    .getValue("scannedEventCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() >= 3,
+            )
+            assertTrue(
+                result.payload
+                    .getValue("matchedEventCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() >= 3,
+            )
+            assertEquals("2", result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["errorCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["warningCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["detailsIncluded"]?.jsonPrimitive?.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("network-timeout"))
+            assertFalse(payloadText.contains("permission-detail"))
+            assertTrue(
+                result.payload
+                    .getValue("eventChecks")
+                    .jsonArray
+                    .all { event ->
+                        val payload = event.jsonObject
+                        payload.getValue("detailsIncluded").jsonPrimitive.content == false.toString() &&
+                            !payload.containsKey("details")
+                    },
+            )
+            val issueCodes =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue ->
+                        issue.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(issueCodes.contains("event.error.recent"))
+            assertTrue(issueCodes.contains("event.warning.recent"))
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Events doctor"))
+            assertFalse(markdown.contains("network-timeout"))
+        }
+
+    @Test
+    fun `events doctor filters category and omits markdown`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"secret\":\"provider-detail\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Tool,
+                level = EventLevel.Warn,
+                message = "Tool permission blocked",
+                details = "{\"secret\":\"tool-detail\"}",
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.health"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "tool")
+                            put("includeMarkdown", false)
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("WARN", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("Tool", result.payload["category"]?.jsonPrimitive?.content)
+            assertTrue(
+                result.payload
+                    .getValue("matchedEventCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() >= 1,
+            )
+            assertEquals("1", result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedIssueCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertFalse(result.payload.toString().contains("tool-detail"))
+            assertTrue(
+                result.payload
+                    .getValue("eventChecks")
+                    .jsonArray
+                    .all { event ->
+                        event.jsonObject
+                            .getValue("category")
+                            .jsonPrimitive
+                            .content == "Tool"
+                    },
+            )
+        }
+
+    @Test
     fun `events clear deletes all existing diagnostics after explicit confirmation`() =
         runTest {
             val registry = buildRegistry()

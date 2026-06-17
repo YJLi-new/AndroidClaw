@@ -6721,6 +6721,145 @@ private fun eventToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "events.doctor",
+                    aliases =
+                        listOf(
+                            "event.doctor",
+                            "logs.doctor",
+                            "log.doctor",
+                            "events.health",
+                            "event.health",
+                            "logs.health",
+                            "log.health",
+                            "events.check",
+                            "event.check",
+                            "logs.check",
+                            "log.check",
+                        ),
+                    description = "Return actionable event-log diagnostics without raw event details.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "scanLimit",
+                                description = "Maximum recent event count to scan. Defaults to 200, max 500.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum diagnostic issues and event checks to include. Defaults to 20, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "category",
+                                description = "Optional category filter: provider, tool, scheduler, skill, system, or debug.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val scanLimit =
+                arguments
+                    .optionalInt(
+                        field = "scanLimit",
+                        defaultValue = EVENT_LOG_SCAN_LIMIT,
+                    ).coerceIn(1, EVENT_LOG_STATS_MAX_SCAN_LIMIT)
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = EVENT_DOCTOR_DEFAULT_LIMIT,
+                    ).coerceIn(0, EVENT_DOCTOR_MAX_LIMIT)
+            val category =
+                arguments.optionalText("category")?.let { rawCategory ->
+                    parseEventCategory(rawCategory)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.doctor received an unknown category.",
+                            field = "category",
+                            received = rawCategory,
+                            toolName = "events.doctor",
+                        )
+                }
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val totalEventCount = eventLogRepository.count()
+            val scannedEvents =
+                eventLogRepository
+                    .observeRecent(limit = scanLimit)
+                    .first()
+            val matchingEvents =
+                scannedEvents
+                    .filter { event -> category == null || event.category == category }
+            val issues = matchingEvents.toEventDoctorIssues()
+            val includedIssues = issues.take(limit)
+            val includedChecks = matchingEvents.take(limit)
+            val status = issues.toEventDoctorStatus()
+            val doctorMarkdown =
+                if (includeMarkdown) {
+                    includedIssues.toEventDoctorMarkdown(
+                        status = status,
+                        totalEventCount = totalEventCount,
+                        scannedEventCount = scannedEvents.size,
+                        matchedEventCount = matchingEvents.size,
+                        issueCount = issues.size,
+                        category = category,
+                        limit = limit,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        issues.isEmpty() ->
+                            "Event doctor found no warning or error events in ${matchingEvents.size} matching event(s)."
+                        includedIssues.size == issues.size ->
+                            "Event doctor found ${issues.size} issue event(s) in ${matchingEvents.size} matching event(s)."
+                        else ->
+                            "Event doctor found ${issues.size} issue event(s) and included ${includedIssues.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("status", status)
+                        put("totalEventCount", totalEventCount)
+                        put("scanLimit", scanLimit)
+                        put("scannedEventCount", scannedEvents.size)
+                        put("matchedEventCount", matchingEvents.size)
+                        put("category", category?.name ?: "Any")
+                        put("limit", limit)
+                        put("eventCheckCount", includedChecks.size)
+                        put("eventChecksOmitted", (matchingEvents.size - includedChecks.size).coerceAtLeast(0))
+                        put("issueCount", issues.size)
+                        put("includedIssueCount", includedIssues.size)
+                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                        put("includeMarkdown", includeMarkdown)
+                        put("detailsIncluded", false)
+                        put("countsByCategory", matchingEvents.toEventCategoryCountsPayload())
+                        put("countsByLevel", matchingEvents.toEventLevelCountsPayload())
+                        put(
+                            "eventChecks",
+                            buildJsonArray {
+                                includedChecks.forEach { event ->
+                                    add(event.toEventDoctorCheckPayload())
+                                }
+                            },
+                        )
+                        put(
+                            "issues",
+                            buildJsonArray {
+                                includedIssues.forEach { issue ->
+                                    add(issue.toEventDoctorPayload())
+                                }
+                            },
+                        )
+                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "events.clear",
                     aliases = listOf("event.clear", "logs.clear", "log.clear"),
                     description = "Delete all local event logs after explicit confirmation.",
@@ -6936,6 +7075,142 @@ private fun EventLogEntry.toEventLogPayload(includeDetails: Boolean): JsonObject
             )
         }
     }
+
+private fun List<EventLogEntry>.toEventDoctorIssues(): List<EventDoctorIssue> =
+    filter { event -> event.level == EventLevel.Error || event.level == EventLevel.Warn }
+        .map { event ->
+            EventDoctorIssue(
+                id = "${event.id}:${event.level.toEventDoctorCode()}",
+                severity = event.level.toEventDoctorSeverity(),
+                code = event.level.toEventDoctorCode(),
+                eventId = event.id,
+                category = event.category.name,
+                level = event.level.name,
+                timestamp = event.timestamp,
+                summary =
+                    "Recent ${event.category.name} ${event.level.name} event: ${event.message}"
+                        .toEventDoctorText(),
+                action = event.category.toEventDoctorAction(event.level).toEventDoctorText(),
+            )
+        }
+
+private fun EventLevel.toEventDoctorSeverity(): String =
+    when (this) {
+        EventLevel.Error -> "Error"
+        EventLevel.Warn -> "Warning"
+        EventLevel.Info -> "Info"
+    }
+
+private fun EventLevel.toEventDoctorCode(): String =
+    when (this) {
+        EventLevel.Error -> "event.error.recent"
+        EventLevel.Warn -> "event.warning.recent"
+        EventLevel.Info -> "event.info.recent"
+    }
+
+private fun EventCategory.toEventDoctorAction(level: EventLevel): String {
+    val prefix =
+        when (level) {
+            EventLevel.Error -> "Inspect and fix the failing"
+            EventLevel.Warn -> "Review the warning from the"
+            EventLevel.Info -> "Review the"
+        }
+    return when (this) {
+        EventCategory.Provider -> "$prefix provider path; run providers.doctor and verify auth, endpoint, model, and network state."
+        EventCategory.Tool -> "$prefix tool path; run tools.doctor and inspect the referenced tool arguments or permissions."
+        EventCategory.Scheduler -> "$prefix scheduler path; run tasks.doctor and inspect due/retry/precision state."
+        EventCategory.Skill -> "$prefix skill path; run skills.doctor and inspect skill metadata, eligibility, and configuration."
+        EventCategory.System -> "$prefix system path; run runtime.doctor for cross-contract readiness."
+        EventCategory.Debug -> "$prefix debug path; inspect the emitting component or reduce debug logging if expected."
+    }
+}
+
+private fun EventLogEntry.toEventDoctorCheckPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("timestampIso", timestamp.toString())
+        put("category", category.name)
+        put("level", level.name)
+        put("message", message.take(EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS))
+        put("messageTruncated", message.length > EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS)
+        put("hasDetails", details != null)
+        put("detailsIncluded", false)
+    }
+
+private fun List<EventDoctorIssue>.toEventDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun EventDoctorIssue.toEventDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("eventId", eventId)
+        put("category", category)
+        put("level", level)
+        put("timestampIso", timestamp.toString())
+        put("summary", summary)
+        put("action", action)
+    }
+
+private fun List<EventDoctorIssue>.toEventDoctorMarkdown(
+    status: String,
+    totalEventCount: Int,
+    scannedEventCount: Int,
+    matchedEventCount: Int,
+    issueCount: Int,
+    category: EventCategory?,
+    limit: Int,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Events doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Total event logs: $totalEventCount")
+        appendLine("- Events scanned: $scannedEventCount")
+        appendLine("- Matching events: $matchedEventCount")
+        appendLine("- Category filter: ${category?.name ?: "Any"}")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Limit: $limit")
+        appendLine("- Event details included: false")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No warning or error events found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toEventDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun EventDoctorIssue.toEventDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(eventId.toHandoffLine())
+        append("` category=")
+        append(category)
+        append(" level=")
+        append(level)
+        append(" code=")
+        append(code)
+        append(" at=")
+        append(timestamp)
+        append(": ")
+        append(summary.toHandoffLine())
+        append(" Action: ")
+        append(action.toHandoffLine())
+    }
+
+private fun String.toEventDoctorText(): String = toHandoffLine().take(EVENT_DOCTOR_TEXT_MAX_CHARS)
 
 // These handlers are the typed automation contract for v5. They intentionally mirror the
 // repository's real schedule model instead of inventing a second scheduler abstraction.
@@ -9329,6 +9604,9 @@ private fun taskMutationArguments(requiredTaskId: Boolean): List<ToolArgumentSpe
     }
 
 private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
+private const val EVENT_DOCTOR_DEFAULT_LIMIT = 20
+private const val EVENT_DOCTOR_MAX_LIMIT = 50
+private const val EVENT_DOCTOR_TEXT_MAX_CHARS = 500
 private const val EVENT_LOG_DEFAULT_LIMIT = 20
 private const val EVENT_LOG_MAX_LIMIT = 50
 private const val EVENT_LOG_SCAN_LIMIT = 200
@@ -9414,6 +9692,18 @@ private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 private val TOOL_VALIDATE_RESERVED_ARGUMENT_FIELDS = setOf("toolName", "name", "arguments")
+
+private data class EventDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val eventId: String,
+    val category: String,
+    val level: String,
+    val timestamp: Instant,
+    val summary: String,
+    val action: String,
+)
 
 private data class RuntimeDoctorIssue(
     val id: String,
