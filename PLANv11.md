@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.summary.update` /
+  `session.summary.update` / `sessions.summary.set` /
+  `session.summary.set` plus summary-clear aliases as a Session Contract
+  lightweight-summary control. Agents can now replace the active or specified
+  session summary without compacting or loading the transcript, preserve an
+  existing compaction boundary when refreshing a compacted summary, and clear
+  summary plus boundary metadata only with `confirm=CONFIRM`. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `sessions.compare` / `session.compare` /
   `sessions.diff` / `session.diff` plus compare-transcript aliases as a
   Session Contract planning tool. Agents can now compare two active or

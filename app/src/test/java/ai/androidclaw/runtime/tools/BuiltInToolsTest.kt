@@ -326,6 +326,100 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions summary update replaces summary while preserving compaction boundary`() =
+        runTest {
+            val session = sessionRepository.createSession("Summary update")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Boundary answer",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Old summary",
+                compactedUntilMessageId = boundary.id,
+            )
+            val longSummary = "u".repeat(4_050)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.summary.set", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("summary", longSummary)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Old summary".length.toString(), result.payload["previousSummaryLength"]?.jsonPrimitive?.content)
+            assertEquals("4000", result.payload["summaryLength"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryTruncated"]?.jsonPrimitive?.content)
+            assertEquals(longSummary.take(4_000), result.payload["summaryText"]?.jsonPrimitive?.content)
+            assertEquals(boundary.id, result.payload["compactedUntilMessageId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["compacted"]?.jsonPrimitive?.content)
+
+            val updatedSession = requireNotNull(sessionRepository.getSession(session.id))
+            assertEquals(longSummary.take(4_000), updatedSession.summaryText)
+            assertEquals(boundary.id, updatedSession.compactedUntilMessageId)
+        }
+
+    @Test
+    fun `sessions summary clear requires confirmation and clears compaction boundary`() =
+        runTest {
+            val session = sessionRepository.createSession("Clear summary")
+            val boundary =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Boundary prompt",
+                )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "Summary to clear",
+                compactedUntilMessageId = boundary.id,
+            )
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.summary.clear", sessionId = session.id),
+                    arguments = buildJsonObject {},
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertEquals("Summary to clear", sessionRepository.getSession(session.id)?.summaryText)
+            assertEquals(boundary.id, sessionRepository.getSession(session.id)?.compactedUntilMessageId)
+
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.summary.clear", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(cleared.success)
+            assertEquals(session.id, cleared.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), cleared.payload["clearSummary"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), cleared.payload["summaryCleared"]?.jsonPrimitive?.content)
+            assertEquals("16", cleared.payload["previousSummaryLength"]?.jsonPrimitive?.content)
+            assertEquals("0", cleared.payload["summaryLength"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, cleared.payload["summaryText"])
+            assertEquals(boundary.id, cleared.payload["previousCompactedUntilMessageId"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, cleared.payload["compactedUntilMessageId"])
+            assertEquals(false.toString(), cleared.payload["compacted"]?.jsonPrimitive?.content)
+
+            val updatedSession = requireNotNull(sessionRepository.getSession(session.id))
+            assertNull(updatedSession.summaryText)
+            assertNull(updatedSession.compactedUntilMessageId)
+        }
+
+    @Test
     fun `sessions activity lists recent sessions with latest message snippets`() =
         runTest {
             val longLatestMessage = "m".repeat(350)

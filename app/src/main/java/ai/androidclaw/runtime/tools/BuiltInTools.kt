@@ -886,6 +886,136 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.summary.update",
+                                    aliases =
+                                        listOf(
+                                            "session.summary.update",
+                                            "sessions.summary.set",
+                                            "session.summary.set",
+                                            "sessions.summary.clear",
+                                            "session.summary.clear",
+                                        ),
+                                    description = "Set or clear lightweight summary metadata for one chat session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to update. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "summary",
+                                                description = "Replacement summary text. Capped at 4000 characters.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "summaryText",
+                                                description = "Alias for summary.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "clearSummary",
+                                                description = "Set true to clear summary text and any compaction boundary.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Required as CONFIRM when clearing summary text.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available for summary update.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val existingSession =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val clearSummary =
+                                arguments.optionalBoolean("clearSummary") ||
+                                    context.requestedName.endsWith(".clear")
+                            val requestedSummary =
+                                arguments.optionalText("summary")
+                                    ?: arguments.optionalText("summaryText")
+                            if (clearSummary) {
+                                if (arguments.optionalText("confirm") != "CONFIRM") {
+                                    return@Entry ToolExecutionResult.failure(
+                                        summary = "Confirm summary clearing with confirm=CONFIRM.",
+                                        errorCode = "CONFIRMATION_REQUIRED",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "CONFIRMATION_REQUIRED")
+                                                put("sessionId", sessionId)
+                                                put("field", "confirm")
+                                            },
+                                    )
+                                }
+                                sessionRepository.updateSummaryState(
+                                    id = sessionId,
+                                    summaryText = null,
+                                    compactedUntilMessageId = null,
+                                )
+                            } else {
+                                if (requestedSummary.isNullOrBlank()) {
+                                    return@Entry ToolExecutionResult.failure(
+                                        summary = "sessions.summary.update requires summary text or clearSummary=true.",
+                                        errorCode = "MISSING_SUMMARY",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SUMMARY")
+                                                put("sessionId", sessionId)
+                                                put("field", "summary")
+                                            },
+                                    )
+                                }
+                                sessionRepository.updateSummaryState(
+                                    id = sessionId,
+                                    summaryText = requestedSummary.take(COMPACT_SUMMARY_MAX_CHARS),
+                                    compactedUntilMessageId = existingSession.compactedUntilMessageId,
+                                )
+                            }
+                            val updatedSession = sessionRepository.getSession(sessionId) ?: existingSession
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (clearSummary) {
+                                        "Cleared summary metadata for session \"${updatedSession.title}\"."
+                                    } else {
+                                        "Updated summary metadata for session \"${updatedSession.title}\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", updatedSession.id)
+                                        put("title", updatedSession.title)
+                                        put("archived", updatedSession.archived)
+                                        put("clearSummary", clearSummary)
+                                        put("summaryCleared", updatedSession.summaryText == null)
+                                        put("previousSummaryLength", existingSession.summaryText?.length ?: 0)
+                                        put("summaryLength", updatedSession.summaryText?.length ?: 0)
+                                        put("summaryTruncated", requestedSummary?.let { it.length > COMPACT_SUMMARY_MAX_CHARS } ?: false)
+                                        put("summaryText", updatedSession.summaryText?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("previousCompactedUntilMessageId", existingSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("compactedUntilMessageId", updatedSession.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("compacted", updatedSession.compactedUntilMessageId != null)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.activity",
                                     aliases =
                                         listOf(
