@@ -189,6 +189,61 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.export",
+                    aliases =
+                        listOf(
+                            "memories.export",
+                            "memory.backup",
+                            "memories.backup",
+                            "memory.dump",
+                            "memories.dump",
+                        ),
+                    description = "Return a bounded portable local memory export without exposing owner ids or message bodies.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum export entries. Defaults to 50, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDeleted",
+                                description = "Set true to include deleted memory entries. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeText",
+                                description = "Set false to export metadata only. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MEMORY_EXPORT_DEFAULT_LIMIT,
+                            maxValue = MEMORY_EXPORT_MAX_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            memoryExportResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = limit,
+                includeDeleted = arguments.optionalBoolean("includeDeleted", defaultValue = false),
+                includeText = arguments.optionalBoolean("includeText", defaultValue = true),
+                includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.provenance",
                     aliases =
                         listOf(
@@ -870,6 +925,20 @@ private suspend fun executeMemoryCommand(
             includeMarkdown = true,
         )
     }
+    if (
+        trimmed.equals("export", ignoreCase = true) ||
+        trimmed.equals("backup", ignoreCase = true) ||
+        trimmed.equals("dump", ignoreCase = true)
+    ) {
+        return memoryExportResult(
+            settingsDataStore = settingsDataStore,
+            memoryRepository = memoryRepository,
+            limit = MEMORY_EXPORT_DEFAULT_LIMIT,
+            includeDeleted = false,
+            includeText = true,
+            includeMarkdown = true,
+        )
+    }
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
     if (verb == "doctor" || verb == "check" || verb == "health") {
@@ -1010,6 +1079,22 @@ private suspend fun executeMemoryCommand(
                 memoryRepository = memoryRepository,
                 limit = timelineOptions.limit,
                 includeDeleted = timelineOptions.includeDeleted,
+                includeText = true,
+                includeMarkdown = true,
+            )
+        }
+
+        "export", "backup", "dump" -> {
+            val exportOptions =
+                when (val parsedOptions = parseMemoryExportCommandOptions(rest)) {
+                    is MemoryExportCommandParseResult.Failure -> return parsedOptions.result
+                    is MemoryExportCommandParseResult.Success -> parsedOptions.value
+                }
+            memoryExportResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = exportOptions.limit,
+                includeDeleted = exportOptions.includeDeleted,
                 includeText = true,
                 includeMarkdown = true,
             )
@@ -1510,6 +1595,104 @@ private suspend fun memoryTimelineResult(
                     buildJsonArray {
                         memories.forEach { memory ->
                             add(memory.toMemoryTimelinePayload(includeText = includeText))
+                        }
+                    },
+                )
+            },
+    )
+}
+
+private suspend fun memoryExportResult(
+    settingsDataStore: SettingsDataStore,
+    memoryRepository: MemoryRepository,
+    limit: Int,
+    includeDeleted: Boolean,
+    includeText: Boolean,
+    includeMarkdown: Boolean,
+): ToolExecutionResult {
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    if (!settings.enabled) {
+        return memoryDisabledResult()
+    }
+    val stats = memoryRepository.stats(settings.installUserId)
+    val memories =
+        memoryRepository.listTimeline(
+            ownerUserId = settings.installUserId,
+            includeDeleted = includeDeleted,
+            limit = limit,
+        )
+    val includedActiveMemoryCount = memories.count { memory -> memory.deletedAt == null }
+    val includedDeletedMemoryCount = memories.count { memory -> memory.deletedAt != null }
+    val eligibleMemoryCount =
+        stats.activeMemoryCount +
+            if (includeDeleted) {
+                stats.deletedMemoryCount
+            } else {
+                0L
+            }
+    val exportMarkdown =
+        if (includeMarkdown) {
+            memoryExportMarkdown(
+                stats = stats,
+                memories = memories,
+                limit = limit,
+                includeDeleted = includeDeleted,
+                includeText = includeText,
+            )
+        } else {
+            null
+        }
+    return ToolExecutionResult.success(
+        summary =
+            if (memories.isEmpty()) {
+                "Prepared memory export with no matching memories."
+            } else {
+                "Prepared memory export with ${memories.size} memory item(s)."
+            },
+        payload =
+            buildJsonObject {
+                put("enabled", true)
+                put("scope", "local-device")
+                put("exportFormat", MEMORY_EXPORT_FORMAT)
+                put("exportVersion", MEMORY_EXPORT_VERSION)
+                put("memoryLimit", limit)
+                put("exportLimit", limit)
+                put("includeDeleted", includeDeleted)
+                put("includeText", includeText)
+                put("memoryTextIncluded", includeText)
+                put("includeMarkdown", includeMarkdown)
+                put("ownerUserIdIncluded", false)
+                put("fullMessageBodiesIncluded", false)
+                put("providerMetaIncluded", false)
+                put("memoryCount", memories.size)
+                put("exportedMemoryCount", memories.size)
+                put("includedActiveMemoryCount", includedActiveMemoryCount)
+                put("includedDeletedMemoryCount", includedDeletedMemoryCount)
+                put("eligibleMemoryCount", eligibleMemoryCount)
+                put("omittedExportMemoryCount", (eligibleMemoryCount - memories.size.toLong()).coerceAtLeast(0))
+                put("excludedDeletedMemoryCount", if (includeDeleted) 0L else stats.deletedMemoryCount)
+                put("activeMemoryCount", stats.activeMemoryCount)
+                put("deletedMemoryCount", stats.deletedMemoryCount)
+                put("totalMemoryCount", stats.totalMemoryCount)
+                put(
+                    "sourceTypeStats",
+                    buildJsonArray {
+                        stats.sourceTypeStats.forEach { sourceTypeStats ->
+                            add(
+                                buildJsonObject {
+                                    put("sourceType", sourceTypeStats.sourceType)
+                                    put("memoryCount", sourceTypeStats.memoryCount)
+                                },
+                            )
+                        }
+                    },
+                )
+                put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                put(
+                    "memories",
+                    buildJsonArray {
+                        memories.forEach { memory ->
+                            add(memory.toMemoryExportPayload(includeText = includeText))
                         }
                     },
                 )
@@ -2286,6 +2469,91 @@ private fun MemoryItem.memoryTimelineStatus(): String =
 
 private fun MemoryItem.memoryTimelineAt() = deletedAt ?: updatedAt
 
+private fun memoryExportMarkdown(
+    stats: MemoryRepository.MemoryStats,
+    memories: List<MemoryItem>,
+    limit: Int,
+    includeDeleted: Boolean,
+    includeText: Boolean,
+): String =
+    buildString {
+        appendLine("# Memory export")
+        appendLine()
+        appendLine("- Format: $MEMORY_EXPORT_FORMAT")
+        appendLine("- Version: $MEMORY_EXPORT_VERSION")
+        appendLine("- Scope: local-device")
+        appendLine("- Active memories: ${stats.activeMemoryCount}")
+        appendLine("- Deleted memories: ${stats.deletedMemoryCount}")
+        appendLine("- Total memories: ${stats.totalMemoryCount}")
+        appendLine("- Include deleted: $includeDeleted")
+        appendLine("- Memory text included: $includeText")
+        appendLine("- Owner user id included: false")
+        appendLine("- Full message bodies included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine("- Memories exported: ${memories.size} of up to $limit")
+        appendLine()
+        appendLine("## Memories")
+        if (memories.isEmpty()) {
+            appendLine("_No memories exported._")
+        } else {
+            memories.forEach { memory ->
+                appendLine(memory.toMemoryExportMarkdownLine(includeText = includeText))
+            }
+        }
+    }
+
+private fun MemoryItem.toMemoryExportMarkdownLine(includeText: Boolean): String =
+    buildString {
+        append("- ")
+        append(memoryTimelineStatus())
+        append(" `")
+        append(id.toMemoryHandoffLine())
+        append("` sourceType=")
+        append(sourceType.toMemoryHandoffLine())
+        append(" createdAt=")
+        append(createdAt)
+        deletedAt?.let { deletedAt ->
+            append(" deletedAt=")
+            append(deletedAt)
+        }
+        sourceSessionId?.let { sessionId ->
+            append(" sourceSession=")
+            append(sessionId.toMemoryHandoffLine())
+        }
+        append(" sourceMessages=")
+        append(sourceMessageIds.size)
+        append(": ")
+        append(if (includeText) text.toMemoryHandoffLine() else "_Memory text omitted._")
+    }
+
+private fun MemoryItem.toMemoryExportPayload(includeText: Boolean): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("sourceMemoryId", id)
+        put("status", memoryTimelineStatus())
+        put("deleted", deletedAt != null)
+        put("sourceType", sourceType)
+        put("sourceSessionId", sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceMessageCount", sourceMessageIds.size)
+        put(
+            "sourceMessageIds",
+            buildJsonArray {
+                sourceMessageIds.forEach { sourceMessageId ->
+                    add(JsonPrimitive(sourceMessageId))
+                }
+            },
+        )
+        put("createdAt", createdAt.toString())
+        put("updatedAt", updatedAt.toString())
+        put("deletedAt", deletedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("textLength", text.length)
+        put("text", if (includeText) JsonPrimitive(text) else JsonNull)
+        put("memoryTextIncluded", includeText)
+        put("ownerUserIdIncluded", false)
+        put("fullMessageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
 private fun memoryHandoffMarkdown(
     stats: MemoryRepository.MemoryStats,
     memories: List<MemoryItem>,
@@ -2505,6 +2773,11 @@ private data class MemoryTimelineCommandOptions(
     val includeDeleted: Boolean,
 )
 
+private data class MemoryExportCommandOptions(
+    val limit: Int,
+    val includeDeleted: Boolean,
+)
+
 private sealed interface MemoryTimelineCommandParseResult {
     data class Success(
         val value: MemoryTimelineCommandOptions,
@@ -2513,6 +2786,16 @@ private sealed interface MemoryTimelineCommandParseResult {
     data class Failure(
         val result: ToolExecutionResult,
     ) : MemoryTimelineCommandParseResult
+}
+
+private sealed interface MemoryExportCommandParseResult {
+    data class Success(
+        val value: MemoryExportCommandOptions,
+    ) : MemoryExportCommandParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : MemoryExportCommandParseResult
 }
 
 private fun JsonObject.parseMemoryLimit(
@@ -2606,6 +2889,65 @@ private fun parseMemoryTimelineCommandOptions(
     )
 }
 
+private fun parseMemoryExportCommandOptions(rest: String): MemoryExportCommandParseResult {
+    val tokens =
+        rest
+            .split(Regex("\\s+"))
+            .map(String::trim)
+            .filter(String::isNotBlank)
+    if (tokens.isEmpty()) {
+        return MemoryExportCommandParseResult.Success(
+            MemoryExportCommandOptions(
+                limit = MEMORY_EXPORT_DEFAULT_LIMIT,
+                includeDeleted = false,
+            ),
+        )
+    }
+    val deletedTokens = setOf("all", "deleted", "trash", "with-deleted", "include-deleted")
+    val includeDeleted = tokens.any { token -> token.lowercase().replace("_", "-") in deletedTokens }
+    val limitTokens = tokens.filterNot { token -> token.lowercase().replace("_", "-") in deletedTokens }
+    if (limitTokens.size > 1) {
+        return MemoryExportCommandParseResult.Failure(
+            invalidMemoryLimitResult(
+                field = "limit",
+                maxValue = MEMORY_EXPORT_MAX_LIMIT,
+                rawValue = rest,
+            ),
+        )
+    }
+    val limitToken = limitTokens.singleOrNull()
+    val limit =
+        if (limitToken == null) {
+            MEMORY_EXPORT_DEFAULT_LIMIT
+        } else {
+            val parsedLimit =
+                limitToken.toLongOrNull()
+                    ?: return MemoryExportCommandParseResult.Failure(
+                        invalidMemoryLimitResult(
+                            field = "limit",
+                            maxValue = MEMORY_EXPORT_MAX_LIMIT,
+                            rawValue = limitToken,
+                        ),
+                    )
+            if (parsedLimit !in 1L..MEMORY_EXPORT_MAX_LIMIT.toLong()) {
+                return MemoryExportCommandParseResult.Failure(
+                    invalidMemoryLimitResult(
+                        field = "limit",
+                        maxValue = MEMORY_EXPORT_MAX_LIMIT,
+                        rawValue = limitToken,
+                    ),
+                )
+            }
+            parsedLimit.toInt()
+        }
+    return MemoryExportCommandParseResult.Success(
+        MemoryExportCommandOptions(
+            limit = limit,
+            includeDeleted = includeDeleted,
+        ),
+    )
+}
+
 private fun invalidMemoryLimitResult(
     field: String,
     maxValue: Int,
@@ -2647,4 +2989,8 @@ private const val MEMORY_HANDOFF_DEFAULT_LIMIT = 8
 private const val MEMORY_HANDOFF_MAX_LIMIT = 20
 private const val MEMORY_TIMELINE_DEFAULT_LIMIT = 20
 private const val MEMORY_TIMELINE_MAX_LIMIT = 50
+private const val MEMORY_EXPORT_FORMAT = "androidclaw.memory.export.v1"
+private const val MEMORY_EXPORT_VERSION = 1
+private const val MEMORY_EXPORT_DEFAULT_LIMIT = 50
+private const val MEMORY_EXPORT_MAX_LIMIT = 50
 private const val MEMORY_SOURCE_SNIPPET_MAX_CHARS = 500

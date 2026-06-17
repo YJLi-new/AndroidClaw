@@ -11182,6 +11182,166 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory export returns portable snapshot without owner or text when omitted`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val active =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants active export memory visible only when text is included.",
+                        sourceSessionId = "session-export-active",
+                        sourceMessageIds = listOf("message-export-active"),
+                        sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+                    ),
+                )
+            val deleted =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted export memory visible only when text is included.",
+                        sourceSessionId = "session-export-deleted",
+                        sourceMessageIds = listOf("message-export-deleted"),
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deleted.id))
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.backup"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                            put("includeDeleted", true)
+                            put("includeText", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.memory.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals("10", result.payload["exportLimit"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["ownerUserIdIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["exportedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedActiveMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedDeletedMemoryCount"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains(ownerUserId))
+            assertFalse(result.payload.toString().contains("active export memory visible"))
+            assertFalse(result.payload.toString().contains("deleted export memory visible"))
+            val exportedMemories =
+                result.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .map { memory -> memory.jsonObject }
+            assertEquals(
+                setOf(active.id, deleted.id),
+                exportedMemories.map { memory -> memory.getValue("id").jsonPrimitive.content }.toSet(),
+            )
+            assertTrue(exportedMemories.all { memory -> memory.getValue("text") == JsonNull })
+            assertTrue(exportedMemories.all { memory -> memory.getValue("sourceMemoryId") == memory.getValue("id") })
+            assertTrue(exportedMemories.none { memory -> memory.containsKey("ownerUserId") })
+            val deletedExport =
+                exportedMemories.single { memory ->
+                    memory.getValue("id").jsonPrimitive.content == deleted.id
+                }
+            assertEquals("Deleted", deletedExport["status"]?.jsonPrimitive?.content)
+            assertEquals("automatic", deletedExport["sourceType"]?.jsonPrimitive?.content)
+            assertEquals("1", deletedExport["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("message-export-deleted"),
+                deletedExport
+                    .getValue("sourceMessageIds")
+                    .jsonArray
+                    .map { sourceMessageId -> sourceMessageId.jsonPrimitive.content },
+            )
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Memory export"))
+            assertTrue(markdown.contains("Memory text included: false"))
+            assertFalse(markdown.contains("active export memory visible"))
+            assertFalse(markdown.contains("deleted export memory visible"))
+        }
+
+    @Test
+    fun `memory export defaults to active memories and command can include deleted`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val active =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants active export memory included.",
+                    ),
+                )
+            val deleted =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted export memory excluded by default.",
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deleted.id))
+
+            val activeOnlyExport =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                            put("includeMarkdown", false)
+                        },
+                )
+            val commandExport =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "export all 10")
+                        },
+                )
+            settingsDataStore.setMemoryEnabled(false)
+            val disabled =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.export"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(activeOnlyExport.summary, activeOnlyExport.success)
+            assertEquals("false", activeOnlyExport.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("1", activeOnlyExport.payload["exportedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", activeOnlyExport.payload["includedActiveMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("0", activeOnlyExport.payload["includedDeletedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", activeOnlyExport.payload["excludedDeletedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, activeOnlyExport.payload.getValue("exportMarkdown"))
+            val activeExport =
+                activeOnlyExport.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(active.id, activeExport["id"]?.jsonPrimitive?.content)
+            assertEquals("Active", activeExport["status"]?.jsonPrimitive?.content)
+            assertEquals("User wants active export memory included.", activeExport["text"]?.jsonPrimitive?.content)
+            assertTrue(commandExport.success)
+            assertEquals("true", commandExport.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("2", commandExport.payload["exportedMemoryCount"]?.jsonPrimitive?.content)
+            assertFalse(disabled.success)
+            assertEquals("MEMORY_DISABLED", disabled.errorCode)
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()

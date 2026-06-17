@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.export` /
+  `memories.export` / `memory.backup` / `memories.backup` plus dump aliases
+  as a Memory Contract portability feature. Agents can now prepare a bounded
+  local memory export with a stable export format/version, optional deleted
+  memory inclusion, optional text omission, source/provenance metadata,
+  optional markdown, and explicit owner-id/message-body/provider-metadata
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `memory.timeline` /
   `memories.timeline` / `memory.activity` / `memories.activity` plus history
   aliases as a Memory Contract lifecycle feature. Agents can now inspect a
