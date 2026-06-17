@@ -275,6 +275,199 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions import dry run previews export without writing or leaking omitted summaries`() =
+        runTest {
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.sessions.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "sessions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("sourceSessionId", "source-active-main")
+                                    put("title", "Portable active session")
+                                    put("isMain", true)
+                                    put("archived", false)
+                                    put("summaryText", "Portable active private summary")
+                                    put(
+                                        "messageStats",
+                                        buildJsonObject {
+                                            put("messageCount", 3)
+                                        },
+                                    )
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("sourceSessionId", "source-archived")
+                                    put("title", "Portable archived session")
+                                    put("archived", true)
+                                    put("summaryText", "Portable archived private summary")
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("summaryText", "Portable invalid private summary")
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("dryRun", true)
+                            put("includeArchived", false)
+                            put("importSummaries", false)
+                            put("limit", 3)
+                        },
+                )
+            val missingConfirmation =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.sessions.import.v1", result.payload["importFormat"]?.jsonPrimitive?.content)
+            assertEquals("androidclaw.sessions.export.v1", result.payload["acceptedExportFormat"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeArchived"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["importSummaries"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["receivedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["scannedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importableSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["skippedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["archivedSessionSkippedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["invalidSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["sourceMainSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedMainSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["sessionCountAfter"]?.jsonPrimitive?.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Portable active private summary"))
+            assertFalse(payloadText.contains("Portable archived private summary"))
+            assertFalse(payloadText.contains("Portable invalid private summary"))
+            val importable =
+                result.payload
+                    .getValue("importableSessions")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("source-active-main", importable.getValue("sourceSessionId").jsonPrimitive.content)
+            assertEquals("Portable active session", importable.getValue("title").jsonPrimitive.content)
+            assertEquals("true", importable.getValue("sourceIsMain").jsonPrimitive.content)
+            assertEquals(JsonNull, importable.getValue("summaryText"))
+            assertEquals("false", importable.getValue("messageBodiesIncluded").jsonPrimitive.content)
+            assertEquals("false", importable.getValue("providerMetaIncluded").jsonPrimitive.content)
+            assertFalse(missingConfirmation.success)
+            assertEquals("MISSING_SESSION_IMPORT_CONFIRMATION", missingConfirmation.errorCode)
+            assertEquals(0L, sessionRepository.getSessionStats().totalSessionCount)
+        }
+
+    @Test
+    fun `sessions import creates normal shells summaries and archived state after confirmation`() =
+        runTest {
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.sessions.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "sessions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("sourceSessionId", "source-main")
+                                    put("title", "Imported source main")
+                                    put("isMain", true)
+                                    put("archived", false)
+                                    put("summaryText", "Imported source main summary")
+                                    put("compacted", true)
+                                    put("compactedUntilMessageId", "source-message-boundary")
+                                    put(
+                                        "messageStats",
+                                        buildJsonObject {
+                                            put("messageCount", 2)
+                                        },
+                                    )
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("sourceSessionId", "source-archived")
+                                    put("title", "Imported source archived")
+                                    put("isMain", false)
+                                    put("archived", true)
+                                    put("summaryText", "Imported source archived summary")
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("confirm", "CONFIRM")
+                            put("preserveArchived", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("false", result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importableSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importedSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["summaryImportableCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["summaryImportedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["archivedPreservedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["sourceMainSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedMainSessionCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["sourceMainPreserved"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["compactionBoundaryPreserved"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["messageBodiesImported"]?.jsonPrimitive?.content)
+            val importedSessions =
+                result.payload
+                    .getValue("importedSessions")
+                    .jsonArray
+                    .map { session -> session.jsonObject }
+            assertEquals(2, importedSessions.size)
+            val importedMainSource =
+                importedSessions.single { session ->
+                    session.getValue("sourceSessionId").jsonPrimitive.content == "source-main"
+                }
+            assertEquals("false", importedMainSource.getValue("importedAsMain").jsonPrimitive.content)
+            assertEquals("Imported source main summary", importedMainSource.getValue("summaryText").jsonPrimitive.content)
+            assertEquals(JsonNull, importedMainSource.getValue("compactedUntilMessageId"))
+            val importedArchivedSource =
+                importedSessions.single { session ->
+                    session.getValue("sourceSessionId").jsonPrimitive.content == "source-archived"
+                }
+            assertEquals("true", importedArchivedSource.getValue("importedArchived").jsonPrimitive.content)
+            val activeSessions = sessionRepository.observeSessions().first()
+            val archivedSessions = sessionRepository.observeArchivedSessions().first()
+            assertEquals(1, activeSessions.size)
+            assertEquals(1, archivedSessions.size)
+            assertFalse(activeSessions.single().isMain)
+            assertEquals("Imported source main summary", activeSessions.single().summaryText)
+            assertNull(activeSessions.single().compactedUntilMessageId)
+            assertEquals("Imported source archived summary", archivedSessions.single().summaryText)
+        }
+
+    @Test
     fun `sessions create persists a new normal session`() =
         runTest {
             val registry = buildRegistry()

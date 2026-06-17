@@ -71,6 +71,17 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.import` /
+  `session.import` / `sessions.restore` / `session.restore` plus chat-session
+  import aliases as the companion Session Contract portability feature for
+  `sessions.export`. Agents can now dry-run or confirm import of bounded
+  session metadata shells, skip archived source sessions when requested,
+  preserve archived state when requested, import summaries without preserving
+  stale compaction boundaries, keep imported source-main sessions as normal
+  sessions to avoid duplicate main rows, and receive explicit transcript-body,
+  provider-metadata, source-created/updated time, source-main, and compaction
+  boundary non-preservation flags. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 - 2026-06-17: Added `sessions.export` /
   `session.export` / `sessions.backup` / `session.backup` plus chat-session
   export aliases as a Session Contract portability feature. Agents can now

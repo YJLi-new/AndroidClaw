@@ -914,6 +914,201 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.import",
+                                    aliases =
+                                        listOf(
+                                            "session.import",
+                                            "sessions.restore",
+                                            "session.restore",
+                                            "chat.sessions.import",
+                                            "chat.session.import",
+                                        ),
+                                    description = "Import bounded session metadata exported by sessions.export without transcript bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessions",
+                                                description = "Array of exported session objects, or pass export.sessions.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "export",
+                                                description = "Optional sessions.export payload containing a sessions array.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum sessions to scan. Defaults to 50, max 100.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeArchived",
+                                                description = "Set false to skip source archived sessions. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "importSummaries",
+                                                description = "Set false to skip importing summary text. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "preserveArchived",
+                                                description = "Set false to import archived source sessions as active. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "dryRun",
+                                                description = "Set true to preview importable sessions without writing. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must be CONFIRM unless dryRun=true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val dryRun = arguments.optionalBoolean("dryRun", defaultValue = false)
+                            if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry missingSessionImportConfirmationResult()
+                            }
+                            val rawEntries =
+                                when (val parsedEntries = arguments.sessionImportEntries()) {
+                                    is SessionImportEntriesParseResult.Failure -> return@Entry parsedEntries.result
+                                    is SessionImportEntriesParseResult.Success -> parsedEntries.entries
+                                }
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SESSION_IMPORT_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SESSION_IMPORT_MAX_LIMIT)
+                            val includeArchived = arguments.optionalBoolean("includeArchived", defaultValue = true)
+                            val importSummaries = arguments.optionalBoolean("importSummaries", defaultValue = true)
+                            val preserveArchived = arguments.optionalBoolean("preserveArchived", defaultValue = true)
+                            val scannedEntries = rawEntries.take(limit)
+                            val candidates = mutableListOf<SessionImportCandidate>()
+                            val skipped = mutableListOf<SessionImportSkippedEntry>()
+                            scannedEntries.forEachIndexed { sourceIndex, element ->
+                                when (val parsedCandidate = element.toSessionImportCandidate(sourceIndex = sourceIndex)) {
+                                    is SessionImportCandidateParseResult.Candidate ->
+                                        if (!includeArchived && parsedCandidate.candidate.sourceArchived) {
+                                            skipped +=
+                                                SessionImportSkippedEntry(
+                                                    sourceIndex = sourceIndex,
+                                                    code = "sessions.import.archived_skipped",
+                                                    summary = "Source session skipped because includeArchived=false.",
+                                                )
+                                        } else {
+                                            candidates += parsedCandidate.candidate
+                                        }
+                                    is SessionImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+                                }
+                            }
+                            val importedSessions =
+                                if (dryRun) {
+                                    emptyList()
+                                } else {
+                                    candidates.map { candidate ->
+                                        val createdSession =
+                                            sessionRepository.createSession(
+                                                title = candidate.title,
+                                                isMain = false,
+                                            )
+                                        val summaryImported =
+                                            importSummaries &&
+                                                !candidate.summaryText.isNullOrBlank()
+                                        if (summaryImported) {
+                                            sessionRepository.updateSummaryState(
+                                                id = createdSession.id,
+                                                summaryText = candidate.summaryText,
+                                                compactedUntilMessageId = null,
+                                            )
+                                        }
+                                        val archivedPreserved = preserveArchived && candidate.sourceArchived
+                                        if (archivedPreserved) {
+                                            sessionRepository.archiveSession(createdSession.id)
+                                        }
+                                        SessionImportedItem(
+                                            candidate = candidate,
+                                            session = sessionRepository.getSession(createdSession.id) ?: createdSession,
+                                            summaryImported = summaryImported,
+                                            archivedPreserved = archivedPreserved,
+                                        )
+                                    }
+                                }
+                            val statsAfter = sessionRepository.getSessionStats()
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (dryRun) {
+                                        "Prepared dry-run session import with ${candidates.size} importable session(s)."
+                                    } else {
+                                        "Imported ${importedSessions.size} session metadata shell(s); skipped ${skipped.size}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("importFormat", SESSION_IMPORT_FORMAT)
+                                        put("importVersion", SESSION_IMPORT_VERSION)
+                                        put("acceptedExportFormat", SESSION_EXPORT_FORMAT)
+                                        put("acceptedExportVersion", SESSION_EXPORT_VERSION)
+                                        put("sessionLimit", limit)
+                                        put("importLimit", limit)
+                                        put("dryRun", dryRun)
+                                        put("includeArchived", includeArchived)
+                                        put("preserveArchived", preserveArchived)
+                                        put("importSummaries", importSummaries)
+                                        put("summaryTextIncluded", importSummaries)
+                                        put("messageBodiesImported", false)
+                                        put("messageBodiesIncluded", false)
+                                        put("fullMessageBodiesIncluded", false)
+                                        put("providerMetaImported", false)
+                                        put("providerMetaIncluded", false)
+                                        put("sourceCreatedAtPreserved", false)
+                                        put("sourceUpdatedAtPreserved", false)
+                                        put("sourceMainPreserved", false)
+                                        put("compactionBoundaryPreserved", false)
+                                        put("runContextPreserved", false)
+                                        put("receivedSessionCount", rawEntries.size)
+                                        put("scannedSessionCount", scannedEntries.size)
+                                        put("omittedInputSessionCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                                        put("importableSessionCount", candidates.size)
+                                        put("importedSessionCount", importedSessions.size)
+                                        put("skippedSessionCount", skipped.size)
+                                        put("invalidSessionCount", skipped.count { entry -> entry.code.startsWith("sessions.import.invalid") })
+                                        put("archivedSessionSkippedCount", skipped.count { entry -> entry.code == "sessions.import.archived_skipped" })
+                                        put("sourceMainSessionCount", candidates.count { candidate -> candidate.sourceIsMain })
+                                        put("importedMainSessionCount", 0)
+                                        put("summaryImportableCount", candidates.count { candidate -> !candidate.summaryText.isNullOrBlank() })
+                                        put("summaryImportedCount", importedSessions.count { session -> session.summaryImported })
+                                        put("archivedPreservedCount", importedSessions.count { session -> session.archivedPreserved })
+                                        put("sessionCountAfter", statsAfter.totalSessionCount)
+                                        put("activeSessionCountAfter", statsAfter.activeSessionCount)
+                                        put("archivedSessionCountAfter", statsAfter.archivedSessionCount)
+                                        put(
+                                            "importableSessions",
+                                            buildJsonArray {
+                                                candidates.forEach { candidate ->
+                                                    add(candidate.toSessionImportCandidatePayload(includeSummary = importSummaries))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "importedSessions",
+                                            buildJsonArray {
+                                                importedSessions.forEach { imported ->
+                                                    add(imported.toSessionImportedPayload(includeSummary = importSummaries))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "skippedSessions",
+                                            buildJsonArray {
+                                                skipped.forEach { skippedEntry ->
+                                                    add(skippedEntry.toSessionImportSkippedPayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.delete",
                                     aliases =
                                         listOf(
@@ -12607,6 +12802,10 @@ private const val SESSION_EXPORT_DEFAULT_LIMIT = 50
 private const val SESSION_EXPORT_MAX_LIMIT = 100
 private const val SESSION_HANDOFF_DEFAULT_RECENT_LIMIT = 8
 private const val SESSION_HANDOFF_MAX_RECENT_LIMIT = 20
+private const val SESSION_IMPORT_FORMAT = "androidclaw.sessions.import.v1"
+private const val SESSION_IMPORT_VERSION = 1
+private const val SESSION_IMPORT_DEFAULT_LIMIT = 50
+private const val SESSION_IMPORT_MAX_LIMIT = 100
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val SESSION_SUMMARY_SNIPPET_MAX_CHARS = 500
 
@@ -12855,6 +13054,53 @@ private data class SessionDoctorIssue(
     val action: String,
     val detail: String? = null,
 )
+
+private data class SessionImportCandidate(
+    val sourceIndex: Int,
+    val sourceSessionId: String?,
+    val title: String,
+    val sourceIsMain: Boolean,
+    val sourceArchived: Boolean,
+    val summaryText: String?,
+    val sourceCompacted: Boolean,
+    val sourceCompactedUntilMessageId: String?,
+    val sourceCreatedAtIso: String?,
+    val sourceUpdatedAtIso: String?,
+    val sourceMessageCount: Long?,
+)
+
+private data class SessionImportedItem(
+    val candidate: SessionImportCandidate,
+    val session: Session,
+    val summaryImported: Boolean,
+    val archivedPreserved: Boolean,
+)
+
+private data class SessionImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private sealed interface SessionImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : SessionImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : SessionImportEntriesParseResult
+}
+
+private sealed interface SessionImportCandidateParseResult {
+    data class Candidate(
+        val candidate: SessionImportCandidate,
+    ) : SessionImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: SessionImportSkippedEntry,
+    ) : SessionImportCandidateParseResult
+}
 
 private data class MessageDoctorIssue(
     val id: String,
@@ -17389,6 +17635,181 @@ private fun List<Session>.toSessionExportMarkdown(
         }
     }
 }
+
+private fun JsonObject.sessionImportEntries(): SessionImportEntriesParseResult {
+    val directEntries = this["sessions"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("sessions")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("sessions")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return SessionImportEntriesParseResult.Failure(
+            missingSessionImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(SessionImportEntriesParseResult::Success)
+        ?: SessionImportEntriesParseResult.Failure(invalidSessionImportEntriesResult())
+}
+
+private fun JsonElement.toSessionImportCandidate(sourceIndex: Int): SessionImportCandidateParseResult {
+    val objectValue =
+        this as? JsonObject ?: return sessionImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "sessions.import.invalid_entry",
+            summary = "Import entry must be a session object.",
+        )
+    val title =
+        objectValue.optionalText("title")
+            ?: objectValue.optionalText("sessionTitle")
+            ?: objectValue.optionalText("name")
+            ?: return sessionImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "sessions.import.invalid_title",
+                summary = "Import entry skipped because title is missing or blank.",
+            )
+    val sourceCompactedUntilMessageId =
+        objectValue.optionalMessageReferenceId("compactedUntilMessageId")
+            ?: objectValue.optionalMessageReferenceId("sourceCompactedUntilMessageId")
+    val messageStats = objectValue["messageStats"] as? JsonObject
+    return SessionImportCandidateParseResult.Candidate(
+        SessionImportCandidate(
+            sourceIndex = sourceIndex,
+            sourceSessionId =
+                objectValue.optionalMessageReferenceId("sourceSessionId")
+                    ?: objectValue.optionalMessageReferenceId("sessionId")
+                    ?: objectValue.optionalMessageReferenceId("id"),
+            title = title,
+            sourceIsMain = objectValue.optionalBoolean("isMain", defaultValue = false),
+            sourceArchived = objectValue.optionalBoolean("archived", defaultValue = false),
+            summaryText =
+                objectValue.optionalRawText("summaryText")
+                    ?: objectValue.optionalRawText("summary"),
+            sourceCompacted =
+                objectValue.optionalBoolean(
+                    field = "compacted",
+                    defaultValue = sourceCompactedUntilMessageId != null,
+                ),
+            sourceCompactedUntilMessageId = sourceCompactedUntilMessageId,
+            sourceCreatedAtIso =
+                objectValue.optionalText("createdAtIso")
+                    ?: objectValue.optionalText("createdAt"),
+            sourceUpdatedAtIso =
+                objectValue.optionalText("updatedAtIso")
+                    ?: objectValue.optionalText("updatedAt"),
+            sourceMessageCount =
+                messageStats?.optionalText("messageCount")?.toLongOrNull()
+                    ?: objectValue.optionalText("messageCount")?.toLongOrNull(),
+        ),
+    )
+}
+
+private fun sessionImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): SessionImportCandidateParseResult.Skipped =
+    SessionImportCandidateParseResult.Skipped(
+        SessionImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun missingSessionImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import sessions, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_SESSION_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_SESSION_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingSessionImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide a sessions array or an export object containing sessions to import.",
+        errorCode = "MISSING_SESSION_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_SESSION_IMPORT_ENTRIES")
+                put("field", "sessions")
+            },
+    )
+
+private fun invalidSessionImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Session import entries must be an array.",
+        errorCode = "INVALID_SESSION_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_SESSION_IMPORT_ENTRIES")
+                put("field", "sessions")
+            },
+    )
+
+private fun SessionImportCandidate.toSessionImportCandidatePayload(includeSummary: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceSessionId", sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("title", title)
+        put("sourceIsMain", sourceIsMain)
+        put("sourceArchived", sourceArchived)
+        put("sourceCreatedAtIso", sourceCreatedAtIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceUpdatedAtIso", sourceUpdatedAtIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("summaryText", if (includeSummary) summaryText?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
+        put("summaryTextIncluded", includeSummary)
+        put("summaryLength", summaryText?.length ?: 0)
+        put("sourceCompacted", sourceCompacted)
+        put("sourceCompactedUntilMessageId", sourceCompactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceMessageCount", sourceMessageCount?.let(::JsonPrimitive) ?: JsonNull)
+        put("messageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+        put("sourceCreatedAtPreserved", false)
+        put("sourceUpdatedAtPreserved", false)
+        put("sourceMainPreserved", false)
+        put("compactionBoundaryPreserved", false)
+    }
+
+private fun SessionImportedItem.toSessionImportedPayload(includeSummary: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", candidate.sourceIndex)
+        put("sourceSessionId", candidate.sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("newSessionId", session.id)
+        put("sessionId", session.id)
+        put("title", session.title)
+        put("sourceTitle", candidate.title)
+        put("sourceIsMain", candidate.sourceIsMain)
+        put("importedAsMain", session.isMain)
+        put("sourceArchived", candidate.sourceArchived)
+        put("importedArchived", session.archived)
+        put("archivedPreserved", archivedPreserved)
+        put("sourceCreatedAtIso", candidate.sourceCreatedAtIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceUpdatedAtIso", candidate.sourceUpdatedAtIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("createdAtIso", session.createdAt.toString())
+        put("updatedAtIso", session.updatedAt.toString())
+        put("summaryImported", summaryImported)
+        put("summaryText", if (includeSummary) session.summaryText?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
+        put("summaryTextIncluded", includeSummary)
+        put("summaryLength", session.summaryText?.length ?: 0)
+        put("sourceCompacted", candidate.sourceCompacted)
+        put("sourceCompactedUntilMessageId", candidate.sourceCompactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("compactedUntilMessageId", session.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("compactionBoundaryPreserved", false)
+        put("sourceMessageCount", candidate.sourceMessageCount?.let(::JsonPrimitive) ?: JsonNull)
+        put("messageBodiesImported", false)
+        put("messageBodiesIncluded", false)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+        put("sourceCreatedAtPreserved", false)
+        put("sourceUpdatedAtPreserved", false)
+        put("sourceMainPreserved", false)
+    }
+
+private fun SessionImportSkippedEntry.toSessionImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
+    }
 
 private fun Session.toSessionComparePayload(
     stats: MessageRepository.SessionMessageStats,
