@@ -11029,6 +11029,159 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory timeline lists active and deleted lifecycle entries without owner or text when omitted`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val active =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants active timeline memory visible only when text is included.",
+                        sourceSessionId = "session-active",
+                        sourceMessageIds = listOf("message-active"),
+                        sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+                    ),
+                )
+            val deleted =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted timeline memory visible only when text is included.",
+                        sourceSessionId = "session-deleted",
+                        sourceMessageIds = listOf("message-deleted"),
+                        sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deleted.id))
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.activity"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                            put("includeDeleted", true)
+                            put("includeText", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("10", result.payload["timelineLimit"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["ownerUserIdIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["timelineMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedActiveMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedDeletedMemoryCount"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains(ownerUserId))
+            assertFalse(result.payload.toString().contains("active timeline memory visible"))
+            assertFalse(result.payload.toString().contains("deleted timeline memory visible"))
+            val entries =
+                result.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .map { memory -> memory.jsonObject }
+            assertEquals(setOf(active.id, deleted.id), entries.map { memory -> memory.getValue("id").jsonPrimitive.content }.toSet())
+            assertTrue(entries.all { memory -> memory.getValue("text") == JsonNull })
+            assertTrue(entries.all { memory -> memory.getValue("memoryTextIncluded").jsonPrimitive.content == false.toString() })
+            assertTrue(entries.none { memory -> memory.containsKey("ownerUserId") })
+            val deletedEntry = entries.single { memory -> memory.getValue("id").jsonPrimitive.content == deleted.id }
+            assertEquals("Deleted", deletedEntry["status"]?.jsonPrimitive?.content)
+            assertEquals("deleted", deletedEntry["lifecycleEvent"]?.jsonPrimitive?.content)
+            assertEquals("automatic", deletedEntry["sourceType"]?.jsonPrimitive?.content)
+            assertEquals("1", deletedEntry["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("message-deleted"),
+                deletedEntry
+                    .getValue("sourceMessageIds")
+                    .jsonArray
+                    .map { sourceMessageId -> sourceMessageId.jsonPrimitive.content },
+            )
+            val markdown =
+                result.payload
+                    .getValue("timelineMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Memory timeline"))
+            assertTrue(markdown.contains("Memory text included: false"))
+            assertFalse(markdown.contains("active timeline memory visible"))
+            assertFalse(markdown.contains("deleted timeline memory visible"))
+        }
+
+    @Test
+    fun `memory timeline can omit deleted memories markdown and disabled execution`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            val active =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants active timeline memory included.",
+                    ),
+                )
+            val deleted =
+                requireNotNull(
+                    memoryRepository.remember(
+                        ownerUserId = ownerUserId,
+                        text = "User wants deleted timeline memory excluded by default.",
+                    ),
+                )
+            assertTrue(memoryRepository.delete(ownerUserId, deleted.id))
+
+            val timeline =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.history"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                            put("includeDeleted", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+            val commandHistory =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "history deleted 10")
+                        },
+                )
+            settingsDataStore.setMemoryEnabled(false)
+            val disabled =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.timeline"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(timeline.summary, timeline.success)
+            assertEquals("false", timeline.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("1", timeline.payload["timelineMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", timeline.payload["includedActiveMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("0", timeline.payload["includedDeletedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("1", timeline.payload["excludedDeletedMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, timeline.payload.getValue("timelineMarkdown"))
+            val onlyMemory =
+                timeline.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(active.id, onlyMemory["id"]?.jsonPrimitive?.content)
+            assertEquals("Active", onlyMemory["status"]?.jsonPrimitive?.content)
+            assertTrue(commandHistory.success)
+            assertEquals("true", commandHistory.payload["includeDeleted"]?.jsonPrimitive?.content)
+            assertEquals("2", commandHistory.payload["timelineMemoryCount"]?.jsonPrimitive?.content)
+            assertFalse(disabled.success)
+            assertEquals("MEMORY_DISABLED", disabled.errorCode)
+        }
+
+    @Test
     fun `memory command dispatch supports remember list and clear confirmation`() =
         runTest {
             val registry = buildRegistry()

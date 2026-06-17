@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.timeline` /
+  `memories.timeline` / `memory.activity` / `memories.activity` plus history
+  aliases as a Memory Contract lifecycle feature. Agents can now inspect a
+  bounded local-memory timeline ordered by update/delete activity, optionally
+  include deleted memories, omit memory text from payloads and markdown, and
+  receive explicit owner-id/message-body/provider-metadata omission flags.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.timeline` /
   `task.timeline` / `tasks.calendar` / `task.calendar` plus automation
   timeline/calendar aliases as a global Automation Contract planning feature.

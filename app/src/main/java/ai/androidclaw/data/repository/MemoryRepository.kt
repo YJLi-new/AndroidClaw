@@ -132,6 +132,23 @@ class MemoryRepository(
             ).map { it.toDomain(json) }
     }
 
+    suspend fun listTimeline(
+        ownerUserId: String,
+        includeDeleted: Boolean = false,
+        limit: Int = DEFAULT_LIST_LIMIT,
+    ): List<MemoryItem> {
+        val boundedLimit = limit.coerceIn(0, MAX_LIST_LIMIT)
+        if (ownerUserId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getTimelineByOwner(
+                ownerUserId = ownerUserId,
+                includeDeleted = includeDeleted,
+                limit = boundedLimit,
+            ).map { it.toDomain(json) }
+    }
+
     suspend fun listForSourceSession(
         ownerUserId: String,
         sourceSessionId: String,

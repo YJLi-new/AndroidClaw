@@ -134,6 +134,61 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.timeline",
+                    aliases =
+                        listOf(
+                            "memories.timeline",
+                            "memory.activity",
+                            "memories.activity",
+                            "memory.history",
+                            "memories.history",
+                        ),
+                    description = "Return a bounded local memory lifecycle timeline without exposing owner ids or message bodies.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum timeline entries. Defaults to 20, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDeleted",
+                                description = "Set true to include deleted memory entries. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeText",
+                                description = "Set false to omit memory text from entries and markdown. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit timelineMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MEMORY_TIMELINE_DEFAULT_LIMIT,
+                            maxValue = MEMORY_TIMELINE_MAX_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            memoryTimelineResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = limit,
+                includeDeleted = arguments.optionalBoolean("includeDeleted", defaultValue = false),
+                includeText = arguments.optionalBoolean("includeText", defaultValue = true),
+                includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.provenance",
                     aliases =
                         listOf(
@@ -801,6 +856,20 @@ private suspend fun executeMemoryCommand(
             includeMarkdown = true,
         )
     }
+    if (
+        trimmed.equals("timeline", ignoreCase = true) ||
+        trimmed.equals("activity", ignoreCase = true) ||
+        trimmed.equals("history", ignoreCase = true)
+    ) {
+        return memoryTimelineResult(
+            settingsDataStore = settingsDataStore,
+            memoryRepository = memoryRepository,
+            limit = MEMORY_TIMELINE_DEFAULT_LIMIT,
+            includeDeleted = trimmed.equals("history", ignoreCase = true),
+            includeText = true,
+            includeMarkdown = true,
+        )
+    }
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
     if (verb == "doctor" || verb == "check" || verb == "health") {
@@ -920,6 +989,28 @@ private suspend fun executeMemoryCommand(
                 settingsDataStore = settingsDataStore,
                 memoryRepository = memoryRepository,
                 limit = limit,
+                includeMarkdown = true,
+            )
+        }
+
+        "timeline", "activity", "history" -> {
+            val timelineOptions =
+                when (
+                    val parsedOptions =
+                        parseMemoryTimelineCommandOptions(
+                            rest = rest,
+                            defaultIncludeDeleted = verb == "history",
+                        )
+                ) {
+                    is MemoryTimelineCommandParseResult.Failure -> return parsedOptions.result
+                    is MemoryTimelineCommandParseResult.Success -> parsedOptions.value
+                }
+            memoryTimelineResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = timelineOptions.limit,
+                includeDeleted = timelineOptions.includeDeleted,
+                includeText = true,
                 includeMarkdown = true,
             )
         }
@@ -1327,6 +1418,98 @@ private suspend fun memoryHandoffResult(
                     buildJsonArray {
                         memories.forEach { memory ->
                             add(memoryPayload(memory))
+                        }
+                    },
+                )
+            },
+    )
+}
+
+private suspend fun memoryTimelineResult(
+    settingsDataStore: SettingsDataStore,
+    memoryRepository: MemoryRepository,
+    limit: Int,
+    includeDeleted: Boolean,
+    includeText: Boolean,
+    includeMarkdown: Boolean,
+): ToolExecutionResult {
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    if (!settings.enabled) {
+        return memoryDisabledResult()
+    }
+    val stats = memoryRepository.stats(settings.installUserId)
+    val memories =
+        memoryRepository.listTimeline(
+            ownerUserId = settings.installUserId,
+            includeDeleted = includeDeleted,
+            limit = limit,
+        )
+    val includedActiveMemoryCount = memories.count { memory -> memory.deletedAt == null }
+    val includedDeletedMemoryCount = memories.count { memory -> memory.deletedAt != null }
+    val eligibleMemoryCount =
+        stats.activeMemoryCount +
+            if (includeDeleted) {
+                stats.deletedMemoryCount
+            } else {
+                0L
+            }
+    val timelineMarkdown =
+        if (includeMarkdown) {
+            memoryTimelineMarkdown(
+                stats = stats,
+                memories = memories,
+                limit = limit,
+                includeDeleted = includeDeleted,
+                includeText = includeText,
+            )
+        } else {
+            null
+        }
+    return ToolExecutionResult.success(
+        summary =
+            if (memories.isEmpty()) {
+                "Prepared memory timeline with no matching memories."
+            } else {
+                "Prepared memory timeline with ${memories.size} memory item(s)."
+            },
+        payload =
+            buildJsonObject {
+                put("enabled", true)
+                put("scope", "local-device")
+                put("memoryLimit", limit)
+                put("timelineLimit", limit)
+                put("includeDeleted", includeDeleted)
+                put("includeText", includeText)
+                put("memoryTextIncluded", includeText)
+                put("includeMarkdown", includeMarkdown)
+                put("ownerUserIdIncluded", false)
+                put("fullMessageBodiesIncluded", false)
+                put("providerMetaIncluded", false)
+                put("memoryCount", memories.size)
+                put("timelineMemoryCount", memories.size)
+                put("includedActiveMemoryCount", includedActiveMemoryCount)
+                put("includedDeletedMemoryCount", includedDeletedMemoryCount)
+                put("eligibleMemoryCount", eligibleMemoryCount)
+                put("omittedTimelineMemoryCount", (eligibleMemoryCount - memories.size.toLong()).coerceAtLeast(0))
+                put("excludedDeletedMemoryCount", if (includeDeleted) 0L else stats.deletedMemoryCount)
+                put("activeMemoryCount", stats.activeMemoryCount)
+                put("deletedMemoryCount", stats.deletedMemoryCount)
+                put("totalMemoryCount", stats.totalMemoryCount)
+                put("activeWithSourceSessionCount", stats.activeWithSourceSessionCount)
+                put(
+                    "oldestActiveCreatedAt",
+                    stats.oldestActiveCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                )
+                put(
+                    "newestActiveUpdatedAt",
+                    stats.newestActiveUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                )
+                put("timelineMarkdown", timelineMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                put(
+                    "memories",
+                    buildJsonArray {
+                        memories.forEach { memory ->
+                            add(memory.toMemoryTimelinePayload(includeText = includeText))
                         }
                     },
                 )
@@ -2006,6 +2189,103 @@ private fun String.toMemorySourceSnippet(): String =
         take(MEMORY_SOURCE_SNIPPET_MAX_CHARS)
     }
 
+private fun memoryTimelineMarkdown(
+    stats: MemoryRepository.MemoryStats,
+    memories: List<MemoryItem>,
+    limit: Int,
+    includeDeleted: Boolean,
+    includeText: Boolean,
+): String =
+    buildString {
+        appendLine("# Memory timeline")
+        appendLine()
+        appendLine("- Scope: local-device")
+        appendLine("- Active memories: ${stats.activeMemoryCount}")
+        appendLine("- Deleted memories: ${stats.deletedMemoryCount}")
+        appendLine("- Total memories: ${stats.totalMemoryCount}")
+        appendLine("- Include deleted: $includeDeleted")
+        appendLine("- Memory text included: $includeText")
+        appendLine("- Owner user id included: false")
+        appendLine("- Full message bodies included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine("- Timeline entries included: ${memories.size} of up to $limit")
+        appendLine()
+        appendLine("## Timeline")
+        if (memories.isEmpty()) {
+            appendLine("_No memory timeline entries included._")
+        } else {
+            memories.forEach { memory ->
+                appendLine(memory.toMemoryTimelineMarkdownLine(includeText = includeText))
+            }
+        }
+    }
+
+private fun MemoryItem.toMemoryTimelineMarkdownLine(includeText: Boolean): String =
+    buildString {
+        append("- ")
+        append(memoryTimelineStatus())
+        append(" `")
+        append(id.toMemoryHandoffLine())
+        append("` ")
+        append("at=")
+        append(memoryTimelineAt())
+        append(" sourceType=")
+        append(sourceType.toMemoryHandoffLine())
+        sourceSessionId?.let { sessionId ->
+            append(" sourceSession=")
+            append(sessionId.toMemoryHandoffLine())
+        }
+        append(" sourceMessages=")
+        append(sourceMessageIds.size)
+        append(": ")
+        append(if (includeText) text.toMemoryHandoffLine() else "_Memory text omitted._")
+    }
+
+private fun MemoryItem.toMemoryTimelinePayload(includeText: Boolean): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("status", memoryTimelineStatus())
+        put("deleted", deletedAt != null)
+        put(
+            "lifecycleEvent",
+            if (deletedAt == null) {
+                "updated"
+            } else {
+                "deleted"
+            },
+        )
+        put("lifecycleAt", memoryTimelineAt().toString())
+        put("sourceType", sourceType)
+        put("sourceSessionId", sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceMessageCount", sourceMessageIds.size)
+        put(
+            "sourceMessageIds",
+            buildJsonArray {
+                sourceMessageIds.forEach { sourceMessageId ->
+                    add(JsonPrimitive(sourceMessageId))
+                }
+            },
+        )
+        put("createdAt", createdAt.toString())
+        put("updatedAt", updatedAt.toString())
+        put("deletedAt", deletedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("textLength", text.length)
+        put("text", if (includeText) JsonPrimitive(text) else JsonNull)
+        put("memoryTextIncluded", includeText)
+        put("ownerUserIdIncluded", false)
+        put("fullMessageBodiesIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun MemoryItem.memoryTimelineStatus(): String =
+    if (deletedAt == null) {
+        "Active"
+    } else {
+        "Deleted"
+    }
+
+private fun MemoryItem.memoryTimelineAt() = deletedAt ?: updatedAt
+
 private fun memoryHandoffMarkdown(
     stats: MemoryRepository.MemoryStats,
     memories: List<MemoryItem>,
@@ -2220,6 +2500,21 @@ private sealed interface MemoryLimitParseResult {
     ) : MemoryLimitParseResult
 }
 
+private data class MemoryTimelineCommandOptions(
+    val limit: Int,
+    val includeDeleted: Boolean,
+)
+
+private sealed interface MemoryTimelineCommandParseResult {
+    data class Success(
+        val value: MemoryTimelineCommandOptions,
+    ) : MemoryTimelineCommandParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : MemoryTimelineCommandParseResult
+}
+
 private fun JsonObject.parseMemoryLimit(
     field: String,
     defaultValue: Int,
@@ -2245,6 +2540,70 @@ private fun JsonObject.parseMemoryLimit(
         )
     }
     return MemoryLimitParseResult.Success(parsedValue.toInt())
+}
+
+private fun parseMemoryTimelineCommandOptions(
+    rest: String,
+    defaultIncludeDeleted: Boolean,
+): MemoryTimelineCommandParseResult {
+    val tokens =
+        rest
+            .split(Regex("\\s+"))
+            .map(String::trim)
+            .filter(String::isNotBlank)
+    if (tokens.isEmpty()) {
+        return MemoryTimelineCommandParseResult.Success(
+            MemoryTimelineCommandOptions(
+                limit = MEMORY_TIMELINE_DEFAULT_LIMIT,
+                includeDeleted = defaultIncludeDeleted,
+            ),
+        )
+    }
+    val deletedTokens = setOf("all", "deleted", "trash", "with-deleted", "include-deleted")
+    val includeDeleted =
+        defaultIncludeDeleted ||
+            tokens.any { token -> token.lowercase().replace("_", "-") in deletedTokens }
+    val limitTokens = tokens.filterNot { token -> token.lowercase().replace("_", "-") in deletedTokens }
+    if (limitTokens.size > 1) {
+        return MemoryTimelineCommandParseResult.Failure(
+            invalidMemoryLimitResult(
+                field = "limit",
+                maxValue = MEMORY_TIMELINE_MAX_LIMIT,
+                rawValue = rest,
+            ),
+        )
+    }
+    val limitToken = limitTokens.singleOrNull()
+    val limit =
+        if (limitToken == null) {
+            MEMORY_TIMELINE_DEFAULT_LIMIT
+        } else {
+            val parsedLimit =
+                limitToken.toLongOrNull()
+                    ?: return MemoryTimelineCommandParseResult.Failure(
+                        invalidMemoryLimitResult(
+                            field = "limit",
+                            maxValue = MEMORY_TIMELINE_MAX_LIMIT,
+                            rawValue = limitToken,
+                        ),
+                    )
+            if (parsedLimit !in 1L..MEMORY_TIMELINE_MAX_LIMIT.toLong()) {
+                return MemoryTimelineCommandParseResult.Failure(
+                    invalidMemoryLimitResult(
+                        field = "limit",
+                        maxValue = MEMORY_TIMELINE_MAX_LIMIT,
+                        rawValue = limitToken,
+                    ),
+                )
+            }
+            parsedLimit.toInt()
+        }
+    return MemoryTimelineCommandParseResult.Success(
+        MemoryTimelineCommandOptions(
+            limit = limit,
+            includeDeleted = includeDeleted,
+        ),
+    )
 }
 
 private fun invalidMemoryLimitResult(
@@ -2286,4 +2645,6 @@ private const val MEMORY_DOCTOR_MAX_LIMIT = 50
 private const val MEMORY_DOCTOR_TEXT_MAX_CHARS = 500
 private const val MEMORY_HANDOFF_DEFAULT_LIMIT = 8
 private const val MEMORY_HANDOFF_MAX_LIMIT = 20
+private const val MEMORY_TIMELINE_DEFAULT_LIMIT = 20
+private const val MEMORY_TIMELINE_MAX_LIMIT = 50
 private const val MEMORY_SOURCE_SNIPPET_MAX_CHARS = 500

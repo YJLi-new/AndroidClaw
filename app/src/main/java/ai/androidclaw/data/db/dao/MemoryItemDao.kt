@@ -43,6 +43,28 @@ interface MemoryItemDao {
         """
         SELECT * FROM memory_items
         WHERE ownerUserId = :ownerUserId
+          AND (:includeDeleted = 1 OR deletedAt IS NULL)
+        ORDER BY
+          CASE
+            WHEN deletedAt IS NULL THEN updatedAt
+            ELSE deletedAt
+          END DESC,
+          updatedAt DESC,
+          createdAt DESC,
+          rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getTimelineByOwner(
+        ownerUserId: String,
+        includeDeleted: Boolean,
+        limit: Int,
+    ): List<MemoryItemEntity>
+
+    @Query(
+        """
+        SELECT * FROM memory_items
+        WHERE ownerUserId = :ownerUserId
           AND sourceSessionId = :sourceSessionId
           AND deletedAt IS NULL
         ORDER BY createdAt DESC, rowid DESC
