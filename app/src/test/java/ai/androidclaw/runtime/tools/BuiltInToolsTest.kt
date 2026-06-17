@@ -5813,6 +5813,242 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills handoff returns bounded inventory metadata without instructions`() =
+        runTest {
+            val hiddenInstructions = "FULL SKILL BODY SHOULD NOT APPEAR IN HANDOFF"
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(
+                                id = "notify",
+                                name = "notify",
+                                commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                                commandTool = "notifications.post",
+                            ).copy(
+                                instructionsMd = hiddenInstructions,
+                                secretStatuses = mapOf("NOTIFY_TOKEN" to false),
+                                configStatuses = mapOf("notify.room" to true),
+                            ),
+                            skillSnapshot(
+                                id = "disabled",
+                                name = "disabled",
+                                enabled = false,
+                            ).copy(
+                                instructionsMd = "DISABLED BODY SHOULD NOT APPEAR",
+                            ),
+                            skillSnapshot(
+                                id = "workspace-helper",
+                                name = "workspace-helper",
+                            ).copy(
+                                sourceType = ai.androidclaw.runtime.skills.SkillSourceType.Workspace,
+                                workspaceSessionId = "session-1",
+                                instructionsMd = "WORKSPACE BODY SHOULD NOT APPEAR",
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.snapshot"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "3",
+                result.payload
+                    .getValue("skillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "3",
+                result.payload
+                    .getValue("candidateSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("includedSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("omittedSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("includeDisabled")
+                    .jsonPrimitive
+                    .content,
+            )
+            val stats =
+                result.payload
+                    .getValue("stats")
+                    .jsonObject
+            assertEquals(
+                "3",
+                stats
+                    .getValue("skillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "2",
+                stats
+                    .getValue("enabledSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            val skills =
+                result.payload
+                    .getValue("skills")
+                    .jsonArray
+            assertEquals(2, skills.size)
+            val firstSkill = skills.first().jsonObject
+            assertEquals(
+                "notify",
+                firstSkill
+                    .getValue("id")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "Tool",
+                firstSkill
+                    .getValue("commandDispatch")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "notifications.post",
+                firstSkill
+                    .getValue("commandTool")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "1",
+                firstSkill
+                    .getValue("secretFieldCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "1",
+                firstSkill
+                    .getValue("missingSecretFieldCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "true",
+                firstSkill
+                    .getValue("instructionsOmitted")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertFalse(firstSkill.containsKey("instructionsMd"))
+            assertFalse(firstSkill.containsKey("instructionsSnippet"))
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skills handoff"))
+            assertTrue(markdown.contains("notify"))
+            assertTrue(markdown.contains("disabled"))
+            assertFalse(result.payload.toString().contains(hiddenInstructions))
+            assertFalse(markdown.contains(hiddenInstructions))
+        }
+
+    @Test
+    fun `skills handoff can omit disabled skills and markdown`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "ready", name = "ready"),
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false),
+                            skillSnapshot(id = "workspace", name = "workspace"),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.handoff"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", false)
+                            put("includeMarkdown", false)
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "3",
+                result.payload
+                    .getValue("skillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("candidateSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("includedSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "0",
+                result.payload
+                    .getValue("omittedSkillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("includeDisabled")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("handoffMarkdown"))
+            result.payload
+                .getValue("skills")
+                .jsonArray
+                .forEach { skill ->
+                    assertEquals(
+                        "true",
+                        skill.jsonObject
+                            .getValue("enabled")
+                            .jsonPrimitive
+                            .content,
+                    )
+                }
+        }
+
+    @Test
     fun `skills get returns frontmatter and instructions`() =
         runTest {
             val registry =

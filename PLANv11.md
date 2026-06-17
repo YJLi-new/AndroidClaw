@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.handoff` / `skill.handoff` /
+  `skills.snapshot` / `skill.snapshot` as a Skill Contract context-transfer
+  tool. Agents can now prepare a compact bounded skill inventory handoff with
+  aggregate stats, enablement and eligibility metadata, optional disabled-skill
+  filtering, optional markdown, and no full `SKILL.md` instruction bodies in
+  the payload. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `memory.handoff` /
   `memories.handoff` / `memory.snapshot` / `memories.snapshot` as a Memory
   Contract context-transfer tool. Agents can now prepare a compact local-memory

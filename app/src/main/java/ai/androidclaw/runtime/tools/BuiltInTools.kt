@@ -3691,6 +3691,92 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.handoff",
+                                    aliases =
+                                        listOf(
+                                            "skill.handoff",
+                                            "skills.snapshot",
+                                            "skill.snapshot",
+                                        ),
+                                    description = "Return a compact skill inventory handoff without full SKILL.md instructions.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum skill entries to include. Defaults to 8.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeDisabled",
+                                                description = "Set false to omit disabled skills. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_HANDOFF_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_HANDOFF_MAX_LIMIT)
+                            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val skills = bundledSkillsProvider()
+                            val candidates =
+                                if (includeDisabled) {
+                                    skills
+                                } else {
+                                    skills.filter { skill -> skill.enabled }
+                                }
+                            val includedSkills = candidates.take(limit)
+                            val handoffMarkdown =
+                                if (includeMarkdown) {
+                                    includedSkills.toSkillHandoffMarkdown(
+                                        totalSkillCount = skills.size,
+                                        candidateSkillCount = candidates.size,
+                                        limit = limit,
+                                        includeDisabled = includeDisabled,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (skills.isEmpty()) {
+                                        "Prepared empty skill handoff."
+                                    } else {
+                                        "Prepared skill handoff with ${includedSkills.size} of ${candidates.size} candidate skill(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("skillCount", skills.size)
+                                        put("candidateSkillCount", candidates.size)
+                                        put("includedSkillCount", includedSkills.size)
+                                        put("omittedSkillCount", (candidates.size - includedSkills.size).coerceAtLeast(0))
+                                        put("limit", limit)
+                                        put("includeDisabled", includeDisabled)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("stats", skills.toSkillStatsPayload())
+                                        put(
+                                            "skills",
+                                            buildJsonArray {
+                                                includedSkills.forEach { skill ->
+                                                    add(skill.toSkillHandoffPayload())
+                                                }
+                                            },
+                                        )
+                                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.get",
                                     aliases = listOf("skill.get"),
                                     description = "Return detailed metadata and instructions for one bundled skill.",
@@ -7960,6 +8046,8 @@ private enum class MessagePageDirection(
 }
 
 private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
+private const val SKILL_HANDOFF_DEFAULT_LIMIT = 8
+private const val SKILL_HANDOFF_MAX_LIMIT = 20
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
@@ -8909,6 +8997,96 @@ private fun SkillSnapshot.toSkillSearchPayload(): JsonObject {
         put("instructionsTruncated", instructionSnippet.length < instructionsMd.length)
     }
 }
+
+private fun SkillSnapshot.toSkillHandoffPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("workspaceSessionId", workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("resolutionState", resolutionState.name)
+        put("shadowedBy", shadowedBy?.let(::JsonPrimitive) ?: JsonNull)
+        put("eligibilityStatus", eligibility.status.name)
+        put(
+            "eligibilityReasons",
+            buildJsonArray {
+                eligibility.reasons.forEach { reason -> add(JsonPrimitive(reason)) }
+            },
+        )
+        put("description", frontmatter?.description?.let(::JsonPrimitive) ?: JsonNull)
+        put("userInvocable", frontmatter?.userInvocable?.let(::JsonPrimitive) ?: JsonNull)
+        put("disableModelInvocation", frontmatter?.disableModelInvocation?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandDispatch", frontmatter?.commandDispatch?.name?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandTool", frontmatter?.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("secretFieldCount", secretStatuses.size)
+        put("missingSecretFieldCount", secretStatuses.count { (_, configured) -> !configured })
+        put("configFieldCount", configStatuses.size)
+        put("missingConfigFieldCount", configStatuses.count { (_, configured) -> !configured })
+        put("parseError", parseError?.let(::JsonPrimitive) ?: JsonNull)
+        put("instructionsLength", instructionsMd.length)
+        put("instructionsOmitted", true)
+    }
+
+private fun List<SkillSnapshot>.toSkillHandoffMarkdown(
+    totalSkillCount: Int,
+    candidateSkillCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+): String {
+    val includedSkills = this
+    return buildString {
+        appendLine("# Skills handoff")
+        appendLine()
+        appendLine("- Skills in inventory: $totalSkillCount")
+        appendLine("- Candidate skills after filters: $candidateSkillCount")
+        appendLine("- Skills included: ${includedSkills.size} of up to $limit")
+        appendLine("- Disabled skills included: $includeDisabled")
+        appendLine()
+        appendLine("## Included skills")
+        if (includedSkills.isEmpty()) {
+            appendLine("_No skills included._")
+        } else {
+            includedSkills.forEach { skill ->
+                appendLine(skill.toSkillHandoffMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun SkillSnapshot.toSkillHandoffMarkdownLine(): String =
+    buildString {
+        append("- `")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(id.toHandoffLine())
+        append("` enabled=")
+        append(enabled)
+        append(" source=")
+        append(sourceType.name)
+        append(" eligibility=")
+        append(eligibility.status.name)
+        append(" resolution=")
+        append(resolutionState.name)
+        frontmatter?.commandDispatch?.let { dispatch ->
+            append(" dispatch=")
+            append(dispatch.name)
+        }
+        frontmatter?.commandTool?.let { toolName ->
+            append(" tool=`")
+            append(toolName.toHandoffLine())
+            append("`")
+        }
+        frontmatter?.description?.let { description ->
+            append(" - ")
+            append(description.toHandoffLine())
+        }
+        parseError?.let { error ->
+            append(" parseError=")
+            append(error.toHandoffLine())
+        }
+    }
 
 private fun SkillSnapshot.toDefaultConfigurationSnapshot(): SkillConfigurationSnapshot =
     SkillConfigurationSnapshot(
