@@ -2520,6 +2520,120 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages handoff returns bounded chronological transcript snippets without full bodies`() =
+        runTest {
+            val session = sessionRepository.createSession("Handoff transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Older setup",
+            )
+            val middleMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Middle answer",
+                )
+            val latestMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Latest prompt with private phrase",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "transcript.handoff", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Handoff transcript", result.payload["sessionTitle"]?.jsonPrimitive?.content)
+            assertEquals("recent", result.payload["direction"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["limit"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["omittedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["chronological"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeSnippets"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            val messages = result.payload.getValue("messages").jsonArray
+            assertEquals(2, messages.size)
+            val first = messages[0].jsonObject
+            val second = messages[1].jsonObject
+            assertEquals(middleMessage.id, first.getValue("messageId").jsonPrimitive.content)
+            assertEquals("Assistant", first.getValue("role").jsonPrimitive.content)
+            assertEquals("Middle answer", first.getValue("contentSnippet").jsonPrimitive.content)
+            assertEquals(latestMessage.id, second.getValue("messageId").jsonPrimitive.content)
+            assertEquals("User", second.getValue("role").jsonPrimitive.content)
+            assertEquals("Latest prompt with private phrase", second.getValue("contentSnippet").jsonPrimitive.content)
+            assertTrue(messages.all { message -> !message.jsonObject.containsKey("content") })
+            assertTrue(messages.all { message -> !message.jsonObject.containsKey("providerMeta") })
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive.content
+            assertTrue(markdown.contains("# Transcript handoff: Handoff transcript"))
+            assertTrue(markdown.contains("Middle answer"))
+            assertTrue(markdown.contains("Latest prompt with private phrase"))
+        }
+
+    @Test
+    fun `messages handoff can start at transcript beginning and omit snippets markdown`() =
+        runTest {
+            val session = sessionRepository.createSession("Start handoff transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "First secret snippet",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Second secret snippet",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.snapshot", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("direction", "start")
+                            put("includeSnippets", false)
+                            put("includeMarkdown", false)
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("start", result.payload["direction"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["returnedCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeSnippets"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            val message =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("User", message.getValue("role").jsonPrimitive.content)
+            assertEquals(JsonNull, message.getValue("contentSnippet"))
+            assertFalse(message.containsKey("content"))
+            assertFalse(message.containsKey("providerMeta"))
+            assertEquals(JsonNull, result.payload.getValue("handoffMarkdown"))
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("First secret snippet"))
+            assertFalse(payloadText.contains("Second secret snippet"))
+        }
+
+    @Test
     fun `messages doctor reports transcript diagnostics without message bodies`() =
         runTest {
             val session = sessionRepository.createSession("Doctor transcript")

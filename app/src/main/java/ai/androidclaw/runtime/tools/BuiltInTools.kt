@@ -3795,6 +3795,178 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.handoff",
+                                    aliases =
+                                        listOf(
+                                            "message.handoff",
+                                            "messages.snapshot",
+                                            "message.snapshot",
+                                            "transcript.handoff",
+                                            "transcript.snapshot",
+                                        ),
+                                    description = "Prepare a compact transcript handoff without full message bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "direction",
+                                                description = "recent or start. Defaults to recent.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum message count. Defaults to 12, max 50.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeSnippets",
+                                                description = "Set false to omit message snippets. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to hand off.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val directionText = arguments.optionalText("direction")
+                            val direction =
+                                directionText?.toMessagePageDirectionOrNull()
+                                    ?: if (directionText == null) {
+                                        MessagePageDirection.Recent
+                                    } else {
+                                        return@Entry ToolExecutionResult.failure(
+                                            summary = "messages.handoff direction must be recent or start.",
+                                            errorCode = "INVALID_ARGUMENTS",
+                                            payload =
+                                                buildJsonObject {
+                                                    put("errorCode", "INVALID_ARGUMENTS")
+                                                    put("field", "direction")
+                                                },
+                                        )
+                                    }
+                            if (direction != MessagePageDirection.Recent && direction != MessagePageDirection.Start) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "messages.handoff direction must be recent or start.",
+                                    errorCode = "INVALID_ARGUMENTS",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_ARGUMENTS")
+                                            put("field", "direction")
+                                            put("direction", direction.payloadName)
+                                        },
+                                )
+                            }
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = MESSAGE_HANDOFF_DEFAULT_LIMIT,
+                                    ).coerceIn(0, MESSAGE_HANDOFF_MAX_LIMIT)
+                            val includeSnippets = arguments.optionalBoolean("includeSnippets", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val stats = messageRepository.getMessageStats(session.id)
+                            val messages =
+                                when (direction) {
+                                    MessagePageDirection.Start ->
+                                        messageRepository.getFirstMessages(
+                                            sessionId = session.id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.Recent ->
+                                        messageRepository.getRecentMessagesChronological(
+                                            sessionId = session.id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.Before,
+                                    MessagePageDirection.After,
+                                    -> emptyList()
+                                }
+                            val handoffMarkdown =
+                                if (includeMarkdown) {
+                                    session.toMessageHandoffMarkdown(
+                                        stats = stats,
+                                        messages = messages,
+                                        direction = direction,
+                                        limit = limit,
+                                        includeSnippets = includeSnippets,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (messages.isEmpty()) {
+                                        "Prepared empty transcript handoff for \"${session.title}\"."
+                                    } else {
+                                        "Prepared transcript handoff with ${messages.size} message(s) for \"${session.title}\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("archived", session.archived)
+                                        put("direction", direction.payloadName)
+                                        put("limit", limit)
+                                        put("messageCount", stats.totalMessageCount)
+                                        put("contentCharCount", stats.totalContentCharCount)
+                                        put("oldestMessageAtIso", stats.oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                                        put("newestMessageAtIso", stats.newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                                        put("returnedCount", messages.size)
+                                        put("omittedMessageCount", (stats.totalMessageCount - messages.size.toLong()).coerceAtLeast(0))
+                                        put("chronological", true)
+                                        put("includeSnippets", includeSnippets)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("fullMessageBodiesIncluded", false)
+                                        put("providerMetaIncluded", false)
+                                        put(
+                                            "roleStats",
+                                            buildJsonArray {
+                                                stats.roleStats.forEach { roleStats ->
+                                                    add(roleStats.toMessageRoleStatsPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    add(message.toMessageHandoffPayload(includeSnippet = includeSnippets))
+                                                }
+                                            },
+                                        )
+                                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.doctor",
                                     aliases =
                                         listOf(
@@ -9795,6 +9967,8 @@ private const val MESSAGE_DOCTOR_DEFAULT_LIMIT = 20
 private const val MESSAGE_DOCTOR_MAX_LIMIT = 50
 private const val MESSAGE_DOCTOR_LARGE_TRANSCRIPT_CHARS = 100_000L
 private const val MESSAGE_DOCTOR_TEXT_MAX_CHARS = 500
+private const val MESSAGE_HANDOFF_DEFAULT_LIMIT = 12
+private const val MESSAGE_HANDOFF_MAX_LIMIT = 50
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
@@ -12711,6 +12885,80 @@ private fun MessageDoctorIssue.toMessageDoctorMarkdownLine(): String =
     }
 
 private fun String.toMessageDoctorText(): String = toHandoffLine().take(MESSAGE_DOCTOR_TEXT_MAX_CHARS)
+
+private fun ChatMessage.toMessageHandoffPayload(includeSnippet: Boolean): JsonObject {
+    val contentSnippet = content.toMessageSearchSnippet()
+    return buildJsonObject {
+        put("messageId", id)
+        put("role", role.name)
+        put("createdAtIso", createdAt.toString())
+        put("contentSnippet", if (includeSnippet) JsonPrimitive(contentSnippet) else JsonNull)
+        put("contentLength", content.length)
+        put("contentTruncated", contentSnippet.length < content.length)
+        put("messageBodyIncluded", false)
+        put("providerMetaIncluded", false)
+        put("hasProviderMeta", providerMeta != null)
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun Session.toMessageHandoffMarkdown(
+    stats: MessageRepository.SessionMessageStats,
+    messages: List<ChatMessage>,
+    direction: MessagePageDirection,
+    limit: Int,
+    includeSnippets: Boolean,
+): String =
+    buildString {
+        appendLine("# Transcript handoff: ${title.toHandoffLine()}")
+        appendLine()
+        appendLine("- Session id: `$id`")
+        appendLine("- Archived: $archived")
+        appendLine("- Direction: ${direction.payloadName}")
+        appendLine("- Messages: ${stats.totalMessageCount}")
+        appendLine("- Content characters: ${stats.totalContentCharCount}")
+        appendLine("- Messages included: ${messages.size} of up to $limit")
+        appendLine("- Omitted messages: ${(stats.totalMessageCount - messages.size.toLong()).coerceAtLeast(0)}")
+        appendLine("- Snippets included: $includeSnippets")
+        appendLine("- Full message bodies included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine()
+        appendLine("## Role stats")
+        if (stats.roleStats.isEmpty()) {
+            appendLine("_No role stats available._")
+        } else {
+            stats.roleStats.forEach { roleStats ->
+                append("- ")
+                append(roleStats.role.name)
+                append(": ")
+                append(roleStats.messageCount)
+                append(" message(s), ")
+                append(roleStats.contentCharCount)
+                appendLine(" character(s)")
+            }
+        }
+        appendLine()
+        appendLine("## Messages")
+        if (messages.isEmpty()) {
+            appendLine("_No messages included._")
+        } else {
+            messages.forEach { message ->
+                append("- ")
+                append(message.createdAt)
+                append(" `")
+                append(message.id.toHandoffLine())
+                append("` ")
+                append(message.role.name)
+                append(": ")
+                if (includeSnippets) {
+                    appendLine(message.content.toMessageSearchSnippet().toHandoffLine())
+                } else {
+                    appendLine("_Snippet omitted._")
+                }
+            }
+        }
+    }
 
 private fun ChatMessage.toMessageContextPayload(
     relativePosition: String,

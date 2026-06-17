@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.handoff` /
+  `message.handoff` / `messages.snapshot` / `message.snapshot` plus transcript
+  aliases as a compact transcript context-transfer tool. Agents can now hand
+  off bounded start/recent transcript windows with role stats, optional
+  snippets, optional markdown, chronological ordering, and explicit
+  full-message-body/provider-metadata omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `events.handoff` /
   `event.handoff` / `logs.handoff` / `log.handoff` plus snapshot aliases as a
   compact event-log context-transfer feature. Agents can now hand off bounded
