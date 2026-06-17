@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.auth.clear` /
+  `provider.auth.clear` / `providers.credentials.clear` /
+  `provider.credentials.clear` plus logout/sign-out aliases as a confirmed
+  Provider/OAuth credential-management feature. Agents can now clear API-key or
+  OpenAI Codex OAuth credential slots through typed tools with
+  `confirm=CONFIRM`, receive before/after non-secret auth status, unsupported
+  auth-type and missing-secret-store failures, and explicit secret/OAuth-token
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `providers.catalog` /
   `provider.catalog` / `providers.models` / `provider.models` plus endpoint
   aliases as a Provider/OAuth catalog feature. Agents can now inspect bounded

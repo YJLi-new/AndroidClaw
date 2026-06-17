@@ -5399,6 +5399,176 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.auth.clear",
+                    aliases =
+                        listOf(
+                            "provider.auth.clear",
+                            "providers.credentials.clear",
+                            "provider.credentials.clear",
+                            "providers.logout",
+                            "provider.logout",
+                            "providers.sign_out",
+                            "provider.sign_out",
+                        ),
+                    description = "Clear stored provider API-key or OAuth credentials after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "credentialType",
+                                description = "Credential slot to clear: all, api_key, or oauth. Defaults to all.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must equal CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providerType =
+                if (identifier == null) {
+                    settings.providerType
+                } else {
+                    ProviderType.entries.firstOrNull { providerType ->
+                        providerType.matchesProviderIdentifier(identifier)
+                    } ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider $identifier was not found.",
+                        errorCode = "PROVIDER_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_NOT_FOUND")
+                                put("toolName", "providers.auth.clear")
+                                put("providerId", identifier)
+                            },
+                    )
+                }
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Confirm provider credential clearing with confirm=CONFIRM.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "providers.auth.clear")
+                            put("field", "confirm")
+                            put("providerId", providerType.providerId)
+                        },
+                )
+            }
+            val clearTarget =
+                try {
+                    arguments.optionalProviderCredentialClearTarget()
+                } catch (error: IllegalArgumentException) {
+                    return@Entry ToolExecutionResult.failure(
+                        summary = error.message ?: "providers.auth.clear received an unsupported credentialType.",
+                        errorCode = "INVALID_ARGUMENTS",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "INVALID_ARGUMENTS")
+                                put("toolName", "providers.auth.clear")
+                                put("field", "credentialType")
+                            },
+                    )
+                }
+            if (clearTarget == ProviderCredentialClearTarget.ApiKey && !providerType.requiresApiKey) {
+                return@Entry providerAuthClearUnsupportedTypeFailure(
+                    providerType = providerType,
+                    credentialType = clearTarget.storageValue,
+                )
+            }
+            if (clearTarget == ProviderCredentialClearTarget.OAuth && !providerType.usesOpenAiCodexOAuth) {
+                return@Entry providerAuthClearUnsupportedTypeFailure(
+                    providerType = providerType,
+                    credentialType = clearTarget.storageValue,
+                )
+            }
+            val secretStore =
+                providerSecretStore
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider credential storage is unavailable.",
+                        errorCode = "PROVIDER_SECRET_STORE_UNAVAILABLE",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_SECRET_STORE_UNAVAILABLE")
+                                put("toolName", "providers.auth.clear")
+                                put("providerId", providerType.providerId)
+                                put("credentialType", clearTarget.storageValue)
+                            },
+                    )
+            val beforeState =
+                providerType.toProviderAuthState(
+                    providerSecretStore = secretStore,
+                    clock = clock,
+                )
+            val shouldClearApiKey = clearTarget.clearsApiKey && providerType.requiresApiKey
+            val shouldClearOAuth = clearTarget.clearsOAuth && providerType.usesOpenAiCodexOAuth
+            if (shouldClearApiKey) {
+                secretStore.writeApiKey(providerType, null)
+            }
+            if (shouldClearOAuth) {
+                secretStore.writeOAuthCredential(providerType, null)
+            }
+            val afterState =
+                providerType.toProviderAuthState(
+                    providerSecretStore = secretStore,
+                    clock = clock,
+                )
+            val clearedCredentialCount =
+                listOf(
+                    shouldClearApiKey && beforeState.apiKeyConfigured == true,
+                    shouldClearOAuth && beforeState.oauthConfigured == true,
+                ).count { cleared -> cleared }
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        clearedCredentialCount > 0 ->
+                            "Cleared $clearedCredentialCount credential(s) for ${providerType.displayName}."
+                        shouldClearApiKey || shouldClearOAuth ->
+                            "No stored ${clearTarget.storageValue} credentials were configured for ${providerType.displayName}."
+                        else ->
+                            "Provider ${providerType.displayName} has no credential slots to clear."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("providerId", providerType.providerId)
+                        put("displayName", providerType.displayName)
+                        put("credentialType", clearTarget.storageValue)
+                        put("confirmAccepted", true)
+                        put("secretStatusAvailable", true)
+                        put("secretValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put("authStatusBefore", beforeState.status)
+                        put("authStatusAfter", afterState.status)
+                        put("apiKeyClearAttempted", shouldClearApiKey)
+                        put("oauthClearAttempted", shouldClearOAuth)
+                        put("apiKeyWasConfigured", beforeState.apiKeyConfigured?.let(::JsonPrimitive) ?: JsonNull)
+                        put("oauthWasConfigured", beforeState.oauthConfigured?.let(::JsonPrimitive) ?: JsonNull)
+                        put("apiKeyCleared", shouldClearApiKey && beforeState.apiKeyConfigured == true)
+                        put("oauthCredentialCleared", shouldClearOAuth && beforeState.oauthConfigured == true)
+                        put("clearedCredentialCount", clearedCredentialCount)
+                        put(
+                            "provider",
+                            providerType.toProviderAuthPayload(
+                                settings = settings,
+                                providerSecretStore = secretStore,
+                                clock = clock,
+                            ),
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.stats",
                     aliases = listOf("provider.stats"),
                     description = "Summarize provider inventory, endpoint customization, and non-secret auth status.",
@@ -10975,6 +11145,86 @@ private fun ProviderType.toProviderCatalogMarkdownLine(settings: ProviderSetting
             append(currentEndpointSettings.modelId != defaultEndpointSettings.modelId)
         }
     }
+
+private enum class ProviderCredentialClearTarget(
+    val storageValue: String,
+    val clearsApiKey: Boolean,
+    val clearsOAuth: Boolean,
+) {
+    All(
+        storageValue = "all",
+        clearsApiKey = true,
+        clearsOAuth = true,
+    ),
+    ApiKey(
+        storageValue = "api_key",
+        clearsApiKey = true,
+        clearsOAuth = false,
+    ),
+    OAuth(
+        storageValue = "oauth",
+        clearsApiKey = false,
+        clearsOAuth = true,
+    ),
+}
+
+private fun JsonObject.optionalProviderCredentialClearTarget(): ProviderCredentialClearTarget {
+    val value =
+        optionalText("credentialType")
+            ?: optionalText("type")
+            ?: optionalText("credential")
+            ?: return ProviderCredentialClearTarget.All
+    val normalizedValue =
+        value
+            .lowercase()
+            .replace('-', '_')
+            .replace(' ', '_')
+    return when (normalizedValue) {
+        "all",
+        "auth",
+        "credential",
+        "credentials",
+        "secret",
+        "secrets",
+        -> ProviderCredentialClearTarget.All
+        "api",
+        "api_key",
+        "apikey",
+        "key",
+        -> ProviderCredentialClearTarget.ApiKey
+        "oauth",
+        "oauth_credential",
+        "oauth_credentials",
+        "oauth_token",
+        "oauth_tokens",
+        "openai_codex_oauth",
+        "token",
+        "tokens",
+        -> ProviderCredentialClearTarget.OAuth
+        else -> throw IllegalArgumentException("providers.auth.clear received an unsupported credentialType.")
+    }
+}
+
+private fun providerAuthClearUnsupportedTypeFailure(
+    providerType: ProviderType,
+    credentialType: String,
+): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provider ${providerType.displayName} does not use $credentialType credentials.",
+        errorCode = "PROVIDER_AUTH_TYPE_UNSUPPORTED",
+        payload =
+            buildJsonObject {
+                put("errorCode", "PROVIDER_AUTH_TYPE_UNSUPPORTED")
+                put("toolName", "providers.auth.clear")
+                put("providerId", providerType.providerId)
+                put("credentialType", credentialType)
+                put("authMode", providerType.authMode.name)
+                put("requiresApiKey", providerType.requiresApiKey)
+                put("usesOpenAiCodexOAuth", providerType.usesOpenAiCodexOAuth)
+                put("secretValuesIncluded", false)
+                put("oauthTokenValuesIncluded", false)
+            },
+    )
 
 private data class ProviderAuthState(
     val providerType: ProviderType,

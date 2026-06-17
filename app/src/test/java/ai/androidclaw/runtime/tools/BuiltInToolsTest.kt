@@ -5566,6 +5566,140 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider auth clear removes api key after confirmation without exposing secret`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-clear-secret")
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val unconfirmed =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.auth.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                            put("credentialType", "api_key")
+                        },
+                )
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.credentials.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                            put("credentialType", "api_key")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(unconfirmed.success)
+            assertEquals("CONFIRMATION_REQUIRED", unconfirmed.errorCode)
+            assertTrue(cleared.summary, cleared.success)
+            assertNull(providerSecretStore.readApiKey(ProviderType.DeepSeek))
+            val payloadText = cleared.payload.toString()
+            assertFalse(payloadText.contains("deepseek-clear-secret"))
+            assertEquals(ProviderType.DeepSeek.providerId, cleared.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("api_key", cleared.payload["credentialType"]?.jsonPrimitive?.content)
+            assertEquals("Configured", cleared.payload["authStatusBefore"]?.jsonPrimitive?.content)
+            assertEquals("Missing", cleared.payload["authStatusAfter"]?.jsonPrimitive?.content)
+            assertEquals("true", cleared.payload["apiKeyClearAttempted"]?.jsonPrimitive?.content)
+            assertEquals("true", cleared.payload["apiKeyWasConfigured"]?.jsonPrimitive?.content)
+            assertEquals("true", cleared.payload["apiKeyCleared"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, cleared.payload["oauthWasConfigured"])
+            assertEquals("false", cleared.payload["oauthCredentialCleared"]?.jsonPrimitive?.content)
+            assertEquals("1", cleared.payload["clearedCredentialCount"]?.jsonPrimitive?.content)
+            assertEquals("false", cleared.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            val provider = cleared.payload.getValue("provider").jsonObject
+            assertEquals("Missing", provider.getValue("status").jsonPrimitive.content)
+            assertEquals("false", provider.getValue("configured").jsonPrimitive.content)
+        }
+
+    @Test
+    fun `provider auth clear removes oauth credential and rejects unsupported type`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-unsupported-secret")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "oauth-clear-access-secret",
+                    refreshToken = "oauth-clear-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli(),
+                ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.logout"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "openai-codex")
+                            put("credentialType", "oauth")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+            val unsupported =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.auth.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                            put("credentialType", "oauth")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(cleared.summary, cleared.success)
+            assertNull(providerSecretStore.readOAuthCredential(ProviderType.OpenAiCodex))
+            val payloadText = cleared.payload.toString()
+            assertFalse(payloadText.contains("oauth-clear-access-secret"))
+            assertFalse(payloadText.contains("oauth-clear-refresh-secret"))
+            assertEquals(ProviderType.OpenAiCodex.providerId, cleared.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("oauth", cleared.payload["credentialType"]?.jsonPrimitive?.content)
+            assertEquals("Configured", cleared.payload["authStatusBefore"]?.jsonPrimitive?.content)
+            assertEquals("Missing", cleared.payload["authStatusAfter"]?.jsonPrimitive?.content)
+            assertEquals("true", cleared.payload["oauthClearAttempted"]?.jsonPrimitive?.content)
+            assertEquals("true", cleared.payload["oauthWasConfigured"]?.jsonPrimitive?.content)
+            assertEquals("true", cleared.payload["oauthCredentialCleared"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, cleared.payload["apiKeyWasConfigured"])
+            assertEquals("false", cleared.payload["apiKeyCleared"]?.jsonPrimitive?.content)
+            assertEquals("1", cleared.payload["clearedCredentialCount"]?.jsonPrimitive?.content)
+            assertEquals("false", cleared.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertFalse(unsupported.success)
+            assertEquals("PROVIDER_AUTH_TYPE_UNSUPPORTED", unsupported.errorCode)
+            assertEquals("deepseek-unsupported-secret", providerSecretStore.readApiKey(ProviderType.DeepSeek))
+        }
+
+    @Test
+    fun `provider auth clear reports unavailable secret store`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val registry = buildRegistry(providerSecretStore = null)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.auth.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("credentialType", "all")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("PROVIDER_SECRET_STORE_UNAVAILABLE", result.errorCode)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("all", result.payload["credentialType"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `provider stats summarizes inventory endpoint customization and auth state`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()
