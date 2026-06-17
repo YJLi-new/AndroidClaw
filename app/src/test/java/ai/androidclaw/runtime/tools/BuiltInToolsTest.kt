@@ -3099,6 +3099,57 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks run delete requires confirmation and deletes only requested run`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Delete one run",
+                    prompt = "Delete exact run",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val deletedRun = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            val keptRun = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:01:00Z"))
+            taskRepository.updateRun(deletedRun.copy(status = TaskRunStatus.Skipped, resultSummary = "Skip this one"))
+            taskRepository.updateRun(keptRun.copy(status = TaskRunStatus.Success, resultSummary = "Keep this one"))
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.run.delete"),
+                    arguments =
+                        buildJsonObject {
+                            put("runId", deletedRun.id)
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertNotNull(taskRepository.getRun(deletedRun.id))
+
+            val deleted =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.run.remove"),
+                    arguments =
+                        buildJsonObject {
+                            put("runId", deletedRun.id)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(deleted.success)
+            assertEquals(deletedRun.id, deleted.payload["deletedRunId"]?.jsonPrimitive?.content)
+            assertEquals(task.id, deleted.payload["taskId"]?.jsonPrimitive?.content)
+            assertEquals("Delete one run", deleted.payload["taskName"]?.jsonPrimitive?.content)
+            assertEquals("Skipped", deleted.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("1", deleted.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertNull(taskRepository.getRun(deletedRun.id))
+            assertNotNull(taskRepository.getRun(keptRun.id))
+            assertNotNull(taskRepository.getTask(task.id))
+        }
+
+    @Test
     fun `tasks run retry queues manual execution for failed run`() =
         runTest {
             val task =

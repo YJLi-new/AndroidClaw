@@ -241,6 +241,8 @@ class TaskRepository(
         )
     }
 
+    suspend fun deleteRun(id: String): Int = taskRunDao.deleteById(id)
+
     suspend fun clearRunsForTask(taskId: String): Int = taskRunDao.deleteByTaskId(taskId)
 
     suspend fun clearRunsByStatus(status: TaskRunStatus): Int = taskRunDao.deleteByStatus(status.toStorage())

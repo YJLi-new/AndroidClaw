@@ -86,6 +86,9 @@ interface TaskRunDao {
     )
     suspend fun getStatusStats(): List<TaskRunStatusStatsRow>
 
+    @Query("DELETE FROM task_runs WHERE id = :id")
+    suspend fun deleteById(id: String): Int
+
     @Query("DELETE FROM task_runs WHERE taskId = :taskId")
     suspend fun deleteByTaskId(taskId: String): Int
 

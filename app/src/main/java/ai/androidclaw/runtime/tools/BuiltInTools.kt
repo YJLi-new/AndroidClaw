@@ -6359,6 +6359,87 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.run.delete",
+                    aliases =
+                        listOf(
+                            "task.run.delete",
+                            "tasks.run.remove",
+                            "task.run.remove",
+                            "automations.run.delete",
+                            "automation.run.delete",
+                        ),
+                    description = "Delete one automation run-history row by id after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "runId",
+                                required = true,
+                                description = "Task run identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val runId =
+                arguments["runId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (runId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.run.delete",
+                    summary = "tasks.run.delete requires a non-empty runId.",
+                    field = "runId",
+                )
+            }
+            val run =
+                taskRepository.getRun(runId)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Task run $runId was not found.",
+                        errorCode = "TASK_RUN_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TASK_RUN_NOT_FOUND")
+                                put("toolName", "tasks.run.delete")
+                                put("runId", runId)
+                            },
+                    )
+            val task = taskRepository.getTask(run.taskId)
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Pass confirm=CONFIRM to delete automation run $runId.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "tasks.run.delete")
+                            put("runId", run.id)
+                            put("taskId", run.taskId)
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val deletedCount = taskRepository.deleteRun(run.id)
+            ToolExecutionResult.success(
+                summary = "Deleted automation run ${run.id}.",
+                payload =
+                    buildJsonObject {
+                        put("deletedRunId", run.id)
+                        put("taskId", run.taskId)
+                        put("taskName", task?.name?.let(::JsonPrimitive) ?: JsonNull)
+                        put("status", run.status.name)
+                        put("scheduledAtIso", run.scheduledAt.toString())
+                        put("deletedCount", deletedCount)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.run.retry",
                     aliases =
                         listOf(
