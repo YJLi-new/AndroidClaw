@@ -2727,6 +2727,228 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks doctor reports actionable issues without prompts`() =
+        runTest {
+            val hiddenPrompt = "FULL AUTOMATION PROMPT SHOULD NOT APPEAR IN DOCTOR"
+            val archivedSession = sessionRepository.createSession("Archived target")
+            sessionRepository.archiveSession(archivedSession.id)
+            val dueTask =
+                taskRepository.createTask(
+                    name = "Due digest",
+                    prompt = hiddenPrompt,
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-07T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Paused reminder",
+                    prompt = "Paused prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val retryExhaustedTask =
+                taskRepository.createTask(
+                    name = "Retry exhausted",
+                    prompt = "Failing prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                    maxRetries = 1,
+                )
+            taskRepository.updateTask(
+                retryExhaustedTask.copy(
+                    nextRunAt = null,
+                    failureCount = 2,
+                ),
+            )
+            val archivedTargetTask =
+                taskRepository.createTask(
+                    name = "Archived target automation",
+                    prompt = "Deliver to archived target",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = archivedSession.id,
+                )
+            val blankPromptTask =
+                taskRepository.createTask(
+                    name = "Blank prompt automation",
+                    prompt = "",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.check"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "ERROR",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "5",
+                result.payload
+                    .getValue("taskCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "5",
+                result.payload
+                    .getValue("candidateTaskCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "6",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("errorCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "4",
+                result.payload
+                    .getValue("warningCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("promptBodiesOmitted")
+                    .jsonPrimitive.content,
+            )
+            val stats = result.payload.getValue("stats").jsonObject
+            assertEquals("5", stats.getValue("taskCount").jsonPrimitive.content)
+            val issues =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue -> issue.jsonObject }
+            val issueCodes = issues.map { issue -> issue.getValue("code").jsonPrimitive.content }.toSet()
+            assertTrue(issueCodes.contains("task.due"))
+            assertTrue(issueCodes.contains("task.disabled"))
+            assertTrue(issueCodes.contains("task.enabled.unscheduled"))
+            assertTrue(issueCodes.contains("task.retry.exhausted"))
+            assertTrue(issueCodes.contains("task.target_session.archived"))
+            assertTrue(issueCodes.contains("task.prompt.empty"))
+            val dueIssue =
+                issues.first { issue ->
+                    issue.getValue("code").jsonPrimitive.content == "task.due"
+                }
+            assertEquals(dueTask.id, dueIssue.getValue("taskId").jsonPrimitive.content)
+            assertEquals("86400", dueIssue.getValue("secondsOverdue").jsonPrimitive.content)
+            val archivedIssue =
+                issues.first { issue ->
+                    issue.getValue("code").jsonPrimitive.content == "task.target_session.archived"
+                }
+            assertEquals(archivedTargetTask.id, archivedIssue.getValue("taskId").jsonPrimitive.content)
+            assertEquals(archivedSession.id, archivedIssue.getValue("targetSessionId").jsonPrimitive.content)
+            val promptIssue =
+                issues.first { issue ->
+                    issue.getValue("code").jsonPrimitive.content == "task.prompt.empty"
+                }
+            assertEquals(blankPromptTask.id, promptIssue.getValue("taskId").jsonPrimitive.content)
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Automation doctor"))
+            assertTrue(markdown.contains("task.retry.exhausted"))
+            assertTrue(markdown.contains("Archived target automation"))
+            assertFalse(result.payload.toString().contains(hiddenPrompt))
+            assertFalse(markdown.contains(hiddenPrompt))
+        }
+
+    @Test
+    fun `tasks doctor can omit disabled automations and markdown`() =
+        runTest {
+            taskRepository.createTask(
+                name = "Ready future automation",
+                prompt = "Run later",
+                schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = null,
+            )
+            val disabledTask =
+                taskRepository.createTask(
+                    name = "Disabled due automation",
+                    prompt = "Do not diagnose when filtered",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-06T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            taskRepository.updateTask(disabledTask.copy(enabled = false))
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "OK",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("taskCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("candidateTaskCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "0",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("includeDisabled")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertTrue(
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .isEmpty(),
+            )
+        }
+
+    @Test
     fun `tasks preview returns next run without persisting automation`() =
         runTest {
             val registry = buildRegistry()

@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.doctor` /
+  `task.doctor` / `tasks.check` / `task.check` plus automation aliases as a
+  dedicated Automation Contract diagnostics tool. Agents can now scan enabled
+  or all automations for due backlog, disabled schedules, enabled tasks with no
+  next run, exhausted retry budgets, empty prompts, archived/missing target
+  sessions, and precise-scheduling degradation with OK/WARN/ERROR status,
+  bounded issue payloads, optional markdown, and prompt-body omission flags.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.doctor` /
   `skill.doctor` / `skills.check` / `skill.check` as a dedicated Skill
   Contract diagnostics tool. Agents can now scan enabled or all skills for

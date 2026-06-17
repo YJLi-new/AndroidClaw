@@ -23,7 +23,10 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.scheduler.NextRunCalculator
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
+import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.scheduler.TaskSchedule
+import ai.androidclaw.runtime.scheduler.schedulingDecision
+import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillConfigField
 import ai.androidclaw.runtime.skills.SkillConfigurationSnapshot
@@ -7261,6 +7264,132 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.doctor",
+                    aliases =
+                        listOf(
+                            "task.doctor",
+                            "tasks.check",
+                            "task.check",
+                            "automations.doctor",
+                            "automation.doctor",
+                            "automations.check",
+                            "automation.check",
+                        ),
+                    description = "Return actionable automation diagnostics without task prompt bodies.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum diagnostic issues to include. Defaults to 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDisabled",
+                                description = "Set false to omit disabled automations before diagnostics. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_DOCTOR_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_DOCTOR_MAX_LIMIT)
+            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val now = clock.instant()
+            val tasks = taskRepository.observeTasks().first()
+            val candidates =
+                if (includeDisabled) {
+                    tasks
+                } else {
+                    tasks.filter { task -> task.enabled }
+                }
+            val targetSessions =
+                candidates
+                    .mapNotNull { task -> task.targetSessionId }
+                    .distinct()
+                    .associateWith { sessionId -> sessionRepository.getSession(sessionId) }
+            val diagnostics = schedulerCoordinator.diagnostics()
+            val issues =
+                candidates.flatMap { task ->
+                    task.toTaskDoctorIssues(
+                        now = now,
+                        diagnostics = diagnostics,
+                        targetSession = task.targetSessionId?.let { sessionId -> targetSessions[sessionId] },
+                    )
+                }
+            val includedIssues = issues.take(limit)
+            val status = issues.toTaskDoctorStatus()
+            val stats = taskRepository.getTaskStats(now)
+            val minimumBackgroundIntervalMinutes =
+                schedulerCoordinator
+                    .capabilities()
+                    .minimumBackgroundInterval
+                    .toMinutes()
+            val doctorMarkdown =
+                if (includeMarkdown) {
+                    includedIssues.toTaskDoctorMarkdown(
+                        status = status,
+                        totalTaskCount = tasks.size,
+                        candidateTaskCount = candidates.size,
+                        issueCount = issues.size,
+                        limit = limit,
+                        includeDisabled = includeDisabled,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        issues.isEmpty() ->
+                            "Automation doctor found no issues across ${candidates.size} candidate task(s)."
+                        includedIssues.size == issues.size ->
+                            "Automation doctor found ${issues.size} issue(s) across ${candidates.size} candidate task(s)."
+                        else ->
+                            "Automation doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("status", status)
+                        put("nowIso", now.toString())
+                        put("taskCount", tasks.size)
+                        put("candidateTaskCount", candidates.size)
+                        put("issueCount", issues.size)
+                        put("includedIssueCount", includedIssues.size)
+                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                        put("limit", limit)
+                        put("includeDisabled", includeDisabled)
+                        put("includeMarkdown", includeMarkdown)
+                        put("promptBodiesOmitted", true)
+                        put(
+                            "stats",
+                            stats.toTaskStatsPayload(
+                                minimumBackgroundIntervalMinutes = minimumBackgroundIntervalMinutes,
+                            ),
+                        )
+                        put(
+                            "issues",
+                            buildJsonArray {
+                                includedIssues.forEach { issue ->
+                                    add(issue.toTaskDoctorPayload())
+                                }
+                            },
+                        )
+                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.due",
                     aliases =
                         listOf(
@@ -8655,6 +8784,9 @@ private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val TASK_DUE_DEFAULT_LIMIT = 20
 private const val TASK_DUE_MAX_LIMIT = 50
+private const val TASK_DOCTOR_DEFAULT_LIMIT = 20
+private const val TASK_DOCTOR_MAX_LIMIT = 50
+private const val TASK_DOCTOR_TEXT_MAX_CHARS = 500
 private const val TASK_HANDOFF_DEFAULT_RUN_LIMIT = 5
 private const val TASK_HANDOFF_MAX_RUN_LIMIT = 20
 private const val TASK_OCCURRENCES_DEFAULT_LIMIT = 5
@@ -8706,6 +8838,26 @@ private data class SkillDoctorIssue(
     val omittedMissingSecretNameCount: Int = 0,
     val missingConfigPaths: List<String> = emptyList(),
     val omittedMissingConfigPathCount: Int = 0,
+)
+
+private data class TaskDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val taskId: String,
+    val taskName: String,
+    val enabled: Boolean,
+    val scheduleKind: String,
+    val executionMode: String,
+    val targetSessionId: String?,
+    val nextRunAt: Instant?,
+    val lastRunAt: Instant?,
+    val failureCount: Int,
+    val maxRetries: Int,
+    val summary: String,
+    val action: String,
+    val secondsOverdue: Long? = null,
+    val detail: String? = null,
 )
 
 private fun buildRuntimeDoctorIssues(
@@ -11035,6 +11187,219 @@ private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundInterva
             },
         )
     }
+
+private fun Task.toTaskDoctorIssues(
+    now: Instant,
+    diagnostics: SchedulerDiagnostics,
+    targetSession: Session?,
+): List<TaskDoctorIssue> =
+    buildList {
+        fun addIssue(
+            severity: String,
+            code: String,
+            summary: String,
+            action: String,
+            secondsOverdue: Long? = null,
+            detail: String? = null,
+        ) {
+            add(
+                TaskDoctorIssue(
+                    id = "$id:$code",
+                    severity = severity,
+                    code = code,
+                    taskId = id,
+                    taskName = name,
+                    enabled = enabled,
+                    scheduleKind = schedule.toTaskSearchKind(),
+                    executionMode = executionMode.name,
+                    targetSessionId = targetSessionId,
+                    nextRunAt = nextRunAt,
+                    lastRunAt = lastRunAt,
+                    failureCount = failureCount,
+                    maxRetries = maxRetries,
+                    summary = summary.toTaskDoctorText(),
+                    action = action.toTaskDoctorText(),
+                    secondsOverdue = secondsOverdue,
+                    detail = detail?.toTaskDoctorText(),
+                ),
+            )
+        }
+
+        if (prompt.isBlank()) {
+            addIssue(
+                severity = "Error",
+                code = "task.prompt.empty",
+                summary = "Automation $name has an empty prompt and cannot produce useful work.",
+                action = "Run tasks.update with a non-empty prompt or delete this automation.",
+            )
+        }
+        if (!enabled) {
+            addIssue(
+                severity = "Warning",
+                code = "task.disabled",
+                summary = "Automation $name is disabled and will not be scheduled.",
+                action = "Run tasks.enable if this automation should resume, or delete it if it is obsolete.",
+            )
+        } else {
+            val nextRun = nextRunAt
+            when {
+                nextRun == null ->
+                    addIssue(
+                        severity = "Warning",
+                        code = "task.enabled.unscheduled",
+                        summary = "Enabled automation $name has no next scheduled run.",
+                        action = "Run tasks.reschedule, update the schedule, disable it, or delete it if complete.",
+                    )
+                !nextRun.isAfter(now) ->
+                    addIssue(
+                        severity = "Warning",
+                        code = "task.due",
+                        summary = "Automation $name is due and waiting to run.",
+                        action = "Let WorkManager run it, run tasks.run_now, or use tasks.snooze/tasks.skip for a due automation.",
+                        secondsOverdue = Duration.between(nextRun, now).seconds.coerceAtLeast(0),
+                    )
+            }
+        }
+        when {
+            failureCount > maxRetries ->
+                addIssue(
+                    severity = "Error",
+                    code = "task.retry.exhausted",
+                    summary = "Automation $name has exhausted its retry budget.",
+                    action = "Inspect recent task runs, fix the failing provider/tool cause, then run tasks.reschedule or tasks.run_now.",
+                )
+            failureCount > 0 ->
+                addIssue(
+                    severity = "Warning",
+                    code = "task.failures.active",
+                    summary = "Automation $name has $failureCount active failure(s) before retry recovery.",
+                    action = "Inspect task run history and provider/tool health before relying on this automation.",
+                )
+        }
+        targetSessionId?.let { sessionId ->
+            when {
+                targetSession == null ->
+                    addIssue(
+                        severity = "Warning",
+                        code = "task.target_session.missing",
+                        summary = "Automation $name targets a missing session.",
+                        action = "Update targetSessionId or allow execution to fall back to the main session intentionally.",
+                        detail = "targetSessionId=$sessionId",
+                    )
+                targetSession.archived ->
+                    addIssue(
+                        severity = "Warning",
+                        code = "task.target_session.archived",
+                        summary = "Automation $name targets archived session ${targetSession.title}.",
+                        action = "Unarchive the target session or update the automation target.",
+                        detail = "targetSessionId=$sessionId",
+                    )
+            }
+        }
+        val preciseWarnings = userVisiblePreciseWarnings(diagnostics)
+        if (preciseWarnings.isNotEmpty()) {
+            val decision = schedulingDecision(diagnostics)
+            addIssue(
+                severity = "Warning",
+                code = "task.precision.warning",
+                summary = "Automation $name requested precise scheduling but device/runtime capabilities may degrade it.",
+                action = "Grant exact alarm and notification visibility permissions, or set precise=false for approximate scheduling.",
+                detail =
+                    buildString {
+                        decision.degradedReason?.let { reason ->
+                            append(reason)
+                            append(" ")
+                        }
+                        append(preciseWarnings.joinToString("; "))
+                    },
+            )
+        }
+    }
+
+private fun List<TaskDoctorIssue>.toTaskDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun TaskDoctorIssue.toTaskDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("taskId", taskId)
+        put("taskName", taskName)
+        put("enabled", enabled)
+        put("scheduleKind", scheduleKind)
+        put("executionMode", executionMode)
+        put("targetSessionId", targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("nextRunAtIso", nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("lastRunAtIso", lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("failureCount", failureCount)
+        put("maxRetries", maxRetries)
+        put("summary", summary)
+        put("action", action)
+        put("secondsOverdue", secondsOverdue?.let(::JsonPrimitive) ?: JsonNull)
+        put("detail", detail?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<TaskDoctorIssue>.toTaskDoctorMarkdown(
+    status: String,
+    totalTaskCount: Int,
+    candidateTaskCount: Int,
+    issueCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Automation doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Automations in inventory: $totalTaskCount")
+        appendLine("- Candidate automations after filters: $candidateTaskCount")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Limit: $limit")
+        appendLine("- Disabled automations included: $includeDisabled")
+        appendLine("- Task prompt bodies omitted: true")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No automation issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toTaskDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun TaskDoctorIssue.toTaskDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(taskName.toHandoffLine())
+        append("` id=`")
+        append(taskId.toHandoffLine())
+        append("` code=")
+        append(code)
+        append(": ")
+        append(summary.toHandoffLine())
+        secondsOverdue?.let { overdue ->
+            append(" secondsOverdue=")
+            append(overdue)
+        }
+        detail?.let { detail ->
+            append(" detail=")
+            append(detail.toHandoffLine())
+        }
+        append(" Action: ")
+        append(action.toHandoffLine())
+    }
+
+private fun String.toTaskDoctorText(): String = toHandoffLine().take(TASK_DOCTOR_TEXT_MAX_CHARS)
 
 private fun Task.toTaskHandoffMarkdown(
     promptSnippet: String?,
