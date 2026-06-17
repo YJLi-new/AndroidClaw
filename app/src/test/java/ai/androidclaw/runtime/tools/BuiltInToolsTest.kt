@@ -11135,6 +11135,167 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `runtime portability audit accepts complete export set without echoing payload bodies`() =
+        runTest {
+            val registry = buildRegistry()
+            val exports =
+                buildJsonArray {
+                    add(runtimeAuditExport(format = "androidclaw.runtime.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.providers.export.v1", secretMarker = "provider-secret-marker"))
+                    add(runtimeAuditExport(format = "androidclaw.skills.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.tools.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.sessions.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.messages.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.tasks.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.memory.export.v1"))
+                    add(runtimeAuditExport(format = "androidclaw.events.export.v1"))
+                }
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "runtime.backup.audit"),
+                    arguments =
+                        buildJsonObject {
+                            put("exports", exports)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.runtime.portability.audit.v1", result.payload["auditFormat"]?.jsonPrimitive?.content)
+            assertEquals("OK", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("9", result.payload["componentCount"]?.jsonPrimitive?.content)
+            assertEquals("9", result.payload["receivedExportCount"]?.jsonPrimitive?.content)
+            assertEquals("9", result.payload["recognizedExportCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["unknownExportCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["missingComponentCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["duplicateComponentCount"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["completeBackup"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["restoreReady"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["componentPayloadsIncluded"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains("provider-secret-marker"))
+            val presentKeys =
+                result.payload
+                    .getValue("presentComponents")
+                    .jsonArray
+                    .map { component ->
+                        component
+                            .jsonObject
+                            .getValue("key")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertTrue(presentKeys.contains("events"))
+            val restoreOrder =
+                result.payload
+                    .getValue("recommendedRestoreOrder")
+                    .jsonArray
+                    .map { step ->
+                        step
+                            .jsonObject
+                            .getValue("toolName")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals("providers.import", restoreOrder.first())
+            assertEquals("events.import", restoreOrder.last())
+            val markdown =
+                result.payload
+                    .getValue("auditMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# AndroidClaw portability audit"))
+            assertTrue(markdown.contains("Status: OK"))
+            assertFalse(markdown.contains("provider-secret-marker"))
+        }
+
+    @Test
+    fun `runtime portability audit reports missing duplicate and unknown object exports`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "system.backup.audit"),
+                    arguments =
+                        buildJsonObject {
+                            put(
+                                "exports",
+                                buildJsonObject {
+                                    put("runtime", runtimeAuditExport(format = "androidclaw.runtime.export.v1"))
+                                    put("providerPrimary", runtimeAuditExport(format = "androidclaw.providers.export.v1"))
+                                    put("providerDuplicate", runtimeAuditExport(format = "androidclaw.providers.export.v1"))
+                                    put("unknown", runtimeAuditExport(format = "androidclaw.unknown.export.v1"))
+                                    put(
+                                        "missingFormat",
+                                        buildJsonObject {
+                                            put("exportVersion", 1)
+                                            put("hiddenPayload", "missing-format-secret-marker")
+                                        },
+                                    )
+                                },
+                            )
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("WARN", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("5", result.payload["receivedExportCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["recognizedExportCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["unknownExportCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["duplicateComponentCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["completeBackup"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["restoreReady"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("auditMarkdown"))
+            assertFalse(result.payload.toString().contains("missing-format-secret-marker"))
+            val duplicate =
+                result.payload
+                    .getValue("duplicateComponents")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("providers", duplicate.getValue("key").jsonPrimitive.content)
+            assertEquals("2", duplicate.getValue("duplicateCount").jsonPrimitive.content)
+            val unknownReasons =
+                result.payload
+                    .getValue("unknownExports")
+                    .jsonArray
+                    .map { entry ->
+                        entry
+                            .jsonObject
+                            .getValue("reason")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertEquals(setOf("unknown_format", "missing_format"), unknownReasons)
+            val missingKeys =
+                result.payload
+                    .getValue("missingComponents")
+                    .jsonArray
+                    .map { component ->
+                        component
+                            .jsonObject
+                            .getValue("key")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(missingKeys.contains("sessions"))
+            assertTrue(missingKeys.contains("events"))
+            val missingExportTools =
+                result.payload
+                    .getValue("recommendedMissingExports")
+                    .jsonArray
+                    .map { step ->
+                        step
+                            .jsonObject
+                            .getValue("toolName")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertTrue(missingExportTools.contains("events.export"))
+        }
+
+    @Test
     fun `runtime handoff returns compact cross contract state without secrets or heavy content`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()
@@ -14180,6 +14341,18 @@ private fun toolTestMessageEntity(
         toolCallId = null,
         taskRunId = null,
     )
+
+private fun runtimeAuditExport(
+    format: String,
+    secretMarker: String? = null,
+): JsonObject =
+    buildJsonObject {
+        put("exportFormat", format)
+        put("exportVersion", 1)
+        secretMarker?.let { marker ->
+            put("payloadBodyThatMustStayOmitted", marker)
+        }
+    }
 
 private class FakeProviderSecretStore : ProviderSecretStore {
     private val apiKeys = mutableMapOf<ProviderType, String?>()

@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `runtime.portability.audit` /
+  `runtime.backup.audit` / `runtime.restore.audit` plus AndroidClaw/system
+  aliases as a Runtime Contract restore-readiness feature. Agents can now pass
+  a set of exported component payloads and receive a no-body audit of
+  recognized, missing, duplicate, and unknown export formats, complete-backup
+  and restore-ready booleans, recommended missing exports, recognized restore
+  order, optional markdown, and explicit secret/component-payload omission
+  flags before attempting confirmed imports. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Promoted event diagnostics into the `runtime.portability` /
   `runtime.backup.plan` / `runtime.restore.plan` playbook as a first-class
   portable component. The playbook now reports nine components, includes

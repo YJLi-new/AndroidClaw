@@ -654,6 +654,196 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "runtime.portability.audit",
+                                    aliases =
+                                        listOf(
+                                            "runtime.backup.audit",
+                                            "runtime.restore.audit",
+                                            "androidclaw.portability.audit",
+                                            "androidclaw.backup.audit",
+                                            "system.portability.audit",
+                                            "system.backup.audit",
+                                        ),
+                                    description =
+                                        "Audit supplied AndroidClaw export payloads before restore without echoing component bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "exports",
+                                                description =
+                                                    "Array of export payloads, one export object, or an object keyed by component.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "backup",
+                                                description = "Optional object containing an exports field to audit.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit auditMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val sources =
+                                when (val parsedSources = arguments.runtimePortabilityAuditSources()) {
+                                    is RuntimePortabilityAuditSourcesParseResult.Failure -> return@Entry parsedSources.result
+                                    is RuntimePortabilityAuditSourcesParseResult.Success -> parsedSources.sources
+                                }
+                            val componentSpecs = runtimePortabilityComponentSpecs()
+                            val componentByFormat = componentSpecs.associateBy { component -> component.exportFormat }
+                            val entries =
+                                sources.map { source ->
+                                    source.toRuntimePortabilityAuditEntry(componentByFormat = componentByFormat)
+                                }
+                            val recognizedEntries = entries.filter { entry -> entry.component != null }
+                            val unknownEntries = entries.filter { entry -> entry.component == null }
+                            val duplicateGroups =
+                                recognizedEntries
+                                    .groupBy { entry -> requireNotNull(entry.component).key }
+                                    .filterValues { componentEntries -> componentEntries.size > 1 }
+                            val presentComponentKeys =
+                                recognizedEntries
+                                    .mapNotNull { entry -> entry.component?.key }
+                                    .toSet()
+                            val missingComponents = componentSpecs.filter { component -> component.key !in presentComponentKeys }
+                            val missingRestoreComponents =
+                                componentSpecs.filter { component ->
+                                    component.restoreSupported && component.key !in presentComponentKeys
+                                }
+                            val recommendedRestoreComponents =
+                                componentSpecs
+                                    .filter { component ->
+                                        component.restoreSupported && component.key in presentComponentKeys
+                                    }.sortedBy { component -> component.restoreStep ?: Int.MAX_VALUE }
+                            val duplicateComponentCount = duplicateGroups.size
+                            val status =
+                                if (
+                                    unknownEntries.isEmpty() &&
+                                    missingComponents.isEmpty() &&
+                                    duplicateGroups.isEmpty()
+                                ) {
+                                    "OK"
+                                } else {
+                                    "WARN"
+                                }
+                            val auditMarkdown =
+                                if (includeMarkdown) {
+                                    buildRuntimePortabilityAuditMarkdown(
+                                        status = status,
+                                        receivedExportCount = sources.size,
+                                        recognizedExportCount = recognizedEntries.size,
+                                        missingComponents = missingComponents,
+                                        duplicateGroups = duplicateGroups,
+                                        unknownEntries = unknownEntries,
+                                        recommendedRestoreComponents = recommendedRestoreComponents,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (status == "OK") {
+                                        "Portability audit found all expected AndroidClaw export components."
+                                    } else {
+                                        "Portability audit found ${missingComponents.size} missing, " +
+                                            "$duplicateComponentCount duplicate, and ${unknownEntries.size} unknown component issue(s)."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("auditFormat", RUNTIME_PORTABILITY_AUDIT_FORMAT)
+                                        put("auditVersion", RUNTIME_PORTABILITY_AUDIT_VERSION)
+                                        put("status", status)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("componentCount", componentSpecs.size)
+                                        put("receivedExportCount", sources.size)
+                                        put("recognizedExportCount", recognizedEntries.size)
+                                        put("unknownExportCount", unknownEntries.size)
+                                        put("missingComponentCount", missingComponents.size)
+                                        put("duplicateComponentCount", duplicateComponentCount)
+                                        put("completeBackup", status == "OK")
+                                        put(
+                                            "restoreReady",
+                                            missingRestoreComponents.isEmpty() &&
+                                                unknownEntries.isEmpty() &&
+                                                duplicateGroups.isEmpty(),
+                                        )
+                                        put("secretValuesIncluded", false)
+                                        put("apiKeyValuesIncluded", false)
+                                        put("oauthTokenValuesIncluded", false)
+                                        put("componentPayloadsIncluded", false)
+                                        put("exportPayloadsIncluded", false)
+                                        put(
+                                            "presentComponents",
+                                            buildJsonArray {
+                                                recognizedEntries.forEach { entry ->
+                                                    add(entry.toRuntimePortabilityAuditPresentPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "missingComponents",
+                                            buildJsonArray {
+                                                missingComponents.forEach { component ->
+                                                    add(component.toRuntimePortabilityAuditComponentPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "duplicateComponents",
+                                            buildJsonArray {
+                                                duplicateGroups.forEach { (componentKey, componentEntries) ->
+                                                    add(componentEntries.toRuntimePortabilityDuplicatePayload(componentKey))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "unknownExports",
+                                            buildJsonArray {
+                                                unknownEntries.forEach { entry ->
+                                                    add(entry.toRuntimePortabilityUnknownPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "recommendedMissingExports",
+                                            buildJsonArray {
+                                                missingComponents.forEach { component ->
+                                                    add(
+                                                        runtimePortabilityStepPayload(
+                                                            step = component.exportStep,
+                                                            toolName = component.exportTool,
+                                                            format = component.exportFormat,
+                                                            scope = component.scope,
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "recommendedRestoreOrder",
+                                            buildJsonArray {
+                                                recommendedRestoreComponents.forEach { component ->
+                                                    add(
+                                                        runtimePortabilityStepPayload(
+                                                            step = requireNotNull(component.restoreStep),
+                                                            toolName = requireNotNull(component.importTool),
+                                                            format = requireNotNull(component.importFormat),
+                                                            scope = component.scope,
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                        put("auditMarkdown", auditMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "runtime.doctor",
                                     aliases =
                                         listOf(
@@ -13452,6 +13642,8 @@ private const val MESSAGE_IMPORT_FORMAT = "androidclaw.messages.import.v1"
 private const val MESSAGE_IMPORT_VERSION = 1
 private const val MESSAGE_IMPORT_DEFAULT_LIMIT = 50
 private const val MESSAGE_IMPORT_MAX_LIMIT = 100
+private const val MEMORY_EXPORT_FORMAT = "androidclaw.memory.export.v1"
+private const val MEMORY_IMPORT_FORMAT = "androidclaw.memory.import.v1"
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
@@ -13468,7 +13660,10 @@ private const val RUNTIME_EXPORT_FORMAT = "androidclaw.runtime.export.v1"
 private const val RUNTIME_EXPORT_VERSION = 1
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
+private const val RUNTIME_PORTABILITY_AUDIT_FORMAT = "androidclaw.runtime.portability.audit.v1"
+private const val RUNTIME_PORTABILITY_AUDIT_VERSION = 1
 private const val RUNTIME_PORTABILITY_COMPONENT_COUNT = 9
+private const val RUNTIME_PORTABILITY_FORMAT_MAX_CHARS = 120
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
 private const val SESSION_DOCTOR_CHECK_MAX_LIMIT = 20
@@ -13624,6 +13819,44 @@ private sealed interface EventImportCandidateParseResult {
     data class Skipped(
         val skipped: EventImportSkippedEntry,
     ) : EventImportCandidateParseResult
+}
+
+private data class RuntimePortabilityComponentSpec(
+    val key: String,
+    val contract: String,
+    val exportTool: String,
+    val exportFormat: String,
+    val importTool: String?,
+    val importFormat: String?,
+    val restoreSupported: Boolean,
+    val scope: String,
+    val notes: String,
+    val exportStep: Int,
+    val restoreStep: Int?,
+)
+
+private data class RuntimePortabilityAuditSource(
+    val sourceIndex: Int,
+    val sourceKey: String?,
+    val value: JsonElement,
+)
+
+private data class RuntimePortabilityAuditEntry(
+    val source: RuntimePortabilityAuditSource,
+    val format: String?,
+    val version: String?,
+    val component: RuntimePortabilityComponentSpec?,
+    val reason: String?,
+)
+
+private sealed interface RuntimePortabilityAuditSourcesParseResult {
+    data class Success(
+        val sources: List<RuntimePortabilityAuditSource>,
+    ) : RuntimePortabilityAuditSourcesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : RuntimePortabilityAuditSourcesParseResult
 }
 
 private data class RuntimeDoctorIssue(
@@ -14162,26 +14395,35 @@ private fun runtimeExportOmissionsPayload(): JsonObject =
 
 private fun runtimePortabilityExportOrderPayload(): JsonArray =
     buildJsonArray {
-        add(runtimePortabilityStepPayload(step = 1, toolName = "runtime.export", format = RUNTIME_EXPORT_FORMAT, scope = "Runtime manifest"))
-        add(runtimePortabilityStepPayload(step = 2, toolName = "providers.export", format = PROVIDER_EXPORT_FORMAT, scope = "Provider endpoints"))
-        add(runtimePortabilityStepPayload(step = 3, toolName = "skills.export", format = SKILL_EXPORT_FORMAT, scope = "Skill definitions"))
-        add(runtimePortabilityStepPayload(step = 4, toolName = "tools.export", format = TOOL_EXPORT_FORMAT, scope = "Typed tool catalog"))
-        add(runtimePortabilityStepPayload(step = 5, toolName = "sessions.export", format = SESSION_EXPORT_FORMAT, scope = "Session shells"))
-        add(runtimePortabilityStepPayload(step = 6, toolName = "messages.export", format = MESSAGE_EXPORT_FORMAT, scope = "Per-session transcripts"))
-        add(runtimePortabilityStepPayload(step = 7, toolName = "tasks.export", format = TASK_EXPORT_FORMAT, scope = "Scheduled automations"))
-        add(runtimePortabilityStepPayload(step = 8, toolName = "memory.export", format = "androidclaw.memory.export.v1", scope = "Local memory"))
-        add(runtimePortabilityStepPayload(step = 9, toolName = "events.export", format = EVENT_EXPORT_FORMAT, scope = "Event diagnostics"))
+        runtimePortabilityComponentSpecs()
+            .sortedBy { component -> component.exportStep }
+            .forEach { component ->
+                add(
+                    runtimePortabilityStepPayload(
+                        step = component.exportStep,
+                        toolName = component.exportTool,
+                        format = component.exportFormat,
+                        scope = component.scope,
+                    ),
+                )
+            }
     }
 
 private fun runtimePortabilityRestoreOrderPayload(): JsonArray =
     buildJsonArray {
-        add(runtimePortabilityStepPayload(step = 1, toolName = "providers.import", format = PROVIDER_IMPORT_FORMAT, scope = "Provider endpoints"))
-        add(runtimePortabilityStepPayload(step = 2, toolName = "skills.import", format = SKILL_IMPORT_FORMAT, scope = "Skill definitions"))
-        add(runtimePortabilityStepPayload(step = 3, toolName = "sessions.import", format = SESSION_IMPORT_FORMAT, scope = "Session shells"))
-        add(runtimePortabilityStepPayload(step = 4, toolName = "messages.import", format = MESSAGE_IMPORT_FORMAT, scope = "Per-session transcripts"))
-        add(runtimePortabilityStepPayload(step = 5, toolName = "tasks.import", format = TASK_IMPORT_FORMAT, scope = "Scheduled automations"))
-        add(runtimePortabilityStepPayload(step = 6, toolName = "memory.import", format = "androidclaw.memory.import.v1", scope = "Local memory"))
-        add(runtimePortabilityStepPayload(step = 7, toolName = "events.import", format = EVENT_IMPORT_FORMAT, scope = "Event diagnostics"))
+        runtimePortabilityComponentSpecs()
+            .filter { component -> component.restoreStep != null }
+            .sortedBy { component -> requireNotNull(component.restoreStep) }
+            .forEach { component ->
+                add(
+                    runtimePortabilityStepPayload(
+                        step = requireNotNull(component.restoreStep),
+                        toolName = requireNotNull(component.importTool),
+                        format = requireNotNull(component.importFormat),
+                        scope = component.scope,
+                    ),
+                )
+            }
     }
 
 private fun runtimePortabilityStepPayload(
@@ -14197,128 +14439,135 @@ private fun runtimePortabilityStepPayload(
         put("scope", scope)
     }
 
+private fun runtimePortabilityComponentSpecs(): List<RuntimePortabilityComponentSpec> =
+    listOf(
+        RuntimePortabilityComponentSpec(
+            key = "runtime",
+            contract = "Runtime",
+            exportTool = "runtime.export",
+            exportFormat = RUNTIME_EXPORT_FORMAT,
+            importTool = null,
+            importFormat = null,
+            restoreSupported = false,
+            scope = "Runtime manifest",
+            notes = "Records host invariants and contract stats; restore is delegated to component import tools.",
+            exportStep = 1,
+            restoreStep = null,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "providers",
+            contract = "Providers/OAuth",
+            exportTool = "providers.export",
+            exportFormat = PROVIDER_EXPORT_FORMAT,
+            importTool = "providers.import",
+            importFormat = PROVIDER_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Provider endpoints",
+            notes = "Endpoint settings are portable; API keys, OAuth tokens, and credential state are never included.",
+            exportStep = 2,
+            restoreStep = 1,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "skills",
+            contract = "Skills",
+            exportTool = "skills.export",
+            exportFormat = SKILL_EXPORT_FORMAT,
+            importTool = "skills.import",
+            importFormat = SKILL_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Skill definitions",
+            notes = "Skill definitions and optional non-secret config are portable; secrets remain omitted.",
+            exportStep = 3,
+            restoreStep = 2,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "tools",
+            contract = "Tools",
+            exportTool = "tools.export",
+            exportFormat = TOOL_EXPORT_FORMAT,
+            importTool = null,
+            importFormat = null,
+            restoreSupported = false,
+            scope = "Typed tool catalog",
+            notes = "Typed native tools are built into the APK; the catalog is export-only capability metadata.",
+            exportStep = 4,
+            restoreStep = null,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "sessions",
+            contract = "Sessions",
+            exportTool = "sessions.export",
+            exportFormat = SESSION_EXPORT_FORMAT,
+            importTool = "sessions.import",
+            importFormat = SESSION_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Session shells",
+            notes = "Session shells and summaries are portable; transcript bodies are handled by messages export/import.",
+            exportStep = 5,
+            restoreStep = 3,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "messages",
+            contract = "Sessions",
+            exportTool = "messages.export",
+            exportFormat = MESSAGE_EXPORT_FORMAT,
+            importTool = "messages.import",
+            importFormat = MESSAGE_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Per-session transcripts",
+            notes = "Run per session when full transcript windows are needed; provider metadata is omitted.",
+            exportStep = 6,
+            restoreStep = 4,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "automations",
+            contract = "Automations",
+            exportTool = "tasks.export",
+            exportFormat = TASK_EXPORT_FORMAT,
+            importTool = "tasks.import",
+            importFormat = TASK_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Scheduled automations",
+            notes = "Schedules and execution modes are portable; run history and provider state are omitted.",
+            exportStep = 7,
+            restoreStep = 5,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "memory",
+            contract = "Memory",
+            exportTool = "memory.export",
+            exportFormat = MEMORY_EXPORT_FORMAT,
+            importTool = "memory.import",
+            importFormat = MEMORY_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Local memory",
+            notes = "Local memory can be portable, but owner ids, source message bodies, and provider metadata are omitted.",
+            exportStep = 8,
+            restoreStep = 6,
+        ),
+        RuntimePortabilityComponentSpec(
+            key = "events",
+            contract = "Tools",
+            exportTool = "events.export",
+            exportFormat = EVENT_EXPORT_FORMAT,
+            importTool = "events.import",
+            importFormat = EVENT_IMPORT_FORMAT,
+            restoreSupported = true,
+            scope = "Event diagnostics",
+            notes = "Bounded event diagnostics are portable; details are omitted unless explicitly requested.",
+            exportStep = 9,
+            restoreStep = 7,
+        ),
+    )
+
 private fun runtimePortabilityComponentsPayload(): JsonArray =
     buildJsonArray {
-        add(
-            runtimePortabilityComponentPayload(
-                key = "runtime",
-                contract = "Runtime",
-                exportTool = "runtime.export",
-                exportFormat = RUNTIME_EXPORT_FORMAT,
-                importTool = null,
-                importFormat = null,
-                restoreSupported = false,
-                notes = "Records host invariants and contract stats; restore is delegated to component import tools.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "providers",
-                contract = "Providers/OAuth",
-                exportTool = "providers.export",
-                exportFormat = PROVIDER_EXPORT_FORMAT,
-                importTool = "providers.import",
-                importFormat = PROVIDER_IMPORT_FORMAT,
-                restoreSupported = true,
-                notes = "Endpoint settings are portable; API keys, OAuth tokens, and credential state are never included.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "skills",
-                contract = "Skills",
-                exportTool = "skills.export",
-                exportFormat = SKILL_EXPORT_FORMAT,
-                importTool = "skills.import",
-                importFormat = SKILL_IMPORT_FORMAT,
-                restoreSupported = true,
-                notes = "Skill definitions and optional non-secret config are portable; secrets remain omitted.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "tools",
-                contract = "Tools",
-                exportTool = "tools.export",
-                exportFormat = TOOL_EXPORT_FORMAT,
-                importTool = null,
-                importFormat = null,
-                restoreSupported = false,
-                notes = "Typed native tools are built into the APK; the catalog is export-only capability metadata.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "sessions",
-                contract = "Sessions",
-                exportTool = "sessions.export",
-                exportFormat = SESSION_EXPORT_FORMAT,
-                importTool = "sessions.import",
-                importFormat = SESSION_IMPORT_FORMAT,
-                restoreSupported = true,
-                notes = "Session shells and summaries are portable; transcript bodies are handled by messages export/import.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "messages",
-                contract = "Sessions",
-                exportTool = "messages.export",
-                exportFormat = MESSAGE_EXPORT_FORMAT,
-                importTool = "messages.import",
-                importFormat = MESSAGE_IMPORT_FORMAT,
-                restoreSupported = true,
-                notes = "Run per session when full transcript windows are needed; provider metadata is omitted.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "automations",
-                contract = "Automations",
-                exportTool = "tasks.export",
-                exportFormat = TASK_EXPORT_FORMAT,
-                importTool = "tasks.import",
-                importFormat = TASK_IMPORT_FORMAT,
-                restoreSupported = true,
-                notes = "Schedules and execution modes are portable; run history and provider state are omitted.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "memory",
-                contract = "Memory",
-                exportTool = "memory.export",
-                exportFormat = "androidclaw.memory.export.v1",
-                importTool = "memory.import",
-                importFormat = "androidclaw.memory.import.v1",
-                restoreSupported = true,
-                notes = "Local memory can be portable, but owner ids, source message bodies, and provider metadata are omitted.",
-            ),
-        )
-        add(
-            runtimePortabilityComponentPayload(
-                key = "events",
-                contract = "Tools",
-                exportTool = "events.export",
-                exportFormat = EVENT_EXPORT_FORMAT,
-                importTool = "events.import",
-                importFormat = EVENT_IMPORT_FORMAT,
-                restoreSupported = true,
-                notes = "Bounded event diagnostics are portable; details are omitted unless explicitly requested.",
-            ),
-        )
+        runtimePortabilityComponentSpecs().forEach { component ->
+            add(component.toRuntimePortabilityComponentPayload())
+        }
     }
 
-private fun runtimePortabilityComponentPayload(
-    key: String,
-    contract: String,
-    exportTool: String,
-    exportFormat: String,
-    importTool: String?,
-    importFormat: String?,
-    restoreSupported: Boolean,
-    notes: String,
-): JsonObject =
+private fun RuntimePortabilityComponentSpec.toRuntimePortabilityComponentPayload(): JsonObject =
     buildJsonObject {
         put("key", key)
         put("contract", contract)
@@ -14336,6 +14585,208 @@ private fun runtimePortabilityComponentPayload(
         put("messageBodiesIncluded", false)
         put("providerMetaIncluded", false)
         put("notes", notes)
+    }
+
+private fun JsonObject.runtimePortabilityAuditSources(): RuntimePortabilityAuditSourcesParseResult {
+    val exports =
+        this["exports"]
+            ?: (this["backup"] as? JsonObject)?.get("exports")
+            ?: JsonArray(emptyList())
+    return exports.toRuntimePortabilityAuditSources()
+}
+
+private fun JsonElement.toRuntimePortabilityAuditSources(): RuntimePortabilityAuditSourcesParseResult =
+    when (this) {
+        is JsonArray ->
+            RuntimePortabilityAuditSourcesParseResult.Success(
+                mapIndexed { index, value ->
+                    RuntimePortabilityAuditSource(
+                        sourceIndex = index,
+                        sourceKey = null,
+                        value = value,
+                    )
+                },
+            )
+        is JsonObject ->
+            if (containsKey("exportFormat") || containsKey("format")) {
+                RuntimePortabilityAuditSourcesParseResult.Success(
+                    listOf(
+                        RuntimePortabilityAuditSource(
+                            sourceIndex = 0,
+                            sourceKey = null,
+                            value = this,
+                        ),
+                    ),
+                )
+            } else {
+                RuntimePortabilityAuditSourcesParseResult.Success(
+                    entries.mapIndexed { index, entry ->
+                        RuntimePortabilityAuditSource(
+                            sourceIndex = index,
+                            sourceKey = entry.key.take(RUNTIME_PORTABILITY_FORMAT_MAX_CHARS),
+                            value = entry.value,
+                        )
+                    },
+                )
+            }
+        else ->
+            RuntimePortabilityAuditSourcesParseResult.Failure(
+                invalidRuntimePortabilityAuditExportsResult(),
+            )
+    }
+
+private fun invalidRuntimePortabilityAuditExportsResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Portability audit exports must be an array, export object, or object keyed by component.",
+        errorCode = "INVALID_RUNTIME_PORTABILITY_AUDIT_EXPORTS",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_RUNTIME_PORTABILITY_AUDIT_EXPORTS")
+                put("field", "exports")
+            },
+    )
+
+private fun RuntimePortabilityAuditSource.toRuntimePortabilityAuditEntry(
+    componentByFormat: Map<String, RuntimePortabilityComponentSpec>,
+): RuntimePortabilityAuditEntry {
+    val objectValue =
+        value as? JsonObject ?: return RuntimePortabilityAuditEntry(
+            source = this,
+            format = null,
+            version = null,
+            component = null,
+            reason = "entry_not_object",
+        )
+    val format =
+        objectValue.optionalText("exportFormat")
+            ?: objectValue.optionalText("format")
+    if (format == null) {
+        return RuntimePortabilityAuditEntry(
+            source = this,
+            format = null,
+            version =
+                objectValue.optionalText("exportVersion")
+                    ?: objectValue.optionalText("version"),
+            component = null,
+            reason = "missing_format",
+        )
+    }
+    val component = componentByFormat[format]
+    return RuntimePortabilityAuditEntry(
+        source = this,
+        format = format,
+        version =
+            objectValue.optionalText("exportVersion")
+                ?: objectValue.optionalText("version"),
+        component = component,
+        reason = if (component == null) "unknown_format" else null,
+    )
+}
+
+private fun RuntimePortabilityAuditEntry.toRuntimePortabilityAuditPresentPayload(): JsonObject {
+    val component = requireNotNull(component)
+    return buildJsonObject {
+        put("sourceIndex", source.sourceIndex)
+        put("sourceKey", source.sourceKey?.let(::JsonPrimitive) ?: JsonNull)
+        put("key", component.key)
+        put("contract", component.contract)
+        put("exportTool", component.exportTool)
+        put("exportFormat", component.exportFormat)
+        put("sourceExportVersion", version?.take(RUNTIME_PORTABILITY_FORMAT_MAX_CHARS)?.let(::JsonPrimitive) ?: JsonNull)
+        put("importTool", component.importTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("importFormat", component.importFormat?.let(::JsonPrimitive) ?: JsonNull)
+        put("restoreSupported", component.restoreSupported)
+        put("payloadIncluded", false)
+    }
+}
+
+private fun RuntimePortabilityComponentSpec.toRuntimePortabilityAuditComponentPayload(): JsonObject =
+    buildJsonObject {
+        put("key", key)
+        put("contract", contract)
+        put("exportTool", exportTool)
+        put("exportFormat", exportFormat)
+        put("importTool", importTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("importFormat", importFormat?.let(::JsonPrimitive) ?: JsonNull)
+        put("restoreSupported", restoreSupported)
+        put("scope", scope)
+    }
+
+private fun List<RuntimePortabilityAuditEntry>.toRuntimePortabilityDuplicatePayload(
+    componentKey: String,
+): JsonObject {
+    val component = requireNotNull(first().component)
+    return buildJsonObject {
+        put("key", componentKey)
+        put("exportFormat", component.exportFormat)
+        put("duplicateCount", size)
+        put(
+            "sources",
+            buildJsonArray {
+                this@toRuntimePortabilityDuplicatePayload.forEach { entry ->
+                    add(
+                        buildJsonObject {
+                            put("sourceIndex", entry.source.sourceIndex)
+                            put("sourceKey", entry.source.sourceKey?.let(::JsonPrimitive) ?: JsonNull)
+                        },
+                    )
+                }
+            },
+        )
+    }
+}
+
+private fun RuntimePortabilityAuditEntry.toRuntimePortabilityUnknownPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", source.sourceIndex)
+        put("sourceKey", source.sourceKey?.let(::JsonPrimitive) ?: JsonNull)
+        put("format", format?.take(RUNTIME_PORTABILITY_FORMAT_MAX_CHARS)?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceExportVersion", version?.take(RUNTIME_PORTABILITY_FORMAT_MAX_CHARS)?.let(::JsonPrimitive) ?: JsonNull)
+        put("reason", reason ?: "unknown_format")
+        put("payloadIncluded", false)
+    }
+
+private fun buildRuntimePortabilityAuditMarkdown(
+    status: String,
+    receivedExportCount: Int,
+    recognizedExportCount: Int,
+    missingComponents: List<RuntimePortabilityComponentSpec>,
+    duplicateGroups: Map<String, List<RuntimePortabilityAuditEntry>>,
+    unknownEntries: List<RuntimePortabilityAuditEntry>,
+    recommendedRestoreComponents: List<RuntimePortabilityComponentSpec>,
+): String =
+    buildString {
+        appendLine("# AndroidClaw portability audit")
+        appendLine()
+        appendLine("- Audit format: `$RUNTIME_PORTABILITY_AUDIT_FORMAT`")
+        appendLine("- Status: $status")
+        appendLine("- Received exports: $receivedExportCount")
+        appendLine("- Recognized exports: $recognizedExportCount")
+        appendLine("- Missing components: ${missingComponents.size}")
+        appendLine("- Duplicate components: ${duplicateGroups.size}")
+        appendLine("- Unknown exports: ${unknownEntries.size}")
+        appendLine("- Component payloads included: false")
+        appendLine("- Secret values included: false")
+        appendLine()
+        appendLine("## Missing export tools")
+        if (missingComponents.isEmpty()) {
+            appendLine("- None")
+        } else {
+            missingComponents
+                .sortedBy { component -> component.exportStep }
+                .forEach { component ->
+                    appendLine("- `${component.exportTool}` (${component.exportFormat})")
+                }
+        }
+        appendLine()
+        appendLine("## Restore order for recognized restore-capable components")
+        if (recommendedRestoreComponents.isEmpty()) {
+            appendLine("- None")
+        } else {
+            recommendedRestoreComponents.forEach { component ->
+                appendLine("${component.restoreStep}. `${component.importTool}` (${component.importFormat})")
+            }
+        }
     }
 
 private fun buildRuntimePortabilityMarkdown(
