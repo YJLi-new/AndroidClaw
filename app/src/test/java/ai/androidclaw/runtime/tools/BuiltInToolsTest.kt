@@ -2635,6 +2635,150 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages export returns bounded transcript bodies and session summary`() =
+        runTest {
+            val session = sessionRepository.createSession("Export transcript")
+            sessionRepository.updateSummaryState(
+                id = session.id,
+                summaryText = "Export summary text",
+                compactedUntilMessageId = null,
+            )
+            val firstMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Export first body",
+                )
+            val secondMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Export second body",
+                )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Export omitted body",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.export", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("direction", "start")
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.messages.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Export transcript", result.payload["sessionTitle"]?.jsonPrimitive?.content)
+            assertEquals("start", result.payload["direction"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["limit"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["exportedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["omittedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertEquals("Export summary text", result.payload["summaryText"]?.jsonPrimitive?.content)
+            val messages =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .map { message -> message.jsonObject }
+            assertEquals(
+                listOf(firstMessage.id, secondMessage.id),
+                messages.map { message -> message.getValue("messageId").jsonPrimitive.content },
+            )
+            assertEquals("Export first body", messages[0].getValue("content").jsonPrimitive.content)
+            assertEquals("Export second body", messages[1].getValue("content").jsonPrimitive.content)
+            assertTrue(messages.all { message -> message.getValue("messageBodyIncluded").jsonPrimitive.content == true.toString() })
+            assertTrue(messages.none { message -> message.containsKey("providerMeta") })
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Transcript export: Export transcript"))
+            assertTrue(markdown.contains("Export summary text"))
+            assertTrue(markdown.contains("Export first body"))
+            assertTrue(markdown.contains("Export second body"))
+        }
+
+    @Test
+    fun `messages export can omit bodies summary and markdown from recent transcript`() =
+        runTest {
+            val session = sessionRepository.createSession("Private export transcript")
+            sessionRepository.updateSummaryState(
+                id = session.id,
+                summaryText = "Private export summary",
+                compactedUntilMessageId = null,
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Private export first body",
+            )
+            val secondMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.Assistant,
+                    content = "Private export second body",
+                )
+            val thirdMessage =
+                messageRepository.addMessage(
+                    sessionId = session.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Private export third body",
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "transcript.export", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("direction", "recent")
+                            put("limit", 2)
+                            put("includeBodies", false)
+                            put("includeSummary", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("recent", result.payload["direction"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["exportedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["fullMessageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["summaryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("summaryText"))
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+            val messages =
+                result.payload
+                    .getValue("messages")
+                    .jsonArray
+                    .map { message -> message.jsonObject }
+            assertEquals(
+                listOf(secondMessage.id, thirdMessage.id),
+                messages.map { message -> message.getValue("messageId").jsonPrimitive.content },
+            )
+            assertTrue(messages.all { message -> message.getValue("content") == JsonNull })
+            assertTrue(messages.all { message -> message.getValue("messageBodyIncluded").jsonPrimitive.content == false.toString() })
+            assertTrue(messages.none { message -> message.containsKey("providerMeta") })
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Private export summary"))
+            assertFalse(payloadText.contains("Private export first body"))
+            assertFalse(payloadText.contains("Private export second body"))
+            assertFalse(payloadText.contains("Private export third body"))
+        }
+
+    @Test
     fun `messages doctor reports transcript diagnostics without message bodies`() =
         runTest {
             val session = sessionRepository.createSession("Doctor transcript")

@@ -3970,6 +3970,193 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "messages.export",
+                                    aliases =
+                                        listOf(
+                                            "message.export",
+                                            "transcript.export",
+                                            "chat.export",
+                                            "session.messages.export",
+                                        ),
+                                    description = "Export a bounded transcript window without provider metadata.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to export. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "direction",
+                                                description = "start or recent. Defaults to start.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum message count. Defaults to 50, max 100.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeBodies",
+                                                description = "Set false to omit message bodies. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeSummary",
+                                                description = "Set false to omit summary text. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to export.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val directionText = arguments.optionalText("direction")
+                            val direction =
+                                directionText?.toMessagePageDirectionOrNull()
+                                    ?: if (directionText == null) {
+                                        MessagePageDirection.Start
+                                    } else {
+                                        return@Entry ToolExecutionResult.failure(
+                                            summary = "messages.export direction must be start or recent.",
+                                            errorCode = "INVALID_ARGUMENTS",
+                                            payload =
+                                                buildJsonObject {
+                                                    put("errorCode", "INVALID_ARGUMENTS")
+                                                    put("field", "direction")
+                                                },
+                                        )
+                                    }
+                            if (direction != MessagePageDirection.Start && direction != MessagePageDirection.Recent) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "messages.export direction must be start or recent.",
+                                    errorCode = "INVALID_ARGUMENTS",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_ARGUMENTS")
+                                            put("field", "direction")
+                                            put("direction", direction.payloadName)
+                                        },
+                                )
+                            }
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = MESSAGE_EXPORT_DEFAULT_LIMIT,
+                                    ).coerceIn(0, MESSAGE_EXPORT_MAX_LIMIT)
+                            val includeBodies = arguments.optionalBoolean("includeBodies", defaultValue = true)
+                            val includeSummary = arguments.optionalBoolean("includeSummary", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val stats = messageRepository.getMessageStats(session.id)
+                            val messages =
+                                when (direction) {
+                                    MessagePageDirection.Start ->
+                                        messageRepository.getFirstMessages(
+                                            sessionId = session.id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.Recent ->
+                                        messageRepository.getRecentMessagesChronological(
+                                            sessionId = session.id,
+                                            limit = limit,
+                                        )
+                                    MessagePageDirection.Before,
+                                    MessagePageDirection.After,
+                                    -> emptyList()
+                                }
+                            val exportMarkdown =
+                                if (includeMarkdown) {
+                                    session.toMessageExportMarkdown(
+                                        stats = stats,
+                                        messages = messages,
+                                        direction = direction,
+                                        limit = limit,
+                                        includeBodies = includeBodies,
+                                        includeSummary = includeSummary,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (messages.isEmpty()) {
+                                        "Prepared empty transcript export for \"${session.title}\"."
+                                    } else {
+                                        "Prepared transcript export with ${messages.size} message(s) for \"${session.title}\"."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("exportFormat", MESSAGE_EXPORT_FORMAT)
+                                        put("exportVersion", MESSAGE_EXPORT_VERSION)
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("isMain", session.isMain)
+                                        put("archived", session.archived)
+                                        put("createdAtIso", session.createdAt.toString())
+                                        put("updatedAtIso", session.updatedAt.toString())
+                                        put("direction", direction.payloadName)
+                                        put("limit", limit)
+                                        put("messageCount", stats.totalMessageCount)
+                                        put("exportedMessageCount", messages.size)
+                                        put("omittedMessageCount", (stats.totalMessageCount - messages.size.toLong()).coerceAtLeast(0))
+                                        put("contentCharCount", stats.totalContentCharCount)
+                                        put("oldestMessageAtIso", stats.oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                                        put("newestMessageAtIso", stats.newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                                        put("messageBodiesIncluded", includeBodies)
+                                        put("fullMessageBodiesIncluded", includeBodies)
+                                        put("providerMetaIncluded", false)
+                                        put("includeSummary", includeSummary)
+                                        put("summaryText", if (includeSummary) session.summaryText?.let(::JsonPrimitive) ?: JsonNull else JsonNull)
+                                        put("summaryTextIncluded", includeSummary)
+                                        put("summaryLength", session.summaryText?.length ?: 0)
+                                        put("compacted", session.compactedUntilMessageId != null)
+                                        put("compactedUntilMessageId", session.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put(
+                                            "roleStats",
+                                            buildJsonArray {
+                                                stats.roleStats.forEach { roleStats ->
+                                                    add(roleStats.toMessageRoleStatsPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "messages",
+                                            buildJsonArray {
+                                                messages.forEach { message ->
+                                                    add(message.toMessageExportPayload(includeBody = includeBodies))
+                                                }
+                                            },
+                                        )
+                                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.doctor",
                                     aliases =
                                         listOf(
@@ -10674,6 +10861,10 @@ private const val MESSAGE_DOCTOR_DEFAULT_LIMIT = 20
 private const val MESSAGE_DOCTOR_MAX_LIMIT = 50
 private const val MESSAGE_DOCTOR_LARGE_TRANSCRIPT_CHARS = 100_000L
 private const val MESSAGE_DOCTOR_TEXT_MAX_CHARS = 500
+private const val MESSAGE_EXPORT_FORMAT = "androidclaw.messages.export.v1"
+private const val MESSAGE_EXPORT_VERSION = 1
+private const val MESSAGE_EXPORT_DEFAULT_LIMIT = 50
+private const val MESSAGE_EXPORT_MAX_LIMIT = 100
 private const val MESSAGE_HANDOFF_DEFAULT_LIMIT = 12
 private const val MESSAGE_HANDOFF_MAX_LIMIT = 50
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
@@ -13932,6 +14123,75 @@ private fun ChatMessage.toMessageHandoffPayload(includeSnippet: Boolean): JsonOb
         put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
     }
 }
+
+private fun ChatMessage.toMessageExportPayload(includeBody: Boolean): JsonObject =
+    buildJsonObject {
+        put("messageId", id)
+        put("sourceMessageId", id)
+        put("role", role.name)
+        put("createdAtIso", createdAt.toString())
+        put("content", if (includeBody) JsonPrimitive(content) else JsonNull)
+        put("contentLength", content.length)
+        put("messageBodyIncluded", includeBody)
+        put("fullMessageBodyIncluded", includeBody)
+        put("providerMetaIncluded", false)
+        put("hasProviderMeta", providerMeta != null)
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun Session.toMessageExportMarkdown(
+    stats: MessageRepository.SessionMessageStats,
+    messages: List<ChatMessage>,
+    direction: MessagePageDirection,
+    limit: Int,
+    includeBodies: Boolean,
+    includeSummary: Boolean,
+): String =
+    buildString {
+        appendLine("# Transcript export: ${title.toHandoffLine()}")
+        appendLine()
+        appendLine("- Format: $MESSAGE_EXPORT_FORMAT")
+        appendLine("- Version: $MESSAGE_EXPORT_VERSION")
+        appendLine("- Session id: `$id`")
+        appendLine("- Main session: $isMain")
+        appendLine("- Archived: $archived")
+        appendLine("- Direction: ${direction.payloadName}")
+        appendLine("- Messages: ${stats.totalMessageCount}")
+        appendLine("- Messages exported: ${messages.size} of up to $limit")
+        appendLine("- Omitted messages: ${(stats.totalMessageCount - messages.size.toLong()).coerceAtLeast(0)}")
+        appendLine("- Message bodies included: $includeBodies")
+        appendLine("- Provider metadata included: false")
+        appendLine("- Summary included: $includeSummary")
+        appendLine("- Compacted until message: ${compactedUntilMessageId ?: "none"}")
+        appendLine()
+        appendLine("## Summary")
+        if (includeSummary) {
+            appendLine(summaryText?.toHandoffLine() ?: "_No summary stored._")
+        } else {
+            appendLine("_Summary omitted._")
+        }
+        appendLine()
+        appendLine("## Messages")
+        if (messages.isEmpty()) {
+            appendLine("_No messages exported._")
+        } else {
+            messages.forEach { message ->
+                append("- ")
+                append(message.createdAt)
+                append(" `")
+                append(message.id.toHandoffLine())
+                append("` ")
+                append(message.role.name)
+                append(": ")
+                if (includeBodies) {
+                    appendLine(message.content.toHandoffLine())
+                } else {
+                    appendLine("_Message body omitted._")
+                }
+            }
+        }
+    }
 
 private fun Session.toMessageHandoffMarkdown(
     stats: MessageRepository.SessionMessageStats,

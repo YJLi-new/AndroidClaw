@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.export` /
+  `message.export` / `transcript.export` / `chat.export` plus
+  session-message export alias as a Session Contract portability feature.
+  Agents can now export a bounded start or recent transcript window with a
+  stable export format/version, optional body and summary omission, role stats,
+  optional markdown, compaction metadata, and explicit provider-metadata
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast
+  loop passed.
 - 2026-06-17: Added `memory.import` /
   `memories.import` / `memory.ingest` / `memories.ingest` plus export-restore
   aliases as the companion Memory Contract portability feature for
