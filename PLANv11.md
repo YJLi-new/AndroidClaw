@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.doctor` /
+  `memories.doctor` / `memory.health` / `memories.health` plus check aliases
+  and `/memory doctor` command dispatch as a dedicated Memory Contract
+  diagnostics tool. Agents can now inspect local memory enablement, aggregate
+  counts, bounded recent-memory metadata, disabled-with-stored-memory state,
+  unknown source types, automatic memories without provenance, and max-length
+  memory records with OK/WARN/ERROR status, optional markdown, and explicit
+  owner-id/text omission flags. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 - 2026-06-17: Added `tools.doctor` /
   `tool.doctor` / `tools.health` / `tool.health` plus diagnostics aliases as
   a dedicated Tool Contract diagnostics tool. Agents can now scan all typed

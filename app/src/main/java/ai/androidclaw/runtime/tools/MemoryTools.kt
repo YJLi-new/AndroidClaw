@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.tools
 
+import ai.androidclaw.data.MemorySettingsSnapshot
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.model.MemoryItem
 import ai.androidclaw.data.repository.MemoryRepository
@@ -35,6 +36,51 @@ internal fun memoryToolEntries(
                 ),
         ) { _, _ ->
             memoryStatsResult(settingsDataStore, memoryRepository)
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
+                    name = "memory.doctor",
+                    aliases =
+                        listOf(
+                            "memories.doctor",
+                            "memory.check",
+                            "memories.check",
+                            "memory.health",
+                            "memories.health",
+                        ),
+                    description = "Return actionable local memory diagnostics without exposing memory text or owner ids.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum diagnostic issues and recent memory checks to include. Defaults to 20, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MEMORY_DOCTOR_DEFAULT_LIMIT,
+                            maxValue = MEMORY_DOCTOR_MAX_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            memoryDoctorResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = limit,
+                includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
+            )
         },
         ToolRegistry.Entry(
             descriptor =
@@ -669,6 +715,18 @@ private suspend fun executeMemoryCommand(
     if (trimmed.equals("stats", ignoreCase = true)) {
         return memoryStatsResult(settingsDataStore, memoryRepository)
     }
+    if (
+        trimmed.equals("doctor", ignoreCase = true) ||
+        trimmed.equals("check", ignoreCase = true) ||
+        trimmed.equals("health", ignoreCase = true)
+    ) {
+        return memoryDoctorResult(
+            settingsDataStore = settingsDataStore,
+            memoryRepository = memoryRepository,
+            limit = MEMORY_DOCTOR_DEFAULT_LIMIT,
+            includeMarkdown = true,
+        )
+    }
     if (trimmed.equals("handoff", ignoreCase = true) || trimmed.equals("snapshot", ignoreCase = true)) {
         return memoryHandoffResult(
             settingsDataStore = settingsDataStore,
@@ -679,6 +737,34 @@ private suspend fun executeMemoryCommand(
     }
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
+    if (verb == "doctor" || verb == "check" || verb == "health") {
+        val limit =
+            if (rest.isBlank()) {
+                MEMORY_DOCTOR_DEFAULT_LIMIT
+            } else {
+                val parsedLimit =
+                    rest.toLongOrNull()
+                        ?: return invalidMemoryLimitResult(
+                            field = "limit",
+                            maxValue = MEMORY_DOCTOR_MAX_LIMIT,
+                            rawValue = rest,
+                        )
+                if (parsedLimit !in 1L..MEMORY_DOCTOR_MAX_LIMIT.toLong()) {
+                    return invalidMemoryLimitResult(
+                        field = "limit",
+                        maxValue = MEMORY_DOCTOR_MAX_LIMIT,
+                        rawValue = rest,
+                    )
+                }
+                parsedLimit.toInt()
+            }
+        return memoryDoctorResult(
+            settingsDataStore = settingsDataStore,
+            memoryRepository = memoryRepository,
+            limit = limit,
+            includeMarkdown = true,
+        )
+    }
     val settings = settingsDataStore.memorySettingsSnapshot()
     if (!settings.enabled && verb != "delete" && verb != "clear") {
         return memoryDisabledResult()
@@ -1004,6 +1090,88 @@ private suspend fun memoryStatsResult(
     )
 }
 
+private suspend fun memoryDoctorResult(
+    settingsDataStore: SettingsDataStore,
+    memoryRepository: MemoryRepository,
+    limit: Int,
+    includeMarkdown: Boolean,
+): ToolExecutionResult {
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    val stats = memoryRepository.stats(settings.installUserId)
+    val memoryChecks =
+        memoryRepository.listRecent(
+            ownerUserId = settings.installUserId,
+            limit = limit,
+        )
+    val issues =
+        buildMemoryDoctorIssues(
+            settings = settings,
+            stats = stats,
+            memoryChecks = memoryChecks,
+        )
+    val includedIssues = issues.take(limit)
+    val status = issues.toMemoryDoctorStatus()
+    val doctorMarkdown =
+        if (includeMarkdown) {
+            includedIssues.toMemoryDoctorMarkdown(
+                status = status,
+                settings = settings,
+                stats = stats,
+                checkedMemoryCount = memoryChecks.size,
+                issueCount = issues.size,
+                limit = limit,
+            )
+        } else {
+            null
+        }
+    return ToolExecutionResult.success(
+        summary =
+            when {
+                issues.isEmpty() ->
+                    "Memory doctor found no issues across ${memoryChecks.size} checked active memory item(s)."
+                includedIssues.size == issues.size ->
+                    "Memory doctor found ${issues.size} issue(s) across ${memoryChecks.size} checked active memory item(s)."
+                else ->
+                    "Memory doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+            },
+        payload =
+            buildJsonObject {
+                put("status", status)
+                put("enabled", settings.enabled)
+                put("scope", "local-device")
+                put("ownerUserIdIncluded", false)
+                put("memoryTextIncluded", false)
+                put("memoryLimit", limit)
+                put("memoryCheckCount", memoryChecks.size)
+                put("memoryChecksOmitted", (stats.activeMemoryCount - memoryChecks.size.toLong()).coerceAtLeast(0))
+                put("issueCount", issues.size)
+                put("includedIssueCount", includedIssues.size)
+                put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                put("includeMarkdown", includeMarkdown)
+                put("stats", stats.toMemoryDoctorStatsPayload(settings.enabled))
+                put(
+                    "memoryChecks",
+                    buildJsonArray {
+                        memoryChecks.forEach { memory ->
+                            add(memory.toMemoryDoctorCheckPayload())
+                        }
+                    },
+                )
+                put(
+                    "issues",
+                    buildJsonArray {
+                        includedIssues.forEach { issue ->
+                            add(issue.toMemoryDoctorPayload())
+                        }
+                    },
+                )
+                put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+            },
+    )
+}
+
 private suspend fun memoryHandoffResult(
     settingsDataStore: SettingsDataStore,
     memoryRepository: MemoryRepository,
@@ -1259,6 +1427,255 @@ private fun memoryRestoreResult(
             payload = memoryPayload(memory, restored = restoredMemory.restored),
         )
     }
+
+private data class MemoryDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val memoryId: String?,
+    val sourceType: String?,
+    val summary: String,
+    val action: String,
+    val detail: String? = null,
+)
+
+private fun buildMemoryDoctorIssues(
+    settings: MemorySettingsSnapshot,
+    stats: MemoryRepository.MemoryStats,
+    memoryChecks: List<MemoryItem>,
+): List<MemoryDoctorIssue> =
+    buildList {
+        if (!settings.enabled) {
+            add(
+                MemoryDoctorIssue(
+                    id = "settings:memory.disabled",
+                    severity = "Warning",
+                    code = "memory.disabled",
+                    memoryId = null,
+                    sourceType = null,
+                    summary =
+                        (
+                            if (stats.activeMemoryCount > 0) {
+                                "Memory is disabled while ${stats.activeMemoryCount} active memory item(s) are stored."
+                            } else {
+                                "Memory is disabled."
+                            }
+                        ).toMemoryDoctorText(),
+                    action = "Enable memory in Settings if cross-session recall should be available.".toMemoryDoctorText(),
+                ),
+            )
+        }
+        if (settings.enabled && settings.installUserId.isBlank()) {
+            add(
+                MemoryDoctorIssue(
+                    id = "settings:memory.owner_missing",
+                    severity = "Error",
+                    code = "memory.owner_missing",
+                    memoryId = null,
+                    sourceType = null,
+                    summary = "Memory is enabled but the local owner identifier is missing.".toMemoryDoctorText(),
+                    action = "Toggle memory off and on to initialize local ownership before storing memories.".toMemoryDoctorText(),
+                ),
+            )
+        }
+        stats.sourceTypeStats
+            .filter { sourceStats -> sourceStats.sourceType !in MEMORY_KNOWN_SOURCE_TYPES }
+            .forEach { sourceStats ->
+                add(
+                    MemoryDoctorIssue(
+                        id = "sourceType:${sourceStats.sourceType}:memory.source_type.unknown",
+                        severity = "Warning",
+                        code = "memory.source_type.unknown",
+                        memoryId = null,
+                        sourceType = sourceStats.sourceType,
+                        summary =
+                            "Memory source type ${sourceStats.sourceType} has ${sourceStats.memoryCount} active item(s)."
+                                .toMemoryDoctorText(),
+                        action = "Normalize memory sourceType to manual or automatic during import/update flows.".toMemoryDoctorText(),
+                    ),
+                )
+            }
+        memoryChecks.forEach { memory ->
+            if (memory.text.isBlank()) {
+                add(
+                    MemoryDoctorIssue(
+                        id = "memory:${memory.id}:memory.text.blank",
+                        severity = "Error",
+                        code = "memory.text.blank",
+                        memoryId = memory.id,
+                        sourceType = memory.sourceType,
+                        summary = "Memory ${memory.id} has blank text.".toMemoryDoctorText(),
+                        action = "Delete the blank memory or replace it with meaningful text.".toMemoryDoctorText(),
+                    ),
+                )
+            }
+            if (memory.sourceType == MemoryRepository.SOURCE_TYPE_AUTOMATIC &&
+                memory.sourceSessionId.isNullOrBlank() &&
+                memory.sourceMessageIds.isEmpty()
+            ) {
+                add(
+                    MemoryDoctorIssue(
+                        id = "memory:${memory.id}:memory.automatic.source_missing",
+                        severity = "Warning",
+                        code = "memory.automatic.source_missing",
+                        memoryId = memory.id,
+                        sourceType = memory.sourceType,
+                        summary = "Automatic memory ${memory.id} has no source session or source message reference.".toMemoryDoctorText(),
+                        action =
+                            "Capture sourceSessionId or sourceMessageIds for automatic memories so provenance remains inspectable."
+                                .toMemoryDoctorText(),
+                    ),
+                )
+            }
+            if (memory.updatedAt.isBefore(memory.createdAt)) {
+                add(
+                    MemoryDoctorIssue(
+                        id = "memory:${memory.id}:memory.timestamps.inverted",
+                        severity = "Error",
+                        code = "memory.timestamps.inverted",
+                        memoryId = memory.id,
+                        sourceType = memory.sourceType,
+                        summary = "Memory ${memory.id} has updatedAt before createdAt.".toMemoryDoctorText(),
+                        action = "Repair the memory timestamps or recreate the affected memory.".toMemoryDoctorText(),
+                    ),
+                )
+            }
+            if (memory.text.length >= MemoryRepository.MAX_MEMORY_TEXT_CHARS) {
+                add(
+                    MemoryDoctorIssue(
+                        id = "memory:${memory.id}:memory.text.max_length",
+                        severity = "Warning",
+                        code = "memory.text.max_length",
+                        memoryId = memory.id,
+                        sourceType = memory.sourceType,
+                        summary =
+                            "Memory ${memory.id} is at the ${MemoryRepository.MAX_MEMORY_TEXT_CHARS} character storage limit."
+                                .toMemoryDoctorText(),
+                        action = "Review whether the memory was truncated and split it into shorter facts if needed.".toMemoryDoctorText(),
+                    ),
+                )
+            }
+        }
+    }
+
+private fun MemoryRepository.MemoryStats.toMemoryDoctorStatsPayload(enabled: Boolean): JsonObject =
+    buildJsonObject {
+        put("enabled", enabled)
+        put("scope", "local-device")
+        put("memoryCount", activeMemoryCount)
+        put("activeMemoryCount", activeMemoryCount)
+        put("deletedMemoryCount", deletedMemoryCount)
+        put("totalMemoryCount", totalMemoryCount)
+        put("activeWithSourceSessionCount", activeWithSourceSessionCount)
+        put("oldestActiveCreatedAt", oldestActiveCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestActiveUpdatedAt", newestActiveUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("ownerUserIdIncluded", false)
+        put("memoryTextIncluded", false)
+        put(
+            "sourceTypeStats",
+            buildJsonArray {
+                sourceTypeStats.forEach { sourceTypeStats ->
+                    add(
+                        buildJsonObject {
+                            put("sourceType", sourceTypeStats.sourceType)
+                            put("memoryCount", sourceTypeStats.memoryCount)
+                        },
+                    )
+                }
+            },
+        )
+    }
+
+private fun MemoryItem.toMemoryDoctorCheckPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("sourceType", sourceType)
+        put("sourceSessionId", sourceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceMessageCount", sourceMessageIds.size)
+        put("createdAt", createdAt.toString())
+        put("updatedAt", updatedAt.toString())
+        put("deletedAt", deletedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("textLength", text.length)
+        put("textIncluded", false)
+        put("ownerUserIdIncluded", false)
+    }
+
+private fun List<MemoryDoctorIssue>.toMemoryDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun MemoryDoctorIssue.toMemoryDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("memoryId", memoryId?.let(::JsonPrimitive) ?: JsonNull)
+        put("sourceType", sourceType?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", summary)
+        put("action", action)
+        put("detail", detail?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<MemoryDoctorIssue>.toMemoryDoctorMarkdown(
+    status: String,
+    settings: MemorySettingsSnapshot,
+    stats: MemoryRepository.MemoryStats,
+    checkedMemoryCount: Int,
+    issueCount: Int,
+    limit: Int,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Memory doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Scope: local-device")
+        appendLine("- Enabled: ${settings.enabled}")
+        appendLine("- Active memories: ${stats.activeMemoryCount}")
+        appendLine("- Deleted memories: ${stats.deletedMemoryCount}")
+        appendLine("- Total memories: ${stats.totalMemoryCount}")
+        appendLine("- Checked active memories: $checkedMemoryCount of up to $limit")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Owner user id included: false")
+        appendLine("- Memory text included: false")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No memory issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toMemoryDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun MemoryDoctorIssue.toMemoryDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(memoryId?.toMemoryHandoffLine() ?: "memory")
+        append("` code=")
+        append(code)
+        sourceType?.let { sourceType ->
+            append(" sourceType=")
+            append(sourceType.toMemoryHandoffLine())
+        }
+        append(": ")
+        append(summary.toMemoryHandoffLine())
+        detail?.let { detail ->
+            append(" detail=")
+            append(detail.toMemoryHandoffLine())
+        }
+        append(" Action: ")
+        append(action.toMemoryHandoffLine())
+    }
+
+private fun String.toMemoryDoctorText(): String = toMemoryHandoffLine().take(MEMORY_DOCTOR_TEXT_MAX_CHARS)
 
 private fun memoryHandoffMarkdown(
     stats: MemoryRepository.MemoryStats,
@@ -1526,7 +1943,15 @@ private fun JsonObjectBuilder.putAllowedMemorySourceTypes() {
     )
 }
 
+private val MEMORY_KNOWN_SOURCE_TYPES =
+    setOf(
+        MemoryRepository.SOURCE_TYPE_MANUAL,
+        MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+    )
 private const val MAX_MEMORY_SOURCE_TYPE_PAYLOAD_CHARS = 80
 private const val MAX_MEMORY_LIMIT_PAYLOAD_CHARS = 80
+private const val MEMORY_DOCTOR_DEFAULT_LIMIT = 20
+private const val MEMORY_DOCTOR_MAX_LIMIT = 50
+private const val MEMORY_DOCTOR_TEXT_MAX_CHARS = 500
 private const val MEMORY_HANDOFF_DEFAULT_LIMIT = 8
 private const val MEMORY_HANDOFF_MAX_LIMIT = 20

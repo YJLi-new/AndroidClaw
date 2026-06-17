@@ -9257,6 +9257,138 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory doctor reports disabled provenance and source diagnostics without exposing text`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "User wants this diagnostic text omitted.",
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "Imported source memory should not expose text.",
+                sourceSessionId = "session-import",
+                sourceType = "imported",
+            )
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "x".repeat(MemoryRepository.MAX_MEMORY_TEXT_CHARS + 20),
+                sourceSessionId = "session-long",
+                sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+            )
+            settingsDataStore.setMemoryEnabled(false)
+
+            val directDoctor =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.health"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+            val commandDoctor =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "doctor 1")
+                        },
+                )
+
+            assertTrue(directDoctor.summary, directDoctor.success)
+            assertEquals("WARN", directDoctor.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("false", directDoctor.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals("false", directDoctor.payload["ownerUserIdIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", directDoctor.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertFalse(directDoctor.payload.toString().contains(ownerUserId))
+            assertFalse(directDoctor.payload.toString().contains("User wants this diagnostic text omitted."))
+            assertFalse(directDoctor.payload.toString().contains("Imported source memory should not expose text."))
+            val issueCodes =
+                directDoctor.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue ->
+                        issue.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(issueCodes.contains("memory.disabled"))
+            assertTrue(issueCodes.contains("memory.automatic.source_missing"))
+            assertTrue(issueCodes.contains("memory.source_type.unknown"))
+            assertTrue(issueCodes.contains("memory.text.max_length"))
+            assertTrue(
+                directDoctor.payload
+                    .getValue("memoryChecks")
+                    .jsonArray
+                    .all { memory ->
+                        val payload = memory.jsonObject
+                        payload.getValue("textIncluded").jsonPrimitive.content == false.toString() &&
+                            payload.getValue("ownerUserIdIncluded").jsonPrimitive.content == false.toString() &&
+                            !payload.containsKey("text") &&
+                            !payload.containsKey("ownerUserId")
+                    },
+            )
+            val markdown =
+                directDoctor.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Memory doctor"))
+            assertFalse(markdown.contains("User wants this diagnostic text omitted."))
+            assertTrue(commandDoctor.success)
+            assertEquals("1", commandDoctor.payload["memoryLimit"]?.jsonPrimitive?.content)
+            assertEquals("1", commandDoctor.payload["includedIssueCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `memory doctor reports ok for enabled traceable memory and can omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "Traceable automatic memory should stay private in diagnostics.",
+                sourceSessionId = "session-memory-doctor",
+                sourceMessageIds = listOf("message-memory-doctor"),
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeMarkdown", false)
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("OK", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["memoryCheckCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertFalse(result.payload.toString().contains(ownerUserId))
+            assertFalse(result.payload.toString().contains("Traceable automatic memory should stay private in diagnostics."))
+            val check =
+                result.payload
+                    .getValue("memoryChecks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("false", check["textIncluded"]?.jsonPrimitive?.content)
+            assertEquals("1", check["sourceMessageCount"]?.jsonPrimitive?.content)
+            assertFalse(check.containsKey("text"))
+            assertFalse(check.containsKey("ownerUserId"))
+        }
+
+    @Test
     fun `memory tools reject malformed or out of range limits`() =
         runTest {
             val registry = buildRegistry()
