@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.example` /
+  `tool.example` / `tools.invoke.example` / `tool.invoke.example` plus sample
+  aliases as a Tool Contract usability feature. Agents can now ask for a safe
+  invocation skeleton for any typed tool by canonical name or alias, choose
+  required-only or optional argument coverage, receive generated example JSON
+  and optional markdown, and get explicit example-only / executes-tool=false /
+  secret-omission flags so large tool surfaces are easier to use without
+  accidentally running the target. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 - 2026-06-17: Added `runtime.portability.audit` /
   `runtime.backup.audit` / `runtime.restore.audit` plus AndroidClaw/system
   aliases as a Runtime Contract restore-readiness feature. Agents can now pass

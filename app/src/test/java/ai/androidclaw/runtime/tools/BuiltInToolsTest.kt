@@ -8052,6 +8052,81 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools example returns invocation skeleton without executing target tool`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "task.create")
+                            put("includeOptional", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("task.create", result.payload["requestedName"]?.jsonPrimitive?.content)
+            assertEquals("tasks.create", result.payload["canonicalName"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["isAlias"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["executesTool"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeOptional"]?.jsonPrimitive?.content)
+            val exampleArguments = result.payload.getValue("exampleArguments").jsonObject
+            assertEquals(setOf("name", "prompt", "scheduleKind"), exampleArguments.keys)
+            assertEquals("Example title", exampleArguments.getValue("name").jsonPrimitive.content)
+            assertEquals("Example prompt", exampleArguments.getValue("prompt").jsonPrimitive.content)
+            assertEquals("once", exampleArguments.getValue("scheduleKind").jsonPrimitive.content)
+            assertEquals("0", taskRepository.getTaskStats(testClock.instant()).totalTaskCount.toString())
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Tool invocation example"))
+            assertTrue(markdown.contains("tasks.create"))
+        }
+
+    @Test
+    fun `tools example includes optional safety fields and validates missing tools`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val example =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.invoke.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "events.restore")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("toolName", "missing.tool")
+                        },
+                )
+
+            assertTrue(example.summary, example.success)
+            assertEquals("events.import", example.payload["canonicalName"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, example.payload.getValue("exampleMarkdown"))
+            val exampleArguments = example.payload.getValue("exampleArguments").jsonObject
+            assertTrue(exampleArguments.getValue("events").jsonArray.isEmpty())
+            assertEquals("CONFIRM", exampleArguments.getValue("confirm").jsonPrimitive.content)
+            assertEquals("5", exampleArguments.getValue("limit").jsonPrimitive.content)
+            assertEquals(true.toString(), exampleArguments.getValue("dryRun").jsonPrimitive.content)
+            assertEquals(true.toString(), example.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), example.payload["executesTool"]?.jsonPrimitive?.content)
+            assertFalse(missing.success)
+            assertEquals("TOOL_NOT_FOUND", missing.errorCode)
+        }
+
+    @Test
     fun `tools validate dry runs target argument and availability checks`() =
         runTest {
             val registry = buildRegistry()
@@ -8605,7 +8680,7 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("namespace", "tools")
-                            put("limit", 6)
+                            put("limit", 8)
                         },
                 )
 
@@ -8617,7 +8692,7 @@ class BuiltInToolsTest {
             assertEquals(descriptors.size.toString(), result.payload["toolCount"]?.jsonPrimitive?.content)
             assertEquals("tools", result.payload["namespace"]?.jsonPrimitive?.content)
             assertEquals("tools", result.payload["canonicalNamespace"]?.jsonPrimitive?.content)
-            assertEquals("6", result.payload["includedToolCount"]?.jsonPrimitive?.content)
+            assertEquals("8", result.payload["includedToolCount"]?.jsonPrimitive?.content)
             assertEquals(false.toString(), result.payload["includeInputSchemas"]?.jsonPrimitive?.content)
             assertEquals(false.toString(), result.payload["inputSchemasIncluded"]?.jsonPrimitive?.content)
             assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
@@ -8627,7 +8702,7 @@ class BuiltInToolsTest {
                     .getValue("tools")
                     .jsonArray
                     .map { tool -> tool.jsonObject }
-            assertEquals(6, tools.size)
+            assertEquals(8, tools.size)
             assertTrue(tools.all { tool -> tool.getValue("namespace").jsonPrimitive.content == "tools" })
             val exportTool =
                 tools.first { tool -> tool.getValue("name").jsonPrimitive.content == "tools.export" }
@@ -8707,7 +8782,7 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("namespace", "tools")
-                            put("limit", 6)
+                            put("limit", 8)
                         },
                 )
 
@@ -8722,7 +8797,7 @@ class BuiltInToolsTest {
             )
             assertEquals("tools", result.payload["namespace"]?.jsonPrimitive?.content)
             assertEquals("tools", result.payload["canonicalNamespace"]?.jsonPrimitive?.content)
-            assertEquals("6", result.payload["includedToolCount"]?.jsonPrimitive?.content)
+            assertEquals("8", result.payload["includedToolCount"]?.jsonPrimitive?.content)
             assertTrue(
                 result.payload
                     .getValue("omittedToolCount")
@@ -8740,7 +8815,7 @@ class BuiltInToolsTest {
                     .content,
             )
             val tools = result.payload.getValue("tools").jsonArray
-            assertEquals(6, tools.size)
+            assertEquals(8, tools.size)
             assertTrue(
                 tools.all { tool ->
                     tool.jsonObject

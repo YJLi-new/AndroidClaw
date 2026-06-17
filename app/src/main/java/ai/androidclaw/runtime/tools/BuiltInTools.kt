@@ -8430,6 +8430,114 @@ private fun toolDiscoveryEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.example",
+                    aliases =
+                        listOf(
+                            "tool.example",
+                            "tools.invoke.example",
+                            "tool.invoke.example",
+                            "tools.sample",
+                            "tool.sample",
+                        ),
+                    description = "Return a safe example argument object for a typed tool without executing it.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "toolName",
+                                required = false,
+                                description = "Canonical tool name or alias to generate an example for.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeOptional",
+                                description = "Set false to include only required arguments. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exampleMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val requestedToolName =
+                arguments.optionalText("toolName")
+                    ?: arguments.optionalText("name")
+                    ?: return@Entry invalidToolDiscoveryArguments(
+                        toolName = "tools.example",
+                        summary = "tools.example requires a non-empty toolName.",
+                        field = "toolName",
+                    )
+            val tool =
+                toolRegistryProvider().findDescriptor(requestedToolName)
+                    ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Tool $requestedToolName was not found.",
+                        errorCode = "TOOL_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "TOOL_NOT_FOUND")
+                                put("toolName", requestedToolName)
+                            },
+                    )
+            val includeOptional = arguments.optionalBoolean("includeOptional", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val exampleArguments =
+                tool.toToolExampleArgumentsPayload(includeOptional = includeOptional)
+            val exampleMarkdown =
+                if (includeMarkdown) {
+                    tool.toToolExampleMarkdown(
+                        requestedToolName = requestedToolName,
+                        includeOptional = includeOptional,
+                        exampleArguments = exampleArguments,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary = "Prepared example arguments for ${tool.name} without executing it.",
+                payload =
+                    buildJsonObject {
+                        put("requestedName", requestedToolName)
+                        put("canonicalName", tool.name)
+                        put("isAlias", requestedToolName != tool.name)
+                        put("availabilityStatus", tool.availability.status.name)
+                        put("availabilityReason", tool.availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+                        put("foregroundRequired", tool.foregroundRequired)
+                        put("includeOptional", includeOptional)
+                        put("includeMarkdown", includeMarkdown)
+                        put("exampleOnly", true)
+                        put("executesTool", false)
+                        put("secretValuesIncluded", false)
+                        put("componentPayloadsIncluded", false)
+                        put("inputSchemaIncluded", false)
+                        put("argumentCount", tool.arguments.size)
+                        put("requiredArgumentCount", tool.arguments.count { argument -> argument.required })
+                        put("optionalArgumentCount", tool.arguments.count { argument -> !argument.required })
+                        put("includedArgumentCount", exampleArguments.size)
+                        put("exampleArguments", exampleArguments)
+                        put(
+                            "arguments",
+                            buildJsonArray {
+                                tool.arguments
+                                    .filter { argument -> includeOptional || argument.required }
+                                    .forEach { argument ->
+                                        add(argument.toToolExampleArgumentPayload(targetToolName = tool.name))
+                                    }
+                            },
+                        )
+                        put(
+                            "requiredPermissions",
+                            buildJsonArray {
+                                tool.requiredPermissions.forEach { permission ->
+                                    add(permission.toToolPermissionPayload())
+                                }
+                            },
+                        )
+                        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.validate",
                     aliases =
                         listOf(
@@ -13766,6 +13874,25 @@ private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 private val TOOL_VALIDATE_RESERVED_ARGUMENT_FIELDS = setOf("toolName", "name", "arguments")
+private val TOOL_EXAMPLE_OBJECT_ARGUMENTS =
+    setOf(
+        "arguments",
+        "backup",
+        "export",
+        "payload",
+        "settings",
+    )
+private val TOOL_EXAMPLE_ARRAY_ARGUMENTS =
+    setOf(
+        "events",
+        "exports",
+        "memories",
+        "messages",
+        "providers",
+        "sessions",
+        "skills",
+        "tasks",
+    )
 
 private data class EventDoctorIssue(
     val id: String,
@@ -16373,6 +16500,111 @@ private fun ToolArgumentSpec.toToolArgumentPayload(): JsonObject =
         put("name", name)
         put("required", required)
         put("description", description)
+    }
+
+private fun ToolDescriptor.toToolExampleArgumentsPayload(includeOptional: Boolean): JsonObject =
+    buildJsonObject {
+        arguments
+            .filter { argument -> includeOptional || argument.required }
+            .forEach { argument ->
+                put(argument.name, argument.toToolExampleValue(targetToolName = name))
+            }
+    }
+
+private fun ToolArgumentSpec.toToolExampleArgumentPayload(targetToolName: String): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("required", required)
+        put("description", description)
+        put("exampleValue", toToolExampleValue(targetToolName = targetToolName))
+    }
+
+private fun ToolArgumentSpec.toToolExampleValue(targetToolName: String): JsonElement {
+    val normalizedName = name.lowercase()
+    return when {
+        normalizedName in TOOL_EXAMPLE_OBJECT_ARGUMENTS ->
+            buildJsonObject {}
+        normalizedName in TOOL_EXAMPLE_ARRAY_ARGUMENTS ->
+            buildJsonArray {}
+        normalizedName == "confirm" ->
+            JsonPrimitive("CONFIRM")
+        normalizedName == "toolname" ->
+            JsonPrimitive(if (targetToolName == "tools.example") "sessions.list" else targetToolName)
+        normalizedName == "providerid" ->
+            JsonPrimitive("local")
+        normalizedName == "schedulekind" ->
+            JsonPrimitive("once")
+        normalizedName == "executionmode" ->
+            JsonPrimitive("MAIN_SESSION")
+        normalizedName == "role" ->
+            JsonPrimitive("user")
+        normalizedName == "category" ->
+            JsonPrimitive("system")
+        normalizedName == "level" ->
+            JsonPrimitive("warn")
+        normalizedName == "timezone" ->
+            JsonPrimitive("UTC")
+        normalizedName.endsWith("iso") ||
+            normalizedName.contains("timestamp") ->
+            JsonPrimitive("2026-03-08T00:00:00Z")
+        normalizedName.contains("limit") ||
+            normalizedName.contains("count") ||
+            normalizedName.contains("retries") ->
+            JsonPrimitive(5)
+        normalizedName.contains("minutes") ->
+            JsonPrimitive(15)
+        normalizedName.contains("seconds") ->
+            JsonPrimitive(30)
+        normalizedName.startsWith("include") ||
+            normalizedName.startsWith("import") ||
+            normalizedName.startsWith("enable") ||
+            normalizedName.startsWith("preserve") ||
+            normalizedName.startsWith("copy") ||
+            normalizedName.startsWith("clear") ||
+            normalizedName == "dryrun" ||
+            normalizedName == "availableonly" ||
+            normalizedName == "requiredonly" ||
+            normalizedName == "precise" ->
+            JsonPrimitive(true)
+        normalizedName.endsWith("id") ->
+            JsonPrimitive("example-id")
+        normalizedName.contains("query") ->
+            JsonPrimitive("example query")
+        normalizedName.contains("title") ||
+            normalizedName == "name" ->
+            JsonPrimitive("Example title")
+        normalizedName.contains("prompt") ->
+            JsonPrimitive("Example prompt")
+        normalizedName.contains("summary") ->
+            JsonPrimitive("Example summary")
+        normalizedName.contains("content") ||
+            normalizedName.contains("text") ||
+            normalizedName.contains("message") ->
+            JsonPrimitive("Example text")
+        else ->
+            JsonPrimitive("example-$name")
+    }
+}
+
+private fun ToolDescriptor.toToolExampleMarkdown(
+    requestedToolName: String,
+    includeOptional: Boolean,
+    exampleArguments: JsonObject,
+): String =
+    buildString {
+        appendLine("# Tool invocation example")
+        appendLine()
+        appendLine("- Requested tool: `${requestedToolName.toHandoffLine()}`")
+        appendLine("- Canonical tool: `${name.toHandoffLine()}`")
+        appendLine("- Availability: ${availability.status.name}")
+        appendLine("- Example only: true")
+        appendLine("- Executes tool: false")
+        appendLine("- Optional arguments included: $includeOptional")
+        appendLine("- Secret values included: false")
+        appendLine()
+        appendLine("```json")
+        appendLine(exampleArguments.toString())
+        appendLine("```")
     }
 
 private fun List<ToolDescriptor>.toToolAvailabilityStatsPayload(
