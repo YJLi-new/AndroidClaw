@@ -318,6 +318,219 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "runtime.export",
+                                    aliases =
+                                        listOf(
+                                            "runtime.manifest",
+                                            "androidclaw.export",
+                                            "androidclaw.manifest",
+                                            "system.export",
+                                            "system.manifest",
+                                        ),
+                                    description =
+                                        "Return a versioned AndroidClaw runtime manifest with cross-contract capability metadata.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val now = clock.instant()
+                            val settings = settingsDataStore.settings.first()
+                            val selectedProviderAuthState =
+                                settings.providerType.toProviderAuthState(
+                                    providerSecretStore = providerSecretStore,
+                                    clock = clock,
+                                )
+                            val providerStats =
+                                settings.toProviderStatsPayload(
+                                    providerSecretStore = providerSecretStore,
+                                    clock = clock,
+                                )
+                            val sessionStats = sessionRepository.getSessionStats()
+                            val taskStats = taskRepository.getTaskStats(now)
+                            val memorySection =
+                                memoryRepository.toRuntimeMemorySectionPayload(
+                                    settingsDataStore = settingsDataStore,
+                                )
+                            val eventSection = eventLogRepository.toRuntimeEventSectionPayload()
+                            val skills = bundledSkillsProvider()
+                            val tools = toolRegistry.descriptors()
+                            val schedulerCapabilities = schedulerCoordinator.capabilities()
+                            val omissions = runtimeExportOmissionsPayload()
+                            val exportMarkdown =
+                                if (includeMarkdown) {
+                                    buildRuntimeExportMarkdown(
+                                        generatedAt = now,
+                                        currentProvider = settings.providerType,
+                                        providerAuthState = selectedProviderAuthState,
+                                        sessionStats = sessionStats,
+                                        taskStats = taskStats,
+                                        memorySection = memorySection,
+                                        eventSection = eventSection,
+                                        skillCount = skills.size,
+                                        enabledSkillCount = skills.count { skill -> skill.enabled },
+                                        toolCount = tools.size,
+                                        availableToolCount =
+                                            tools.count { tool ->
+                                                tool.availability.status == ToolAvailabilityStatus.Available
+                                            },
+                                        minimumBackgroundIntervalMinutes =
+                                            schedulerCapabilities
+                                                .minimumBackgroundInterval
+                                                .toMinutes(),
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary = "Exported AndroidClaw runtime manifest with versioned contract metadata.",
+                                payload =
+                                    buildJsonObject {
+                                        put("exportFormat", RUNTIME_EXPORT_FORMAT)
+                                        put("exportVersion", RUNTIME_EXPORT_VERSION)
+                                        put("format", RUNTIME_EXPORT_FORMAT)
+                                        put("version", RUNTIME_EXPORT_VERSION)
+                                        put("generatedAtIso", now.toString())
+                                        put("requestedSessionId", context.sessionId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("requestedTaskRunId", context.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("origin", context.origin.name)
+                                        put("runMode", context.runMode?.name?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("secretValuesIncluded", false)
+                                        put("apiKeyValuesIncluded", false)
+                                        put("oauthTokenValuesIncluded", false)
+                                        put("messageBodiesIncluded", false)
+                                        put("taskPromptBodiesIncluded", false)
+                                        put("skillInstructionBodiesIncluded", false)
+                                        put("memoryTextIncluded", false)
+                                        put("eventDetailsIncluded", false)
+                                        put(
+                                            "app",
+                                            buildJsonObject {
+                                                put("name", "AndroidClaw")
+                                                put("runtimeModel", "AndroidNativeHost")
+                                                put("singleApkTarget", true)
+                                                put("phoneIsHost", true)
+                                                put("remoteFirstCompanion", false)
+                                                put("desktopHostRequired", false)
+                                                put("nodeRuntimeIncluded", false)
+                                                put("dockerRuntimeIncluded", false)
+                                                put("chromiumRuntimeIncluded", false)
+                                                put("baseProductionModuleCount", 1)
+                                            },
+                                        )
+                                        put(
+                                            "contractOrder",
+                                            buildJsonArray {
+                                                add(JsonPrimitive("sessions"))
+                                                add(JsonPrimitive("tools"))
+                                                add(JsonPrimitive("skills"))
+                                                add(JsonPrimitive("automations"))
+                                            },
+                                        )
+                                        put(
+                                            "contracts",
+                                            buildJsonObject {
+                                                put(
+                                                    "sessions",
+                                                    buildJsonObject {
+                                                        put("implemented", true)
+                                                        put("persistentHistory", true)
+                                                        put("lightweightSummaries", true)
+                                                        put("messageBodiesIncluded", false)
+                                                        put("providerMetaIncluded", false)
+                                                        put("stats", sessionStats.toSessionStatsPayload())
+                                                    },
+                                                )
+                                                put(
+                                                    "tools",
+                                                    buildJsonObject {
+                                                        put("implemented", true)
+                                                        put("typedNativeTools", true)
+                                                        put("capabilityMetadataAvailable", true)
+                                                        put("descriptorsIncluded", false)
+                                                        put("inputSchemasIncluded", false)
+                                                        put("executionResultsIncluded", false)
+                                                        put("stats", tools.toToolStatsPayload())
+                                                    },
+                                                )
+                                                put(
+                                                    "skills",
+                                                    buildJsonObject {
+                                                        put("implemented", true)
+                                                        put("skillMdParsing", true)
+                                                        put("frontmatterSupported", true)
+                                                        put("enableDisableSupported", true)
+                                                        put("importSupported", true)
+                                                        put("commandDispatchSupported", true)
+                                                        put("instructionBodiesIncluded", false)
+                                                        put("rawFrontmatterIncluded", false)
+                                                        put("secretValuesIncluded", false)
+                                                        put("stats", skills.toSkillStatsPayload())
+                                                    },
+                                                )
+                                                put(
+                                                    "automations",
+                                                    buildJsonObject {
+                                                        put("implemented", true)
+                                                        put("supportsOnce", true)
+                                                        put("supportsInterval", true)
+                                                        put("supportsCron", true)
+                                                        put("supportsMainSessionMode", true)
+                                                        put("supportsIsolatedSessionMode", true)
+                                                        put("promptBodiesIncluded", false)
+                                                        put("runHistoryIncluded", false)
+                                                        put(
+                                                            "stats",
+                                                            taskStats.toTaskStatsPayload(
+                                                                minimumBackgroundIntervalMinutes =
+                                                                    schedulerCapabilities
+                                                                        .minimumBackgroundInterval
+                                                                        .toMinutes(),
+                                                            ),
+                                                        )
+                                                    },
+                                                )
+                                            },
+                                        )
+                                        put("provider", settings.providerType.toProviderHandoffPayload(settings, selectedProviderAuthState))
+                                        put("providerStats", providerStats)
+                                        put(
+                                            "scheduler",
+                                            buildJsonObject {
+                                                put("ready", true)
+                                                put(
+                                                    "minimumBackgroundIntervalMinutes",
+                                                    schedulerCapabilities.minimumBackgroundInterval.toMinutes(),
+                                                )
+                                                put("supportsExactAlarms", schedulerCapabilities.supportsExactAlarms)
+                                                put(
+                                                    "supportedKinds",
+                                                    buildJsonArray {
+                                                        schedulerCapabilities.supportedKinds.forEach { kind ->
+                                                            add(JsonPrimitive(kind))
+                                                        }
+                                                    },
+                                                )
+                                            },
+                                        )
+                                        put("memory", memorySection)
+                                        put("events", eventSection)
+                                        put("omissions", omissions)
+                                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "runtime.doctor",
                                     aliases =
                                         listOf(
@@ -12225,6 +12438,8 @@ private const val PROVIDER_IMPORT_FORMAT = "androidclaw.providers.import.v1"
 private const val PROVIDER_IMPORT_VERSION = 1
 private const val PROVIDER_IMPORT_DEFAULT_LIMIT = 20
 private const val PROVIDER_IMPORT_MAX_LIMIT = 20
+private const val RUNTIME_EXPORT_FORMAT = "androidclaw.runtime.export.v1"
+private const val RUNTIME_EXPORT_VERSION = 1
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
@@ -12797,6 +13012,87 @@ private suspend fun EventLogRepository?.toRuntimeEventSectionPayload(): JsonObje
     buildJsonObject {
         put("available", this@toRuntimeEventSectionPayload != null)
         put("eventCount", this@toRuntimeEventSectionPayload?.count()?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun runtimeExportOmissionsPayload(): JsonObject =
+    buildJsonObject {
+        put("messageBodiesIncluded", false)
+        put("messageProviderMetaIncluded", false)
+        put("taskPromptBodiesIncluded", false)
+        put("taskRunHistoryIncluded", false)
+        put("skillInstructionBodiesIncluded", false)
+        put("skillRawFrontmatterIncluded", false)
+        put("skillBaseDirsIncluded", false)
+        put("toolDescriptorsIncluded", false)
+        put("toolInputSchemasIncluded", false)
+        put("toolExecutionResultsIncluded", false)
+        put("memoryTextIncluded", false)
+        put("memoryOwnerUserIdIncluded", false)
+        put("eventDetailsIncluded", false)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("providerCredentialValuesIncluded", false)
+        put("desktopRuntimeStateIncluded", false)
+    }
+
+private fun buildRuntimeExportMarkdown(
+    generatedAt: Instant,
+    currentProvider: ProviderType,
+    providerAuthState: ProviderAuthState,
+    sessionStats: SessionRepository.SessionStats,
+    taskStats: TaskRepository.TaskStats,
+    memorySection: JsonObject,
+    eventSection: JsonObject,
+    skillCount: Int,
+    enabledSkillCount: Int,
+    toolCount: Int,
+    availableToolCount: Int,
+    minimumBackgroundIntervalMinutes: Long,
+): String =
+    buildString {
+        appendLine("# AndroidClaw runtime export")
+        appendLine()
+        appendLine("- Export format: `$RUNTIME_EXPORT_FORMAT`")
+        appendLine("- Export version: $RUNTIME_EXPORT_VERSION")
+        appendLine("- Generated: $generatedAt")
+        appendLine("- Runtime model: Android-native single-APK host")
+        appendLine("- Phone is host: true")
+        appendLine("- Desktop host required: false")
+        appendLine("- Node runtime included: false")
+        appendLine("- Docker runtime included: false")
+        appendLine("- Chromium runtime included: false")
+        appendLine("- Secret values included: false")
+        appendLine("- Message, prompt, skill, memory, and event bodies included: false")
+        appendLine()
+        appendLine("## Compatibility contracts")
+        appendLine(
+            "- Sessions: total=${sessionStats.totalSessionCount} active=${sessionStats.activeSessionCount} " +
+                "archived=${sessionStats.archivedSessionCount} summarized=${sessionStats.summarizedSessionCount} " +
+                "compacted=${sessionStats.compactedSessionCount}",
+        )
+        appendLine("- Tools: total=$toolCount available=$availableToolCount descriptorsIncluded=false")
+        appendLine("- Skills: total=$skillCount enabled=$enabledSkillCount instructionBodiesIncluded=false")
+        appendLine(
+            "- Automations: total=${taskStats.totalTaskCount} enabled=${taskStats.enabledTaskCount} " +
+                "disabled=${taskStats.disabledTaskCount} due=${taskStats.dueTaskCount} " +
+                "minimumBackgroundIntervalMinutes=$minimumBackgroundIntervalMinutes",
+        )
+        appendLine()
+        appendLine("## Runtime sections")
+        appendLine(
+            "- Provider: `${currentProvider.providerId}` " +
+                "${currentProvider.displayName.toHandoffLine()} auth=${providerAuthState.status}",
+        )
+        appendLine(
+            "- Memory: available=${memorySection.optionalText("available") ?: "unknown"} " +
+                "enabled=${memorySection.optionalText("enabled") ?: "unknown"} " +
+                "active=${memorySection.optionalText("activeMemoryCount") ?: "unknown"} textIncluded=false",
+        )
+        appendLine(
+            "- Event logs: available=${eventSection.optionalText("available") ?: "unknown"} " +
+                "count=${eventSection.optionalText("eventCount") ?: "unknown"} detailsIncluded=false",
+        )
     }
 
 private fun buildRuntimeHandoffMarkdown(

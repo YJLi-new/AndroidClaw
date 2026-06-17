@@ -10477,6 +10477,183 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `runtime export returns versioned contract manifest without secrets or bodies`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "runtime-export-secret")
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val session = sessionRepository.createSession("Runtime export session", isMain = true)
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Runtime export message body should stay omitted.",
+            )
+            taskRepository.createTask(
+                name = "Runtime export task",
+                prompt = "Runtime export task prompt should stay omitted.",
+                schedule = TaskSchedule.Once(Instant.now().plus(Duration.ofDays(1))),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = session.id,
+            )
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "Runtime export memory text should stay omitted.",
+                sourceSessionId = session.id,
+            )
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Warn,
+                message = "Runtime export event message",
+                details = "Runtime export event details should stay omitted.",
+            )
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(skillSnapshot(id = "runtime-export-skill", name = "runtime-export-skill")),
+                    providerSecretStore = providerSecretStore,
+                )
+
+            val result =
+                registry.execute(
+                    context =
+                        ToolExecutionContext.internal(
+                            requestedName = "runtime.manifest",
+                            sessionId = session.id,
+                            runMode = ai.androidclaw.runtime.providers.ModelRunMode.Interactive,
+                        ),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.runtime.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["generatedAtIso"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["requestedSessionId"]?.jsonPrimitive?.content)
+            assertEquals("Interactive", result.payload["runMode"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["taskPromptBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["skillInstructionBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["memoryTextIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["eventDetailsIncluded"]?.jsonPrimitive?.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("runtime-export-secret"))
+            assertFalse(payloadText.contains(ownerUserId))
+            assertFalse(payloadText.contains("Runtime export message body should stay omitted."))
+            assertFalse(payloadText.contains("Runtime export task prompt should stay omitted."))
+            assertFalse(payloadText.contains("Runtime export memory text should stay omitted."))
+            assertFalse(payloadText.contains("Runtime export event details should stay omitted."))
+            val app = result.payload.getValue("app").jsonObject
+            assertEquals("AndroidNativeHost", app.getValue("runtimeModel").jsonPrimitive.content)
+            assertEquals("true", app.getValue("singleApkTarget").jsonPrimitive.content)
+            assertEquals("false", app.getValue("nodeRuntimeIncluded").jsonPrimitive.content)
+            assertEquals("false", app.getValue("dockerRuntimeIncluded").jsonPrimitive.content)
+            assertEquals("false", app.getValue("chromiumRuntimeIncluded").jsonPrimitive.content)
+            assertEquals(
+                listOf("sessions", "tools", "skills", "automations"),
+                result.payload
+                    .getValue("contractOrder")
+                    .jsonArray
+                    .map { item -> item.jsonPrimitive.content },
+            )
+            val contracts = result.payload.getValue("contracts").jsonObject
+            assertEquals(
+                "1",
+                contracts
+                    .getValue("sessions")
+                    .jsonObject
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("sessionCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "false",
+                contracts
+                    .getValue("sessions")
+                    .jsonObject
+                    .getValue("messageBodiesIncluded")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "1",
+                contracts
+                    .getValue("automations")
+                    .jsonObject
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("taskCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                "1",
+                contracts
+                    .getValue("skills")
+                    .jsonObject
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("skillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertTrue(
+                contracts
+                    .getValue("tools")
+                    .jsonObject
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() > 0,
+            )
+            val provider = result.payload.getValue("provider").jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals("true", provider.getValue("apiKeyConfigured").jsonPrimitive.content)
+            val memory = result.payload.getValue("memory").jsonObject
+            assertEquals("true", memory.getValue("enabled").jsonPrimitive.content)
+            assertEquals("1", memory.getValue("activeMemoryCount").jsonPrimitive.content)
+            val omissions = result.payload.getValue("omissions").jsonObject
+            assertEquals("false", omissions.getValue("toolInputSchemasIncluded").jsonPrimitive.content)
+            assertEquals("false", omissions.getValue("providerCredentialValuesIncluded").jsonPrimitive.content)
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# AndroidClaw runtime export"))
+            assertTrue(markdown.contains("androidclaw.runtime.export.v1"))
+            assertFalse(markdown.contains("runtime-export-secret"))
+            assertFalse(markdown.contains("Runtime export message body should stay omitted."))
+        }
+
+    @Test
+    fun `runtime export can omit markdown through system alias`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "system.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.runtime.export.v1", result.payload["format"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+        }
+
+    @Test
     fun `runtime handoff returns compact cross contract state without secrets or heavy content`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()

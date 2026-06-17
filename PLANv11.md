@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `runtime.export` /
+  `runtime.manifest` / `androidclaw.export` / `androidclaw.manifest` plus
+  system manifest aliases as a versioned Runtime Contract capability feature.
+  Agents can now export a stable `androidclaw.runtime.export.v1` manifest with
+  app-host invariants, contract order, session/tool/skill/automation stats,
+  provider/auth status without credential values, scheduler capability
+  metadata, memory/event counts, optional markdown, and explicit message body,
+  prompt body, skill instruction, memory text, event detail, API-key, OAuth
+  token, tool schema, and desktop-runtime-state omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tools.export` /
   `tool.export` / `tools.backup` / `tool.backup` plus catalog-export aliases
   as a Tool Contract portability feature. Agents can now export bounded typed
