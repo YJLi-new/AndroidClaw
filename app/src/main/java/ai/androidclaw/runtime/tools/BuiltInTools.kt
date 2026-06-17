@@ -13828,6 +13828,73 @@ private fun taskToolEntries(
             )
         },
         ToolRegistry.Entry(
+            descriptor = taskDuplicateExampleDescriptor(),
+        ) { _, arguments ->
+            val requestedMode =
+                arguments.optionalText("copyMode")
+                    ?: arguments.optionalText("mode")
+            val selectedModes =
+                taskDuplicateExampleCopyModes(requestedMode)
+                    ?: return@Entry invalidTaskArguments(
+                        toolName = "tasks.duplicate.example",
+                        summary =
+                            "tasks.duplicate.example supports copyMode disabled, enabled, or all.",
+                        field = "copyMode",
+                    )
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val examples =
+                buildJsonArray {
+                    selectedModes.forEach { copyMode ->
+                        add(taskDuplicateExamplePayload(copyMode = copyMode))
+                    }
+                }
+            val exampleMarkdown =
+                if (includeMarkdown) {
+                    taskDuplicateExampleMarkdown(
+                        requestedMode = requestedMode,
+                        examples = examples,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary = "Prepared ${selectedModes.size} task duplicate example(s) without duplicating automation.",
+                payload =
+                    buildJsonObject {
+                        put("generatedAtIso", clock.instant().toString())
+                        put("requestedCopyMode", requestedMode?.let(::JsonPrimitive) ?: JsonNull)
+                        put("copyModeCount", selectedModes.size)
+                        put("supportedCopyModes", TASK_DUPLICATE_EXAMPLE_COPY_MODES.toToolStringArrayPayload())
+                        put("defaultEnabled", false)
+                        put("recommendedEnabled", false)
+                        put("includeMarkdown", includeMarkdown)
+                        put("exampleOnly", true)
+                        put("executesTaskDuplicate", false)
+                        put("duplicatesAutomation", false)
+                        put("createsAutomation", false)
+                        put("schedulesWork", false)
+                        put("mutatesTasks", false)
+                        put("sourceTaskResolved", false)
+                        put("sourcePromptBodyIncluded", false)
+                        put("copiedPromptBodyIncluded", false)
+                        put("secretValuesIncluded", false)
+                        put("providerMetadataIncluded", false)
+                        put("runHistoryIncluded", false)
+                        put(
+                            "suggestedTools",
+                            listOf(
+                                "tasks.list",
+                                "tasks.get",
+                                "tasks.duplicate",
+                                "tasks.agenda",
+                            ).toToolStringArrayPayload(),
+                        )
+                        put("examples", examples)
+                        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskDuplicateDescriptor(),
         ) { _, arguments ->
             val taskId =
@@ -14422,6 +14489,31 @@ private fun taskDuplicateDescriptor(): ToolDescriptor =
             ),
     )
 
+private fun taskDuplicateExampleDescriptor(): ToolDescriptor =
+    ToolDescriptor(
+        name = "tasks.duplicate.example",
+        aliases =
+            listOf(
+                "task.duplicate.example",
+                "tasks.copy.example",
+                "task.copy.example",
+                "automation.duplicate.example",
+                "automations.duplicate.example",
+            ),
+        description = "Return safe example arguments for duplicating scheduled automations without copying them.",
+        arguments =
+            listOf(
+                ToolArgumentSpec(
+                    name = "copyMode",
+                    description = "Optional disabled | enabled filter. Omit or use all for both examples.",
+                ),
+                ToolArgumentSpec(
+                    name = "includeMarkdown",
+                    description = "Set false to omit exampleMarkdown. Defaults to true.",
+                ),
+            ),
+    )
+
 private fun taskToggleDescriptor(
     name: String,
     description: String,
@@ -14604,6 +14696,93 @@ private fun taskCreateExampleMarkdown(
             val exampleObject = example.jsonObject
             val scheduleKind = exampleObject.getValue("scheduleKind").jsonPrimitive.content
             appendLine("## $scheduleKind")
+            appendLine()
+            appendLine("```json")
+            appendLine(exampleObject.getValue("exampleArguments").toString())
+            appendLine("```")
+            appendLine()
+        }
+    }
+
+private val TASK_DUPLICATE_EXAMPLE_COPY_MODES = listOf("disabled", "enabled")
+
+private fun taskDuplicateExampleCopyModes(requestedMode: String?): List<String>? {
+    val normalized = requestedMode?.lowercase()?.replace("-", "_")
+    return when (normalized) {
+        null, "all", "any", "*" -> TASK_DUPLICATE_EXAMPLE_COPY_MODES
+        "disabled", "safe", "draft" -> listOf("disabled")
+        "enabled", "active", "scheduled" -> listOf("enabled")
+        else -> null
+    }
+}
+
+private fun taskDuplicateExamplePayload(copyMode: String): JsonObject {
+    val enabled = copyMode == "enabled"
+    return buildJsonObject {
+        put("copyMode", copyMode)
+        put("toolName", "tasks.duplicate")
+        put("alias", "task.duplicate")
+        put("exampleOnly", true)
+        put("executesTaskDuplicate", false)
+        put("duplicatesAutomation", false)
+        put("createsAutomation", false)
+        put("schedulesWork", false)
+        put("mutatesTasks", false)
+        put("wouldCreateEnabledCopy", enabled)
+        put("wouldScheduleCopy", enabled)
+        put("requiredFields", listOf("taskId").toToolStringArrayPayload())
+        put("optionalFields", listOf("name", "enabled").toToolStringArrayPayload())
+        put(
+            "sourceFieldsCopiedByRealTool",
+            listOf(
+                "prompt",
+                "schedule",
+                "executionMode",
+                "targetSessionId",
+                "precise",
+                "maxRetries",
+            ).toToolStringArrayPayload(),
+        )
+        put(
+            "sourceFieldsNotIncludedInExample",
+            listOf("promptBody", "runHistory", "providerMetadata").toToolStringArrayPayload(),
+        )
+        put(
+            "exampleArguments",
+            buildJsonObject {
+                put("taskId", "example-task-id")
+                put(
+                    "name",
+                    if (enabled) {
+                        "Enabled copy of example automation"
+                    } else {
+                        "Copy of example automation"
+                    },
+                )
+                put("enabled", enabled)
+            },
+        )
+    }
+}
+
+private fun taskDuplicateExampleMarkdown(
+    requestedMode: String?,
+    examples: JsonArray,
+): String =
+    buildString {
+        appendLine("# Task duplicate examples")
+        appendLine()
+        appendLine("- Requested copy mode: ${requestedMode?.toHandoffLine() ?: "all"}")
+        appendLine("- Example only: true")
+        appendLine("- Duplicates automation: false")
+        appendLine("- Creates automation: false")
+        appendLine("- Schedules work: false")
+        appendLine("- Suggested flow: `tasks.get` then `tasks.duplicate`.")
+        appendLine()
+        examples.forEach { example ->
+            val exampleObject = example.jsonObject
+            val copyMode = exampleObject.getValue("copyMode").jsonPrimitive.content
+            appendLine("## $copyMode")
             appendLine()
             appendLine("```json")
             appendLine(exampleObject.getValue("exampleArguments").toString())

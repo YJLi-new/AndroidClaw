@@ -5963,6 +5963,148 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks duplicate example returns safe copy examples without duplicating automation`() =
+        runTest {
+            val source =
+                taskRepository.createTask(
+                    name = "Source automation",
+                    prompt = "Source prompt should not appear in duplicate examples.",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-20T08:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.duplicate.example"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["generatedAtIso"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("requestedCopyMode"))
+            assertEquals("2", result.payload["copyModeCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["defaultEnabled"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["recommendedEnabled"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["executesTaskDuplicate"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["duplicatesAutomation"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["createsAutomation"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["schedulesWork"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["mutatesTasks"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["sourceTaskResolved"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["sourcePromptBodyIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["copiedPromptBodyIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetadataIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["runHistoryIncluded"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("disabled", "enabled"),
+                result.payload
+                    .getValue("supportedCopyModes")
+                    .jsonArray
+                    .map { mode -> mode.jsonPrimitive.content },
+            )
+            assertEquals(
+                listOf("tasks.list", "tasks.get", "tasks.duplicate", "tasks.agenda"),
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+            val examples =
+                result.payload
+                    .getValue("examples")
+                    .jsonArray
+                    .map { example -> example.jsonObject }
+            assertEquals(listOf("disabled", "enabled"), examples.map { example -> example.getValue("copyMode").jsonPrimitive.content })
+            val disabledExample =
+                examples.single { example ->
+                    example.getValue("copyMode").jsonPrimitive.content == "disabled"
+                }
+            val disabledArguments = disabledExample.getValue("exampleArguments").jsonObject
+            assertEquals("example-task-id", disabledArguments.getValue("taskId").jsonPrimitive.content)
+            assertEquals("Copy of example automation", disabledArguments.getValue("name").jsonPrimitive.content)
+            assertEquals(false.toString(), disabledArguments.getValue("enabled").jsonPrimitive.content)
+            assertEquals(false.toString(), disabledExample.getValue("wouldCreateEnabledCopy").jsonPrimitive.content)
+            assertEquals(false.toString(), disabledExample.getValue("wouldScheduleCopy").jsonPrimitive.content)
+            val enabledExample =
+                examples.single { example ->
+                    example.getValue("copyMode").jsonPrimitive.content == "enabled"
+                }
+            val enabledArguments = enabledExample.getValue("exampleArguments").jsonObject
+            assertEquals("Enabled copy of example automation", enabledArguments.getValue("name").jsonPrimitive.content)
+            assertEquals(true.toString(), enabledArguments.getValue("enabled").jsonPrimitive.content)
+            assertEquals(true.toString(), enabledExample.getValue("wouldCreateEnabledCopy").jsonPrimitive.content)
+            assertEquals(true.toString(), enabledExample.getValue("wouldScheduleCopy").jsonPrimitive.content)
+            val sourceFieldsCopied =
+                disabledExample
+                    .getValue("sourceFieldsCopiedByRealTool")
+                    .jsonArray
+                    .map { field -> field.jsonPrimitive.content }
+            assertTrue(sourceFieldsCopied.contains("schedule"))
+            assertTrue(sourceFieldsCopied.contains("prompt"))
+            assertEquals(listOf(source), taskRepository.observeTasks().first())
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Source prompt should not appear"))
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Task duplicate examples"))
+            assertTrue(markdown.contains("\"taskId\":\"example-task-id\""))
+        }
+
+    @Test
+    fun `tasks duplicate example can focus enabled copy and omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "task.copy.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("copyMode", "enabled")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.duplicate.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("copyMode", "paused")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("enabled", result.payload["requestedCopyMode"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["copyModeCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exampleMarkdown"))
+            val example =
+                result.payload
+                    .getValue("examples")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("enabled", example.getValue("copyMode").jsonPrimitive.content)
+            val arguments = example.getValue("exampleArguments").jsonObject
+            assertEquals(setOf("taskId", "name", "enabled"), arguments.keys)
+            assertEquals("example-task-id", arguments.getValue("taskId").jsonPrimitive.content)
+            assertEquals(true.toString(), arguments.getValue("enabled").jsonPrimitive.content)
+            assertEquals(true.toString(), example.getValue("wouldScheduleCopy").jsonPrimitive.content)
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+            assertEquals("tasks.duplicate.example", invalid.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("copyMode", invalid.payload["field"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tasks create example returns safe examples without creating automation`() =
         runTest {
             val registry = buildRegistry()

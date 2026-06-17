@@ -71,6 +71,18 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-18: Added `tasks.duplicate.example` /
+  `task.duplicate.example` / `tasks.copy.example` / `task.copy.example` plus
+  automation duplicate aliases as an Automation Contract usability feature.
+  Agents can now request safe disabled/enabled duplicate argument examples
+  without resolving a source task, copying automations, scheduling WorkManager
+  work, mutating task state, or exposing source prompt bodies, provider
+  metadata, secrets, or run history. The payload includes source-field copy
+  expectations, enabled-copy scheduling implications, suggested follow-up
+  tools, optional markdown, and explicit example-only /
+  executes-task-duplicate=false / duplicates-automation=false /
+  creates-automation=false / schedules-work=false / mutates-tasks=false flags.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-18: Added `tasks.update.example` /
   `task.update.example` / `tasks.patch.example` / `task.patch.example` plus
   automation update aliases as an Automation Contract usability feature. Agents
