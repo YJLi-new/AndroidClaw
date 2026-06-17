@@ -5895,6 +5895,113 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.handoff",
+                    aliases =
+                        listOf(
+                            "task.handoff",
+                            "tasks.snapshot",
+                            "task.snapshot",
+                            "automation.handoff",
+                            "automation.snapshot",
+                        ),
+                    description = "Return a compact automation handoff with schedule metadata, prompt snippet, and recent runs.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Task identifier.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "runLimit",
+                                description = "Recent run count. Defaults to 5, max 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includePrompt",
+                                description = "Set false to omit the prompt snippet. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.handoff",
+                    summary = "tasks.handoff requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.handoff", taskId = taskId)
+            val runLimit =
+                arguments
+                    .optionalInt(
+                        field = "runLimit",
+                        defaultValue = TASK_HANDOFF_DEFAULT_RUN_LIMIT,
+                    ).coerceIn(0, TASK_HANDOFF_MAX_RUN_LIMIT)
+            val includePrompt = arguments.optionalBoolean("includePrompt", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val recentRuns = taskRepository.getRecentRuns(taskId = task.id, limit = runLimit)
+            val promptSnippet = task.prompt.toMessageSearchSnippet().takeIf { includePrompt }
+            val handoffMarkdown =
+                if (includeMarkdown) {
+                    task.toTaskHandoffMarkdown(
+                        promptSnippet = promptSnippet,
+                        recentRuns = recentRuns,
+                        runLimit = runLimit,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary = "Prepared automation handoff for task ${task.name}.",
+                payload =
+                    buildJsonObject {
+                        put("taskId", task.id)
+                        put("name", task.name)
+                        put("enabled", task.enabled)
+                        put("scheduleKind", task.schedule.toTaskSearchKind())
+                        put("schedule", task.schedule.toPayload())
+                        put("executionMode", task.executionMode.name)
+                        put("targetSessionId", task.targetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+                        put("preciseRequested", task.precise)
+                        put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("lastRunAtIso", task.lastRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("failureCount", task.failureCount)
+                        put("maxRetries", task.maxRetries)
+                        put("createdAtIso", task.createdAt.toString())
+                        put("updatedAtIso", task.updatedAt.toString())
+                        put("promptIncluded", includePrompt)
+                        put("promptSnippet", promptSnippet?.let(::JsonPrimitive) ?: JsonNull)
+                        put("promptLength", task.prompt.length)
+                        put("promptTruncated", promptSnippet?.let { it.length < task.prompt.length } ?: false)
+                        put("runLimit", runLimit)
+                        put("runCount", recentRuns.size)
+                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                        put(
+                            "recentRuns",
+                            buildJsonArray {
+                                recentRuns.forEach { run ->
+                                    add(run.toTaskRunHistoryPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.preview.occurrences",
                     aliases =
                         listOf(
@@ -7858,6 +7965,8 @@ private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val TASK_DUE_DEFAULT_LIMIT = 20
 private const val TASK_DUE_MAX_LIMIT = 50
+private const val TASK_HANDOFF_DEFAULT_RUN_LIMIT = 5
+private const val TASK_HANDOFF_MAX_RUN_LIMIT = 20
 private const val TASK_OCCURRENCES_DEFAULT_LIMIT = 5
 private const val TASK_OCCURRENCES_MAX_LIMIT = 20
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
@@ -9328,6 +9437,54 @@ private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundInterva
                 }
             },
         )
+    }
+
+private fun Task.toTaskHandoffMarkdown(
+    promptSnippet: String?,
+    recentRuns: List<TaskRun>,
+    runLimit: Int,
+): String =
+    buildString {
+        appendLine("# Automation handoff: ${name.toHandoffLine()}")
+        appendLine()
+        appendLine("- Task id: `$id`")
+        appendLine("- Enabled: $enabled")
+        appendLine("- Schedule: ${schedule.toTaskSearchKind()}")
+        appendLine("- Execution mode: ${executionMode.name}")
+        appendLine("- Target session id: ${targetSessionId ?: "default"}")
+        appendLine("- Precise requested: $precise")
+        appendLine("- Next run: ${nextRunAt ?: "none"}")
+        appendLine("- Last run: ${lastRunAt ?: "none"}")
+        appendLine("- Failures/retries: $failureCount / $maxRetries")
+        appendLine("- Recent runs included: ${recentRuns.size} of up to $runLimit")
+        appendLine()
+        appendLine("## Prompt")
+        appendLine(promptSnippet?.toHandoffLine() ?: "_Prompt omitted._")
+        appendLine()
+        appendLine("## Recent runs")
+        if (recentRuns.isEmpty()) {
+            appendLine("_No recent runs included._")
+        } else {
+            recentRuns.forEach { run ->
+                appendLine(run.toTaskRunMarkdownLine())
+            }
+        }
+    }
+
+private fun TaskRun.toTaskRunMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(status.name)
+        append(" scheduled ")
+        append(scheduledAt)
+        resultSummary?.let { summary ->
+            append(" result: ")
+            append(summary.toMessageSearchSnippet().toHandoffLine())
+        }
+        errorCode?.let { code ->
+            append(" error: ")
+            append(code.toHandoffLine())
+        }
     }
 
 private fun TaskRun.toTaskRunHistoryPayload() =

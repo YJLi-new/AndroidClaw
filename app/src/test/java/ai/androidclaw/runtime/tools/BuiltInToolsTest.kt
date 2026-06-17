@@ -2764,6 +2764,90 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks handoff returns compact schedule prompt run history and markdown`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Daily research digest",
+                    prompt = "Read saved sources\nand summarize findings.",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-07-01T09:00:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = null,
+                    precise = true,
+                    maxRetries = 4,
+                )
+            val successRun =
+                taskRepository.recordRun(
+                    taskId = task.id,
+                    scheduledAt = Instant.parse("2026-06-16T09:00:00Z"),
+                )
+            taskRepository.updateRun(
+                successRun.copy(
+                    status = TaskRunStatus.Success,
+                    startedAt = Instant.parse("2026-06-16T09:00:01Z"),
+                    finishedAt = Instant.parse("2026-06-16T09:00:05Z"),
+                    resultSummary = "Digest posted",
+                ),
+            )
+            val failureRun =
+                taskRepository.recordRun(
+                    taskId = task.id,
+                    scheduledAt = Instant.parse("2026-06-17T09:00:00Z"),
+                )
+            taskRepository.updateRun(
+                failureRun.copy(
+                    status = TaskRunStatus.Failure,
+                    startedAt = Instant.parse("2026-06-17T09:00:01Z"),
+                    finishedAt = Instant.parse("2026-06-17T09:00:02Z"),
+                    errorCode = "PROVIDER_OFFLINE",
+                    errorMessage = "Provider offline",
+                ),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.handoff"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", task.id)
+                            put("runLimit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(task.id, result.payload["taskId"]?.jsonPrimitive?.content)
+            assertEquals("Daily research digest", result.payload["name"]?.jsonPrimitive?.content)
+            assertEquals("once", result.payload["scheduleKind"]?.jsonPrimitive?.content)
+            assertEquals("IsolatedSession", result.payload["executionMode"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["promptIncluded"]?.jsonPrimitive?.content)
+            assertEquals(
+                "Read saved sources\nand summarize findings.",
+                result.payload["promptSnippet"]?.jsonPrimitive?.content,
+            )
+            assertEquals("2", result.payload["runCount"]?.jsonPrimitive?.content)
+            val runs =
+                result.payload
+                    .getValue("recentRuns")
+                    .jsonArray
+                    .map { run ->
+                        run.jsonObject
+                            .getValue("status")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals(listOf("Failure", "Success"), runs)
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Automation handoff: Daily research digest"))
+            assertTrue(markdown.contains("Read saved sources and summarize findings."))
+            assertTrue(markdown.contains("Failure scheduled 2026-06-17T09:00:00Z error: PROVIDER_OFFLINE"))
+        }
+
+    @Test
     fun `tasks occurrences previews multiple scheduled run times without mutating task`() =
         runTest {
             val task =
