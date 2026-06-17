@@ -89,6 +89,9 @@ interface TaskRunDao {
     @Query("DELETE FROM task_runs WHERE taskId = :taskId")
     suspend fun deleteByTaskId(taskId: String): Int
 
+    @Query("DELETE FROM task_runs WHERE status = :status")
+    suspend fun deleteByStatus(status: String): Int
+
     @Query("DELETE FROM task_runs WHERE scheduledAt < :timestamp")
     suspend fun deleteOlderThan(timestamp: Long): Int
 }

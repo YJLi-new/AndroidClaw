@@ -3469,6 +3469,57 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks runs clear status requires confirmation and deletes matching status history`() =
+        runTest {
+            val task =
+                taskRepository.createTask(
+                    name = "Clear status history",
+                    prompt = "Clear failed runs",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val firstFailure = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            val secondFailure = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:01:00Z"))
+            val success = taskRepository.recordRun(task.id, scheduledAt = Instant.parse("2026-03-10T00:02:00Z"))
+            taskRepository.updateRun(firstFailure.copy(status = TaskRunStatus.Failure, errorCode = "FIRST_FAILURE"))
+            taskRepository.updateRun(secondFailure.copy(status = TaskRunStatus.Failure, errorCode = "SECOND_FAILURE"))
+            taskRepository.updateRun(success.copy(status = TaskRunStatus.Success, resultSummary = "Succeeded"))
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automations.runs.clear_status"),
+                    arguments =
+                        buildJsonObject {
+                            put("status", "Failure")
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertNotNull(taskRepository.getRun(firstFailure.id))
+            assertNotNull(taskRepository.getRun(secondFailure.id))
+
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.runs.status.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("status", "failure")
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(cleared.success)
+            assertEquals("Failure", cleared.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("2", cleared.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertNull(taskRepository.getRun(firstFailure.id))
+            assertNull(taskRepository.getRun(secondFailure.id))
+            assertNotNull(taskRepository.getRun(success.id))
+        }
+
+    @Test
     fun `tasks runs trim requires confirmation and deletes old run history`() =
         runTest {
             val task =

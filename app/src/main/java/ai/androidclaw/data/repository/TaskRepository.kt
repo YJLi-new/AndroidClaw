@@ -243,6 +243,8 @@ class TaskRepository(
 
     suspend fun clearRunsForTask(taskId: String): Int = taskRunDao.deleteByTaskId(taskId)
 
+    suspend fun clearRunsByStatus(status: TaskRunStatus): Int = taskRunDao.deleteByStatus(status.toStorage())
+
     suspend fun trimRunsOlderThan(instant: Instant): Int = taskRunDao.deleteOlderThan(instant.toEpochMilli())
 }
 

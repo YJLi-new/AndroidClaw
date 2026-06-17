@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.runs.clear_status` /
+  `task.runs.clear_status` / `tasks.runs.status.clear` plus automation
+  status-clear aliases as an Automation Contract run-history retention control.
+  Agents can now clear only Pending, Running, Success, Failure, or Skipped
+  run-history rows after `confirm=CONFIRM`, preserving other statuses while
+  returning the deleted count for focused cleanup. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.runs.clear` / `task.runs.clear` /
   `tasks.history.clear` plus automation run-history clear aliases as an
   Automation Contract per-task retention control. Agents can now clear all
