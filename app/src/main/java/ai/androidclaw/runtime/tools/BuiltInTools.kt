@@ -6721,6 +6721,124 @@ private fun eventToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "events.handoff",
+                    aliases =
+                        listOf(
+                            "event.handoff",
+                            "logs.handoff",
+                            "log.handoff",
+                            "events.snapshot",
+                            "event.snapshot",
+                            "logs.snapshot",
+                            "log.snapshot",
+                        ),
+                    description = "Return a compact event-log handoff without raw event details.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum recent event count to include. Defaults to 12, max 50.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "category",
+                                description = "Optional category filter: provider, tool, scheduler, skill, system, or debug.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "level",
+                                description = "Optional level filter: info, warn, or error.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = EVENT_HANDOFF_DEFAULT_LIMIT,
+                    ).coerceIn(0, EVENT_HANDOFF_MAX_LIMIT)
+            val category =
+                arguments.optionalText("category")?.let { rawCategory ->
+                    parseEventCategory(rawCategory)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.handoff received an unknown category.",
+                            field = "category",
+                            received = rawCategory,
+                            toolName = "events.handoff",
+                        )
+                }
+            val level =
+                arguments.optionalText("level")?.let { rawLevel ->
+                    parseEventLevel(rawLevel)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.handoff received an unknown level.",
+                            field = "level",
+                            received = rawLevel,
+                            toolName = "events.handoff",
+                        )
+                }
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val totalEventCount = eventLogRepository.count()
+            val matchingEvents =
+                eventLogRepository
+                    .observeRecent(limit = EVENT_LOG_SCAN_LIMIT)
+                    .first()
+                    .asSequence()
+                    .filter { event -> category == null || event.category == category }
+                    .filter { event -> level == null || event.level == level }
+                    .toList()
+            val includedEvents = matchingEvents.take(limit)
+            val handoffMarkdown =
+                if (includeMarkdown) {
+                    includedEvents.toEventHandoffMarkdown(
+                        totalEventCount = totalEventCount,
+                        matchedEventCount = matchingEvents.size,
+                        category = category,
+                        level = level,
+                        limit = limit,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (includedEvents.isEmpty()) {
+                        "Prepared empty event handoff."
+                    } else {
+                        "Prepared event handoff with ${includedEvents.size} recent event(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("totalEventCount", totalEventCount)
+                        put("matchedEventCount", matchingEvents.size)
+                        put("eventCount", includedEvents.size)
+                        put("omittedEventCount", (matchingEvents.size - includedEvents.size).coerceAtLeast(0))
+                        put("recentFirst", true)
+                        put("detailsIncluded", false)
+                        put("category", category?.name ?: "Any")
+                        put("level", level?.name ?: "Any")
+                        put("limit", limit)
+                        put("includeMarkdown", includeMarkdown)
+                        put("countsByCategory", matchingEvents.toEventCategoryCountsPayload())
+                        put("countsByLevel", matchingEvents.toEventLevelCountsPayload())
+                        put(
+                            "events",
+                            buildJsonArray {
+                                includedEvents.forEach { event ->
+                                    add(event.toEventHandoffPayload())
+                                }
+                            },
+                        )
+                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "events.doctor",
                     aliases =
                         listOf(
@@ -7074,6 +7192,62 @@ private fun EventLogEntry.toEventLogPayload(includeDetails: Boolean): JsonObject
                 details?.let { it.length > EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS } ?: false,
             )
         }
+    }
+
+private fun EventLogEntry.toEventHandoffPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("timestampIso", timestamp.toString())
+        put("category", category.name)
+        put("level", level.name)
+        put("message", message.take(EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS))
+        put("messageTruncated", message.length > EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS)
+        put("hasDetails", details != null)
+        put("detailsIncluded", false)
+    }
+
+private fun List<EventLogEntry>.toEventHandoffMarkdown(
+    totalEventCount: Int,
+    matchedEventCount: Int,
+    category: EventCategory?,
+    level: EventLevel?,
+    limit: Int,
+): String {
+    val includedEvents = this
+    return buildString {
+        appendLine("# Events handoff")
+        appendLine()
+        appendLine("- Total event logs: $totalEventCount")
+        appendLine("- Matching events: $matchedEventCount")
+        appendLine("- Events included: ${includedEvents.size} of up to $limit")
+        appendLine("- Category filter: ${category?.name ?: "Any"}")
+        appendLine("- Level filter: ${level?.name ?: "Any"}")
+        appendLine("- Recent first: true")
+        appendLine("- Event details included: false")
+        appendLine()
+        appendLine("## Events")
+        if (includedEvents.isEmpty()) {
+            appendLine("_No recent events included._")
+        } else {
+            includedEvents.forEach { event ->
+                appendLine(event.toEventHandoffMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun EventLogEntry.toEventHandoffMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(timestamp)
+        append(" ")
+        append(level.name)
+        append(" ")
+        append(category.name)
+        append(" `")
+        append(id.toHandoffLine())
+        append("`: ")
+        append(message.toHandoffLine())
     }
 
 private fun List<EventLogEntry>.toEventDoctorIssues(): List<EventDoctorIssue> =
@@ -9607,6 +9781,8 @@ private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
 private const val EVENT_DOCTOR_DEFAULT_LIMIT = 20
 private const val EVENT_DOCTOR_MAX_LIMIT = 50
 private const val EVENT_DOCTOR_TEXT_MAX_CHARS = 500
+private const val EVENT_HANDOFF_DEFAULT_LIMIT = 12
+private const val EVENT_HANDOFF_MAX_LIMIT = 50
 private const val EVENT_LOG_DEFAULT_LIMIT = 20
 private const val EVENT_LOG_MAX_LIMIT = 50
 private const val EVENT_LOG_SCAN_LIMIT = 200

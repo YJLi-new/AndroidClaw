@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `events.handoff` /
+  `event.handoff` / `logs.handoff` / `log.handoff` plus snapshot aliases as a
+  compact event-log context-transfer feature. Agents can now hand off bounded
+  recent runtime diagnostics with optional category/level filters, aggregate
+  category/level counts, optional markdown, recent-first ordering, and explicit
+  raw-details omission flags. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `events.doctor` /
   `event.doctor` / `logs.doctor` / `log.doctor` plus health/check aliases as
   a dedicated local event-log diagnostics tool. Agents can now scan recent

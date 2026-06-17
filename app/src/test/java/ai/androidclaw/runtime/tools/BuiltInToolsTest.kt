@@ -8630,6 +8630,115 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events handoff returns bounded recent diagnostics without raw details`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "System started",
+                details = "{\"secret\":\"system-detail\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"secret\":\"network-timeout\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Warn,
+                message = "Provider retrying",
+                details = "{\"secret\":\"retry-detail\"}",
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.snapshot"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "provider")
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("Provider", result.payload["category"]?.jsonPrimitive?.content)
+            assertEquals("Any", result.payload["level"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["matchedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["eventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["omittedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["detailsIncluded"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains("network-timeout"))
+            assertFalse(result.payload.toString().contains("retry-detail"))
+            val event =
+                result.payload
+                    .getValue("events")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Provider", event.getValue("category").jsonPrimitive.content)
+            assertFalse(event.containsKey("details"))
+            assertEquals("false", event.getValue("detailsIncluded").jsonPrimitive.content)
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Events handoff"))
+            assertFalse(markdown.contains("network-timeout"))
+        }
+
+    @Test
+    fun `events handoff filters level and omits markdown`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"secret\":\"provider-detail\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Warn,
+                message = "Provider retrying",
+                details = "{\"secret\":\"retry-detail\"}",
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.handoff"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "provider")
+                            put("level", "error")
+                            put("includeMarkdown", false)
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("Provider", result.payload["category"]?.jsonPrimitive?.content)
+            assertEquals("Error", result.payload["level"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["matchedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["eventCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("handoffMarkdown"))
+            assertFalse(result.payload.toString().contains("provider-detail"))
+            assertTrue(
+                result.payload
+                    .getValue("events")
+                    .jsonArray
+                    .all { event ->
+                        val payload = event.jsonObject
+                        payload.getValue("category").jsonPrimitive.content == "Provider" &&
+                            payload.getValue("level").jsonPrimitive.content == "Error"
+                    },
+            )
+        }
+
+    @Test
     fun `events doctor reports warning and error diagnostics without raw details`() =
         runTest {
             val registry = buildRegistry()
