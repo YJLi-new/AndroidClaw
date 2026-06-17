@@ -6633,6 +6633,73 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.runs.clear",
+                    aliases =
+                        listOf(
+                            "task.runs.clear",
+                            "tasks.history.clear",
+                            "task.history.clear",
+                            "automations.runs.clear",
+                            "automation.runs.clear",
+                        ),
+                    description = "Delete all run-history rows for one automation after explicit confirmation.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "taskId",
+                                required = true,
+                                description = "Task identifier whose run history should be cleared.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val taskId =
+                arguments["taskId"]
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+            if (taskId.isBlank()) {
+                return@Entry invalidTaskArguments(
+                    toolName = "tasks.runs.clear",
+                    summary = "tasks.runs.clear requires a non-empty taskId.",
+                    field = "taskId",
+                )
+            }
+            val task =
+                taskRepository.getTask(taskId)
+                    ?: return@Entry taskNotFoundResult(toolName = "tasks.runs.clear", taskId = taskId)
+            if (arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry ToolExecutionResult.failure(
+                    summary = "Pass confirm=CONFIRM to clear automation run history for task ${task.name}.",
+                    errorCode = "CONFIRMATION_REQUIRED",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "CONFIRMATION_REQUIRED")
+                            put("toolName", "tasks.runs.clear")
+                            put("taskId", task.id)
+                            put("field", "confirm")
+                        },
+                )
+            }
+            val deletedCount = taskRepository.clearRunsForTask(task.id)
+            ToolExecutionResult.success(
+                summary = "Cleared $deletedCount run-history row(s) for task ${task.name}.",
+                payload =
+                    buildJsonObject {
+                        put("taskId", task.id)
+                        put("taskName", task.name)
+                        put("deletedCount", deletedCount)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.runs.trim",
                     aliases =
                         listOf(

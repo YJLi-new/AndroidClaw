@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.runs.clear` / `task.runs.clear` /
+  `tasks.history.clear` plus automation run-history clear aliases as an
+  Automation Contract per-task retention control. Agents can now clear all
+  persisted run-history rows for one specified automation only with
+  `confirm=CONFIRM`, preserving the task and other automations' histories while
+  returning the deleted count. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `tasks.runs.trim` / `task.runs.trim` /
   `tasks.runs.prune` plus automation run-history trim aliases as an Automation
   Contract retention control. Agents can now delete task-run history scheduled

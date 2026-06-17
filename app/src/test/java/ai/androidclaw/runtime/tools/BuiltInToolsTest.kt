@@ -3411,6 +3411,64 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks runs clear requires confirmation and deletes only one task history`() =
+        runTest {
+            val targetTask =
+                taskRepository.createTask(
+                    name = "Clear run history",
+                    prompt = "Clear my runs",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-10T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val otherTask =
+                taskRepository.createTask(
+                    name = "Keep run history",
+                    prompt = "Keep my runs",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-11T00:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val firstTargetRun = taskRepository.recordRun(targetTask.id, scheduledAt = Instant.parse("2026-03-10T00:00:00Z"))
+            val secondTargetRun = taskRepository.recordRun(targetTask.id, scheduledAt = Instant.parse("2026-03-10T00:01:00Z"))
+            val otherRun = taskRepository.recordRun(otherTask.id, scheduledAt = Instant.parse("2026-03-11T00:00:00Z"))
+            val registry = buildRegistry()
+
+            val denied =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.runs.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", targetTask.id)
+                        },
+                )
+
+            assertFalse(denied.success)
+            assertEquals("CONFIRMATION_REQUIRED", denied.errorCode)
+            assertNotNull(taskRepository.getRun(firstTargetRun.id))
+            assertNotNull(taskRepository.getRun(secondTargetRun.id))
+
+            val cleared =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.history.clear"),
+                    arguments =
+                        buildJsonObject {
+                            put("taskId", targetTask.id)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(cleared.success)
+            assertEquals(targetTask.id, cleared.payload["taskId"]?.jsonPrimitive?.content)
+            assertEquals("Clear run history", cleared.payload["taskName"]?.jsonPrimitive?.content)
+            assertEquals("2", cleared.payload["deletedCount"]?.jsonPrimitive?.content)
+            assertNull(taskRepository.getRun(firstTargetRun.id))
+            assertNull(taskRepository.getRun(secondTargetRun.id))
+            assertNotNull(taskRepository.getRun(otherRun.id))
+            assertNotNull(taskRepository.getTask(targetTask.id))
+        }
+
+    @Test
     fun `tasks runs trim requires confirmation and deletes old run history`() =
         runTest {
             val task =
