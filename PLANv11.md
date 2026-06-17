@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.import` /
+  `message.import` / `transcript.import` / `chat.import` plus
+  session-message import alias as the companion Session Contract portability
+  feature for `messages.export`. Agents can now dry-run or confirm import of a
+  bounded `messages` array or `export.messages` payload into a new or existing
+  session, optionally import summary text without preserving stale compaction
+  boundaries, omit message bodies from result payloads, and receive explicit
+  source-created-at/source-id/provider-metadata non-preservation flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `messages.export` /
   `message.export` / `transcript.export` / `chat.export` plus
   session-message export alias as a Session Contract portability feature.

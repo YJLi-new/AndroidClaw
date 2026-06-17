@@ -2779,6 +2779,177 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `messages import dry run previews export without writing or leaking omitted bodies`() =
+        runTest {
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.messages.export.v1")
+                    put("exportVersion", 1)
+                    put("sessionTitle", "Portable transcript")
+                    put("summaryText", "Portable transcript summary")
+                    put(
+                        "messages",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("messageId", "source-user-1")
+                                    put("role", "User")
+                                    put("createdAtIso", "2026-03-08T00:00:00Z")
+                                    put("content", "Portable secret user body")
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("messageId", "source-assistant-1")
+                                    put("role", "Assistant")
+                                    put("createdAtIso", "2026-03-08T00:01:00Z")
+                                    put("content", "Portable secret assistant body")
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("messageId", "source-missing-content")
+                                    put("role", "Assistant")
+                                    put("content", JsonNull)
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "transcript.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("dryRun", true)
+                            put("includeBodies", false)
+                            put("limit", 3)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.messages.import.v1", result.payload["importFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importVersion"]?.jsonPrimitive?.content)
+            assertEquals("androidclaw.messages.export.v1", result.payload["acceptedExportFormat"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("targetSessionId"))
+            assertEquals("Portable transcript import", result.payload["targetSessionTitle"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["receivedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["scannedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importableMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["skippedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetaImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["summaryTextIncluded"]?.jsonPrimitive?.content)
+            assertTrue(sessionRepository.observeSessions().first().isEmpty())
+            val candidates = result.payload.getValue("candidateMessages").jsonArray
+            assertEquals(2, candidates.size)
+            assertTrue(candidates.all { candidate -> candidate.jsonObject.getValue("content") == JsonNull })
+            val skipped =
+                result.payload
+                    .getValue("skippedMessages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("messages.import.invalid_missing_content", skipped.getValue("code").jsonPrimitive.content)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Portable secret user body"))
+            assertFalse(payloadText.contains("Portable secret assistant body"))
+            assertFalse(payloadText.contains("Portable transcript summary"))
+        }
+
+    @Test
+    fun `messages import creates session messages and imports summary after confirmation`() =
+        runTest {
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.messages.export.v1")
+                    put("exportVersion", 1)
+                    put("sessionTitle", "Restored transcript")
+                    put("summaryText", "Restored summary text")
+                    put(
+                        "messages",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("messageId", "restore-user")
+                                    put("role", "User")
+                                    put("createdAtIso", "2026-03-08T00:00:00Z")
+                                    put("content", "Restored user body")
+                                    put("toolCallId", "tool-call-source")
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("messageId", "restore-assistant")
+                                    put("role", "Assistant")
+                                    put("createdAtIso", "2026-03-08T00:01:00Z")
+                                    put("content", "Restored assistant body")
+                                    put("taskRunId", "task-run-source")
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("confirm", "CONFIRM")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(false.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["targetSessionCreated"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["skippedMessageCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["targetMessageCountBefore"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["targetMessageCountAfter"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryImportable"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetaImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["compactionBoundaryImported"]?.jsonPrimitive?.content)
+            val targetSessionId =
+                result.payload
+                    .getValue("targetSessionId")
+                    .jsonPrimitive
+                    .content
+            val targetSession = sessionRepository.getSession(targetSessionId)
+            assertNotNull(targetSession)
+            assertEquals("Restored transcript import", targetSession?.title)
+            assertEquals("Restored summary text", targetSession?.summaryText)
+            assertNull(targetSession?.compactedUntilMessageId)
+            val storedMessages = messageRepository.getMessages(targetSessionId)
+            assertEquals(2, storedMessages.size)
+            assertEquals(ai.androidclaw.data.model.MessageRole.User, storedMessages[0].role)
+            assertEquals("Restored user body", storedMessages[0].content)
+            assertEquals("tool-call-source", storedMessages[0].toolCallId)
+            assertNull(storedMessages[0].providerMeta)
+            assertEquals(ai.androidclaw.data.model.MessageRole.Assistant, storedMessages[1].role)
+            assertEquals("Restored assistant body", storedMessages[1].content)
+            assertEquals("task-run-source", storedMessages[1].taskRunId)
+            val importedMessages = result.payload.getValue("importedMessages").jsonArray
+            assertEquals(
+                storedMessages.map { message -> message.id },
+                importedMessages.map { message ->
+                    message.jsonObject
+                        .getValue("newMessageId")
+                        .jsonPrimitive
+                        .content
+                },
+            )
+        }
+
+    @Test
     fun `messages doctor reports transcript diagnostics without message bodies`() =
         runTest {
             val session = sessionRepository.createSession("Doctor transcript")

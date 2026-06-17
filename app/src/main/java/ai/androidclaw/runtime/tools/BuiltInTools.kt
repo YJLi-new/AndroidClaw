@@ -47,6 +47,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -4149,6 +4150,232 @@ internal fun createBuiltInToolRegistry(
                                             },
                                         )
                                         put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "messages.import",
+                                    aliases =
+                                        listOf(
+                                            "message.import",
+                                            "transcript.import",
+                                            "chat.import",
+                                            "session.messages.import",
+                                        ),
+                                    description = "Import a bounded transcript export into a new or existing session.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "messages",
+                                                description = "Array of exported message objects, or pass export.messages.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "export",
+                                                description = "Optional messages.export payload containing a messages array and summary metadata.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "targetSessionId",
+                                                description = "Existing session id to append to. Defaults to creating a new normal session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Alias for targetSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "title",
+                                                description = "Title for the new session when targetSessionId is omitted.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum messages to scan. Defaults to 50, max 100.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeBodies",
+                                                description = "Set false to omit message bodies from the result payload. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "importSummary",
+                                                description = "Set false to skip importing export summary text. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "replaceSummary",
+                                                description = "Set true to replace an existing target summary when importing summary text. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "dryRun",
+                                                description = "Set true to preview importable messages without writing. Defaults to false.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "confirm",
+                                                description = "Must be CONFIRM unless dryRun=true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val dryRun = arguments.optionalBoolean("dryRun", defaultValue = false)
+                            if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+                                return@Entry missingMessageImportConfirmationResult()
+                            }
+                            val rawEntries =
+                                when (val parsedEntries = arguments.messageImportEntries()) {
+                                    is MessageImportEntriesParseResult.Failure -> return@Entry parsedEntries.result
+                                    is MessageImportEntriesParseResult.Success -> parsedEntries.entries
+                                }
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = MESSAGE_IMPORT_DEFAULT_LIMIT,
+                                    ).coerceIn(0, MESSAGE_IMPORT_MAX_LIMIT)
+                            val scannedEntries = rawEntries.take(limit)
+                            val candidates = mutableListOf<MessageImportCandidate>()
+                            val skipped = mutableListOf<MessageImportSkippedEntry>()
+                            scannedEntries.forEachIndexed { sourceIndex, element ->
+                                when (val parsedCandidate = element.toMessageImportCandidate(sourceIndex = sourceIndex)) {
+                                    is MessageImportCandidateParseResult.Candidate -> candidates += parsedCandidate.candidate
+                                    is MessageImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+                                }
+                            }
+                            val targetSessionId = arguments.optionalText("targetSessionId") ?: arguments.optionalText("sessionId")
+                            val existingTargetSession =
+                                targetSessionId?.let { requestedSessionId ->
+                                    sessionRepository.getSession(requestedSessionId)
+                                        ?: return@Entry ToolExecutionResult.failure(
+                                            summary = "Session $requestedSessionId was not found.",
+                                            errorCode = "MISSING_SESSION",
+                                            payload =
+                                                buildJsonObject {
+                                                    put("errorCode", "MISSING_SESSION")
+                                                    put("sessionId", requestedSessionId)
+                                                },
+                                        )
+                                }
+                            val importSource = arguments.messageImportSourceObject()
+                            val importTitle =
+                                arguments.optionalText("title")
+                                    ?: importSource?.optionalText("sessionTitle")?.let { sourceTitle -> "$sourceTitle import" }
+                                    ?: "Imported transcript"
+                            val targetSessionBeforeCount = existingTargetSession?.let { session -> messageRepository.getMessageCount(session.id) } ?: 0
+                            val includeBodies = arguments.optionalBoolean("includeBodies", defaultValue = true)
+                            val importSummary = arguments.optionalBoolean("importSummary", defaultValue = true)
+                            val replaceSummary = arguments.optionalBoolean("replaceSummary", defaultValue = false)
+                            val sourceSummary = importSource?.optionalRawText("summaryText")
+                            val targetSession =
+                                if (dryRun) {
+                                    existingTargetSession
+                                } else {
+                                    existingTargetSession ?: sessionRepository.createSession(importTitle)
+                                }
+                            val importedMessages =
+                                if (dryRun || targetSession == null) {
+                                    emptyList()
+                                } else {
+                                    candidates.map { candidate ->
+                                        MessageImportedItem(
+                                            candidate = candidate,
+                                            message =
+                                                messageRepository.addMessage(
+                                                    sessionId = targetSession.id,
+                                                    role = candidate.role,
+                                                    content = candidate.content,
+                                                    toolCallId = candidate.toolCallId,
+                                                    taskRunId = candidate.taskRunId,
+                                                ),
+                                        )
+                                    }
+                                }
+                            val targetSessionCreated = !dryRun && existingTargetSession == null && targetSession != null
+                            val targetSummaryBefore = existingTargetSession?.summaryText
+                            val summaryImportable = importSummary && !sourceSummary.isNullOrBlank()
+                            val summaryImported =
+                                if (!dryRun && targetSession != null && summaryImportable) {
+                                    val canWriteSummary = targetSessionCreated || replaceSummary || targetSession.summaryText.isNullOrBlank()
+                                    if (canWriteSummary) {
+                                        sessionRepository.updateSummaryState(
+                                            id = targetSession.id,
+                                            summaryText = sourceSummary,
+                                            compactedUntilMessageId = null,
+                                        )
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            val targetSessionAfterCount = targetSession?.let { session -> messageRepository.getMessageCount(session.id) } ?: targetSessionBeforeCount
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (dryRun) {
+                                        "Prepared dry-run transcript import with ${candidates.size} importable message(s)."
+                                    } else {
+                                        "Imported ${importedMessages.size} message(s) into \"${targetSession?.title ?: importTitle}\"; skipped ${skipped.size}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("importFormat", MESSAGE_IMPORT_FORMAT)
+                                        put("importVersion", MESSAGE_IMPORT_VERSION)
+                                        put("acceptedExportFormat", MESSAGE_EXPORT_FORMAT)
+                                        put("acceptedExportVersion", MESSAGE_EXPORT_VERSION)
+                                        put("messageLimit", limit)
+                                        put("importLimit", limit)
+                                        put("dryRun", dryRun)
+                                        put("targetSessionId", targetSession?.id?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("targetSessionTitle", targetSession?.title ?: importTitle)
+                                        put("targetSessionCreated", targetSessionCreated)
+                                        put("targetSessionArchived", targetSession?.archived ?: existingTargetSession?.archived ?: false)
+                                        put("targetMessageCountBefore", targetSessionBeforeCount)
+                                        put("targetMessageCountAfter", targetSessionAfterCount)
+                                        put("newMessageCountDelta", targetSessionAfterCount - targetSessionBeforeCount)
+                                        put("receivedMessageCount", rawEntries.size)
+                                        put("scannedMessageCount", scannedEntries.size)
+                                        put("omittedInputMessageCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                                        put("importableMessageCount", candidates.size)
+                                        put("importedMessageCount", importedMessages.size)
+                                        put("skippedMessageCount", skipped.size)
+                                        put("invalidMessageCount", skipped.count { entry -> entry.code.startsWith("messages.import.invalid") })
+                                        put("messageBodiesIncluded", includeBodies)
+                                        put("fullMessageBodiesIncluded", includeBodies)
+                                        put("providerMetaImported", false)
+                                        put("providerMetaIncluded", false)
+                                        put("sourceCreatedAtPreserved", false)
+                                        put("sourceMessageIdsPreserved", false)
+                                        put("importSummary", importSummary)
+                                        put("replaceSummary", replaceSummary)
+                                        put("summaryImportable", summaryImportable)
+                                        put("summaryImported", summaryImported)
+                                        put("summaryTextIncluded", false)
+                                        put("summaryLength", sourceSummary?.length ?: 0)
+                                        put("targetHadSummaryBefore", !targetSummaryBefore.isNullOrBlank())
+                                        put("compactionBoundaryImported", false)
+                                        put(
+                                            "candidateMessages",
+                                            buildJsonArray {
+                                                candidates.forEach { candidate ->
+                                                    add(candidate.toMessageImportCandidatePayload(includeBody = includeBodies))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "importedMessages",
+                                            buildJsonArray {
+                                                importedMessages.forEach { importedItem ->
+                                                    add(importedItem.toMessageImportedPayload(includeBody = includeBodies))
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "skippedMessages",
+                                            buildJsonArray {
+                                                skipped.forEach { skippedEntry ->
+                                                    add(skippedEntry.toMessageImportSkippedPayload())
+                                                }
+                                            },
+                                        )
                                     },
                             )
                         },
@@ -10867,6 +11094,10 @@ private const val MESSAGE_EXPORT_DEFAULT_LIMIT = 50
 private const val MESSAGE_EXPORT_MAX_LIMIT = 100
 private const val MESSAGE_HANDOFF_DEFAULT_LIMIT = 12
 private const val MESSAGE_HANDOFF_MAX_LIMIT = 50
+private const val MESSAGE_IMPORT_FORMAT = "androidclaw.messages.import.v1"
+private const val MESSAGE_IMPORT_VERSION = 1
+private const val MESSAGE_IMPORT_DEFAULT_LIMIT = 50
+private const val MESSAGE_IMPORT_MAX_LIMIT = 100
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
@@ -11033,6 +11264,47 @@ private data class MessageDoctorIssue(
     val action: String,
     val detail: String? = null,
 )
+
+private data class MessageImportCandidate(
+    val sourceIndex: Int,
+    val role: MessageRole,
+    val content: String,
+    val sourceMessageId: String?,
+    val sourceCreatedAtIso: String?,
+    val toolCallId: String?,
+    val taskRunId: String?,
+)
+
+private data class MessageImportedItem(
+    val candidate: MessageImportCandidate,
+    val message: ChatMessage,
+)
+
+private data class MessageImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private sealed interface MessageImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : MessageImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : MessageImportEntriesParseResult
+}
+
+private sealed interface MessageImportCandidateParseResult {
+    data class Candidate(
+        val candidate: MessageImportCandidate,
+    ) : MessageImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: MessageImportSkippedEntry,
+    ) : MessageImportCandidateParseResult
+}
 
 private data class ToolDoctorIssue(
     val id: String,
@@ -14138,6 +14410,151 @@ private fun ChatMessage.toMessageExportPayload(includeBody: Boolean): JsonObject
         put("hasProviderMeta", providerMeta != null)
         put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
         put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun JsonObject.messageImportSourceObject(): JsonObject? =
+    (this["export"] as? JsonObject)
+        ?: (this["payload"] as? JsonObject)
+        ?: this
+
+private fun JsonObject.messageImportEntries(): MessageImportEntriesParseResult {
+    val directEntries = this["messages"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("messages")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("messages")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return MessageImportEntriesParseResult.Failure(
+            missingMessageImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(MessageImportEntriesParseResult::Success)
+        ?: MessageImportEntriesParseResult.Failure(invalidMessageImportEntriesResult())
+}
+
+private fun JsonElement.toMessageImportCandidate(sourceIndex: Int): MessageImportCandidateParseResult {
+    val objectValue =
+        this as? JsonObject ?: return messageImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "messages.import.invalid_entry",
+            summary = "Import entry must be a message object.",
+        )
+    val role =
+        objectValue.optionalMessageRole("role")
+            ?: return messageImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "messages.import.invalid_role",
+                summary = "Import entry skipped because role is missing or unsupported.",
+            )
+    val content =
+        objectValue.optionalRawText("content")
+            ?: objectValue.optionalRawText("text")
+            ?: return messageImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "messages.import.invalid_missing_content",
+                summary = "Import entry skipped because content is missing or blank.",
+            )
+    return MessageImportCandidateParseResult.Candidate(
+        MessageImportCandidate(
+            sourceIndex = sourceIndex,
+            role = role,
+            content = content.take(MESSAGE_CONTENT_MAX_CHARS),
+            sourceMessageId =
+                objectValue.optionalMessageReferenceId("sourceMessageId")
+                    ?: objectValue.optionalMessageReferenceId("messageId"),
+            sourceCreatedAtIso =
+                objectValue.optionalText("createdAtIso")
+                    ?: objectValue.optionalText("createdAt"),
+            toolCallId = objectValue.optionalMessageReferenceId("toolCallId"),
+            taskRunId = objectValue.optionalMessageReferenceId("taskRunId"),
+        ),
+    )
+}
+
+private fun messageImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): MessageImportCandidateParseResult.Skipped =
+    MessageImportCandidateParseResult.Skipped(
+        MessageImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun missingMessageImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import messages, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_MESSAGE_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MESSAGE_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingMessageImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide a messages array or an export object containing messages to import.",
+        errorCode = "MISSING_MESSAGE_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_MESSAGE_IMPORT_ENTRIES")
+                put("field", "messages")
+            },
+    )
+
+private fun invalidMessageImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Message import entries must be an array.",
+        errorCode = "INVALID_MESSAGE_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_MESSAGE_IMPORT_ENTRIES")
+                put("field", "messages")
+            },
+    )
+
+private fun MessageImportCandidate.toMessageImportCandidatePayload(includeBody: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceMessageId", sourceMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("role", role.name)
+        put("sourceCreatedAtIso", sourceCreatedAtIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("content", if (includeBody) JsonPrimitive(content) else JsonNull)
+        put("contentLength", content.length)
+        put("messageBodyIncluded", includeBody)
+        put("fullMessageBodyIncluded", includeBody)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+        put("toolCallId", toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun MessageImportedItem.toMessageImportedPayload(includeBody: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", candidate.sourceIndex)
+        put("sourceMessageId", candidate.sourceMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("newMessageId", message.id)
+        put("sessionId", message.sessionId)
+        put("role", message.role.name)
+        put("sourceCreatedAtIso", candidate.sourceCreatedAtIso?.let(::JsonPrimitive) ?: JsonNull)
+        put("createdAtIso", message.createdAt.toString())
+        put("content", if (includeBody) JsonPrimitive(message.content) else JsonNull)
+        put("contentLength", message.content.length)
+        put("messageBodyIncluded", includeBody)
+        put("fullMessageBodyIncluded", includeBody)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+        put("hasProviderMeta", message.providerMeta != null)
+        put("toolCallId", message.toolCallId?.let(::JsonPrimitive) ?: JsonNull)
+        put("taskRunId", message.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun MessageImportSkippedEntry.toMessageImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
     }
 
 private fun Session.toMessageExportMarkdown(
