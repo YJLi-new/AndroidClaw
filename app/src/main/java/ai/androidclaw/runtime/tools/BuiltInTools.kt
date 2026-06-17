@@ -1924,6 +1924,93 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.setup.matrix",
+                                    aliases =
+                                        listOf(
+                                            "skill.setup.matrix",
+                                            "skills.setup.all",
+                                            "skill.setup.all",
+                                            "skills.readiness",
+                                            "skills.onboarding",
+                                        ),
+                                    description = "Return a bounded read-only setup readiness matrix for skills.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "includeDisabled",
+                                                description = "Set false to omit disabled skills. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeRequirements",
+                                                description = "Set false to omit per-skill requirement details. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit matrixMarkdown. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum skill count to include. Defaults to 20.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val skills = bundledSkillsProvider()
+                            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+                            val includeRequirements = arguments.optionalBoolean("includeRequirements", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_SETUP_MATRIX_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_SETUP_MATRIX_MAX_LIMIT)
+                            val candidates =
+                                skills
+                                    .filter { skill -> includeDisabled || skill.enabled }
+                            val includedSkills = candidates.take(limit)
+                            val entries =
+                                includedSkills.map { skill ->
+                                    val configuration = skillConfigurationReader(skill)
+                                    SkillSetupReadinessEntry(
+                                        skill = skill,
+                                        configuration = configuration,
+                                        requirements = skill.toSkillSetupRequirements(configuration = configuration),
+                                    )
+                                }
+                            val matrixMarkdown =
+                                if (includeMarkdown) {
+                                    entries.toSkillSetupMatrixMarkdown(
+                                        skillCount = skills.size,
+                                        candidateSkillCount = candidates.size,
+                                        limit = limit,
+                                        includeDisabled = includeDisabled,
+                                        includeRequirements = includeRequirements,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    "Prepared setup readiness matrix for ${entries.size} skill(s); " +
+                                        "${entries.count { entry -> entry.readyForUse }} ready.",
+                                payload =
+                                    entries.toSkillSetupMatrixPayload(
+                                        skillCount = skills.size,
+                                        candidateSkillCount = candidates.size,
+                                        limit = limit,
+                                        includeDisabled = includeDisabled,
+                                        includeRequirements = includeRequirements,
+                                        includeMarkdown = includeMarkdown,
+                                        matrixMarkdown = matrixMarkdown,
+                                    ),
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.refresh",
                                     aliases = listOf("skill.refresh", "skills.rescan", "skill.rescan"),
                                     description = "Force reload bundled, local, and workspace skill inventory.",
@@ -14307,6 +14394,8 @@ private const val SKILL_HANDOFF_MAX_LIMIT = 20
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
 private const val SKILL_SEARCH_MAX_LIMIT = 50
 private const val SKILL_SEARCH_SNIPPET_MAX_CHARS = 500
+private const val SKILL_SETUP_MATRIX_DEFAULT_LIMIT = 20
+private const val SKILL_SETUP_MATRIX_MAX_LIMIT = 50
 private const val TASK_AGENDA_DEFAULT_LIMIT = 10
 private const val TASK_AGENDA_MAX_LIMIT = 50
 private const val TASK_DUE_DEFAULT_LIMIT = 20
@@ -19670,6 +19759,18 @@ private data class SkillSetupRequirement(
     val suggestedTool: String,
 )
 
+private data class SkillSetupReadinessEntry(
+    val skill: SkillSnapshot,
+    val configuration: SkillConfigurationSnapshot,
+    val requirements: List<SkillSetupRequirement>,
+) {
+    val setupStatus: String
+        get() = requirements.toSkillSetupStatus()
+
+    val readyForUse: Boolean
+        get() = requirements.isEmpty()
+}
+
 private fun SkillSnapshot.toSkillSetupPayload(
     configuration: SkillConfigurationSnapshot,
     requirements: List<SkillSetupRequirement>,
@@ -19772,6 +19873,205 @@ private fun SkillSnapshot.toSkillSetupPayload(
             },
         )
         put("setupMarkdown", setupMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<SkillSetupReadinessEntry>.toSkillSetupMatrixPayload(
+    skillCount: Int,
+    candidateSkillCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+    includeRequirements: Boolean,
+    includeMarkdown: Boolean,
+    matrixMarkdown: String?,
+): JsonObject {
+    val statuses = map { entry -> entry.setupStatus }
+    val omittedSkillCount = (candidateSkillCount - size).coerceAtLeast(0)
+    return buildJsonObject {
+        put("skillCount", skillCount)
+        put("candidateSkillCount", candidateSkillCount)
+        put("includedSkillCount", size)
+        put("omittedSkillCount", omittedSkillCount)
+        put("disabledSkillOmittedCount", if (includeDisabled) 0 else skillCount - candidateSkillCount)
+        put("limit", limit)
+        put("includeDisabled", includeDisabled)
+        put("includeRequirements", includeRequirements)
+        put("includeMarkdown", includeMarkdown)
+        put("readySkillCount", count { entry -> entry.readyForUse })
+        put("needsSetupSkillCount", count { entry -> !entry.readyForUse })
+        put("disabledStatusSkillCount", statuses.count { status -> status == "DISABLED" })
+        put("notEligibleSkillCount", statuses.count { status -> status == "NOT_ELIGIBLE" })
+        put("needsConfigSkillCount", statuses.count { status -> status == "NEEDS_CONFIG" })
+        put("needsSecretsSkillCount", statuses.count { status -> status == "NEEDS_SECRETS" })
+        put(
+            "needsConfigAndSecretsSkillCount",
+            statuses.count { status -> status == "NEEDS_CONFIG_AND_SECRETS" },
+        )
+        put("readOnly", true)
+        put("executesSetup", false)
+        put("mutatesSkill", false)
+        put("writesConfig", false)
+        put("writesSecret", false)
+        put("instructionsIncluded", false)
+        put("instructionsOmitted", true)
+        put("secretValuesIncluded", false)
+        put("secretValuesOmitted", true)
+        put("configValuesIncluded", false)
+        put("configValuesOmitted", true)
+        put("baseDirIncluded", false)
+        put("rawFrontmatterIncluded", false)
+        put(
+            "setupStatusStats",
+            buildJsonArray {
+                statuses
+                    .groupingBy { status -> status }
+                    .eachCount()
+                    .toList()
+                    .sortedBy { (status, _) -> status }
+                    .forEach { (status, count) ->
+                        add(namedCountPayload(nameField = "setupStatus", name = status, countField = "skillCount", count = count))
+                    }
+            },
+        )
+        put(
+            "readySkillIds",
+            buildJsonArray {
+                this@toSkillSetupMatrixPayload
+                    .filter { entry -> entry.readyForUse }
+                    .forEach { entry -> add(JsonPrimitive(entry.skill.id)) }
+            },
+        )
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                this@toSkillSetupMatrixPayload
+                    .flatMap { entry -> entry.skill.toSkillSetupSuggestedTools(entry.requirements) }
+                    .distinct()
+                    .forEach { toolName -> add(JsonPrimitive(toolName)) }
+            },
+        )
+        put(
+            "skills",
+            buildJsonArray {
+                this@toSkillSetupMatrixPayload.forEach { entry ->
+                    add(entry.toSkillSetupMatrixSkillPayload(includeRequirements = includeRequirements))
+                }
+            },
+        )
+        put("matrixMarkdown", matrixMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun SkillSetupReadinessEntry.toSkillSetupMatrixSkillPayload(includeRequirements: Boolean): JsonObject =
+    buildJsonObject {
+        put("skillId", skill.id)
+        put("skillKey", skill.skillKey)
+        put("name", skill.displayName)
+        put("enabled", skill.enabled)
+        put("sourceType", skill.sourceType.name)
+        put("workspaceSessionId", skill.workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("resolutionState", skill.resolutionState.name)
+        put("shadowedBy", skill.shadowedBy?.let(::JsonPrimitive) ?: JsonNull)
+        put("eligibilityStatus", skill.eligibility.status.name)
+        put("hasFrontmatter", skill.frontmatter != null)
+        put("parseErrorPresent", skill.parseError != null)
+        put(
+            "commandDispatch",
+            skill.frontmatter
+                ?.commandDispatch
+                ?.name
+                ?.let(::JsonPrimitive) ?: JsonNull,
+        )
+        put("commandTool", skill.frontmatter?.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("modelReady", skill.isSkillCommandModelReady())
+        put("invocable", skill.isSkillCommandInvocable())
+        put("readyForUse", readyForUse)
+        put("setupStatus", setupStatus)
+        put("setupStepCount", requirements.size)
+        put("secretFieldCount", configuration.secretFields.size)
+        put("configuredSecretFieldCount", configuration.secretFields.count { field -> field.configured })
+        put("missingSecretFieldCount", configuration.secretFields.count { field -> !field.configured })
+        put("configFieldCount", configuration.configFields.size)
+        put("configuredConfigFieldCount", configuration.configFields.count { field -> field.value != null })
+        put("missingConfigFieldCount", configuration.configFields.count { field -> field.value == null })
+        put("recoveryMessagePresent", configuration.recoveryMessage != null)
+        put("instructionsIncluded", false)
+        put("instructionsOmitted", true)
+        put("secretValuesIncluded", false)
+        put("configValuesIncluded", false)
+        put("baseDirIncluded", false)
+        put("rawFrontmatterIncluded", false)
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                skill
+                    .toSkillSetupSuggestedTools(requirements)
+                    .forEach { toolName -> add(JsonPrimitive(toolName)) }
+            },
+        )
+        put(
+            "requirements",
+            if (includeRequirements) {
+                buildJsonArray {
+                    requirements.forEach { requirement ->
+                        add(requirement.toSkillSetupRequirementPayload())
+                    }
+                }
+            } else {
+                JsonNull
+            },
+        )
+    }
+
+private fun List<SkillSetupReadinessEntry>.toSkillSetupMatrixMarkdown(
+    skillCount: Int,
+    candidateSkillCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+    includeRequirements: Boolean,
+): String =
+    buildString {
+        appendLine("# Skill setup matrix")
+        appendLine()
+        appendLine("- Skills in inventory: $skillCount")
+        appendLine("- Candidate skills after filters: $candidateSkillCount")
+        appendLine("- Skills included: ${this@toSkillSetupMatrixMarkdown.size} of up to $limit")
+        appendLine("- Disabled skills included: $includeDisabled")
+        appendLine("- Requirement details included: $includeRequirements")
+        appendLine("- Ready skills: ${this@toSkillSetupMatrixMarkdown.count { entry -> entry.readyForUse }}")
+        appendLine("- Instructions included: false")
+        appendLine("- Secret values included: false")
+        appendLine("- Config values included: false")
+        appendLine("- Base directories included: false")
+        appendLine("- Read-only: true")
+        appendLine("- Executes setup: false")
+        appendLine()
+        appendLine("## Skills")
+        if (this@toSkillSetupMatrixMarkdown.isEmpty()) {
+            appendLine("_No skills included._")
+        } else {
+            this@toSkillSetupMatrixMarkdown.forEach { entry ->
+                append("- `")
+                append(entry.skill.id.toHandoffLine())
+                append("` name=`")
+                append(entry.skill.displayName.toHandoffLine())
+                append("` enabled=")
+                append(entry.skill.enabled)
+                append(" status=")
+                append(entry.setupStatus)
+                append(" requirements=")
+                append(entry.requirements.size)
+                appendLine()
+                if (includeRequirements) {
+                    entry.requirements.forEach { requirement ->
+                        append("  - ")
+                        append(requirement.code)
+                        append(": ")
+                        append(requirement.summary.toHandoffLine())
+                        appendLine()
+                    }
+                }
+            }
+        }
     }
 
 private fun List<SkillSetupRequirement>.toSkillSetupStatus(): String =

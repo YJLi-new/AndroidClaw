@@ -11270,6 +11270,277 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills setup matrix summarizes readiness without secrets instructions or config values`() =
+        runTest {
+            val hiddenInstructions = "HIDDEN MATRIX INSTRUCTIONS SHOULD STAY OUT"
+            val hiddenConfigValue = "https://matrix-private.example"
+            val readySkill =
+                skillSnapshot(
+                    id = "matrix-ready",
+                    name = "matrix-ready",
+                ).copy(
+                    instructionsMd = hiddenInstructions,
+                    secretStatuses = mapOf("API_TOKEN" to true),
+                    configStatuses = mapOf("endpoint" to true),
+                )
+            val disabledSkill =
+                skillSnapshot(
+                    id = "matrix-disabled",
+                    name = "matrix-disabled",
+                    enabled = false,
+                )
+            val missingToolSkill =
+                skillSnapshot(
+                    id = "matrix-missing-tool",
+                    name = "matrix-missing-tool",
+                    commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                    commandTool = "missing.tool",
+                    eligibility =
+                        ai.androidclaw.runtime.skills.SkillEligibility(
+                            ai.androidclaw.runtime.skills.SkillEligibilityStatus.MissingTool,
+                            reasons = listOf("Tool missing.tool is unavailable."),
+                        ),
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(readySkill, disabledSkill, missingToolSkill),
+                    skillConfigurationReader = { skill ->
+                        when (skill.id) {
+                            "matrix-ready" ->
+                                ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                                    skillId = skill.id,
+                                    skillKey = skill.skillKey,
+                                    displayName = skill.displayName,
+                                    secretFields =
+                                        listOf(
+                                            ai.androidclaw.runtime.skills.SkillSecretField(
+                                                envName = "API_TOKEN",
+                                                configured = true,
+                                            ),
+                                        ),
+                                    configFields =
+                                        listOf(
+                                            ai.androidclaw.runtime.skills.SkillConfigField(
+                                                path = "endpoint",
+                                                value = hiddenConfigValue,
+                                            ),
+                                        ),
+                                )
+                            "matrix-disabled" ->
+                                ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                                    skillId = skill.id,
+                                    skillKey = skill.skillKey,
+                                    displayName = skill.displayName,
+                                    secretFields =
+                                        listOf(
+                                            ai.androidclaw.runtime.skills.SkillSecretField(
+                                                envName = "API_TOKEN",
+                                                configured = false,
+                                            ),
+                                        ),
+                                    configFields =
+                                        listOf(
+                                            ai.androidclaw.runtime.skills.SkillConfigField(
+                                                path = "endpoint",
+                                                value = null,
+                                            ),
+                                        ),
+                                )
+                            else ->
+                                ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                                    skillId = skill.id,
+                                    skillKey = skill.skillKey,
+                                    displayName = skill.displayName,
+                                )
+                        }
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.readiness"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeRequirements", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains(hiddenInstructions))
+            assertFalse(payloadText.contains(hiddenConfigValue))
+            assertEquals("3", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["candidateSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["includedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["omittedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["readySkillCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["needsSetupSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["disabledStatusSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["notEligibleSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeRequirements"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["readOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["executesSetup"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["mutatesSkill"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesConfig"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesSecret"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["instructionsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["instructionsOmitted"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["configValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("matrixMarkdown"))
+            val readySkillIds =
+                result.payload
+                    .getValue("readySkillIds")
+                    .jsonArray
+                    .map { skill -> skill.jsonPrimitive.content }
+            assertTrue(readySkillIds.contains("matrix-ready"))
+            val skills = result.payload.getValue("skills").jsonArray
+            val readyPayload =
+                skills
+                    .first { skill ->
+                        skill.jsonObject
+                            .getValue("skillId")
+                            .jsonPrimitive
+                            .content == "matrix-ready"
+                    }.jsonObject
+            assertEquals("READY", readyPayload.getValue("setupStatus").jsonPrimitive.content)
+            assertEquals("true", readyPayload.getValue("readyForUse").jsonPrimitive.content)
+            assertEquals(JsonNull, readyPayload.getValue("requirements"))
+            val disabledPayload =
+                skills
+                    .first { skill ->
+                        skill.jsonObject
+                            .getValue("skillId")
+                            .jsonPrimitive
+                            .content == "matrix-disabled"
+                    }.jsonObject
+            assertEquals("DISABLED", disabledPayload.getValue("setupStatus").jsonPrimitive.content)
+            assertEquals("false", disabledPayload.getValue("readyForUse").jsonPrimitive.content)
+            val missingToolPayload =
+                skills
+                    .first { skill ->
+                        skill.jsonObject
+                            .getValue("skillId")
+                            .jsonPrimitive
+                            .content == "matrix-missing-tool"
+                    }.jsonObject
+            assertEquals("NOT_ELIGIBLE", missingToolPayload.getValue("setupStatus").jsonPrimitive.content)
+            val suggestedTools =
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content }
+            assertTrue(suggestedTools.contains("skills.config.get"))
+            assertTrue(suggestedTools.contains("skills.enable"))
+            assertTrue(suggestedTools.contains("tools.resolve"))
+            assertTrue(suggestedTools.contains("skills.get"))
+        }
+
+    @Test
+    fun `skills setup matrix can include requirement details and omit disabled skills`() =
+        runTest {
+            val readySkill = skillSnapshot(id = "matrix-detail-ready", name = "matrix-detail-ready")
+            val disabledSkill =
+                skillSnapshot(
+                    id = "matrix-detail-disabled",
+                    name = "matrix-detail-disabled",
+                    enabled = false,
+                )
+            val configSkill =
+                skillSnapshot(
+                    id = "matrix-detail-config",
+                    name = "matrix-detail-config",
+                )
+            val inspectedSkillIds = mutableListOf<String>()
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(readySkill, disabledSkill, configSkill),
+                    skillConfigurationReader = { skill ->
+                        inspectedSkillIds += skill.id
+                        when (skill.id) {
+                            "matrix-detail-config" ->
+                                ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                                    skillId = skill.id,
+                                    skillKey = skill.skillKey,
+                                    displayName = skill.displayName,
+                                    configFields =
+                                        listOf(
+                                            ai.androidclaw.runtime.skills.SkillConfigField(
+                                                path = "endpoint",
+                                                value = null,
+                                            ),
+                                        ),
+                                )
+                            else ->
+                                ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                                    skillId = skill.id,
+                                    skillKey = skill.skillKey,
+                                    displayName = skill.displayName,
+                                )
+                        }
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.setup.all"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(listOf("matrix-detail-ready", "matrix-detail-config"), inspectedSkillIds)
+            assertEquals("3", result.payload["skillCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["candidateSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["includedSkillCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["disabledSkillOmittedCount"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeRequirements"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            val skills = result.payload.getValue("skills").jsonArray
+            assertEquals(2, skills.size)
+            assertTrue(
+                skills.all { skill ->
+                    skill.jsonObject
+                        .getValue("enabled")
+                        .jsonPrimitive
+                        .content == "true"
+                },
+            )
+            val configPayload =
+                skills
+                    .first { skill ->
+                        skill.jsonObject
+                            .getValue("skillId")
+                            .jsonPrimitive
+                            .content == "matrix-detail-config"
+                    }.jsonObject
+            assertEquals("NEEDS_CONFIG", configPayload.getValue("setupStatus").jsonPrimitive.content)
+            val requirementCodes =
+                configPayload
+                    .getValue("requirements")
+                    .jsonArray
+                    .map { requirement ->
+                        requirement.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertTrue(requirementCodes.contains("skill.config.missing"))
+            val markdown =
+                result.payload
+                    .getValue("matrixMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skill setup matrix"))
+            assertTrue(markdown.contains("matrix-detail-config"))
+            assertTrue(markdown.contains("skill.config.missing"))
+        }
+
+    @Test
     fun `skills config update sets and clears non secret config values`() =
         runTest {
             val configSkill =
