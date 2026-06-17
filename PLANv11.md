@@ -71,6 +71,18 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.setup` /
+  `skill.setup` / `skills.quickstart` / `skill.quickstart` plus readiness
+  aliases as a Skill Contract setup-guide feature. Agents can now inspect one
+  skill's enablement, resolution, eligibility, command dispatch, declared
+  secret/config readiness, recovery notices, and missing setup requirements
+  without returning SKILL.md instructions, config values, secret values, base
+  directories, or raw frontmatter; the payload includes READY / DISABLED /
+  NOT_ELIGIBLE / NEEDS_CONFIG / NEEDS_SECRETS /
+  NEEDS_CONFIG_AND_SECRETS status, suggested follow-up tools, optional
+  markdown, and explicit read-only / executes-setup=false / writes-config=false
+  / writes-secret=false flags. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 - 2026-06-17: Added `providers.setup.matrix` /
   `provider.setup.matrix` / `providers.setup.all` / `provider.setup.all` plus
   readiness/onboarding aliases as a Provider/OAuth readiness-inventory

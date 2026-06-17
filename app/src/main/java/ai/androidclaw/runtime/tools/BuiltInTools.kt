@@ -1852,6 +1852,78 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.setup",
+                                    aliases =
+                                        listOf(
+                                            "skill.setup",
+                                            "skills.quickstart",
+                                            "skill.quickstart",
+                                            "skills.ready",
+                                            "skill.ready",
+                                        ),
+                                    description = "Return a read-only skill setup guide for enablement, eligibility, config, and secrets.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "skillId",
+                                                required = false,
+                                                description = "Skill id, key, or display name.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit setupMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val identifier =
+                                arguments.skillIdentifier()
+                                    ?: return@Entry invalidSkillArguments(
+                                        toolName = "skills.setup",
+                                        summary = "skills.setup requires a non-empty skillId.",
+                                    )
+                            val skills = bundledSkillsProvider()
+                            val skill =
+                                skills.findByIdentifier(identifier)
+                                    ?: return@Entry skillNotFoundResult(toolName = "skills.setup", skillId = identifier)
+                            val configuration = skillConfigurationReader(skill)
+                            val requirements =
+                                skill.toSkillSetupRequirements(
+                                    configuration = configuration,
+                                )
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val setupMarkdown =
+                                if (includeMarkdown) {
+                                    skill.toSkillSetupMarkdown(
+                                        configuration = configuration,
+                                        requirements = requirements,
+                                        requestedSkillId = identifier,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    if (requirements.isEmpty()) {
+                                        "Skill ${skill.displayName} is ready."
+                                    } else {
+                                        "Skill ${skill.displayName} needs ${requirements.size} setup step(s)."
+                                    },
+                                payload =
+                                    skill.toSkillSetupPayload(
+                                        configuration = configuration,
+                                        requirements = requirements,
+                                        requestedSkillId = identifier,
+                                        includeMarkdown = includeMarkdown,
+                                        setupMarkdown = setupMarkdown,
+                                    ),
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.refresh",
                                     aliases = listOf("skill.refresh", "skills.rescan", "skill.rescan"),
                                     description = "Force reload bundled, local, and workspace skill inventory.",
@@ -19587,6 +19659,322 @@ private fun SkillDoctorIssue.toSkillDoctorMarkdownLine(): String =
         }
         append(" Action: ")
         append(action.toHandoffLine())
+    }
+
+private data class SkillSetupRequirement(
+    val code: String,
+    val severity: String,
+    val field: String?,
+    val summary: String,
+    val action: String,
+    val suggestedTool: String,
+)
+
+private fun SkillSnapshot.toSkillSetupPayload(
+    configuration: SkillConfigurationSnapshot,
+    requirements: List<SkillSetupRequirement>,
+    requestedSkillId: String,
+    includeMarkdown: Boolean,
+    setupMarkdown: String?,
+): JsonObject =
+    buildJsonObject {
+        put("requestedSkillId", requestedSkillId)
+        put("skillId", id)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("enabled", enabled)
+        put("sourceType", sourceType.name)
+        put("workspaceSessionId", workspaceSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("resolutionState", resolutionState.name)
+        put("shadowedBy", shadowedBy?.let(::JsonPrimitive) ?: JsonNull)
+        put("eligibilityStatus", eligibility.status.name)
+        put(
+            "eligibilityReasons",
+            buildJsonArray {
+                eligibility.reasons.forEach { reason -> add(JsonPrimitive(reason)) }
+            },
+        )
+        put("hasFrontmatter", frontmatter != null)
+        put("parseErrorPresent", parseError != null)
+        put("parseError", parseError?.let(::JsonPrimitive) ?: JsonNull)
+        put("userInvocable", frontmatter?.userInvocable?.let(::JsonPrimitive) ?: JsonNull)
+        put("disableModelInvocation", frontmatter?.disableModelInvocation?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandDispatch", frontmatter?.commandDispatch?.name?.let(::JsonPrimitive) ?: JsonNull)
+        put("commandTool", frontmatter?.commandTool?.let(::JsonPrimitive) ?: JsonNull)
+        put("modelReady", isSkillCommandModelReady())
+        put("invocable", isSkillCommandInvocable())
+        put("readyForUse", requirements.isEmpty())
+        put("setupStatus", requirements.toSkillSetupStatus())
+        put("setupStepCount", requirements.size)
+        put("readOnly", true)
+        put("executesSetup", false)
+        put("mutatesSkill", false)
+        put("writesConfig", false)
+        put("writesSecret", false)
+        put("includeMarkdown", includeMarkdown)
+        put("instructionsIncluded", false)
+        put("instructionsOmitted", true)
+        put("secretValuesIncluded", false)
+        put("secretValuesOmitted", true)
+        put("configValuesIncluded", false)
+        put("configValuesOmitted", true)
+        put("baseDirIncluded", false)
+        put("rawFrontmatterIncluded", false)
+        put("secretFieldCount", configuration.secretFields.size)
+        put("configuredSecretFieldCount", configuration.secretFields.count { field -> field.configured })
+        put("missingSecretFieldCount", configuration.secretFields.count { field -> !field.configured })
+        put("configFieldCount", configuration.configFields.size)
+        put("configuredConfigFieldCount", configuration.configFields.count { field -> field.value != null })
+        put("missingConfigFieldCount", configuration.configFields.count { field -> field.value == null })
+        put("recoveryMessage", configuration.recoveryMessage?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "secretFields",
+            buildJsonArray {
+                configuration.secretFields.forEach { field ->
+                    add(
+                        buildJsonObject {
+                            put("envName", field.envName)
+                            put("configured", field.configured)
+                            put("valueIncluded", false)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "configFields",
+            buildJsonArray {
+                configuration.configFields.forEach { field ->
+                    add(
+                        buildJsonObject {
+                            put("path", field.path)
+                            put("configured", field.value != null)
+                            put("valueIncluded", false)
+                        },
+                    )
+                }
+            },
+        )
+        put(
+            "requirements",
+            buildJsonArray {
+                requirements.forEach { requirement ->
+                    add(requirement.toSkillSetupRequirementPayload())
+                }
+            },
+        )
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                toSkillSetupSuggestedTools(requirements).forEach { toolName ->
+                    add(JsonPrimitive(toolName))
+                }
+            },
+        )
+        put("setupMarkdown", setupMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<SkillSetupRequirement>.toSkillSetupStatus(): String =
+    when {
+        isEmpty() -> "READY"
+        any { requirement -> requirement.code == "skill.disabled" } -> "DISABLED"
+        any { requirement -> requirement.code.startsWith("skill.parse.") || requirement.code.startsWith("skill.eligibility.") } -> "NOT_ELIGIBLE"
+        any { requirement -> requirement.code.startsWith("skill.secret.") } &&
+            any { requirement -> requirement.code.startsWith("skill.config.") } -> "NEEDS_CONFIG_AND_SECRETS"
+        any { requirement -> requirement.code.startsWith("skill.secret.") } -> "NEEDS_SECRETS"
+        any { requirement -> requirement.code.startsWith("skill.config.") } -> "NEEDS_CONFIG"
+        else -> "NEEDS_SETUP"
+    }
+
+private fun SkillSetupRequirement.toSkillSetupRequirementPayload(): JsonObject =
+    buildJsonObject {
+        put("code", code)
+        put("severity", severity)
+        put("field", field?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", summary)
+        put("action", action)
+        put("suggestedTool", suggestedTool)
+    }
+
+private fun SkillSnapshot.toSkillSetupSuggestedTools(requirements: List<SkillSetupRequirement>): List<String> =
+    buildList {
+        add("skills.config.get")
+        requirements
+            .map { requirement -> requirement.suggestedTool }
+            .filterTo(this) { toolName -> toolName.isNotBlank() }
+        add("skills.get")
+    }.distinct()
+
+private fun SkillSnapshot.toSkillSetupRequirements(configuration: SkillConfigurationSnapshot): List<SkillSetupRequirement> =
+    buildList {
+        fun addRequirement(
+            code: String,
+            severity: String,
+            field: String?,
+            summary: String,
+            action: String,
+            suggestedTool: String,
+        ) {
+            add(
+                SkillSetupRequirement(
+                    code = code,
+                    severity = severity,
+                    field = field,
+                    summary = summary.toHandoffLine(),
+                    action = action.toHandoffLine(),
+                    suggestedTool = suggestedTool,
+                ),
+            )
+        }
+
+        if (!enabled) {
+            addRequirement(
+                code = "skill.disabled",
+                severity = "Info",
+                field = "enabled",
+                summary = "Skill $displayName is disabled.",
+                action = "Run skills.enable if this skill should be available to the agent.",
+                suggestedTool = "skills.enable",
+            )
+        }
+        if (frontmatter == null) {
+            addRequirement(
+                code = "skill.parse.frontmatter_missing",
+                severity = "Error",
+                field = "frontmatter",
+                summary = "Skill $displayName has no parsed frontmatter.",
+                action = "Inspect or reimport the SKILL.md definition.",
+                suggestedTool = "skills.get",
+            )
+        }
+        parseError?.let {
+            addRequirement(
+                code = "skill.parse.error",
+                severity = "Error",
+                field = "parseError",
+                summary = "Skill $displayName has a parse error.",
+                action = "Inspect the parse error and fix the SKILL.md file.",
+                suggestedTool = "skills.get",
+            )
+        }
+        if (resolutionState != SkillResolutionState.Effective) {
+            addRequirement(
+                code = "skill.resolution.shadowed",
+                severity = "Warning",
+                field = "resolutionState",
+                summary = "Skill $displayName is shadowed by another skill.",
+                action = "Inspect the skill inventory and disable or rename the shadowing skill if needed.",
+                suggestedTool = "skills.list",
+            )
+        }
+        if (eligibility.status != SkillEligibilityStatus.Eligible) {
+            addRequirement(
+                code = "skill.eligibility.${eligibility.status.name.lowercase()}",
+                severity = "Error",
+                field = "eligibilityStatus",
+                summary = "Skill $displayName is not eligible: ${eligibility.status.name}.",
+                action =
+                    if (eligibility.status == SkillEligibilityStatus.MissingTool) {
+                        "Inspect the command tool requirement before enabling this skill."
+                    } else {
+                        "Inspect skill metadata and eligibility reasons before using this skill."
+                    },
+                suggestedTool =
+                    if (eligibility.status == SkillEligibilityStatus.MissingTool) {
+                        "tools.resolve"
+                    } else {
+                        "skills.get"
+                    },
+            )
+        }
+        if (frontmatter?.commandDispatch == SkillCommandDispatch.Tool && frontmatter.commandTool.isNullOrBlank()) {
+            addRequirement(
+                code = "skill.command.tool_missing",
+                severity = "Error",
+                field = "commandTool",
+                summary = "Skill $displayName dispatches to a tool but has no commandTool.",
+                action = "Fix the skill frontmatter or reimport a valid skill definition.",
+                suggestedTool = "skills.get",
+            )
+        }
+        configuration.secretFields
+            .filter { field -> !field.configured }
+            .forEach { field ->
+                addRequirement(
+                    code = "skill.secret.missing",
+                    severity = "Error",
+                    field = field.envName,
+                    summary = "Skill $displayName is missing required secret ${field.envName}.",
+                    action = "Open the skill configuration UI and save the secret value, then rerun skills.config.get.",
+                    suggestedTool = "skills.config.get",
+                )
+            }
+        configuration.configFields
+            .filter { field -> field.value == null }
+            .forEach { field ->
+                addRequirement(
+                    code = "skill.config.missing",
+                    severity = "Error",
+                    field = field.path,
+                    summary = "Skill $displayName is missing config ${field.path}.",
+                    action = "Run skills.config.update with a non-secret value for this config path.",
+                    suggestedTool = "skills.config.update",
+                )
+            }
+        configuration.recoveryMessage?.let {
+            addRequirement(
+                code = "skill.config.recovery_notice",
+                severity = "Warning",
+                field = "recoveryMessage",
+                summary = "Skill $displayName has a configuration recovery notice.",
+                action = "Inspect skill configuration status and re-save any missing values if needed.",
+                suggestedTool = "skills.config.get",
+            )
+        }
+    }
+
+private fun SkillSnapshot.toSkillSetupMarkdown(
+    configuration: SkillConfigurationSnapshot,
+    requirements: List<SkillSetupRequirement>,
+    requestedSkillId: String,
+): String =
+    buildString {
+        appendLine("# Skill setup guide")
+        appendLine()
+        appendLine("- Skill: `$id` (${displayName.toHandoffLine()})")
+        appendLine("- Requested skill: `${requestedSkillId.toHandoffLine()}`")
+        appendLine("- Status: ${requirements.toSkillSetupStatus()}")
+        appendLine("- Ready for use: ${requirements.isEmpty()}")
+        appendLine("- Enabled: $enabled")
+        appendLine("- Eligibility: ${eligibility.status.name}")
+        appendLine("- Resolution: ${resolutionState.name}")
+        appendLine("- Secret fields configured: ${configuration.secretFields.count { field -> field.configured }} / ${configuration.secretFields.size}")
+        appendLine("- Config fields configured: ${configuration.configFields.count { field -> field.value != null }} / ${configuration.configFields.size}")
+        appendLine("- Instructions included: false")
+        appendLine("- Secret values included: false")
+        appendLine("- Config values included: false")
+        appendLine("- Base directory included: false")
+        appendLine("- Read-only: true")
+        appendLine("- Executes setup: false")
+        appendLine()
+        appendLine("## Requirements")
+        if (requirements.isEmpty()) {
+            appendLine("- None")
+        } else {
+            requirements.forEach { requirement ->
+                append("- ")
+                append(requirement.severity)
+                append(" `")
+                append(requirement.code)
+                append("`: ")
+                append(requirement.summary.toHandoffLine())
+                append(" Action: ")
+                append(requirement.action.toHandoffLine())
+                append(" Tool: `")
+                append(requirement.suggestedTool)
+                appendLine("`")
+            }
+        }
     }
 
 private fun SkillSnapshot.toDefaultConfigurationSnapshot(): SkillConfigurationSnapshot =

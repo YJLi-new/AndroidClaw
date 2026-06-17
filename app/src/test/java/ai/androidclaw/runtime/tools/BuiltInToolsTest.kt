@@ -11064,6 +11064,212 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills setup guide reports ready configured skill without secrets or instructions`() =
+        runTest {
+            val hiddenInstructions = "HIDDEN SETUP INSTRUCTIONS SHOULD STAY OUT"
+            val hiddenConfigValue = "https://setup-private.example"
+            val readySkill =
+                skillSnapshot(
+                    id = "setup-ready",
+                    name = "setup-ready",
+                ).copy(
+                    instructionsMd = hiddenInstructions,
+                    secretStatuses = mapOf("API_TOKEN" to true),
+                    configStatuses = mapOf("endpoint" to true),
+                )
+            var inspectedSkillId: String? = null
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(readySkill),
+                    skillConfigurationReader = { skill ->
+                        inspectedSkillId = skill.id
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                            secretFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillSecretField(
+                                        envName = "API_TOKEN",
+                                        configured = true,
+                                    ),
+                                ),
+                            configFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillConfigField(
+                                        path = "endpoint",
+                                        value = hiddenConfigValue,
+                                    ),
+                                ),
+                        )
+                    },
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skill.quickstart"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "setup-ready")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("setup-ready", inspectedSkillId)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains(hiddenInstructions))
+            assertFalse(payloadText.contains(hiddenConfigValue))
+            assertEquals("setup-ready", result.payload["requestedSkillId"]?.jsonPrimitive?.content)
+            assertEquals("setup-ready", result.payload["skillId"]?.jsonPrimitive?.content)
+            assertEquals("READY", result.payload["setupStatus"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["readyForUse"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["setupStepCount"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["modelReady"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["invocable"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["readOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["executesSetup"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["mutatesSkill"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesConfig"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesSecret"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["instructionsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["instructionsOmitted"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["configValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["configuredSecretFieldCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["configuredConfigFieldCount"]?.jsonPrimitive?.content)
+            assertTrue(
+                result.payload
+                    .getValue("requirements")
+                    .jsonArray
+                    .isEmpty(),
+            )
+            val secretField =
+                result.payload
+                    .getValue("secretFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("API_TOKEN", secretField.getValue("envName").jsonPrimitive.content)
+            assertEquals("true", secretField.getValue("configured").jsonPrimitive.content)
+            assertEquals("false", secretField.getValue("valueIncluded").jsonPrimitive.content)
+            assertFalse(secretField.containsKey("value"))
+            val configField =
+                result.payload
+                    .getValue("configFields")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("endpoint", configField.getValue("path").jsonPrimitive.content)
+            assertEquals("true", configField.getValue("configured").jsonPrimitive.content)
+            assertEquals("false", configField.getValue("valueIncluded").jsonPrimitive.content)
+            assertFalse(configField.containsKey("value"))
+            val markdown =
+                result.payload
+                    .getValue("setupMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skill setup guide"))
+            assertTrue(markdown.contains("READY"))
+            assertFalse(markdown.contains(hiddenInstructions))
+            assertFalse(markdown.contains(hiddenConfigValue))
+        }
+
+    @Test
+    fun `skills setup guide reports disabled missing config secret and missing skill safely`() =
+        runTest {
+            val disabledSkill =
+                skillSnapshot(
+                    id = "setup-disabled",
+                    name = "setup-disabled",
+                    enabled = false,
+                ).copy(
+                    secretStatuses = mapOf("API_TOKEN" to false),
+                    configStatuses = mapOf("endpoint" to false),
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(disabledSkill),
+                    skillConfigurationReader = { skill ->
+                        ai.androidclaw.runtime.skills.SkillConfigurationSnapshot(
+                            skillId = skill.id,
+                            skillKey = skill.skillKey,
+                            displayName = skill.displayName,
+                            secretFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillSecretField(
+                                        envName = "API_TOKEN",
+                                        configured = false,
+                                    ),
+                                ),
+                            configFields =
+                                listOf(
+                                    ai.androidclaw.runtime.skills.SkillConfigField(
+                                        path = "endpoint",
+                                        value = null,
+                                    ),
+                                ),
+                        )
+                    },
+                )
+
+            val setup =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.ready"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "setup-disabled")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.setup"),
+                    arguments =
+                        buildJsonObject {
+                            put("skillId", "missing-skill")
+                        },
+                )
+
+            assertTrue(setup.summary, setup.success)
+            assertEquals("setup-disabled", setup.payload["skillId"]?.jsonPrimitive?.content)
+            assertEquals("false", setup.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals("false", setup.payload["readyForUse"]?.jsonPrimitive?.content)
+            assertEquals("DISABLED", setup.payload["setupStatus"]?.jsonPrimitive?.content)
+            assertEquals("3", setup.payload["setupStepCount"]?.jsonPrimitive?.content)
+            assertEquals("1", setup.payload["missingSecretFieldCount"]?.jsonPrimitive?.content)
+            assertEquals("1", setup.payload["missingConfigFieldCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, setup.payload.getValue("setupMarkdown"))
+            val requirementCodes =
+                setup.payload
+                    .getValue("requirements")
+                    .jsonArray
+                    .map { requirement ->
+                        requirement.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertTrue(requirementCodes.contains("skill.disabled"))
+            assertTrue(requirementCodes.contains("skill.secret.missing"))
+            assertTrue(requirementCodes.contains("skill.config.missing"))
+            val suggestedTools =
+                setup.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content }
+            assertTrue(suggestedTools.contains("skills.enable"))
+            assertTrue(suggestedTools.contains("skills.config.get"))
+            assertTrue(suggestedTools.contains("skills.config.update"))
+            assertTrue(suggestedTools.contains("skills.get"))
+            assertFalse(setup.payload.toString().contains("secret-value"))
+
+            assertFalse(missing.success)
+            assertEquals("SKILL_NOT_FOUND", missing.errorCode)
+            assertEquals("skills.setup", missing.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("missing-skill", missing.payload["skillId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `skills config update sets and clears non secret config values`() =
         runTest {
             val configSkill =
