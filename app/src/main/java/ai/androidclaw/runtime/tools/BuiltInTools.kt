@@ -6988,6 +6988,78 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.configure.example",
+                    aliases =
+                        listOf(
+                            "provider.configure.example",
+                            "providers.config.example",
+                            "provider.config.example",
+                            "providers.endpoint.example",
+                            "provider.endpoint.example",
+                        ),
+                    description = "Return non-secret provider endpoint configuration examples without mutating settings.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exampleMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providerType =
+                if (identifier == null) {
+                    settings.providerType
+                } else {
+                    ProviderType.entries.firstOrNull { providerType ->
+                        providerType.matchesProviderIdentifier(identifier)
+                    } ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider $identifier was not found.",
+                        errorCode = "PROVIDER_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_NOT_FOUND")
+                                put("toolName", "providers.configure.example")
+                                put("providerId", identifier)
+                            },
+                    )
+                }
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val exampleMarkdown =
+                if (includeMarkdown) {
+                    providerType.toProviderConfigureExampleMarkdown(settings = settings)
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (providerType.requiresRemoteSettings) {
+                        "Prepared non-secret configure example for ${providerType.displayName}."
+                    } else {
+                        "Provider ${providerType.displayName} has no remote endpoint settings to configure."
+                    },
+                payload =
+                    providerType.toProviderConfigureExamplePayload(
+                        settings = settings,
+                        requestedProviderId = identifier,
+                        includeMarkdown = includeMarkdown,
+                        exampleMarkdown = exampleMarkdown,
+                    ),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.reset",
                     aliases = listOf("provider.reset", "providers.defaults", "provider.defaults"),
                     description = "Reset a configurable provider's non-secret endpoint settings to defaults.",
@@ -15368,6 +15440,104 @@ private fun ProviderType.toProviderCatalogMarkdownLine(settings: ProviderSetting
             append(currentEndpointSettings.baseUrl != defaultEndpointSettings.baseUrl)
             append(" customModel=")
             append(currentEndpointSettings.modelId != defaultEndpointSettings.modelId)
+        }
+    }
+
+private fun ProviderType.toProviderConfigureExamplePayload(
+    settings: ProviderSettingsSnapshot,
+    requestedProviderId: String?,
+    includeMarkdown: Boolean,
+    exampleMarkdown: String?,
+): JsonObject {
+    val currentEndpointSettings = if (requiresRemoteSettings) settings.endpointSettings(this) else null
+    val defaultEndpointSettings = if (requiresRemoteSettings) defaultEndpointSettings() else null
+    return buildJsonObject {
+        put("requestedProviderId", requestedProviderId?.let(::JsonPrimitive) ?: JsonNull)
+        put("providerId", providerId)
+        put("storageValue", storageValue)
+        put("displayName", displayName)
+        put("selected", settings.providerType == this@toProviderConfigureExamplePayload)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("requiresRemoteSettings", requiresRemoteSettings)
+        put("configurable", requiresRemoteSettings)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("requiresApiKey", requiresApiKey)
+        put("usesOpenAiCodexOAuth", usesOpenAiCodexOAuth)
+        put("exampleOnly", true)
+        put("executesConfiguration", false)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("credentialValuesIncluded", false)
+        put("includeMarkdown", includeMarkdown)
+        put("currentEndpointSettings", currentEndpointSettings?.toProviderEndpointSettingsPayload() ?: JsonNull)
+        put("defaultEndpointSettings", defaultEndpointSettings?.toProviderEndpointSettingsPayload() ?: JsonNull)
+        put(
+            "exampleArguments",
+            defaultEndpointSettings?.let { endpointSettings ->
+                buildJsonObject {
+                    put("providerId", providerId)
+                    put("baseUrl", endpointSettings.baseUrl)
+                    put("modelId", endpointSettings.modelId)
+                    put("timeoutSeconds", endpointSettings.timeoutSeconds)
+                }
+            } ?: JsonNull,
+        )
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                if (requiresRemoteSettings) {
+                    add(JsonPrimitive("providers.configure"))
+                } else {
+                    add(JsonPrimitive("providers.select"))
+                }
+                if (requiresApiKey || usesOpenAiCodexOAuth) {
+                    add(JsonPrimitive("providers.auth.status"))
+                }
+                add(JsonPrimitive("providers.catalog"))
+            },
+        )
+        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun ProviderEndpointSettings.toProviderEndpointSettingsPayload(): JsonObject =
+    buildJsonObject {
+        put("baseUrl", baseUrl)
+        put("modelId", modelId)
+        put("timeoutSeconds", timeoutSeconds)
+    }
+
+private fun ProviderType.toProviderConfigureExampleMarkdown(settings: ProviderSettingsSnapshot): String =
+    buildString {
+        appendLine("# Provider configure example")
+        appendLine()
+        appendLine("- Provider: `$providerId` (${displayName.toHandoffLine()})")
+        appendLine("- Selected: ${settings.providerType == this@toProviderConfigureExampleMarkdown}")
+        appendLine("- Configurable: $requiresRemoteSettings")
+        appendLine("- Auth mode: ${authMode.name}")
+        appendLine("- Example only: true")
+        appendLine("- Executes configuration: false")
+        appendLine("- Secret values included: false")
+        appendLine("- API key values included: false")
+        appendLine("- OAuth token values included: false")
+        if (requiresRemoteSettings) {
+            val defaultEndpointSettings = defaultEndpointSettings()
+            appendLine()
+            appendLine("```json")
+            appendLine(
+                buildJsonObject {
+                    put("providerId", providerId)
+                    put("baseUrl", defaultEndpointSettings.baseUrl)
+                    put("modelId", defaultEndpointSettings.modelId)
+                    put("timeoutSeconds", defaultEndpointSettings.timeoutSeconds)
+                }.toString(),
+            )
+            appendLine("```")
+        } else {
+            appendLine()
+            appendLine("This provider is local/offline and has no remote endpoint settings.")
         }
     }
 

@@ -6616,6 +6616,145 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider configure example returns remote endpoint skeleton without mutating settings`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-example-secret")
+            val customEndpoint =
+                ProviderEndpointSettings(
+                    baseUrl = "https://custom.example/v1",
+                    modelId = "deepseek-custom",
+                    timeoutSeconds = 42,
+                )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.DeepSeek)
+                    .withEndpointSettings(
+                        providerType = ProviderType.DeepSeek,
+                        settings = customEndpoint,
+                    ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.configure.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-example-secret"))
+            assertEquals("deepseek", result.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["selected"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["requiresRemoteSettings"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["configurable"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["requiresCredential"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["requiresApiKey"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["executesConfiguration"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["apiKeyValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["credentialValuesIncluded"]?.jsonPrimitive?.content)
+
+            val currentEndpoint = result.payload.getValue("currentEndpointSettings").jsonObject
+            assertEquals(customEndpoint.baseUrl, currentEndpoint.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals(customEndpoint.modelId, currentEndpoint.getValue("modelId").jsonPrimitive.content)
+            assertEquals(customEndpoint.timeoutSeconds.toString(), currentEndpoint.getValue("timeoutSeconds").jsonPrimitive.content)
+            val defaultEndpoint = result.payload.getValue("defaultEndpointSettings").jsonObject
+            assertEquals(ProviderType.DeepSeek.defaultBaseUrl, defaultEndpoint.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals(ProviderType.DeepSeek.defaultModelId, defaultEndpoint.getValue("modelId").jsonPrimitive.content)
+            assertEquals(
+                ProviderType.DeepSeek.defaultTimeoutSeconds.toString(),
+                defaultEndpoint.getValue("timeoutSeconds").jsonPrimitive.content,
+            )
+            val exampleArguments = result.payload.getValue("exampleArguments").jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, exampleArguments.getValue("providerId").jsonPrimitive.content)
+            assertEquals(ProviderType.DeepSeek.defaultBaseUrl, exampleArguments.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals(ProviderType.DeepSeek.defaultModelId, exampleArguments.getValue("modelId").jsonPrimitive.content)
+            assertEquals(
+                ProviderType.DeepSeek.defaultTimeoutSeconds.toString(),
+                exampleArguments.getValue("timeoutSeconds").jsonPrimitive.content,
+            )
+            assertEquals(
+                listOf("providers.configure", "providers.auth.status", "providers.catalog"),
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider configure example"))
+            assertTrue(markdown.contains(ProviderType.DeepSeek.providerId))
+            assertTrue(markdown.contains(ProviderType.DeepSeek.defaultModelId))
+            assertFalse(markdown.contains("deepseek-example-secret"))
+            assertEquals(customEndpoint, settingsDataStore.settings.first().endpointSettings(ProviderType.DeepSeek))
+        }
+
+    @Test
+    fun `provider configure example reports local provider and missing provider safely`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.Fake),
+            )
+            val registry = buildRegistry()
+
+            val local =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.endpoint.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "fake")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.config.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "missing-provider")
+                        },
+                )
+
+            assertTrue(local.summary, local.success)
+            assertEquals("fake", local.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.Fake.providerId, local.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("true", local.payload["selected"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["requiresRemoteSettings"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["configurable"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["requiresCredential"]?.jsonPrimitive?.content)
+            assertEquals("true", local.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["executesConfiguration"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, local.payload.getValue("currentEndpointSettings"))
+            assertEquals(JsonNull, local.payload.getValue("defaultEndpointSettings"))
+            assertEquals(JsonNull, local.payload.getValue("exampleArguments"))
+            assertEquals(JsonNull, local.payload.getValue("exampleMarkdown"))
+            assertEquals(
+                listOf("providers.select", "providers.catalog"),
+                local.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+
+            assertFalse(missing.success)
+            assertEquals("PROVIDER_NOT_FOUND", missing.errorCode)
+            assertEquals("providers.configure.example", missing.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("missing-provider", missing.payload["providerId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `provider reset restores default endpoint settings without changing selected provider`() =
         runTest {
             settingsDataStore.saveProviderSettings(

@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.configure.example` /
+  `provider.configure.example` / `providers.endpoint.example` plus config
+  example aliases as a Provider/OAuth usability feature. Agents can now prepare
+  non-secret endpoint configuration examples for remote providers without
+  mutating settings, compare current and default endpoints, see suggested
+  follow-up tools for credentials/catalog, get local-provider no-op guidance,
+  optional markdown, and explicit example-only / executes-configuration=false /
+  secret/API-key/OAuth-token omission flags. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `skills.command.example` /
   `skill.command.example` / `skills.slash.example` / `skill.slash.example`
   plus command-sample aliases as a Skill Contract usability feature. Agents can
