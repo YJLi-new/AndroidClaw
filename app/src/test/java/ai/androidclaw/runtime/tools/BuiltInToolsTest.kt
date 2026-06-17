@@ -6331,6 +6331,165 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks update example returns safe patch examples without mutating automation`() =
+        runTest {
+            val created =
+                taskRepository.createTask(
+                    name = "Original task",
+                    prompt = "Original prompt",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-03-20T08:00:00Z")),
+                    executionMode = TaskExecutionMode.MainSession,
+                    targetSessionId = null,
+                )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.update.example"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["generatedAtIso"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("requestedPatchKind"))
+            assertEquals("4", result.payload["patchKindCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["executesTaskUpdate"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["updatesAutomation"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["schedulesWork"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["mutatesTasks"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["examplePromptIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["userPromptBodyIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetadataIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["runHistoryIncluded"]?.jsonPrimitive?.content)
+            assertEquals(
+                listOf("metadata", "once", "interval", "cron"),
+                result.payload
+                    .getValue("supportedPatchKinds")
+                    .jsonArray
+                    .map { kind -> kind.jsonPrimitive.content },
+            )
+            assertEquals(
+                listOf("tasks.list", "tasks.get", "tasks.preview", "tasks.update", "tasks.agenda"),
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+            val examples =
+                result.payload
+                    .getValue("examples")
+                    .jsonArray
+                    .map { example -> example.jsonObject }
+            assertEquals(
+                listOf("metadata", "once", "interval", "cron"),
+                examples.map { example -> example.getValue("patchKind").jsonPrimitive.content },
+            )
+            val metadataArguments =
+                examples
+                    .single { example -> example.getValue("patchKind").jsonPrimitive.content == "metadata" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals("example-task-id", metadataArguments.getValue("taskId").jsonPrimitive.content)
+            assertEquals("Renamed example automation", metadataArguments.getValue("name").jsonPrimitive.content)
+            assertEquals(
+                "Updated example prompt to run on the existing schedule.",
+                metadataArguments.getValue("prompt").jsonPrimitive.content,
+            )
+            assertEquals(
+                JsonNull,
+                examples
+                    .single { example -> example.getValue("patchKind").jsonPrimitive.content == "metadata" }
+                    .getValue("previewArguments"),
+            )
+            val onceArguments =
+                examples
+                    .single { example -> example.getValue("patchKind").jsonPrimitive.content == "once" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals("once", onceArguments.getValue("scheduleKind").jsonPrimitive.content)
+            assertEquals("2026-03-09T00:00:00Z", onceArguments.getValue("atIso").jsonPrimitive.content)
+            val intervalArguments =
+                examples
+                    .single { example -> example.getValue("patchKind").jsonPrimitive.content == "interval" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals("2026-03-08T00:15:00Z", intervalArguments.getValue("anchorAtIso").jsonPrimitive.content)
+            assertEquals("60", intervalArguments.getValue("repeatEveryMinutes").jsonPrimitive.content)
+            val cronArguments =
+                examples
+                    .single { example -> example.getValue("patchKind").jsonPrimitive.content == "cron" }
+                    .getValue("exampleArguments")
+                    .jsonObject
+            assertEquals("0 9 * * *", cronArguments.getValue("cronExpression").jsonPrimitive.content)
+            assertEquals("UTC", cronArguments.getValue("timezone").jsonPrimitive.content)
+            val reloaded = taskRepository.getTask(created.id) ?: error("Missing original task.")
+            assertEquals("Original task", reloaded.name)
+            assertEquals("Original prompt", reloaded.prompt)
+            assertEquals(TaskSchedule.Once(Instant.parse("2026-03-20T08:00:00Z")), reloaded.schedule)
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Task update examples"))
+            assertTrue(markdown.contains("\"taskId\":\"example-task-id\""))
+        }
+
+    @Test
+    fun `tasks update example can focus schedule patch and omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.update.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "cron")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.update.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("patchKind", "weekly")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("cron", result.payload["requestedPatchKind"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["patchKindCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["examplePromptIncluded"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exampleMarkdown"))
+            val example =
+                result.payload
+                    .getValue("examples")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("cron", example.getValue("patchKind").jsonPrimitive.content)
+            assertEquals(true.toString(), example.getValue("previewSupported").jsonPrimitive.content)
+            val arguments = example.getValue("exampleArguments").jsonObject
+            assertEquals(setOf("taskId", "scheduleKind", "cronExpression", "timezone"), arguments.keys)
+            assertEquals("example-task-id", arguments.getValue("taskId").jsonPrimitive.content)
+            assertEquals("cron", arguments.getValue("scheduleKind").jsonPrimitive.content)
+            assertEquals("0 9 * * *", arguments.getValue("cronExpression").jsonPrimitive.content)
+            assertEquals("UTC", arguments.getValue("timezone").jsonPrimitive.content)
+            val previewArguments = example.getValue("previewArguments").jsonObject
+            assertEquals(setOf("scheduleKind", "cronExpression", "timezone"), previewArguments.keys)
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+            assertEquals("tasks.update.example", invalid.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("patchKind", invalid.payload["field"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `tasks update patches the schedule and prompt`() =
         runTest {
             val created =

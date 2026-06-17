@@ -71,6 +71,18 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-18: Added `tasks.update.example` /
+  `task.update.example` / `tasks.patch.example` / `task.patch.example` plus
+  automation update aliases as an Automation Contract usability feature. Agents
+  can now request safe metadata, once, interval, or cron patch examples without
+  updating tasks, scheduling WorkManager work, mutating automation state, or
+  exposing user prompt bodies, provider metadata, secrets, or run history. The
+  payload includes patch fields, example and preview arguments where applicable,
+  supported patch/schedule kinds, execution modes, target-session aliases,
+  suggested follow-up tools, optional markdown, and explicit example-only /
+  executes-task-update=false / updates-automation=false / schedules-work=false
+  / mutates-tasks=false flags. Focused `BuiltInToolsTest`, ktlint, and the full
+  offline fast loop passed.
 - 2026-06-17: Added `tasks.create.example` /
   `task.create.example` / `tasks.schedule.example` /
   `task.schedule.example` plus automation example aliases as an Automation

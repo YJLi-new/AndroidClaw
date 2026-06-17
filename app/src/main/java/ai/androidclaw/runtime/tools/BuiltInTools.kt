@@ -14019,6 +14019,78 @@ private fun taskToolEntries(
             }
         },
         ToolRegistry.Entry(
+            descriptor = taskUpdateExampleDescriptor(),
+        ) { _, arguments ->
+            val requestedKind =
+                arguments.optionalText("patchKind")
+                    ?: arguments.optionalText("scheduleKind")
+                    ?: arguments.optionalText("kind")
+            val selectedKinds =
+                taskUpdateExamplePatchKinds(requestedKind)
+                    ?: return@Entry invalidTaskArguments(
+                        toolName = "tasks.update.example",
+                        summary =
+                            "tasks.update.example supports patchKind metadata, once, interval, cron, or all.",
+                        field = "patchKind",
+                    )
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val generatedAt = clock.instant()
+            val examples =
+                buildJsonArray {
+                    selectedKinds.forEach { patchKind ->
+                        add(taskUpdateExamplePayload(patchKind = patchKind, now = generatedAt))
+                    }
+                }
+            val exampleMarkdown =
+                if (includeMarkdown) {
+                    taskUpdateExampleMarkdown(
+                        requestedKind = requestedKind,
+                        examples = examples,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary = "Prepared ${selectedKinds.size} task update example(s) without updating automation.",
+                payload =
+                    buildJsonObject {
+                        put("generatedAtIso", generatedAt.toString())
+                        put("requestedPatchKind", requestedKind?.let(::JsonPrimitive) ?: JsonNull)
+                        put("patchKindCount", selectedKinds.size)
+                        put("supportedPatchKinds", TASK_UPDATE_EXAMPLE_PATCH_KINDS.toToolStringArrayPayload())
+                        put("supportedScheduleKinds", TASK_CREATE_EXAMPLE_SCHEDULE_KINDS.toToolStringArrayPayload())
+                        put(
+                            "supportedExecutionModes",
+                            listOf("MAIN_SESSION", "ISOLATED_SESSION").toToolStringArrayPayload(),
+                        )
+                        put("supportedTargetSessionAliases", listOf("main", "current").toToolStringArrayPayload())
+                        put("includeMarkdown", includeMarkdown)
+                        put("exampleOnly", true)
+                        put("executesTaskUpdate", false)
+                        put("updatesAutomation", false)
+                        put("schedulesWork", false)
+                        put("mutatesTasks", false)
+                        put("examplePromptIncluded", selectedKinds.contains("metadata"))
+                        put("userPromptBodyIncluded", false)
+                        put("secretValuesIncluded", false)
+                        put("providerMetadataIncluded", false)
+                        put("runHistoryIncluded", false)
+                        put(
+                            "suggestedTools",
+                            listOf(
+                                "tasks.list",
+                                "tasks.get",
+                                "tasks.preview",
+                                "tasks.update",
+                                "tasks.agenda",
+                            ).toToolStringArrayPayload(),
+                        )
+                        put("examples", examples)
+                        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
             descriptor = taskUpdateDescriptor(),
         ) { context, arguments ->
             val taskId =
@@ -14298,6 +14370,35 @@ private fun taskUpdateDescriptor(): ToolDescriptor =
         arguments = taskMutationArguments(requiredTaskId = true),
     )
 
+private fun taskUpdateExampleDescriptor(): ToolDescriptor =
+    ToolDescriptor(
+        name = "tasks.update.example",
+        aliases =
+            listOf(
+                "task.update.example",
+                "tasks.patch.example",
+                "task.patch.example",
+                "automation.update.example",
+                "automations.update.example",
+            ),
+        description = "Return safe example arguments for patching scheduled automations without updating them.",
+        arguments =
+            listOf(
+                ToolArgumentSpec(
+                    name = "patchKind",
+                    description = "Optional metadata | once | interval | cron filter. Omit or use all for all examples.",
+                ),
+                ToolArgumentSpec(
+                    name = "scheduleKind",
+                    description = "Alias for selecting once | interval | cron schedule patch examples.",
+                ),
+                ToolArgumentSpec(
+                    name = "includeMarkdown",
+                    description = "Set false to omit exampleMarkdown. Defaults to true.",
+                ),
+            ),
+    )
+
 private fun taskDuplicateDescriptor(): ToolDescriptor =
     ToolDescriptor(
         name = "tasks.duplicate",
@@ -14503,6 +14604,121 @@ private fun taskCreateExampleMarkdown(
             val exampleObject = example.jsonObject
             val scheduleKind = exampleObject.getValue("scheduleKind").jsonPrimitive.content
             appendLine("## $scheduleKind")
+            appendLine()
+            appendLine("```json")
+            appendLine(exampleObject.getValue("exampleArguments").toString())
+            appendLine("```")
+            appendLine()
+        }
+    }
+
+private val TASK_UPDATE_EXAMPLE_PATCH_KINDS = listOf("metadata", "once", "interval", "cron")
+
+private fun taskUpdateExamplePatchKinds(requestedKind: String?): List<String>? {
+    val normalized = requestedKind?.lowercase()?.replace("-", "_")
+    return when (normalized) {
+        null, "all", "any", "*" -> TASK_UPDATE_EXAMPLE_PATCH_KINDS
+        "metadata", "metadata_only", "details" -> listOf("metadata")
+        "once", "reschedule_once" -> listOf("once")
+        "interval", "reschedule_interval" -> listOf("interval")
+        "cron", "reschedule_cron" -> listOf("cron")
+        else -> null
+    }
+}
+
+private fun taskUpdateExamplePayload(
+    patchKind: String,
+    now: Instant,
+): JsonObject =
+    buildJsonObject {
+        put("patchKind", patchKind)
+        put("toolName", "tasks.update")
+        put("alias", "task.update")
+        put("exampleOnly", true)
+        put("executesTaskUpdate", false)
+        put("updatesAutomation", false)
+        put("schedulesWork", false)
+        put("mutatesTasks", false)
+        put("requiredFields", listOf("taskId").toToolStringArrayPayload())
+        put("patchFields", taskUpdateExamplePatchFields(patchKind).toToolStringArrayPayload())
+        put(
+            "optionalFields",
+            listOf(
+                "name",
+                "prompt",
+                "scheduleKind",
+                "atIso",
+                "anchorAtIso",
+                "repeatEveryMinutes",
+                "cronExpression",
+                "timezone",
+                "executionMode",
+                "targetSessionId",
+                "targetSessionAlias",
+                "precise",
+                "maxRetries",
+            ).toToolStringArrayPayload(),
+        )
+        put("exampleArguments", taskUpdateExampleArguments(patchKind = patchKind, now = now))
+        put(
+            "previewArguments",
+            if (patchKind == "metadata") {
+                JsonNull
+            } else {
+                taskCreatePreviewArguments(scheduleKind = patchKind, now = now)
+            },
+        )
+        put("previewSupported", patchKind != "metadata")
+    }
+
+private fun taskUpdateExamplePatchFields(patchKind: String): List<String> =
+    when (patchKind) {
+        "metadata" -> listOf("name", "prompt", "executionMode", "targetSessionAlias", "precise", "maxRetries")
+        "once" -> listOf("scheduleKind", "atIso")
+        "interval" -> listOf("scheduleKind", "anchorAtIso", "repeatEveryMinutes")
+        "cron" -> listOf("scheduleKind", "cronExpression", "timezone")
+        else -> emptyList()
+    }
+
+private fun taskUpdateExampleArguments(
+    patchKind: String,
+    now: Instant,
+): JsonObject =
+    buildJsonObject {
+        put("taskId", "example-task-id")
+        when (patchKind) {
+            "metadata" -> {
+                put("name", "Renamed example automation")
+                put("prompt", "Updated example prompt to run on the existing schedule.")
+                put("executionMode", "MAIN_SESSION")
+                put("targetSessionAlias", "main")
+                put("precise", false)
+                put("maxRetries", 3)
+            }
+            "once", "interval", "cron" -> {
+                put("scheduleKind", patchKind)
+                taskCreateExampleScheduleFields(scheduleKind = patchKind, now = now)
+            }
+        }
+    }
+
+private fun taskUpdateExampleMarkdown(
+    requestedKind: String?,
+    examples: JsonArray,
+): String =
+    buildString {
+        appendLine("# Task update examples")
+        appendLine()
+        appendLine("- Requested patch kind: ${requestedKind?.toHandoffLine() ?: "all"}")
+        appendLine("- Example only: true")
+        appendLine("- Updates automation: false")
+        appendLine("- Schedules work: false")
+        appendLine("- Suggested flow: `tasks.get`, optionally `tasks.preview`, then `tasks.update`.")
+        appendLine()
+        examples.forEach { example ->
+            val exampleObject = example.jsonObject
+            val patchKind = exampleObject.getValue("patchKind").jsonPrimitive.content
+            appendLine("## $patchKind")
             appendLine()
             appendLine("```json")
             appendLine(exampleObject.getValue("exampleArguments").toString())
