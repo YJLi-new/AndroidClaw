@@ -766,6 +766,133 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.handoff",
+                                    aliases =
+                                        listOf(
+                                            "session.handoff",
+                                            "sessions.snapshot",
+                                            "session.snapshot",
+                                            "chat.handoff",
+                                        ),
+                                    description = "Return a compact session handoff with metadata, summary, and recent messages.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "recentLimit",
+                                                description = "Recent chronological message count. Defaults to 8, max 20.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeSummary",
+                                                description = "Set false to omit summary text. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available for handoff.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val recentLimit =
+                                arguments
+                                    .optionalInt(
+                                        field = "recentLimit",
+                                        defaultValue = SESSION_HANDOFF_DEFAULT_RECENT_LIMIT,
+                                    ).coerceIn(0, SESSION_HANDOFF_MAX_RECENT_LIMIT)
+                            val includeSummary = arguments.optionalBoolean("includeSummary", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val messageCount = messageRepository.getMessageCount(session.id)
+                            val recentMessages =
+                                messageRepository.getRecentMessagesChronological(
+                                    sessionId = session.id,
+                                    limit = recentLimit,
+                                )
+                            val summaryText = session.summaryText
+                            val summarySnippet =
+                                summaryText
+                                    ?.take(SESSION_SUMMARY_SNIPPET_MAX_CHARS)
+                                    ?.takeIf { includeSummary }
+                            val summaryTruncated =
+                                if (summarySnippet == null) {
+                                    false
+                                } else {
+                                    summarySnippet.length < summaryText.orEmpty().length
+                                }
+                            val handoffMarkdown =
+                                if (includeMarkdown) {
+                                    session.toSessionHandoffMarkdown(
+                                        messageCount = messageCount,
+                                        recentMessages = recentMessages,
+                                        recentLimit = recentLimit,
+                                        summarySnippet = summarySnippet,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary = "Prepared handoff snapshot for \"${session.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("sessionId", session.id)
+                                        put("title", session.title)
+                                        put("isMain", session.isMain)
+                                        put("archived", session.archived)
+                                        put("createdAtIso", session.createdAt.toString())
+                                        put("updatedAtIso", session.updatedAt.toString())
+                                        put("messageCount", messageCount)
+                                        put("recentLimit", recentLimit)
+                                        put("recentCount", recentMessages.size)
+                                        put("summaryIncluded", includeSummary)
+                                        put("summarySnippet", summarySnippet?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("summaryLength", summaryText?.length ?: 0)
+                                        put("summaryTruncated", summaryTruncated)
+                                        put("compacted", session.compactedUntilMessageId != null)
+                                        put(
+                                            "compactedUntilMessageId",
+                                            session.compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull,
+                                        )
+                                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                        put(
+                                            "recentMessages",
+                                            buildJsonArray {
+                                                recentMessages.forEach { message ->
+                                                    add(message.toMessagePagePayload())
+                                                }
+                                            },
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.search",
                                     aliases = listOf("session.search"),
                                     description = "Search active chat sessions by title.",
@@ -7711,6 +7838,8 @@ private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
+private const val SESSION_HANDOFF_DEFAULT_RECENT_LIMIT = 8
+private const val SESSION_HANDOFF_MAX_RECENT_LIMIT = 20
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val SESSION_SUMMARY_SNIPPET_MAX_CHARS = 500
 
@@ -8987,6 +9116,49 @@ private fun ChatMessage.toMessagePagePayload(): JsonObject {
         put("taskRunId", taskRunId?.let(::JsonPrimitive) ?: JsonNull)
     }
 }
+
+private fun Session.toSessionHandoffMarkdown(
+    messageCount: Int,
+    recentMessages: List<ChatMessage>,
+    recentLimit: Int,
+    summarySnippet: String?,
+): String =
+    buildString {
+        appendLine("# Session handoff: ${title.toHandoffLine()}")
+        appendLine()
+        appendLine("- Session id: `$id`")
+        appendLine("- Main session: $isMain")
+        appendLine("- Archived: $archived")
+        appendLine("- Messages: $messageCount")
+        appendLine("- Recent messages included: ${recentMessages.size} of up to $recentLimit")
+        appendLine("- Created: $createdAt")
+        appendLine("- Updated: $updatedAt")
+        appendLine("- Compacted until message: ${compactedUntilMessageId ?: "none"}")
+        appendLine()
+        appendLine("## Summary")
+        appendLine(summarySnippet?.ifBlank { "_Blank summary._" } ?: "_No summary included._")
+        appendLine()
+        appendLine("## Recent messages")
+        if (recentMessages.isEmpty()) {
+            appendLine("_No recent messages included._")
+        } else {
+            recentMessages.forEach { message ->
+                append("- ")
+                append(message.createdAt)
+                append(" ")
+                append(message.role.name)
+                append(": ")
+                appendLine(message.content.toMessageSearchSnippet().toHandoffLine())
+            }
+        }
+    }
+
+private fun String.toHandoffLine(): String =
+    lineSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .joinToString(" ")
+        .ifBlank { "(blank)" }
 
 private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): JsonObject =
     buildJsonObject {

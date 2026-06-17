@@ -575,6 +575,86 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions handoff returns compact summary recent messages and markdown`() =
+        runTest {
+            val session = sessionRepository.createSession("Handoff Session")
+            database.messageDao().insert(
+                toolTestMessageEntity(
+                    id = "handoff-old",
+                    sessionId = session.id,
+                    role = "user",
+                    content = "Old request",
+                    createdAt = 1_000L,
+                ),
+            )
+            database.messageDao().insert(
+                toolTestMessageEntity(
+                    id = "handoff-boundary",
+                    sessionId = session.id,
+                    role = "assistant",
+                    content = "Boundary answer",
+                    createdAt = 2_000L,
+                ),
+            )
+            database.messageDao().insert(
+                toolTestMessageEntity(
+                    id = "handoff-latest",
+                    sessionId = session.id,
+                    role = "user",
+                    content = "Latest request\nwith details",
+                    createdAt = 3_000L,
+                ),
+            )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = session.id,
+                summaryText = "User is building AndroidClaw handoff support.",
+                compactedUntilMessageId = "handoff-boundary",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.handoff", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("recentLimit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("Handoff Session", result.payload["title"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["recentCount"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["summaryIncluded"]?.jsonPrimitive?.content)
+            assertEquals(
+                "User is building AndroidClaw handoff support.",
+                result.payload["summarySnippet"]?.jsonPrimitive?.content,
+            )
+            assertEquals(true.toString(), result.payload["compacted"]?.jsonPrimitive?.content)
+            assertEquals("handoff-boundary", result.payload["compactedUntilMessageId"]?.jsonPrimitive?.content)
+            val recentMessages =
+                result.payload
+                    .getValue("recentMessages")
+                    .jsonArray
+                    .map { message ->
+                        message.jsonObject
+                            .getValue("messageId")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals(listOf("handoff-boundary", "handoff-latest"), recentMessages)
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Session handoff: Handoff Session"))
+            assertTrue(markdown.contains("User is building AndroidClaw handoff support."))
+            assertTrue(markdown.contains("User: Latest request with details"))
+        }
+
+    @Test
     fun `sessions fork duplicates messages and remaps compaction boundary`() =
         runTest {
             val sourceSession = sessionRepository.createSession("Source transcript")

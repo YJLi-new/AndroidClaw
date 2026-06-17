@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.handoff` / `session.handoff` /
+  `sessions.snapshot` / `session.snapshot` plus `chat.handoff` as a Session
+  Contract context-transfer tool. Agents can now prepare a compact handoff for
+  the active or specified session with bounded metadata, optional summary
+  snippet, compacted-boundary state, recent chronological message snippets, and
+  optional markdown without loading or exporting the full transcript. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.preview.occurrences` /
   `task.preview.occurrences` plus automation preview aliases as an Automation
   Contract schedule-planning tool for unsaved schedules. Agents can now provide
