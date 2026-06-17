@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.doctor` /
+  `session.doctor` / `sessions.check` / `session.check` plus chat aliases as a
+  dedicated Session Contract diagnostics tool. Agents can now inspect all
+  sessions or a named session for missing/duplicate main-session invariants,
+  archived main sessions, blank titles, compacted sessions without summaries,
+  missing or cross-session compaction boundaries, and large unsummarized
+  transcripts with OK/WARN/ERROR status, bounded issue/check payloads,
+  optional markdown, and transcript/summary body omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `providers.doctor` /
   `provider.doctor` / `providers.check` / `provider.check` plus health aliases
   as a dedicated Provider/OAuth diagnostics tool. Agents can now inspect the

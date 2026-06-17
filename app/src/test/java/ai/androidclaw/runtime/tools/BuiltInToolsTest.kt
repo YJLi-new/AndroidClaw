@@ -227,6 +227,199 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions doctor reports compaction and main session issues without transcripts`() =
+        runTest {
+            val hiddenTranscript = "FULL TRANSCRIPT BODY SHOULD NOT APPEAR IN SESSION DOCTOR"
+            val archivedMain = sessionRepository.createSession("Archived main", isMain = true)
+            sessionRepository.archiveSession(archivedMain.id)
+            val boundarySource = sessionRepository.createSession("Boundary source")
+            val sourceMessage =
+                messageRepository.addMessage(
+                    sessionId = boundarySource.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = hiddenTranscript,
+                )
+            val missingBoundary = sessionRepository.createSession("Missing boundary")
+            sessionRepository.updateSummaryState(
+                id = missingBoundary.id,
+                summaryText = "",
+                compactedUntilMessageId = "missing-message",
+            )
+            val foreignBoundary = sessionRepository.createSession("Foreign boundary")
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = foreignBoundary.id,
+                summaryText = "Compact summary should stay omitted",
+                compactedUntilMessageId = sourceMessage.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "chat.check"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains(hiddenTranscript))
+            assertFalse(payloadText.contains("Compact summary should stay omitted"))
+            assertEquals(
+                "ERROR",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "4",
+                result.payload
+                    .getValue("sessionCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "4",
+                result.payload
+                    .getValue("candidateSessionCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "4",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "4",
+                result.payload
+                    .getValue("errorCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("transcriptBodiesOmitted")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("summaryBodiesOmitted")
+                    .jsonPrimitive.content,
+            )
+            val issueCodes =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue ->
+                        issue.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(issueCodes.contains("session.main.archived"))
+            assertTrue(issueCodes.contains("session.compaction.summary_missing"))
+            assertTrue(issueCodes.contains("session.compaction.boundary_missing"))
+            assertTrue(issueCodes.contains("session.compaction.boundary_foreign"))
+            val checks =
+                result.payload
+                    .getValue("sessionChecks")
+                    .jsonArray
+                    .map { check -> check.jsonObject }
+            val missingBoundaryCheck =
+                checks.first { check ->
+                    check.getValue("sessionId").jsonPrimitive.content == missingBoundary.id
+                }
+            assertEquals("Missing", missingBoundaryCheck.getValue("compactionBoundaryStatus").jsonPrimitive.content)
+            val foreignBoundaryCheck =
+                checks.first { check ->
+                    check.getValue("sessionId").jsonPrimitive.content == foreignBoundary.id
+                }
+            assertEquals("ForeignSession", foreignBoundaryCheck.getValue("compactionBoundaryStatus").jsonPrimitive.content)
+            assertEquals(sourceMessage.sessionId, foreignBoundaryCheck.getValue("compactionBoundarySessionId").jsonPrimitive.content)
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Session doctor"))
+            assertTrue(markdown.contains("session.compaction.boundary_foreign"))
+            assertFalse(markdown.contains(hiddenTranscript))
+        }
+
+    @Test
+    fun `sessions doctor can inspect healthy active sessions and omit markdown`() =
+        runTest {
+            val main = sessionRepository.getOrCreateMainSession()
+            messageRepository.addMessage(
+                sessionId = main.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Small healthy transcript",
+            )
+            val archived = sessionRepository.createSession("Archived non candidate")
+            sessionRepository.archiveSession(archived.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeArchived", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "OK",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("sessionCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("candidateSessionCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "0",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("includeArchived")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertTrue(
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .isEmpty(),
+            )
+            val check =
+                result.payload
+                    .getValue("sessionChecks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(main.id, check.getValue("sessionId").jsonPrimitive.content)
+            assertEquals("None", check.getValue("compactionBoundaryStatus").jsonPrimitive.content)
+        }
+
+    @Test
     fun `sessions summaries lists summarized and compacted sessions`() =
         runTest {
             val longSummary = "s".repeat(600)

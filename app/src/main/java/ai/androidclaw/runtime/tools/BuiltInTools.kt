@@ -1518,6 +1518,173 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.doctor",
+                                    aliases =
+                                        listOf(
+                                            "session.doctor",
+                                            "sessions.check",
+                                            "session.check",
+                                            "chat.doctor",
+                                            "chat.check",
+                                        ),
+                                    description = "Return actionable session diagnostics without transcript bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Optional session id or title to inspect. Defaults to all sessions.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeArchived",
+                                                description = "Set false to omit archived sessions when no sessionId is provided. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum diagnostic issues to include. Defaults to 20.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val stats = sessionRepository.getSessionStats()
+                            val includeArchived = arguments.optionalBoolean("includeArchived", defaultValue = true)
+                            val identifier =
+                                arguments.optionalText("sessionId")
+                                    ?: arguments.optionalText("id")
+                                    ?: arguments.optionalText("title")
+                                    ?: arguments.optionalText("name")
+                            val activeSessions = sessionRepository.observeSessions().first()
+                            val archivedSessions = sessionRepository.observeArchivedSessions().first()
+                            val allSessions =
+                                (activeSessions + archivedSessions)
+                                    .distinctBy { session -> session.id }
+                                    .sortedByDescending { session -> session.updatedAt }
+                            val candidates =
+                                if (identifier == null) {
+                                    if (includeArchived) {
+                                        allSessions
+                                    } else {
+                                        activeSessions
+                                    }
+                                } else {
+                                    listOf(
+                                        allSessions.findSessionByIdentifier(identifier)
+                                            ?: return@Entry ToolExecutionResult.failure(
+                                                summary = "Session $identifier was not found.",
+                                                errorCode = "MISSING_SESSION",
+                                                payload =
+                                                    buildJsonObject {
+                                                        put("errorCode", "MISSING_SESSION")
+                                                        put("toolName", "sessions.doctor")
+                                                        put("sessionId", identifier)
+                                                    },
+                                            ),
+                                    )
+                                }
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SESSION_DOCTOR_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SESSION_DOCTOR_MAX_LIMIT)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val boundaryMessages =
+                                messageRepository.getMessagesByIds(
+                                    candidates.mapNotNull { session -> session.compactedUntilMessageId },
+                                )
+                            val sessionMessageStats =
+                                candidates.associate { session ->
+                                    session.id to messageRepository.getMessageStats(session.id)
+                                }
+                            val issues =
+                                stats.toSessionDoctorGlobalIssues() +
+                                    candidates.flatMap { session ->
+                                        session.toSessionDoctorIssues(
+                                            stats = sessionMessageStats.getValue(session.id),
+                                            boundaryMessage = session.compactedUntilMessageId?.let { messageId -> boundaryMessages[messageId] },
+                                        )
+                                    }
+                            val includedIssues = issues.take(limit)
+                            val status = issues.toSessionDoctorStatus()
+                            val includedChecks = candidates.take(SESSION_DOCTOR_CHECK_MAX_LIMIT)
+                            val doctorMarkdown =
+                                if (includeMarkdown) {
+                                    includedIssues.toSessionDoctorMarkdown(
+                                        status = status,
+                                        totalSessionCount = stats.totalSessionCount,
+                                        candidateSessionCount = candidates.size,
+                                        issueCount = issues.size,
+                                        limit = limit,
+                                        includeArchived = includeArchived,
+                                        requestedSessionId = identifier,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    when {
+                                        issues.isEmpty() ->
+                                            "Session doctor found no issues across ${candidates.size} candidate session(s)."
+                                        includedIssues.size == issues.size ->
+                                            "Session doctor found ${issues.size} issue(s) across ${candidates.size} candidate session(s)."
+                                        else ->
+                                            "Session doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("status", status)
+                                        put("sessionCount", stats.totalSessionCount)
+                                        put("candidateSessionCount", candidates.size)
+                                        put("sessionCheckCount", includedChecks.size)
+                                        put("sessionChecksOmitted", (candidates.size - includedChecks.size).coerceAtLeast(0))
+                                        put("requestedSessionId", identifier?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("includeArchived", includeArchived)
+                                        put("transcriptBodiesOmitted", true)
+                                        put("summaryBodiesOmitted", true)
+                                        put("issueCount", issues.size)
+                                        put("includedIssueCount", includedIssues.size)
+                                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                                        put("limit", limit)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("stats", stats.toSessionStatsPayload())
+                                        put(
+                                            "sessionChecks",
+                                            buildJsonArray {
+                                                includedChecks.forEach { session ->
+                                                    add(
+                                                        session.toSessionDoctorCheckPayload(
+                                                            stats = sessionMessageStats.getValue(session.id),
+                                                            boundaryMessage =
+                                                                session.compactedUntilMessageId
+                                                                    ?.let { messageId -> boundaryMessages[messageId] },
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "issues",
+                                            buildJsonArray {
+                                                includedIssues.forEach { issue ->
+                                                    add(issue.toSessionDoctorPayload())
+                                                }
+                                            },
+                                        )
+                                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "sessions.archive",
                                     aliases = listOf("session.archive"),
                                     description = "Archive a normal chat session so it leaves the active session list.",
@@ -8921,6 +9088,12 @@ private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
+private const val SESSION_DOCTOR_CHECK_MAX_LIMIT = 20
+private const val SESSION_DOCTOR_DEFAULT_LIMIT = 20
+private const val SESSION_DOCTOR_LARGE_CONTENT_CHARS = 40_000L
+private const val SESSION_DOCTOR_LARGE_MESSAGE_COUNT = 100L
+private const val SESSION_DOCTOR_MAX_LIMIT = 50
+private const val SESSION_DOCTOR_TEXT_MAX_CHARS = 500
 private const val SESSION_HANDOFF_DEFAULT_RECENT_LIMIT = 8
 private const val SESSION_HANDOFF_MAX_RECENT_LIMIT = 20
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
@@ -9020,6 +9193,19 @@ private data class TaskDoctorIssue(
     val summary: String,
     val action: String,
     val secondsOverdue: Long? = null,
+    val detail: String? = null,
+)
+
+private data class SessionDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val sessionId: String?,
+    val title: String?,
+    val isMain: Boolean?,
+    val archived: Boolean?,
+    val summary: String,
+    val action: String,
     val detail: String? = null,
 )
 
@@ -11544,6 +11730,252 @@ private fun SessionRepository.SessionStats.toSessionStatsPayload(): JsonObject =
         put("newestSessionUpdatedAtIso", newestSessionUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
         put("newestArchivedAtIso", newestArchivedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
     }
+
+private fun List<Session>.findSessionByIdentifier(identifier: String): Session? =
+    firstOrNull { session ->
+        session.id.equals(identifier, ignoreCase = true) ||
+            session.title.equals(identifier, ignoreCase = true)
+    }
+
+private fun SessionRepository.SessionStats.toSessionDoctorGlobalIssues(): List<SessionDoctorIssue> =
+    buildList {
+        when {
+            mainSessionCount == 0L ->
+                add(
+                    SessionDoctorIssue(
+                        id = "sessions.main.missing",
+                        severity = "Warning",
+                        code = "sessions.main.missing",
+                        sessionId = null,
+                        title = null,
+                        isMain = null,
+                        archived = null,
+                        summary = "No main session is currently persisted.",
+                        action = "Open chat or create the main session before relying on main-session automations.",
+                    ),
+                )
+            mainSessionCount > 1L ->
+                add(
+                    SessionDoctorIssue(
+                        id = "sessions.main.duplicate",
+                        severity = "Error",
+                        code = "sessions.main.duplicate",
+                        sessionId = null,
+                        title = null,
+                        isMain = null,
+                        archived = null,
+                        summary = "More than one main session is persisted.",
+                        action = "Keep exactly one main session and archive or repair duplicates.",
+                        detail = "mainSessionCount=$mainSessionCount",
+                    ),
+                )
+        }
+    }
+
+private fun Session.toSessionDoctorIssues(
+    stats: MessageRepository.SessionMessageStats,
+    boundaryMessage: ChatMessage?,
+): List<SessionDoctorIssue> =
+    buildList {
+        fun addIssue(
+            severity: String,
+            code: String,
+            summary: String,
+            action: String,
+            detail: String? = null,
+        ) {
+            add(
+                SessionDoctorIssue(
+                    id = "$id:$code",
+                    severity = severity,
+                    code = code,
+                    sessionId = id,
+                    title = title,
+                    isMain = isMain,
+                    archived = archived,
+                    summary = summary.toSessionDoctorText(),
+                    action = action.toSessionDoctorText(),
+                    detail = detail?.toSessionDoctorText(),
+                ),
+            )
+        }
+
+        if (title.isBlank()) {
+            addIssue(
+                severity = "Warning",
+                code = "session.title.blank",
+                summary = "Session has a blank title.",
+                action = "Run sessions.rename with a short descriptive title.",
+            )
+        }
+        if (isMain && archived) {
+            addIssue(
+                severity = "Error",
+                code = "session.main.archived",
+                summary = "The main session is archived.",
+                action = "Unarchive the main session or repair the persisted main-session row.",
+            )
+        }
+        val boundaryMessageId = compactedUntilMessageId
+        if (boundaryMessageId != null && summaryText.isNullOrBlank()) {
+            addIssue(
+                severity = "Error",
+                code = "session.compaction.summary_missing",
+                summary = "Session $title is compacted but has no stored summary text.",
+                action = "Run sessions.summary.update to add a summary, or sessions.uncompact to expose older messages.",
+                detail = "compactedUntilMessageId=$boundaryMessageId",
+            )
+        }
+        if (boundaryMessageId != null) {
+            when {
+                boundaryMessage == null ->
+                    addIssue(
+                        severity = "Error",
+                        code = "session.compaction.boundary_missing",
+                        summary = "Session $title has a compaction boundary that does not reference an existing message.",
+                        action = "Run sessions.uncompact or update the summary boundary after inspecting the transcript.",
+                        detail = "compactedUntilMessageId=$boundaryMessageId",
+                    )
+                boundaryMessage.sessionId != id ->
+                    addIssue(
+                        severity = "Error",
+                        code = "session.compaction.boundary_foreign",
+                        summary = "Session $title compaction boundary points to a message from another session.",
+                        action = "Run sessions.uncompact or compact this session again with an in-session boundary.",
+                        detail = "compactedUntilMessageId=$boundaryMessageId boundarySessionId=${boundaryMessage.sessionId}",
+                    )
+            }
+        }
+        if (
+            summaryText.isNullOrBlank() &&
+            (
+                stats.totalMessageCount >= SESSION_DOCTOR_LARGE_MESSAGE_COUNT ||
+                    stats.totalContentCharCount >= SESSION_DOCTOR_LARGE_CONTENT_CHARS
+            )
+        ) {
+            addIssue(
+                severity = "Warning",
+                code = "session.summary.missing_large",
+                summary = "Session $title is large and has no lightweight summary.",
+                action = "Run sessions.compact or sessions.summary.update before using it as long-lived context.",
+                detail = "messageCount=${stats.totalMessageCount} contentCharCount=${stats.totalContentCharCount}",
+            )
+        }
+    }
+
+private fun Session.toSessionDoctorCheckPayload(
+    stats: MessageRepository.SessionMessageStats,
+    boundaryMessage: ChatMessage?,
+): JsonObject {
+    val boundaryMessageId = compactedUntilMessageId
+    val boundaryStatus =
+        when {
+            boundaryMessageId == null -> "None"
+            boundaryMessage == null -> "Missing"
+            boundaryMessage.sessionId != id -> "ForeignSession"
+            else -> "Present"
+        }
+    return buildJsonObject {
+        put("sessionId", id)
+        put("title", title)
+        put("isMain", isMain)
+        put("archived", archived)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("messageCount", stats.totalMessageCount)
+        put("contentCharCount", stats.totalContentCharCount)
+        put("oldestMessageAtIso", stats.oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestMessageAtIso", stats.newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("summaryLength", summaryText?.length ?: 0)
+        put("compacted", boundaryMessageId != null)
+        put("compactedUntilMessageId", boundaryMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("compactionBoundaryStatus", boundaryStatus)
+        put("compactionBoundarySessionId", boundaryMessage?.sessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("transcriptBodiesOmitted", true)
+        put("summaryBodyOmitted", true)
+    }
+}
+
+private fun List<SessionDoctorIssue>.toSessionDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun SessionDoctorIssue.toSessionDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("sessionId", sessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("title", title?.let(::JsonPrimitive) ?: JsonNull)
+        put("isMain", isMain?.let(::JsonPrimitive) ?: JsonNull)
+        put("archived", archived?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", summary)
+        put("action", action)
+        put("detail", detail?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<SessionDoctorIssue>.toSessionDoctorMarkdown(
+    status: String,
+    totalSessionCount: Long,
+    candidateSessionCount: Int,
+    issueCount: Int,
+    limit: Int,
+    includeArchived: Boolean,
+    requestedSessionId: String?,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Session doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Sessions in inventory: $totalSessionCount")
+        appendLine("- Candidate sessions after filters: $candidateSessionCount")
+        appendLine("- Requested session filter: ${requestedSessionId?.toHandoffLine() ?: "none"}")
+        appendLine("- Archived sessions included: $includeArchived")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Limit: $limit")
+        appendLine("- Transcript bodies omitted: true")
+        appendLine("- Summary bodies omitted: true")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No session issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toSessionDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun SessionDoctorIssue.toSessionDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(title?.toHandoffLine() ?: "runtime")
+        append("`")
+        sessionId?.let { id ->
+            append(" id=`")
+            append(id.toHandoffLine())
+            append("`")
+        }
+        append(" code=")
+        append(code)
+        append(": ")
+        append(summary.toHandoffLine())
+        detail?.let { detail ->
+            append(" detail=")
+            append(detail.toHandoffLine())
+        }
+        append(" Action: ")
+        append(action.toHandoffLine())
+    }
+
+private fun String.toSessionDoctorText(): String = toHandoffLine().take(SESSION_DOCTOR_TEXT_MAX_CHARS)
 
 private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundIntervalMinutes: Long): JsonObject =
     buildJsonObject {
