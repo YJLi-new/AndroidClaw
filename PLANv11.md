@@ -71,6 +71,17 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.import` /
+  `task.import` / `automations.import` / `automation.import` plus restore
+  aliases as the companion Automation Contract portability feature for
+  `tasks.export`. Agents can now dry-run or confirm import of a bounded
+  `tasks` array or `export.tasks` payload, parse once/interval/cron schedules,
+  skip disabled entries when requested, keep restored automations disabled by
+  default unless `enableImported=true`, preserve target-session ids only when
+  explicitly requested and locally active, hide prompt bodies from result
+  payloads by default, and receive explicit run-history/provider omission
+  flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `tasks.export` /
   `task.export` / `automations.export` / `automation.export` plus backup
   aliases as an Automation Contract portability feature. Agents can now export

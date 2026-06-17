@@ -4096,6 +4096,202 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks import dry run previews automation backup without writing or leaking prompts`() =
+        runTest {
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.tasks.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "tasks",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("taskId", "source-task-1")
+                                    put("name", "Portable automation")
+                                    put("prompt", "Portable automation secret prompt")
+                                    put("enabled", true)
+                                    put("executionMode", "IsolatedSession")
+                                    put("preciseRequested", true)
+                                    put("maxRetries", 4)
+                                    put(
+                                        "schedule",
+                                        buildJsonObject {
+                                            put("kind", "interval")
+                                            put("anchorAtIso", "2026-03-08T00:00:00Z")
+                                            put("repeatEveryMinutes", 120)
+                                        },
+                                    )
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("taskId", "source-disabled")
+                                    put("name", "Disabled portable automation")
+                                    put("prompt", "Disabled portable secret prompt")
+                                    put("enabled", false)
+                                    put("executionMode", "MainSession")
+                                    put(
+                                        "schedule",
+                                        buildJsonObject {
+                                            put("kind", "once")
+                                            put("atIso", "2026-03-09T00:00:00Z")
+                                        },
+                                    )
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("taskId", "source-invalid")
+                                    put("name", "Invalid portable automation")
+                                    put("enabled", true)
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("dryRun", true)
+                            put("includeDisabled", false)
+                            put("limit", 3)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.tasks.import.v1", result.payload["importFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importVersion"]?.jsonPrimitive?.content)
+            assertEquals("androidclaw.tasks.export.v1", result.payload["acceptedExportFormat"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeDisabled"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["enableImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["promptsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["receivedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["scannedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importableTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["skippedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["disabledTaskSkippedCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["runHistoryImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["providerMetaImported"]?.jsonPrimitive?.content)
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            val candidate =
+                result.payload
+                    .getValue("candidateTasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Portable automation", candidate.getValue("name").jsonPrimitive.content)
+            assertEquals(JsonNull, candidate.getValue("prompt"))
+            assertEquals(false.toString(), candidate.getValue("importedEnabled").jsonPrimitive.content)
+            val skippedCodeList =
+                result.payload
+                    .getValue("skippedTasks")
+                    .jsonArray
+                    .map { skipped ->
+                        skipped.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }
+            val skippedCodes = skippedCodeList.toSet()
+            assertTrue(skippedCodes.contains("tasks.import.disabled_skipped"))
+            assertTrue(skippedCodes.contains("tasks.import.invalid_missing_prompt"))
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("Portable automation secret prompt"))
+            assertFalse(payloadText.contains("Disabled portable secret prompt"))
+        }
+
+    @Test
+    fun `tasks import confirms restore with prompt target session and scheduling opt in`() =
+        runTest {
+            val targetSession = sessionRepository.createSession("Restored automation target")
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.tasks.export.v1")
+                    put("exportVersion", 1)
+                    put(
+                        "tasks",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("taskId", "restore-task-1")
+                                    put("name", "Restored automation")
+                                    put("prompt", "Restored automation prompt body")
+                                    put("enabled", true)
+                                    put("executionMode", "ISOLATED_SESSION")
+                                    put("targetSessionId", targetSession.id)
+                                    put("preciseRequested", true)
+                                    put("maxRetries", 7)
+                                    put(
+                                        "schedule",
+                                        buildJsonObject {
+                                            put("kind", "cron")
+                                            put("cronExpression", "15 9 * * 1")
+                                            put("timezone", "UTC")
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("confirm", "CONFIRM")
+                            put("enableImported", true)
+                            put("preserveTargetSessionIds", true)
+                            put("includePrompts", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(false.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["enableImported"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["preserveTargetSessionIds"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["promptsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importableTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["enabledImportedTaskCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["targetSessionPreservedCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["targetSessionDroppedCount"]?.jsonPrimitive?.content)
+            val importedPayload =
+                result.payload
+                    .getValue("importedTasks")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            val newTaskId = importedPayload.getValue("newTaskId").jsonPrimitive.content
+            assertEquals("Restored automation", importedPayload.getValue("name").jsonPrimitive.content)
+            assertEquals("Restored automation prompt body", importedPayload.getValue("prompt").jsonPrimitive.content)
+            assertEquals(true.toString(), importedPayload.getValue("enabled").jsonPrimitive.content)
+            assertEquals(targetSession.id, importedPayload.getValue("targetSessionId").jsonPrimitive.content)
+            assertEquals("cron", importedPayload.getValue("scheduleKind").jsonPrimitive.content)
+            val restoredTask = taskRepository.getTask(newTaskId)
+            assertNotNull(restoredTask)
+            assertEquals("Restored automation", restoredTask?.name)
+            assertEquals("Restored automation prompt body", restoredTask?.prompt)
+            assertEquals(TaskExecutionMode.IsolatedSession, restoredTask?.executionMode)
+            assertEquals(targetSession.id, restoredTask?.targetSessionId)
+            assertEquals(true, restoredTask?.enabled)
+            assertEquals(true, restoredTask?.precise)
+            assertEquals(7, restoredTask?.maxRetries)
+            assertTrue(restoredTask?.schedule is TaskSchedule.Cron)
+        }
+
+    @Test
     fun `tasks occurrences previews multiple scheduled run times without mutating task`() =
         runTest {
             val task =

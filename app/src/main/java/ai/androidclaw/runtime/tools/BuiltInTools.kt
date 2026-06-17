@@ -24,9 +24,12 @@ import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.scheduler.CronExpression
+import ai.androidclaw.runtime.scheduler.MAX_SAFE_DURATION_MINUTES
 import ai.androidclaw.runtime.scheduler.NextRunCalculator
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
+import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.scheduler.precisionMode
 import ai.androidclaw.runtime.scheduler.schedulingDecision
@@ -60,6 +63,7 @@ import java.net.URI
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 
 internal fun createBuiltInToolRegistry(
@@ -8540,6 +8544,219 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.import",
+                    aliases =
+                        listOf(
+                            "task.import",
+                            "automations.import",
+                            "automation.import",
+                            "tasks.restore",
+                            "task.restore",
+                            "automations.restore",
+                            "automation.restore",
+                        ),
+                    description = "Import bounded automation definitions from a tasks.export payload.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "tasks",
+                                description = "Array of exported task definitions, or pass export.tasks.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "export",
+                                description = "Optional tasks.export payload containing a tasks array.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum task definitions to scan. Defaults to 50, max 100.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDisabled",
+                                description = "Set false to skip disabled export entries. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "enableImported",
+                                description = "Set true to import enabled source tasks as enabled and schedule them. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "preserveTargetSessionIds",
+                                description = "Set true to preserve targetSessionId only when it exists and is active locally. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includePrompts",
+                                description = "Set true to include prompt bodies in result payloads. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "dryRun",
+                                description = "Set true to preview importable automations without writing. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM unless dryRun=true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val dryRun = arguments.optionalBoolean("dryRun", defaultValue = false)
+            if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry missingTaskImportConfirmationResult()
+            }
+            val rawEntries =
+                when (val parsedEntries = arguments.taskImportEntries()) {
+                    is TaskImportEntriesParseResult.Failure -> return@Entry parsedEntries.result
+                    is TaskImportEntriesParseResult.Success -> parsedEntries.entries
+                }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_IMPORT_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_IMPORT_MAX_LIMIT)
+            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+            val enableImported = arguments.optionalBoolean("enableImported", defaultValue = false)
+            val preserveTargetSessionIds = arguments.optionalBoolean("preserveTargetSessionIds", defaultValue = false)
+            val includePrompts = arguments.optionalBoolean("includePrompts", defaultValue = false)
+            val scannedEntries = rawEntries.take(limit)
+            val candidates = mutableListOf<TaskImportCandidate>()
+            val skipped = mutableListOf<TaskImportSkippedEntry>()
+            scannedEntries.forEachIndexed { sourceIndex, element ->
+                when (val parsedCandidate = element.toTaskImportCandidate(sourceIndex = sourceIndex)) {
+                    is TaskImportCandidateParseResult.Candidate -> {
+                        if (!includeDisabled && !parsedCandidate.candidate.sourceEnabled) {
+                            skipped +=
+                                TaskImportSkippedEntry(
+                                    sourceIndex = sourceIndex,
+                                    code = "tasks.import.disabled_skipped",
+                                    summary = "Disabled export entry skipped because includeDisabled=false.",
+                                )
+                        } else {
+                            candidates += parsedCandidate.candidate
+                        }
+                    }
+                    is TaskImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+                }
+            }
+            val targetSessionsBySourceId = mutableMapOf<String, Session?>()
+            if (preserveTargetSessionIds) {
+                candidates
+                    .mapNotNull(TaskImportCandidate::sourceTargetSessionId)
+                    .distinct()
+                    .forEach { sessionId ->
+                        targetSessionsBySourceId[sessionId] = sessionRepository.getSession(sessionId)
+                    }
+            }
+            val importedTasks = mutableListOf<TaskImportedItem>()
+            if (!dryRun) {
+                candidates.forEach { candidate ->
+                    val importedTargetSessionId = candidate.importTargetSessionId(preserveTargetSessionIds, targetSessionsBySourceId)
+                    val importedEnabled = candidate.importedEnabled(enableImported)
+                    val createdTask =
+                        taskRepository.createTask(
+                            name = candidate.name,
+                            prompt = candidate.prompt,
+                            schedule = candidate.schedule,
+                            executionMode = candidate.executionMode,
+                            targetSessionId = importedTargetSessionId,
+                            precise = candidate.precise,
+                            maxRetries = candidate.maxRetries,
+                        )
+                    val finalTask =
+                        if (importedEnabled) {
+                            createdTask
+                        } else {
+                            createdTask.copy(
+                                enabled = false,
+                                updatedAt = clock.instant(),
+                            )
+                        }
+                    if (finalTask != createdTask) {
+                        taskRepository.updateTask(finalTask)
+                        schedulerCoordinator.cancelTask(finalTask.id)
+                    } else {
+                        schedulerCoordinator.scheduleTask(finalTask.id)
+                    }
+                    importedTasks +=
+                        TaskImportedItem(
+                            candidate = candidate,
+                            task = taskRepository.getTask(finalTask.id) ?: finalTask,
+                            importedTargetSessionId = importedTargetSessionId,
+                            importedEnabled = importedEnabled,
+                        )
+                }
+            }
+            ToolExecutionResult.success(
+                summary =
+                    if (dryRun) {
+                        "Prepared dry-run automation import with ${candidates.size} importable task definition(s)."
+                    } else {
+                        "Imported ${importedTasks.size} automation definition(s); skipped ${skipped.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("importFormat", TASK_IMPORT_FORMAT)
+                        put("importVersion", TASK_IMPORT_VERSION)
+                        put("acceptedExportFormat", TASK_EXPORT_FORMAT)
+                        put("acceptedExportVersion", TASK_EXPORT_VERSION)
+                        put("taskLimit", limit)
+                        put("importLimit", limit)
+                        put("dryRun", dryRun)
+                        put("includeDisabled", includeDisabled)
+                        put("enableImported", enableImported)
+                        put("preserveTargetSessionIds", preserveTargetSessionIds)
+                        put("promptsIncluded", includePrompts)
+                        put("promptBodiesIncluded", includePrompts)
+                        put("runHistoryImported", false)
+                        put("runHistoryIncluded", false)
+                        put("providerMetaImported", false)
+                        put("providerMetaIncluded", false)
+                        put("receivedTaskCount", rawEntries.size)
+                        put("scannedTaskCount", scannedEntries.size)
+                        put("omittedInputTaskCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                        put("importableTaskCount", candidates.size)
+                        put("importedTaskCount", importedTasks.size)
+                        put("skippedTaskCount", skipped.size)
+                        put("invalidTaskCount", skipped.count { entry -> entry.code.startsWith("tasks.import.invalid") })
+                        put("disabledTaskSkippedCount", skipped.count { entry -> entry.code == "tasks.import.disabled_skipped" })
+                        put("enabledImportedTaskCount", importedTasks.count { item -> item.importedEnabled })
+                        put("targetSessionPreservedCount", candidates.count { candidate -> candidate.targetSessionPreserved(preserveTargetSessionIds, targetSessionsBySourceId) })
+                        put("targetSessionDroppedCount", candidates.count { candidate -> candidate.targetSessionDropped(preserveTargetSessionIds, targetSessionsBySourceId) })
+                        put(
+                            "candidateTasks",
+                            buildJsonArray {
+                                candidates.forEach { candidate ->
+                                    add(
+                                        candidate.toTaskImportCandidatePayload(
+                                            includePrompt = includePrompts,
+                                            enableImported = enableImported,
+                                            preserveTargetSessionIds = preserveTargetSessionIds,
+                                            targetSessionsBySourceId = targetSessionsBySourceId,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put(
+                            "importedTasks",
+                            buildJsonArray {
+                                importedTasks.forEach { importedItem ->
+                                    add(importedItem.toTaskImportedPayload(includePrompt = includePrompts))
+                                }
+                            },
+                        )
+                        put(
+                            "skippedTasks",
+                            buildJsonArray {
+                                skipped.forEach { skippedEntry ->
+                                    add(skippedEntry.toTaskImportSkippedPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.disable_all",
                     aliases =
                         listOf(
@@ -11278,6 +11495,10 @@ private const val TASK_EXPORT_DEFAULT_LIMIT = 50
 private const val TASK_EXPORT_MAX_LIMIT = 100
 private const val TASK_HANDOFF_DEFAULT_RUN_LIMIT = 5
 private const val TASK_HANDOFF_MAX_RUN_LIMIT = 20
+private const val TASK_IMPORT_FORMAT = "androidclaw.tasks.import.v1"
+private const val TASK_IMPORT_VERSION = 1
+private const val TASK_IMPORT_DEFAULT_LIMIT = 50
+private const val TASK_IMPORT_MAX_LIMIT = 100
 private const val TASK_OCCURRENCES_DEFAULT_LIMIT = 5
 private const val TASK_OCCURRENCES_MAX_LIMIT = 20
 private const val TASK_RUN_HISTORY_DEFAULT_LIMIT = 10
@@ -11368,6 +11589,52 @@ private data class TaskDoctorIssue(
     val secondsOverdue: Long? = null,
     val detail: String? = null,
 )
+
+private data class TaskImportCandidate(
+    val sourceIndex: Int,
+    val sourceTaskId: String?,
+    val name: String,
+    val prompt: String,
+    val schedule: TaskSchedule,
+    val executionMode: TaskExecutionMode,
+    val sourceTargetSessionId: String?,
+    val sourceEnabled: Boolean,
+    val precise: Boolean,
+    val maxRetries: Int,
+)
+
+private data class TaskImportedItem(
+    val candidate: TaskImportCandidate,
+    val task: Task,
+    val importedTargetSessionId: String?,
+    val importedEnabled: Boolean,
+)
+
+private data class TaskImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private sealed interface TaskImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : TaskImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : TaskImportEntriesParseResult
+}
+
+private sealed interface TaskImportCandidateParseResult {
+    data class Candidate(
+        val candidate: TaskImportCandidate,
+    ) : TaskImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: TaskImportSkippedEntry,
+    ) : TaskImportCandidateParseResult
+}
 
 private data class SessionDoctorIssue(
     val id: String,
@@ -15373,6 +15640,271 @@ private fun List<Task>.toTaskExportMarkdown(
         }
     }
 }
+
+private fun JsonObject.taskImportEntries(): TaskImportEntriesParseResult {
+    val directEntries = this["tasks"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("tasks")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("tasks")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return TaskImportEntriesParseResult.Failure(
+            missingTaskImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(TaskImportEntriesParseResult::Success)
+        ?: TaskImportEntriesParseResult.Failure(invalidTaskImportEntriesResult())
+}
+
+private fun JsonElement.toTaskImportCandidate(sourceIndex: Int): TaskImportCandidateParseResult {
+    val objectValue =
+        this as? JsonObject ?: return taskImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "tasks.import.invalid_entry",
+            summary = "Import entry must be a task object.",
+        )
+    val name =
+        objectValue.optionalText("name")
+            ?: return taskImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "tasks.import.invalid_missing_name",
+                summary = "Import entry skipped because name is missing or blank.",
+            )
+    val prompt =
+        objectValue.optionalRawText("prompt")
+            ?: objectValue.optionalRawText("text")
+            ?: return taskImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "tasks.import.invalid_missing_prompt",
+                summary = "Import entry skipped because prompt is missing or blank.",
+            )
+    val schedule =
+        objectValue.toTaskImportSchedule()
+            ?: return taskImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "tasks.import.invalid_schedule",
+                summary = "Import entry skipped because schedule is missing or invalid.",
+            )
+    val executionMode =
+        objectValue.toTaskImportExecutionMode()
+            ?: return taskImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "tasks.import.invalid_execution_mode",
+                summary = "Import entry skipped because executionMode is unsupported.",
+            )
+    return TaskImportCandidateParseResult.Candidate(
+        TaskImportCandidate(
+            sourceIndex = sourceIndex,
+            sourceTaskId =
+                objectValue.optionalMessageReferenceId("sourceTaskId")
+                    ?: objectValue.optionalMessageReferenceId("taskId")
+                    ?: objectValue.optionalMessageReferenceId("id"),
+            name = name,
+            prompt = prompt,
+            schedule = schedule,
+            executionMode = executionMode,
+            sourceTargetSessionId = objectValue.optionalMessageReferenceId("targetSessionId"),
+            sourceEnabled = objectValue.optionalBoolean("enabled", defaultValue = true),
+            precise =
+                objectValue.optionalBoolean(
+                    field = "preciseRequested",
+                    defaultValue = objectValue.optionalBoolean("precise", defaultValue = false),
+                ),
+            maxRetries = objectValue.optionalInt("maxRetries", defaultValue = 3).coerceAtLeast(0),
+        ),
+    )
+}
+
+private fun JsonObject.toTaskImportSchedule(): TaskSchedule? {
+    val scheduleObject = this["schedule"] as? JsonObject ?: return null
+    val kind =
+        scheduleObject.optionalText("kind")
+            ?: optionalText("scheduleKind")
+            ?: return null
+    return when (kind.lowercase().replace("_", "-")) {
+        "once" -> {
+            val at = scheduleObject.optionalText("atIso") ?: optionalText("atIso") ?: return null
+            runCatching {
+                TaskSchedule.Once(Instant.parse(at))
+            }.getOrNull()
+        }
+        "interval" -> {
+            val anchorAt = scheduleObject.optionalText("anchorAtIso") ?: optionalText("anchorAtIso") ?: return null
+            val repeatEveryMinutes =
+                scheduleObject
+                    .optionalText("repeatEveryMinutes")
+                    ?.toLongOrNull()
+                    ?: optionalText("repeatEveryMinutes")?.toLongOrNull()
+                    ?: return null
+            if (repeatEveryMinutes <= 0L || repeatEveryMinutes > MAX_SAFE_DURATION_MINUTES) {
+                return null
+            }
+            runCatching {
+                TaskSchedule.Interval(
+                    anchorAt = Instant.parse(anchorAt),
+                    repeatEvery = Duration.ofMinutes(repeatEveryMinutes),
+                )
+            }.getOrNull()
+        }
+        "cron" -> {
+            val expression = scheduleObject.optionalText("cronExpression") ?: optionalText("cronExpression") ?: return null
+            val timezone = scheduleObject.optionalText("timezone") ?: optionalText("timezone") ?: return null
+            runCatching {
+                TaskSchedule.Cron(
+                    expression = CronExpression.parse(expression),
+                    zoneId = ZoneId.of(timezone),
+                )
+            }.getOrNull()
+        }
+        else -> null
+    }
+}
+
+private fun JsonObject.toTaskImportExecutionMode(): TaskExecutionMode? {
+    val rawValue = optionalText("executionMode") ?: return TaskExecutionMode.MainSession
+    return when (rawValue.replace("-", "_").uppercase()) {
+        "MAIN_SESSION", "MAINSESSION", "MAIN" -> TaskExecutionMode.MainSession
+        "ISOLATED_SESSION", "ISOLATEDSESSION", "ISOLATED" -> TaskExecutionMode.IsolatedSession
+        else -> null
+    }
+}
+
+private fun taskImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): TaskImportCandidateParseResult.Skipped =
+    TaskImportCandidateParseResult.Skipped(
+        TaskImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun TaskImportCandidate.importedEnabled(enableImported: Boolean): Boolean = enableImported && sourceEnabled
+
+private fun TaskImportCandidate.importTargetSessionId(
+    preserveTargetSessionIds: Boolean,
+    targetSessionsBySourceId: Map<String, Session?>,
+): String? {
+    val sourceSessionId = sourceTargetSessionId ?: return null
+    if (!preserveTargetSessionIds) {
+        return null
+    }
+    val targetSession = targetSessionsBySourceId[sourceSessionId] ?: return null
+    return if (targetSession.archived) null else sourceSessionId
+}
+
+private fun TaskImportCandidate.targetSessionPreserved(
+    preserveTargetSessionIds: Boolean,
+    targetSessionsBySourceId: Map<String, Session?>,
+): Boolean = importTargetSessionId(preserveTargetSessionIds, targetSessionsBySourceId) != null
+
+private fun TaskImportCandidate.targetSessionDropped(
+    preserveTargetSessionIds: Boolean,
+    targetSessionsBySourceId: Map<String, Session?>,
+): Boolean = sourceTargetSessionId != null && importTargetSessionId(preserveTargetSessionIds, targetSessionsBySourceId) == null
+
+private fun missingTaskImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import automations, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_TASK_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_TASK_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingTaskImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide a tasks array or an export object containing tasks to import.",
+        errorCode = "MISSING_TASK_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_TASK_IMPORT_ENTRIES")
+                put("field", "tasks")
+            },
+    )
+
+private fun invalidTaskImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Task import entries must be an array.",
+        errorCode = "INVALID_TASK_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_TASK_IMPORT_ENTRIES")
+                put("field", "tasks")
+            },
+    )
+
+private fun TaskImportCandidate.toTaskImportCandidatePayload(
+    includePrompt: Boolean,
+    enableImported: Boolean,
+    preserveTargetSessionIds: Boolean,
+    targetSessionsBySourceId: Map<String, Session?>,
+): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceTaskId", sourceTaskId?.let(::JsonPrimitive) ?: JsonNull)
+        put("name", name)
+        put("sourceEnabled", sourceEnabled)
+        put("importedEnabled", importedEnabled(enableImported))
+        put("scheduleKind", schedule.toTaskSearchKind())
+        put("schedule", schedule.toPayload())
+        put("executionMode", executionMode.name)
+        put("sourceTargetSessionId", sourceTargetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("targetSessionId", importTargetSessionId(preserveTargetSessionIds, targetSessionsBySourceId)?.let(::JsonPrimitive) ?: JsonNull)
+        put("targetSessionPreserved", targetSessionPreserved(preserveTargetSessionIds, targetSessionsBySourceId))
+        put("targetSessionDropped", targetSessionDropped(preserveTargetSessionIds, targetSessionsBySourceId))
+        put("preciseRequested", precise)
+        put("maxRetries", maxRetries)
+        put("prompt", if (includePrompt) JsonPrimitive(prompt) else JsonNull)
+        put("promptLength", prompt.length)
+        put("promptIncluded", includePrompt)
+        put("promptBodyIncluded", includePrompt)
+        put("fullPromptBodyIncluded", includePrompt)
+        put("runHistoryImported", false)
+        put("runHistoryIncluded", false)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun TaskImportedItem.toTaskImportedPayload(includePrompt: Boolean): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", candidate.sourceIndex)
+        put("sourceTaskId", candidate.sourceTaskId?.let(::JsonPrimitive) ?: JsonNull)
+        put("newTaskId", task.id)
+        put("name", task.name)
+        put("sourceEnabled", candidate.sourceEnabled)
+        put("enabled", task.enabled)
+        put("importedEnabled", importedEnabled)
+        put("scheduleKind", task.schedule.toTaskSearchKind())
+        put("schedule", task.schedule.toPayload())
+        put("executionMode", task.executionMode.name)
+        put("sourceTargetSessionId", candidate.sourceTargetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("targetSessionId", importedTargetSessionId?.let(::JsonPrimitive) ?: JsonNull)
+        put("preciseRequested", task.precise)
+        put("nextRunAtIso", task.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("failureCount", task.failureCount)
+        put("maxRetries", task.maxRetries)
+        put("createdAtIso", task.createdAt.toString())
+        put("updatedAtIso", task.updatedAt.toString())
+        put("prompt", if (includePrompt) JsonPrimitive(task.prompt) else JsonNull)
+        put("promptLength", task.prompt.length)
+        put("promptIncluded", includePrompt)
+        put("promptBodyIncluded", includePrompt)
+        put("fullPromptBodyIncluded", includePrompt)
+        put("runHistoryImported", false)
+        put("runHistoryIncluded", false)
+        put("providerMetaImported", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun TaskImportSkippedEntry.toTaskImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
+    }
 
 private fun TaskRepository.TaskStats.toTaskStatsPayload(minimumBackgroundIntervalMinutes: Long): JsonObject =
     buildJsonObject {
