@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `events.export` /
+  `event.export` / `logs.export` / `diagnostics.export` plus backup aliases
+  as a diagnostics portability feature. Agents can now export bounded recent
+  event-log diagnostics with stable `androidclaw.events.export.v1`
+  format/version metadata, scan and result limits, category/level filters,
+  aggregate category/level counts, optional bounded details, optional
+  markdown, and explicit secret, API-key, OAuth-token, provider-metadata, and
+  message-body omission flags by default. Focused `BuiltInToolsTest`, ktlint,
+  and the full offline fast loop passed.
 - 2026-06-17: Added `runtime.portability` /
   `runtime.backup.plan` / `runtime.restore.plan` / `androidclaw.portability`
   plus system portability aliases as a Runtime Contract coordination feature.

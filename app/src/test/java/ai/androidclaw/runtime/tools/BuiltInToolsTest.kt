@@ -11648,6 +11648,140 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `events export returns stable diagnostics snapshot without details by default`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.System,
+                level = EventLevel.Info,
+                message = "System started",
+                details = "{\"secret\":\"system-detail\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"secret\":\"network-timeout\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Warn,
+                message = "Provider retrying",
+                details = "{\"secret\":\"retry-detail\"}",
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "logs.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("category", "provider")
+                            put("limit", 1)
+                            put("scanLimit", 20)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.events.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            val totalEventCount =
+                result.payload["totalEventCount"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toInt() ?: 0
+            val scannedEventCount =
+                result.payload["scannedEventCount"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toInt() ?: 0
+            assertTrue(totalEventCount >= 3)
+            assertTrue(scannedEventCount >= 3)
+            assertEquals("2", result.payload["matchedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["omittedEventCount"]?.jsonPrimitive?.content)
+            assertEquals("Provider", result.payload["category"]?.jsonPrimitive?.content)
+            assertEquals("Any", result.payload["level"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeDetails"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["detailsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains("network-timeout"))
+            assertFalse(result.payload.toString().contains("retry-detail"))
+            val event =
+                result.payload
+                    .getValue("events")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Provider", event.getValue("category").jsonPrimitive.content)
+            assertFalse(event.containsKey("details"))
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Event diagnostics export"))
+            assertTrue(markdown.contains("androidclaw.events.export.v1"))
+            assertFalse(markdown.contains("network-timeout"))
+        }
+
+    @Test
+    fun `events export can include details omit markdown and validate filters`() =
+        runTest {
+            val registry = buildRegistry()
+            eventLogRepository.log(
+                category = EventCategory.Provider,
+                level = EventLevel.Error,
+                message = "Provider offline",
+                details = "{\"diagnostic\":\"network timeout\"}",
+            )
+            eventLogRepository.log(
+                category = EventCategory.Tool,
+                level = EventLevel.Warn,
+                message = "Tool retrying",
+                details = "{\"diagnostic\":\"retry\"}",
+            )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "diagnostics.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("level", "error")
+                            put("includeDetails", true)
+                            put("includeMarkdown", false)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "events.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("level", "critical")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("Error", result.payload["level"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["eventCount"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["includeDetails"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["detailsIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+            val event =
+                result.payload
+                    .getValue("events")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("Provider offline", event.getValue("message").jsonPrimitive.content)
+            assertEquals("{\"diagnostic\":\"network timeout\"}", event.getValue("details").jsonPrimitive.content)
+            assertFalse(result.payload.toString().contains("retry"))
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        }
+
+    @Test
     fun `events handoff returns bounded recent diagnostics without raw details`() =
         runTest {
             val registry = buildRegistry()

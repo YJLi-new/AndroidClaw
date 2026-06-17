@@ -9150,6 +9150,153 @@ private fun eventToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "events.export",
+                    aliases =
+                        listOf(
+                            "event.export",
+                            "logs.export",
+                            "log.export",
+                            "events.backup",
+                            "logs.backup",
+                            "diagnostics.export",
+                        ),
+                    description = "Export bounded recent runtime diagnostics with stable format metadata.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum event count to export. Defaults to 50, max 100.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "scanLimit",
+                                description = "Maximum recent event count to scan before filtering. Defaults to 200, max 500.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "category",
+                                description = "Optional category filter: provider, tool, scheduler, skill, system, or debug.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "level",
+                                description = "Optional level filter: info, warn, or error.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDetails",
+                                description = "Set true to include bounded event details. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = EVENT_EXPORT_DEFAULT_LIMIT,
+                    ).coerceIn(0, EVENT_EXPORT_MAX_LIMIT)
+            val scanLimit =
+                arguments
+                    .optionalInt(
+                        field = "scanLimit",
+                        defaultValue = EVENT_LOG_SCAN_LIMIT,
+                    ).coerceIn(1, EVENT_LOG_STATS_MAX_SCAN_LIMIT)
+            val category =
+                arguments.optionalText("category")?.let { rawCategory ->
+                    parseEventCategory(rawCategory)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.export received an unknown category.",
+                            field = "category",
+                            received = rawCategory,
+                            toolName = "events.export",
+                        )
+                }
+            val level =
+                arguments.optionalText("level")?.let { rawLevel ->
+                    parseEventLevel(rawLevel)
+                        ?: return@Entry invalidEventArguments(
+                            summary = "events.export received an unknown level.",
+                            field = "level",
+                            received = rawLevel,
+                            toolName = "events.export",
+                        )
+                }
+            val includeDetails = arguments.optionalBoolean("includeDetails")
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val totalEventCount = eventLogRepository.count()
+            val scannedEvents =
+                eventLogRepository
+                    .observeRecent(limit = scanLimit)
+                    .first()
+            val matchingEvents =
+                scannedEvents
+                    .asSequence()
+                    .filter { event -> category == null || event.category == category }
+                    .filter { event -> level == null || event.level == level }
+                    .toList()
+            val exportedEvents = matchingEvents.take(limit)
+            val exportMarkdown =
+                if (includeMarkdown) {
+                    exportedEvents.toEventExportMarkdown(
+                        totalEventCount = totalEventCount,
+                        scannedEventCount = scannedEvents.size,
+                        matchedEventCount = matchingEvents.size,
+                        category = category,
+                        level = level,
+                        limit = limit,
+                        includeDetails = includeDetails,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (exportedEvents.isEmpty()) {
+                        "Prepared empty event diagnostics export."
+                    } else {
+                        "Prepared event diagnostics export with ${exportedEvents.size} event(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("exportFormat", EVENT_EXPORT_FORMAT)
+                        put("exportVersion", EVENT_EXPORT_VERSION)
+                        put("totalEventCount", totalEventCount)
+                        put("scanLimit", scanLimit)
+                        put("scannedEventCount", scannedEvents.size)
+                        put("matchedEventCount", matchingEvents.size)
+                        put("eventCount", exportedEvents.size)
+                        put("exportedEventCount", exportedEvents.size)
+                        put("omittedEventCount", (matchingEvents.size - exportedEvents.size).coerceAtLeast(0))
+                        put("recentFirst", true)
+                        put("category", category?.name ?: "Any")
+                        put("level", level?.name ?: "Any")
+                        put("limit", limit)
+                        put("includeDetails", includeDetails)
+                        put("detailsIncluded", includeDetails)
+                        put("secretValuesIncluded", false)
+                        put("apiKeyValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put("providerMetaIncluded", false)
+                        put("messageBodiesIncluded", false)
+                        put("countsByCategory", matchingEvents.toEventCategoryCountsPayload())
+                        put("countsByLevel", matchingEvents.toEventLevelCountsPayload())
+                        put(
+                            "events",
+                            buildJsonArray {
+                                exportedEvents.forEach { event ->
+                                    add(event.toEventLogPayload(includeDetails = includeDetails))
+                                }
+                            },
+                        )
+                        put("includeMarkdown", includeMarkdown)
+                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "events.handoff",
                     aliases =
                         listOf(
@@ -9634,6 +9781,57 @@ private fun EventLogEntry.toEventHandoffPayload(): JsonObject =
         put("hasDetails", details != null)
         put("detailsIncluded", false)
     }
+
+private fun List<EventLogEntry>.toEventExportMarkdown(
+    totalEventCount: Int,
+    scannedEventCount: Int,
+    matchedEventCount: Int,
+    category: EventCategory?,
+    level: EventLevel?,
+    limit: Int,
+    includeDetails: Boolean,
+): String {
+    val exportedEvents = this
+    return buildString {
+        appendLine("# Event diagnostics export")
+        appendLine()
+        appendLine("- Format: $EVENT_EXPORT_FORMAT")
+        appendLine("- Version: $EVENT_EXPORT_VERSION")
+        appendLine("- Total event logs: $totalEventCount")
+        appendLine("- Scanned events: $scannedEventCount")
+        appendLine("- Matching events: $matchedEventCount")
+        appendLine("- Events exported: ${exportedEvents.size} of up to $limit")
+        appendLine("- Category filter: ${category?.name ?: "Any"}")
+        appendLine("- Level filter: ${level?.name ?: "Any"}")
+        appendLine("- Recent first: true")
+        appendLine("- Event details included: $includeDetails")
+        appendLine("- Secret values included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine()
+        appendLine("## Events")
+        if (exportedEvents.isEmpty()) {
+            appendLine("_No events exported._")
+        } else {
+            exportedEvents.forEach { event ->
+                append("- ")
+                append(event.timestamp)
+                append(" ")
+                append(event.level.name)
+                append(" ")
+                append(event.category.name)
+                append(" `")
+                append(event.id.toHandoffLine())
+                append("`: ")
+                append(event.message.toHandoffLine())
+                if (includeDetails && !event.details.isNullOrBlank()) {
+                    append(" details=")
+                    append(event.details.toHandoffLine().take(EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS))
+                }
+                appendLine()
+            }
+        }
+    }
+}
 
 private fun List<EventLogEntry>.toEventHandoffMarkdown(
     totalEventCount: Int,
@@ -12869,6 +13067,10 @@ private const val COMPACT_SUMMARY_MAX_CHARS = 4_000
 private const val EVENT_DOCTOR_DEFAULT_LIMIT = 20
 private const val EVENT_DOCTOR_MAX_LIMIT = 50
 private const val EVENT_DOCTOR_TEXT_MAX_CHARS = 500
+private const val EVENT_EXPORT_FORMAT = "androidclaw.events.export.v1"
+private const val EVENT_EXPORT_VERSION = 1
+private const val EVENT_EXPORT_DEFAULT_LIMIT = 50
+private const val EVENT_EXPORT_MAX_LIMIT = 100
 private const val EVENT_HANDOFF_DEFAULT_LIMIT = 12
 private const val EVENT_HANDOFF_MAX_LIMIT = 50
 private const val EVENT_LOG_DEFAULT_LIMIT = 20
