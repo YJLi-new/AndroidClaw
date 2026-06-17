@@ -702,6 +702,100 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `sessions compare returns bounded transcript stats and recent snippets`() =
+        runTest {
+            val leftSession = sessionRepository.createSession("Compare left")
+            val rightSession = sessionRepository.createSession("Compare right")
+            val leftBoundary =
+                messageRepository.addMessage(
+                    sessionId = leftSession.id,
+                    role = ai.androidclaw.data.model.MessageRole.User,
+                    content = "Left prompt",
+                )
+            messageRepository.addMessage(
+                sessionId = rightSession.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Right prompt",
+            )
+            messageRepository.addMessage(
+                sessionId = rightSession.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Right answer",
+            )
+            sessionRepository.updateSummaryAndCompactionBoundary(
+                id = leftSession.id,
+                summaryText = "Left compact summary",
+                compactedUntilMessageId = leftBoundary.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "session.diff", sessionId = leftSession.id),
+                    arguments =
+                        buildJsonObject {
+                            put("rightSessionId", rightSession.id)
+                            put("limit", 1)
+                        },
+                )
+
+            assertTrue(result.success)
+            assertEquals(leftSession.id, result.payload["leftSessionId"]?.jsonPrimitive?.content)
+            assertEquals(rightSession.id, result.payload["rightSessionId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["messageCountDeltaRightMinusLeft"]?.jsonPrimitive?.content)
+            val left = result.payload.getValue("left").jsonObject
+            val right = result.payload.getValue("right").jsonObject
+            assertEquals("Compare left", left["title"]?.jsonPrimitive?.content)
+            assertEquals("1", left["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("Left compact summary", left["summarySnippet"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), left["compacted"]?.jsonPrimitive?.content)
+            assertEquals(leftBoundary.id, left["compactedUntilMessageId"]?.jsonPrimitive?.content)
+            assertEquals("Compare right", right["title"]?.jsonPrimitive?.content)
+            assertEquals("2", right["messageCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                "Right answer",
+                right
+                    .getValue("recentMessages")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+                    .getValue("contentSnippet")
+                    .jsonPrimitive
+                    .content,
+            )
+            val rightRoles =
+                right
+                    .getValue("roleStats")
+                    .jsonArray
+                    .map { roleStats ->
+                        roleStats.jsonObject
+                            .getValue("role")
+                            .jsonPrimitive
+                            .content
+                    }.sorted()
+            assertEquals(listOf("Assistant", "User"), rightRoles)
+        }
+
+    @Test
+    fun `sessions compare rejects same session`() =
+        runTest {
+            val session = sessionRepository.createSession("Compare same")
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "sessions.compare", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("rightSessionId", session.id)
+                        },
+                )
+
+            assertFalse(result.success)
+            assertEquals("INVALID_TARGET_SESSION", result.errorCode)
+        }
+
+    @Test
     fun `sessions clear requires confirmation and clears transcript while preserving session`() =
         runTest {
             val session = sessionRepository.createSession("Clear transcript")

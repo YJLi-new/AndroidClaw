@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `sessions.compare` / `session.compare` /
+  `sessions.diff` / `session.diff` plus compare-transcript aliases as a
+  Session Contract planning tool. Agents can now compare two active or
+  specified sessions without loading full transcripts, including per-side
+  summary/compaction metadata, aggregate message/content counts, role stats,
+  bounded recent snippets, and right-minus-left deltas for merge/fork planning.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `sessions.merge` / `session.merge` /
   `sessions.merge_into` / `sessions.combine` plus singular aliases as a
   Session Contract transcript-composition control. Agents can now copy one

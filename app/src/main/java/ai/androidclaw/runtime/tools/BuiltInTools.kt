@@ -1434,6 +1434,157 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "sessions.compare",
+                                    aliases =
+                                        listOf(
+                                            "session.compare",
+                                            "sessions.diff",
+                                            "session.diff",
+                                            "sessions.compare_transcripts",
+                                            "session.compare_transcripts",
+                                        ),
+                                    description = "Compare two chat sessions by transcript stats and bounded recent messages.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "leftSessionId",
+                                                description = "First session id. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "sourceSessionId",
+                                                description = "Alias for leftSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "rightSessionId",
+                                                description = "Second session id. Defaults to the active session only when leftSessionId is explicit.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "targetSessionId",
+                                                description = "Alias for rightSessionId.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum recent message snippets per side. Defaults to 3.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val explicitLeftSessionId =
+                                arguments.optionalText("leftSessionId")
+                                    ?: arguments.optionalText("sourceSessionId")
+                            val explicitRightSessionId =
+                                arguments.optionalText("rightSessionId")
+                                    ?: arguments.optionalText("targetSessionId")
+                            val leftSessionId = explicitLeftSessionId ?: context.sessionId
+                            val rightSessionId =
+                                explicitRightSessionId
+                                    ?: context.sessionId?.takeIf { activeSessionId -> activeSessionId != leftSessionId }
+                            if (leftSessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "sessions.compare requires a leftSessionId or active left session.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                            put("field", "leftSessionId")
+                                        },
+                                )
+                            }
+                            if (rightSessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "sessions.compare requires a rightSessionId or second active/default session.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                            put("leftSessionId", leftSessionId)
+                                            put("field", "rightSessionId")
+                                        },
+                                )
+                            }
+                            if (leftSessionId == rightSessionId) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "sessions.compare requires two different sessions.",
+                                    errorCode = "INVALID_TARGET_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "INVALID_TARGET_SESSION")
+                                            put("leftSessionId", leftSessionId)
+                                            put("rightSessionId", rightSessionId)
+                                        },
+                                )
+                            }
+                            val leftSession =
+                                sessionRepository.getSession(leftSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Left session $leftSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", leftSessionId)
+                                                put("field", "leftSessionId")
+                                            },
+                                    )
+                            val rightSession =
+                                sessionRepository.getSession(rightSessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Right session $rightSessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", rightSessionId)
+                                                put("field", "rightSessionId")
+                                            },
+                                    )
+                            val limit =
+                                arguments
+                                    .optionalInt("limit", SESSION_COMPARE_DEFAULT_RECENT_LIMIT)
+                                    .coerceIn(0, MESSAGE_RECENT_DEFAULT_LIMIT)
+                            val leftStats = messageRepository.getMessageStats(leftSession.id)
+                            val rightStats = messageRepository.getMessageStats(rightSession.id)
+                            val leftRecent =
+                                messageRepository.getRecentMessagesChronological(
+                                    sessionId = leftSession.id,
+                                    limit = limit,
+                                )
+                            val rightRecent =
+                                messageRepository.getRecentMessagesChronological(
+                                    sessionId = rightSession.id,
+                                    limit = limit,
+                                )
+                            ToolExecutionResult.success(
+                                summary = "Compared \"${leftSession.title}\" with \"${rightSession.title}\".",
+                                payload =
+                                    buildJsonObject {
+                                        put("leftSessionId", leftSession.id)
+                                        put("rightSessionId", rightSession.id)
+                                        put("recentLimit", limit)
+                                        put("messageCountDeltaRightMinusLeft", rightStats.totalMessageCount - leftStats.totalMessageCount)
+                                        put("contentCharDeltaRightMinusLeft", rightStats.totalContentCharCount - leftStats.totalContentCharCount)
+                                        put(
+                                            "left",
+                                            leftSession.toSessionComparePayload(
+                                                stats = leftStats,
+                                                recentMessages = leftRecent,
+                                            ),
+                                        )
+                                        put(
+                                            "right",
+                                            rightSession.toSessionComparePayload(
+                                                stats = rightStats,
+                                                recentMessages = rightRecent,
+                                            ),
+                                        )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "messages.search",
                                     aliases = listOf("message.search", "chat.search"),
                                     description = "Search active-session chat messages by content.",
@@ -6697,6 +6848,7 @@ private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
+private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
 private const val SESSION_SEARCH_DEFAULT_LIMIT = 20
 private const val SESSION_SUMMARY_SNIPPET_MAX_CHARS = 500
 
@@ -7980,6 +8132,46 @@ private fun MessageRepository.RoleMessageStats.toMessageRoleStatsPayload(): Json
         put("oldestMessageAtIso", oldestMessageAt.toString())
         put("newestMessageAtIso", newestMessageAt.toString())
     }
+
+private fun Session.toSessionComparePayload(
+    stats: MessageRepository.SessionMessageStats,
+    recentMessages: List<ChatMessage>,
+): JsonObject {
+    val summarySnippet = summaryText?.take(SESSION_SUMMARY_SNIPPET_MAX_CHARS)
+    return buildJsonObject {
+        put("sessionId", id)
+        put("title", title)
+        put("isMain", isMain)
+        put("archived", archived)
+        put("createdAtIso", createdAt.toString())
+        put("updatedAtIso", updatedAt.toString())
+        put("messageCount", stats.totalMessageCount)
+        put("contentCharCount", stats.totalContentCharCount)
+        put("oldestMessageAtIso", stats.oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestMessageAtIso", stats.newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("summaryLength", summaryText?.length ?: 0)
+        put("summarySnippet", summarySnippet?.let(::JsonPrimitive) ?: JsonNull)
+        put("summaryTruncated", summaryText?.let { it.length > SESSION_SUMMARY_SNIPPET_MAX_CHARS } ?: false)
+        put("compacted", compactedUntilMessageId != null)
+        put("compactedUntilMessageId", compactedUntilMessageId?.let(::JsonPrimitive) ?: JsonNull)
+        put(
+            "roleStats",
+            buildJsonArray {
+                stats.roleStats.forEach { roleStats ->
+                    add(roleStats.toMessageRoleStatsPayload())
+                }
+            },
+        )
+        put(
+            "recentMessages",
+            buildJsonArray {
+                recentMessages.forEach { message ->
+                    add(message.toMessagePagePayload())
+                }
+            },
+        )
+    }
+}
 
 private fun Session.toSessionSummaryPayload(): JsonObject {
     val summarySnippet = summaryText?.take(SESSION_SUMMARY_SNIPPET_MAX_CHARS)
