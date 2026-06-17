@@ -144,6 +144,154 @@ internal fun createBuiltInToolRegistry(
                             )
                         },
                     )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "runtime.handoff",
+                                    aliases =
+                                        listOf(
+                                            "runtime.snapshot",
+                                            "androidclaw.handoff",
+                                            "androidclaw.snapshot",
+                                            "system.handoff",
+                                            "system.snapshot",
+                                        ),
+                                    description =
+                                        "Return a compact AndroidClaw runtime handoff with cross-contract counts and bounded context.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "recentSessionLimit",
+                                                description = "Maximum recent session activity entries. Defaults to 5, max 10.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "upcomingTaskLimit",
+                                                description = "Maximum upcoming automation entries. Defaults to 5, max 10.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val recentSessionLimit =
+                                arguments
+                                    .optionalInt(
+                                        field = "recentSessionLimit",
+                                        defaultValue = RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT,
+                                    ).coerceIn(0, RUNTIME_HANDOFF_MAX_SECTION_LIMIT)
+                            val upcomingTaskLimit =
+                                arguments
+                                    .optionalInt(
+                                        field = "upcomingTaskLimit",
+                                        defaultValue = RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT,
+                                    ).coerceIn(0, RUNTIME_HANDOFF_MAX_SECTION_LIMIT)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val now = clock.instant()
+                            val settings = settingsDataStore.settings.first()
+                            val selectedProviderAuthState =
+                                settings.providerType.toProviderAuthState(
+                                    providerSecretStore = providerSecretStore,
+                                    clock = clock,
+                                )
+                            val providerStats =
+                                settings.toProviderStatsPayload(
+                                    providerSecretStore = providerSecretStore,
+                                    clock = clock,
+                                )
+                            val sessionStats = sessionRepository.getSessionStats()
+                            val recentSessions =
+                                sessionRepository.listSessionActivity(
+                                    limit = recentSessionLimit,
+                                    includeArchived = false,
+                                )
+                            val taskStats = taskRepository.getTaskStats(now)
+                            val upcomingTasks = taskRepository.getUpcomingEnabledTasks(upcomingTaskLimit)
+                            val memorySection =
+                                memoryRepository.toRuntimeMemorySectionPayload(
+                                    settingsDataStore = settingsDataStore,
+                                )
+                            val eventSection =
+                                eventLogRepository.toRuntimeEventSectionPayload()
+                            val skills = bundledSkillsProvider()
+                            val tools = toolRegistry.descriptors()
+                            val handoffMarkdown =
+                                if (includeMarkdown) {
+                                    buildRuntimeHandoffMarkdown(
+                                        generatedAt = now,
+                                        context = context,
+                                        currentProvider = settings.providerType,
+                                        providerAuthState = selectedProviderAuthState,
+                                        sessionStats = sessionStats,
+                                        recentSessions = recentSessions,
+                                        recentSessionLimit = recentSessionLimit,
+                                        taskStats = taskStats,
+                                        upcomingTasks = upcomingTasks,
+                                        upcomingTaskLimit = upcomingTaskLimit,
+                                        memorySection = memorySection,
+                                        eventSection = eventSection,
+                                        skillCount = skills.size,
+                                        enabledSkillCount = skills.count { skill -> skill.enabled },
+                                        toolCount = tools.size,
+                                        availableToolCount = tools.count { tool -> tool.availability.status == ToolAvailabilityStatus.Available },
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary = "Prepared AndroidClaw runtime handoff snapshot.",
+                                payload =
+                                    buildJsonObject {
+                                        put("generatedAtIso", now.toString())
+                                        put("requestedSessionId", context.sessionId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("requestedTaskRunId", context.taskRunId?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("origin", context.origin.name)
+                                        put("runMode", context.runMode?.name?.let(::JsonPrimitive) ?: JsonNull)
+                                        put("recentSessionLimit", recentSessionLimit)
+                                        put("upcomingTaskLimit", upcomingTaskLimit)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("heavyContentIncluded", false)
+                                        put("secretValuesIncluded", false)
+                                        put("provider", settings.providerType.toProviderHandoffPayload(settings, selectedProviderAuthState))
+                                        put("providerStats", providerStats)
+                                        put("sessionStats", sessionStats.toSessionStatsPayload())
+                                        put(
+                                            "recentSessions",
+                                            buildJsonArray {
+                                                recentSessions.forEach { activity ->
+                                                    add(activity.toSessionActivityPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "taskStats",
+                                            taskStats.toTaskStatsPayload(
+                                                minimumBackgroundIntervalMinutes =
+                                                    schedulerCoordinator
+                                                        .capabilities()
+                                                        .minimumBackgroundInterval
+                                                        .toMinutes(),
+                                            ),
+                                        )
+                                        put(
+                                            "upcomingTasks",
+                                            buildJsonArray {
+                                                upcomingTasks.forEach { task ->
+                                                    add(task.toTaskSearchPayload())
+                                                }
+                                            },
+                                        )
+                                        put("memory", memorySection)
+                                        put("events", eventSection)
+                                        put("skillStats", skills.toSkillStatsPayload())
+                                        put("toolStats", tools.toToolStatsPayload())
+                                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
                     addAll(
                         providerToolEntries(
                             settingsDataStore = settingsDataStore,
@@ -8231,6 +8379,8 @@ private const val MESSAGE_CONTEXT_DEFAULT_RADIUS = 3
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
+private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
+private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
 private const val SESSION_COMPARE_DEFAULT_RECENT_LIMIT = 3
 private const val SESSION_HANDOFF_DEFAULT_RECENT_LIMIT = 8
@@ -8279,6 +8429,154 @@ private const val TOOL_SEARCH_DEFAULT_LIMIT = 20
 private const val TOOL_SEARCH_MAX_LIMIT = 100
 private const val TOOL_NOTIFICATION_CHANNEL_ID = "androidclaw.tools"
 private val TOOL_VALIDATE_RESERVED_ARGUMENT_FIELDS = setOf("toolName", "name", "arguments")
+
+private suspend fun MemoryRepository?.toRuntimeMemorySectionPayload(settingsDataStore: SettingsDataStore): JsonObject {
+    if (this == null) {
+        return buildJsonObject {
+            put("available", false)
+            put("enabled", JsonNull)
+            put("activeMemoryCount", JsonNull)
+            put("deletedMemoryCount", JsonNull)
+            put("totalMemoryCount", JsonNull)
+            put("ownerUserIdIncluded", false)
+        }
+    }
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    val stats = stats(settings.installUserId)
+    return buildJsonObject {
+        put("available", true)
+        put("enabled", settings.enabled)
+        put("activeMemoryCount", stats.activeMemoryCount)
+        put("deletedMemoryCount", stats.deletedMemoryCount)
+        put("totalMemoryCount", stats.totalMemoryCount)
+        put("activeWithSourceSessionCount", stats.activeWithSourceSessionCount)
+        put("oldestActiveCreatedAtIso", stats.oldestActiveCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("newestActiveUpdatedAtIso", stats.newestActiveUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+        put("ownerUserIdIncluded", false)
+        put(
+            "sourceTypeStats",
+            buildJsonArray {
+                stats.sourceTypeStats.forEach { sourceTypeStats ->
+                    add(
+                        buildJsonObject {
+                            put("sourceType", sourceTypeStats.sourceType)
+                            put("memoryCount", sourceTypeStats.memoryCount)
+                        },
+                    )
+                }
+            },
+        )
+    }
+}
+
+private suspend fun EventLogRepository?.toRuntimeEventSectionPayload(): JsonObject =
+    buildJsonObject {
+        put("available", this@toRuntimeEventSectionPayload != null)
+        put("eventCount", this@toRuntimeEventSectionPayload?.count()?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun buildRuntimeHandoffMarkdown(
+    generatedAt: Instant,
+    context: ToolExecutionContext,
+    currentProvider: ProviderType,
+    providerAuthState: ProviderAuthState,
+    sessionStats: SessionRepository.SessionStats,
+    recentSessions: List<SessionRepository.SessionActivity>,
+    recentSessionLimit: Int,
+    taskStats: TaskRepository.TaskStats,
+    upcomingTasks: List<Task>,
+    upcomingTaskLimit: Int,
+    memorySection: JsonObject,
+    eventSection: JsonObject,
+    skillCount: Int,
+    enabledSkillCount: Int,
+    toolCount: Int,
+    availableToolCount: Int,
+): String =
+    buildString {
+        appendLine("# AndroidClaw runtime handoff")
+        appendLine()
+        appendLine("- Generated: $generatedAt")
+        appendLine("- Requested session id: ${context.sessionId ?: "none"}")
+        appendLine("- Requested task run id: ${context.taskRunId ?: "none"}")
+        appendLine("- Origin: ${context.origin.name}")
+        appendLine("- Run mode: ${context.runMode?.name ?: "none"}")
+        appendLine("- Heavy content included: false")
+        appendLine("- Secret values included: false")
+        appendLine()
+        appendLine("## Runtime counts")
+        appendLine("- Provider: `${currentProvider.providerId}` ${currentProvider.displayName.toHandoffLine()} auth=${providerAuthState.status}")
+        appendLine(
+            "- Sessions: total=${sessionStats.totalSessionCount} active=${sessionStats.activeSessionCount} " +
+                "archived=${sessionStats.archivedSessionCount} summarized=${sessionStats.summarizedSessionCount} " +
+                "compacted=${sessionStats.compactedSessionCount}",
+        )
+        appendLine(
+            "- Automations: total=${taskStats.totalTaskCount} enabled=${taskStats.enabledTaskCount} " +
+                "disabled=${taskStats.disabledTaskCount} due=${taskStats.dueTaskCount} runs=${taskStats.totalRunCount}",
+        )
+        appendLine(
+            "- Memory: available=${memorySection.optionalText("available") ?: "unknown"} " +
+                "enabled=${memorySection.optionalText("enabled") ?: "unknown"} " +
+                "active=${memorySection.optionalText("activeMemoryCount") ?: "unknown"}",
+        )
+        appendLine("- Skills: total=$skillCount enabled=$enabledSkillCount")
+        appendLine("- Tools: total=$toolCount available=$availableToolCount")
+        appendLine(
+            "- Event logs: available=${eventSection.optionalText("available") ?: "unknown"} " +
+                "count=${eventSection.optionalText("eventCount") ?: "unknown"}",
+        )
+        appendLine()
+        appendLine("## Recent sessions")
+        appendLine("- Included: ${recentSessions.size} of up to $recentSessionLimit")
+        if (recentSessions.isEmpty()) {
+            appendLine("_No recent sessions included._")
+        } else {
+            recentSessions.forEach { activity ->
+                appendLine(activity.toRuntimeHandoffMarkdownLine())
+            }
+        }
+        appendLine()
+        appendLine("## Upcoming automations")
+        appendLine("- Included: ${upcomingTasks.size} of up to $upcomingTaskLimit")
+        if (upcomingTasks.isEmpty()) {
+            appendLine("_No upcoming enabled automations included._")
+        } else {
+            upcomingTasks.forEach { task ->
+                appendLine(task.toRuntimeHandoffMarkdownLine())
+            }
+        }
+    }
+
+private fun SessionRepository.SessionActivity.toRuntimeHandoffMarkdownLine(): String =
+    buildString {
+        append("- `")
+        append(session.title.toHandoffLine())
+        append("` id=`")
+        append(session.id)
+        append("` messages=")
+        append(messageCount)
+        append(" main=")
+        append(session.isMain)
+        append(" compacted=")
+        append(session.compactedUntilMessageId != null)
+        append(" updated=")
+        append(session.updatedAt)
+    }
+
+private fun Task.toRuntimeHandoffMarkdownLine(): String =
+    buildString {
+        append("- `")
+        append(name.toHandoffLine())
+        append("` id=`")
+        append(id)
+        append("` schedule=")
+        append(schedule.toTaskSearchKind())
+        append(" mode=")
+        append(executionMode.name)
+        append(" next=")
+        append(nextRunAt ?: "none")
+    }
 
 private fun ProviderType.matchesProviderIdentifier(identifier: String): Boolean =
     providerId.equals(identifier, ignoreCase = true) ||

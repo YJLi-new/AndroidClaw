@@ -6837,6 +6837,174 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `runtime handoff returns compact cross contract state without secrets or heavy content`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "runtime-secret-key")
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val session = sessionRepository.createSession("Runtime planning", isMain = true)
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Runtime handoff should include only a bounded latest-message snippet.",
+            )
+            taskRepository.createTask(
+                name = "Runtime check",
+                prompt = "Check runtime state without exporting the full prompt.",
+                schedule = TaskSchedule.Once(Instant.now().plus(Duration.ofDays(1))),
+                executionMode = TaskExecutionMode.MainSession,
+                targetSessionId = session.id,
+            )
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "Runtime memory should be counted but not exported.",
+                sourceSessionId = session.id,
+            )
+            val registry =
+                buildRegistry(
+                    bundledSkills = listOf(skillSnapshot(id = "runtime-skill", name = "runtime-skill")),
+                    providerSecretStore = providerSecretStore,
+                )
+
+            val result =
+                registry.execute(
+                    context =
+                        ToolExecutionContext.internal(
+                            requestedName = "runtime.snapshot",
+                            sessionId = session.id,
+                            runMode = ai.androidclaw.runtime.providers.ModelRunMode.Interactive,
+                        ),
+                    arguments =
+                        buildJsonObject {
+                            put("recentSessionLimit", 1)
+                            put("upcomingTaskLimit", 1)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("runtime-secret-key"))
+            assertFalse(payloadText.contains(ownerUserId))
+            assertEquals("false", result.payload["heavyContentIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["requestedSessionId"]?.jsonPrimitive?.content)
+            assertEquals("Interactive", result.payload["runMode"]?.jsonPrimitive?.content)
+            val provider = result.payload.getValue("provider").jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals("true", provider.getValue("apiKeyConfigured").jsonPrimitive.content)
+            val sessionStats = result.payload.getValue("sessionStats").jsonObject
+            assertEquals("1", sessionStats.getValue("sessionCount").jsonPrimitive.content)
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("recentSessions")
+                    .jsonArray
+                    .size
+                    .toString(),
+            )
+            val taskStats = result.payload.getValue("taskStats").jsonObject
+            assertEquals("1", taskStats.getValue("taskCount").jsonPrimitive.content)
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("upcomingTasks")
+                    .jsonArray
+                    .size
+                    .toString(),
+            )
+            val memory = result.payload.getValue("memory").jsonObject
+            assertEquals("true", memory.getValue("available").jsonPrimitive.content)
+            assertEquals("true", memory.getValue("enabled").jsonPrimitive.content)
+            assertEquals("1", memory.getValue("activeMemoryCount").jsonPrimitive.content)
+            assertEquals("false", memory.getValue("ownerUserIdIncluded").jsonPrimitive.content)
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("skillStats")
+                    .jsonObject
+                    .getValue("skillCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertTrue(
+                result.payload
+                    .getValue("toolStats")
+                    .jsonObject
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() > 0,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("events")
+                    .jsonObject
+                    .getValue("available")
+                    .jsonPrimitive
+                    .content,
+            )
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# AndroidClaw runtime handoff"))
+            assertTrue(markdown.contains("Runtime planning"))
+            assertTrue(markdown.contains("Runtime check"))
+            assertFalse(markdown.contains("runtime-secret-key"))
+            assertFalse(markdown.contains(ownerUserId))
+        }
+
+    @Test
+    fun `runtime handoff can omit markdown and bounded sections`() =
+        runTest {
+            val session = sessionRepository.createSession("Omitted runtime section")
+            taskRepository.createTask(
+                name = "Omitted runtime task",
+                prompt = "Prompt omitted by section limit.",
+                schedule = TaskSchedule.Once(Instant.now().plus(Duration.ofDays(1))),
+                executionMode = TaskExecutionMode.IsolatedSession,
+                targetSessionId = session.id,
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "androidclaw.handoff"),
+                    arguments =
+                        buildJsonObject {
+                            put("recentSessionLimit", 0)
+                            put("upcomingTaskLimit", 0)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("0", result.payload["recentSessionLimit"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["upcomingTaskLimit"]?.jsonPrimitive?.content)
+            assertEquals(
+                0,
+                result.payload
+                    .getValue("recentSessions")
+                    .jsonArray
+                    .size,
+            )
+            assertEquals(
+                0,
+                result.payload
+                    .getValue("upcomingTasks")
+                    .jsonArray
+                    .size,
+            )
+            assertEquals(JsonNull, result.payload.getValue("handoffMarkdown"))
+        }
+
+    @Test
     fun `events recent exposes bounded diagnostics with optional details`() =
         runTest {
             val registry = buildRegistry()

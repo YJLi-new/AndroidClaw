@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `runtime.handoff` /
+  `runtime.snapshot` / `androidclaw.handoff` / `androidclaw.snapshot` plus
+  system aliases as a top-level context-transfer feature. Agents can now
+  prepare a compact cross-contract runtime snapshot with selected provider
+  auth status, session/task/memory/skill/tool/event counts, bounded recent
+  session activity, bounded upcoming automations, optional markdown, and
+  explicit heavy-content/secret omission flags. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `providers.handoff` /
   `provider.handoff` / `providers.snapshot` / `provider.snapshot` as a
   Provider/OAuth context-transfer feature. Agents can now prepare a compact
