@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `skills.doctor` /
+  `skill.doctor` / `skills.check` / `skill.check` as a dedicated Skill
+  Contract diagnostics tool. Agents can now scan enabled or all skills for
+  parse/frontmatter failures, disabled invocability, shadowed definitions,
+  eligibility failures, missing command tools, missing secrets/config, and
+  inconsistent model/tool dispatch settings with OK/WARN/ERROR status,
+  bounded issue payloads, optional markdown, and explicit instruction/secret
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `runtime.doctor` /
   `health.doctor` / `runtime.check` / `androidclaw.doctor` plus system alias
   as a read-only readiness diagnostic. Agents can now inspect provider auth and

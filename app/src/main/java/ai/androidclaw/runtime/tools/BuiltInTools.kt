@@ -3986,6 +3986,105 @@ internal fun createBuiltInToolRegistry(
                         ToolRegistry.Entry(
                             descriptor =
                                 ToolDescriptor(
+                                    name = "skills.doctor",
+                                    aliases =
+                                        listOf(
+                                            "skill.doctor",
+                                            "skills.check",
+                                            "skill.check",
+                                        ),
+                                    description = "Return actionable skill diagnostics without SKILL.md instruction bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum diagnostic issues to include. Defaults to 20.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeDisabled",
+                                                description = "Set false to omit disabled skills before diagnostics. Defaults to true.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { _, arguments ->
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = SKILL_DOCTOR_DEFAULT_LIMIT,
+                                    ).coerceIn(0, SKILL_DOCTOR_MAX_LIMIT)
+                            val includeDisabled = arguments.optionalBoolean("includeDisabled", defaultValue = true)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val skills = bundledSkillsProvider()
+                            val candidates =
+                                if (includeDisabled) {
+                                    skills
+                                } else {
+                                    skills.filter { skill -> skill.enabled }
+                                }
+                            val issues = candidates.flatMap { skill -> skill.toSkillDoctorIssues() }
+                            val includedIssues = issues.take(limit)
+                            val status = issues.toSkillDoctorStatus()
+                            val doctorMarkdown =
+                                if (includeMarkdown) {
+                                    includedIssues.toSkillDoctorMarkdown(
+                                        status = status,
+                                        totalSkillCount = skills.size,
+                                        candidateSkillCount = candidates.size,
+                                        issueCount = issues.size,
+                                        limit = limit,
+                                        includeDisabled = includeDisabled,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    when {
+                                        issues.isEmpty() ->
+                                            "Skills doctor found no issues across ${candidates.size} candidate skill(s)."
+                                        includedIssues.size == issues.size ->
+                                            "Skills doctor found ${issues.size} issue(s) across ${candidates.size} candidate skill(s)."
+                                        else ->
+                                            "Skills doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("status", status)
+                                        put("skillCount", skills.size)
+                                        put("candidateSkillCount", candidates.size)
+                                        put("issueCount", issues.size)
+                                        put("includedIssueCount", includedIssues.size)
+                                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                                        put("limit", limit)
+                                        put("includeDisabled", includeDisabled)
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("instructionsOmitted", true)
+                                        put("secretValuesOmitted", true)
+                                        put("stats", skills.toSkillStatsPayload())
+                                        put(
+                                            "issues",
+                                            buildJsonArray {
+                                                includedIssues.forEach { issue ->
+                                                    add(issue.toSkillDoctorPayload())
+                                                }
+                                            },
+                                        )
+                                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
                                     name = "skills.handoff",
                                     aliases =
                                         listOf(
@@ -8545,6 +8644,10 @@ private enum class MessagePageDirection(
 }
 
 private const val SKILL_INSTRUCTIONS_MAX_CHARS = 8_000
+private const val SKILL_DOCTOR_DEFAULT_LIMIT = 20
+private const val SKILL_DOCTOR_MAX_LIMIT = 50
+private const val SKILL_DOCTOR_FIELD_LIST_LIMIT = 10
+private const val SKILL_DOCTOR_TEXT_MAX_CHARS = 500
 private const val SKILL_HANDOFF_DEFAULT_LIMIT = 8
 private const val SKILL_HANDOFF_MAX_LIMIT = 20
 private const val SKILL_SEARCH_DEFAULT_LIMIT = 20
@@ -8583,6 +8686,26 @@ private data class RuntimeDoctorIssue(
     val area: String,
     val summary: String,
     val action: String,
+)
+
+private data class SkillDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val skillId: String,
+    val skillKey: String,
+    val displayName: String,
+    val sourceType: String,
+    val enabled: Boolean,
+    val resolutionState: String,
+    val eligibilityStatus: String,
+    val summary: String,
+    val action: String,
+    val parseError: String? = null,
+    val missingSecretNames: List<String> = emptyList(),
+    val omittedMissingSecretNameCount: Int = 0,
+    val missingConfigPaths: List<String> = emptyList(),
+    val omittedMissingConfigPathCount: Int = 0,
 )
 
 private fun buildRuntimeDoctorIssues(
@@ -10130,6 +10253,258 @@ private fun SkillSnapshot.toSkillHandoffMarkdownLine(): String =
             append(" parseError=")
             append(error.toHandoffLine())
         }
+    }
+
+private fun SkillSnapshot.toSkillDoctorIssues(): List<SkillDoctorIssue> =
+    buildList {
+        fun addIssue(
+            severity: String,
+            code: String,
+            summary: String,
+            action: String,
+            parseErrorOverride: String? = null,
+            missingSecretNames: List<String> = emptyList(),
+            missingConfigPaths: List<String> = emptyList(),
+        ) {
+            val includedMissingSecretNames = missingSecretNames.take(SKILL_DOCTOR_FIELD_LIST_LIMIT)
+            val includedMissingConfigPaths = missingConfigPaths.take(SKILL_DOCTOR_FIELD_LIST_LIMIT)
+            add(
+                SkillDoctorIssue(
+                    id = "$id:$code",
+                    severity = severity,
+                    code = code,
+                    skillId = id,
+                    skillKey = skillKey,
+                    displayName = displayName,
+                    sourceType = sourceType.name,
+                    enabled = enabled,
+                    resolutionState = resolutionState.name,
+                    eligibilityStatus = eligibility.status.name,
+                    summary = summary.toSkillDoctorText(),
+                    action = action.toSkillDoctorText(),
+                    parseError = parseErrorOverride?.toSkillDoctorText(),
+                    missingSecretNames = includedMissingSecretNames.map { name -> name.toSkillDoctorText() },
+                    omittedMissingSecretNameCount =
+                        (missingSecretNames.size - includedMissingSecretNames.size).coerceAtLeast(0),
+                    missingConfigPaths = includedMissingConfigPaths.map { path -> path.toSkillDoctorText() },
+                    omittedMissingConfigPathCount =
+                        (missingConfigPaths.size - includedMissingConfigPaths.size).coerceAtLeast(0),
+                ),
+            )
+        }
+
+        if (parseError != null || frontmatter == null) {
+            val reason = parseError ?: "No parsed frontmatter was available."
+            addIssue(
+                severity = "Error",
+                code = if (parseError != null) "skill.parse_error" else "skill.frontmatter.missing",
+                summary = "Skill $displayName has invalid SKILL.md metadata: $reason",
+                action = "Fix SKILL.md frontmatter, then reimport or rescan the skill.",
+                parseErrorOverride = parseError,
+            )
+        }
+        if (resolutionState == SkillResolutionState.Shadowed) {
+            addIssue(
+                severity = "Warning",
+                code = "skill.shadowed",
+                summary = "Skill $displayName is shadowed by ${shadowedBy ?: "another skill"}.",
+                action = "Remove or rename the duplicate skill if this definition should be effective.",
+            )
+        }
+        if (!enabled && eligibility.status == SkillEligibilityStatus.Eligible && parseError == null) {
+            addIssue(
+                severity = "Warning",
+                code = "skill.disabled",
+                summary = "Skill $displayName is disabled and will not be invoked.",
+                action = "Run skills.enable with this skillId if the skill should be invocable.",
+            )
+        }
+        if (eligibility.status != SkillEligibilityStatus.Eligible) {
+            addIssue(
+                severity = eligibility.status.toSkillDoctorSeverity(),
+                code = "skill.ineligible.${eligibility.status.name.lowercase()}",
+                summary =
+                    "Skill $displayName is ${eligibility.status.name}: " +
+                        eligibility.reasons.toSkillDoctorReasonText(),
+                action = eligibility.status.toSkillDoctorAction(),
+            )
+        }
+        val missingSecretNames = secretStatuses.filterValues { configured -> !configured }.keys.sorted()
+        if (missingSecretNames.isNotEmpty()) {
+            addIssue(
+                severity = "Warning",
+                code = "skill.secrets.missing",
+                summary = "Skill $displayName is missing ${missingSecretNames.size} required secret value(s).",
+                action = "Set the required skill secrets before invoking this skill.",
+                missingSecretNames = missingSecretNames,
+            )
+        }
+        val missingConfigPaths = configStatuses.filterValues { configured -> !configured }.keys.sorted()
+        if (missingConfigPaths.isNotEmpty()) {
+            addIssue(
+                severity = "Warning",
+                code = "skill.config.missing",
+                summary = "Skill $displayName is missing ${missingConfigPaths.size} required config value(s).",
+                action = "Set the required skill config values before invoking this skill.",
+                missingConfigPaths = missingConfigPaths,
+            )
+        }
+        val frontmatter = frontmatter
+        if (frontmatter != null) {
+            if (frontmatter.commandDispatch == SkillCommandDispatch.Tool && frontmatter.commandTool.isNullOrBlank()) {
+                addIssue(
+                    severity = "Error",
+                    code = "skill.tool_dispatch.missing_tool",
+                    summary = "Skill $displayName uses tool dispatch but does not declare command_tool.",
+                    action = "Declare command_tool or switch command_dispatch to model.",
+                )
+            }
+            if (
+                frontmatter.commandDispatch == SkillCommandDispatch.Model &&
+                frontmatter.disableModelInvocation
+            ) {
+                addIssue(
+                    severity = "Warning",
+                    code = "skill.model_invocation.disabled",
+                    summary = "Skill $displayName uses model dispatch but disables model invocation.",
+                    action = "Enable model invocation or switch the skill to tool dispatch.",
+                )
+            }
+        }
+    }
+
+private fun SkillEligibilityStatus.toSkillDoctorSeverity(): String =
+    when (this) {
+        SkillEligibilityStatus.Eligible -> "Info"
+        SkillEligibilityStatus.Invalid,
+        SkillEligibilityStatus.MissingTool,
+        -> "Error"
+        SkillEligibilityStatus.BridgeOnly -> "Warning"
+    }
+
+private fun SkillEligibilityStatus.toSkillDoctorAction(): String =
+    when (this) {
+        SkillEligibilityStatus.Eligible -> "No action required."
+        SkillEligibilityStatus.Invalid -> "Fix skill metadata and reimport or rescan the skill."
+        SkillEligibilityStatus.MissingTool -> "Install or enable the declared command tool, or update command_tool."
+        SkillEligibilityStatus.BridgeOnly -> "Run from an environment that provides the bridge capability or disable the skill."
+    }
+
+private fun List<String>.toSkillDoctorReasonText(): String {
+    val includedReasons = take(3).map { reason -> reason.toSkillDoctorText() }
+    val reasonText = includedReasons.joinToString("; ").ifBlank { "No reason provided." }
+    return if (size > includedReasons.size) {
+        "$reasonText; +${size - includedReasons.size} more"
+    } else {
+        reasonText
+    }
+}
+
+private fun String.toSkillDoctorText(): String = toHandoffLine().take(SKILL_DOCTOR_TEXT_MAX_CHARS)
+
+private fun List<SkillDoctorIssue>.toSkillDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun SkillDoctorIssue.toSkillDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("skillId", skillId)
+        put("skillKey", skillKey)
+        put("name", displayName)
+        put("sourceType", sourceType)
+        put("enabled", enabled)
+        put("resolutionState", resolutionState)
+        put("eligibilityStatus", eligibilityStatus)
+        put("summary", summary)
+        put("action", action)
+        put("parseError", parseError?.let(::JsonPrimitive) ?: JsonNull)
+        put("missingSecretNameCount", missingSecretNames.size + omittedMissingSecretNameCount)
+        put("omittedMissingSecretNameCount", omittedMissingSecretNameCount)
+        put(
+            "missingSecretNames",
+            buildJsonArray {
+                missingSecretNames.forEach { name -> add(JsonPrimitive(name)) }
+            },
+        )
+        put("missingConfigPathCount", missingConfigPaths.size + omittedMissingConfigPathCount)
+        put("omittedMissingConfigPathCount", omittedMissingConfigPathCount)
+        put(
+            "missingConfigPaths",
+            buildJsonArray {
+                missingConfigPaths.forEach { path -> add(JsonPrimitive(path)) }
+            },
+        )
+    }
+
+private fun List<SkillDoctorIssue>.toSkillDoctorMarkdown(
+    status: String,
+    totalSkillCount: Int,
+    candidateSkillCount: Int,
+    issueCount: Int,
+    limit: Int,
+    includeDisabled: Boolean,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Skills doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Skills in inventory: $totalSkillCount")
+        appendLine("- Candidate skills after filters: $candidateSkillCount")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Limit: $limit")
+        appendLine("- Disabled skills included: $includeDisabled")
+        appendLine("- SKILL.md instruction bodies omitted: true")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No skill issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toSkillDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun SkillDoctorIssue.toSkillDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(skillId.toHandoffLine())
+        append("` code=")
+        append(code)
+        append(": ")
+        append(summary.toHandoffLine())
+        if (missingSecretNames.isNotEmpty()) {
+            append(" missingSecrets=")
+            append(missingSecretNames.joinToString(",") { name -> name.toHandoffLine() })
+            if (omittedMissingSecretNameCount > 0) {
+                append(",+")
+                append(omittedMissingSecretNameCount)
+                append(" more")
+            }
+        }
+        if (missingConfigPaths.isNotEmpty()) {
+            append(" missingConfig=")
+            append(missingConfigPaths.joinToString(",") { path -> path.toHandoffLine() })
+            if (omittedMissingConfigPathCount > 0) {
+                append(",+")
+                append(omittedMissingConfigPathCount)
+                append(" more")
+            }
+        }
+        append(" Action: ")
+        append(action.toHandoffLine())
     }
 
 private fun SkillSnapshot.toDefaultConfigurationSnapshot(): SkillConfigurationSnapshot =

@@ -6317,6 +6317,235 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `skills doctor reports actionable issues without instructions`() =
+        runTest {
+            val hiddenInstructions = "FULL SECRET BODY SHOULD NOT APPEAR IN DOCTOR"
+            val missingToolSkill =
+                skillSnapshot(
+                    id = "notify",
+                    name = "notify",
+                    commandDispatch = ai.androidclaw.runtime.skills.SkillCommandDispatch.Tool,
+                    commandTool = "notifications.post",
+                    eligibility =
+                        ai.androidclaw.runtime.skills.SkillEligibility(
+                            status = ai.androidclaw.runtime.skills.SkillEligibilityStatus.MissingTool,
+                            reasons = listOf("Tool blocked: notifications.post"),
+                        ),
+                )
+            val invalidSkill =
+                skillSnapshot(
+                    id = "invalid",
+                    name = "invalid",
+                    eligibility =
+                        ai.androidclaw.runtime.skills.SkillEligibility(
+                            status = ai.androidclaw.runtime.skills.SkillEligibilityStatus.Invalid,
+                            reasons = listOf("Invalid frontmatter"),
+                        ),
+                ).copy(
+                    frontmatter = null,
+                    parseError = "Invalid frontmatter",
+                )
+            val configurableSkill =
+                skillSnapshot(
+                    id = "configurable",
+                    name = "configurable",
+                ).copy(
+                    instructionsMd = hiddenInstructions,
+                    secretStatuses = mapOf("API_TOKEN" to false, "ROOM_TOKEN" to true),
+                    configStatuses = mapOf("endpoint" to false, "room" to true),
+                )
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "ready", name = "ready"),
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false),
+                            missingToolSkill,
+                            invalidSkill,
+                            configurableSkill,
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.check"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "ERROR",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "5",
+                result.payload
+                    .getValue("skillCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "5",
+                result.payload
+                    .getValue("candidateSkillCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "6",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "6",
+                result.payload
+                    .getValue("includedIssueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "3",
+                result.payload
+                    .getValue("errorCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "3",
+                result.payload
+                    .getValue("warningCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("instructionsOmitted")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "true",
+                result.payload
+                    .getValue("secretValuesOmitted")
+                    .jsonPrimitive.content,
+            )
+            val stats = result.payload.getValue("stats").jsonObject
+            assertEquals("5", stats.getValue("skillCount").jsonPrimitive.content)
+            val issues =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue -> issue.jsonObject }
+            val issueCodes = issues.map { issue -> issue.getValue("code").jsonPrimitive.content }.toSet()
+            assertTrue(issueCodes.contains("skill.disabled"))
+            assertTrue(issueCodes.contains("skill.ineligible.missingtool"))
+            assertTrue(issueCodes.contains("skill.parse_error"))
+            assertTrue(issueCodes.contains("skill.ineligible.invalid"))
+            assertTrue(issueCodes.contains("skill.secrets.missing"))
+            assertTrue(issueCodes.contains("skill.config.missing"))
+            val secretIssue =
+                issues.first { issue ->
+                    issue.getValue("code").jsonPrimitive.content == "skill.secrets.missing"
+                }
+            assertEquals("configurable", secretIssue.getValue("skillId").jsonPrimitive.content)
+            assertEquals(
+                "API_TOKEN",
+                secretIssue
+                    .getValue("missingSecretNames")
+                    .jsonArray
+                    .single()
+                    .jsonPrimitive
+                    .content,
+            )
+            val configIssue =
+                issues.first { issue ->
+                    issue.getValue("code").jsonPrimitive.content == "skill.config.missing"
+                }
+            assertEquals(
+                "endpoint",
+                configIssue
+                    .getValue("missingConfigPaths")
+                    .jsonArray
+                    .single()
+                    .jsonPrimitive
+                    .content,
+            )
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Skills doctor"))
+            assertTrue(markdown.contains("skill.ineligible.missingtool"))
+            assertTrue(markdown.contains("API_TOKEN"))
+            assertFalse(result.payload.toString().contains(hiddenInstructions))
+            assertFalse(markdown.contains(hiddenInstructions))
+        }
+
+    @Test
+    fun `skills doctor can omit disabled skills and markdown`() =
+        runTest {
+            val registry =
+                buildRegistry(
+                    bundledSkills =
+                        listOf(
+                            skillSnapshot(id = "ready", name = "ready"),
+                            skillSnapshot(id = "disabled", name = "disabled", enabled = false),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "skills.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("includeDisabled", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(
+                "OK",
+                result.payload
+                    .getValue("status")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "2",
+                result.payload
+                    .getValue("skillCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "1",
+                result.payload
+                    .getValue("candidateSkillCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "0",
+                result.payload
+                    .getValue("issueCount")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(
+                "false",
+                result.payload
+                    .getValue("includeDisabled")
+                    .jsonPrimitive.content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertTrue(
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .isEmpty(),
+            )
+        }
+
+    @Test
     fun `skills get returns frontmatter and instructions`() =
         runTest {
             val registry =
