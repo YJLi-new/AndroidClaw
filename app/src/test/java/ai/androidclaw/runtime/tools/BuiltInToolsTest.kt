@@ -6387,7 +6387,7 @@ class BuiltInToolsTest {
                     arguments =
                         buildJsonObject {
                             put("namespace", "tools")
-                            put("limit", 4)
+                            put("limit", 5)
                         },
                 )
 
@@ -6402,7 +6402,7 @@ class BuiltInToolsTest {
             )
             assertEquals("tools", result.payload["namespace"]?.jsonPrimitive?.content)
             assertEquals("tools", result.payload["canonicalNamespace"]?.jsonPrimitive?.content)
-            assertEquals("4", result.payload["includedToolCount"]?.jsonPrimitive?.content)
+            assertEquals("5", result.payload["includedToolCount"]?.jsonPrimitive?.content)
             assertTrue(
                 result.payload
                     .getValue("omittedToolCount")
@@ -6420,7 +6420,7 @@ class BuiltInToolsTest {
                     .content,
             )
             val tools = result.payload.getValue("tools").jsonArray
-            assertEquals(4, tools.size)
+            assertEquals(5, tools.size)
             assertTrue(
                 tools.all { tool ->
                     tool.jsonObject
@@ -6496,6 +6496,163 @@ class BuiltInToolsTest {
                             .getValue("availabilityStatus")
                             .jsonPrimitive
                             .content == "Available"
+                    },
+            )
+        }
+
+    @Test
+    fun `tools doctor reports availability issues without schemas`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.doctor"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 50)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val descriptors = registry.descriptors()
+            val availabilityIssues =
+                descriptors.filter { tool ->
+                    tool.availability.status != ToolAvailabilityStatus.Available
+                }
+            val globalIssueCount =
+                if (descriptors.isNotEmpty() && descriptors.none { tool -> tool.availability.status == ToolAvailabilityStatus.Available }) {
+                    1
+                } else {
+                    0
+                }
+            val expectedIssueCount = availabilityIssues.size + globalIssueCount
+            val expectedErrorCount =
+                availabilityIssues.count { tool ->
+                    tool.availability.status == ToolAvailabilityStatus.Unavailable ||
+                        tool.availability.status == ToolAvailabilityStatus.DisabledByConfig
+                } + globalIssueCount
+            val expectedWarningCount =
+                availabilityIssues.count { tool ->
+                    tool.availability.status == ToolAvailabilityStatus.PermissionRequired ||
+                        tool.availability.status == ToolAvailabilityStatus.ForegroundRequired
+                }
+
+            assertEquals(
+                descriptors.size.toString(),
+                result.payload
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                descriptors.size.toString(),
+                result.payload
+                    .getValue("candidateToolCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals("false", result.payload["inputSchemaIncluded"]?.jsonPrimitive?.content)
+            assertEquals(expectedIssueCount.toString(), result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals(expectedIssueCount.coerceAtMost(50).toString(), result.payload["includedIssueCount"]?.jsonPrimitive?.content)
+            assertEquals(expectedErrorCount.toString(), result.payload["errorCount"]?.jsonPrimitive?.content)
+            assertEquals(expectedWarningCount.toString(), result.payload["warningCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                descriptors.size.toString(),
+                result.payload
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content,
+            )
+
+            val toolChecks = result.payload.getValue("toolChecks").jsonArray
+            assertTrue(toolChecks.size <= 20)
+            assertTrue(toolChecks.isNotEmpty())
+            assertTrue(
+                toolChecks.all { tool ->
+                    val payload = tool.jsonObject
+                    payload.getValue("inputSchemaIncluded").jsonPrimitive.content == false.toString() &&
+                        !payload.containsKey("inputSchema")
+                },
+            )
+            val issues = result.payload.getValue("issues").jsonArray
+            val issueToolNames =
+                issues.mapNotNull { issue ->
+                    val toolName = issue.jsonObject["toolName"]
+                    if (toolName == null || toolName == JsonNull) {
+                        null
+                    } else {
+                        toolName.jsonPrimitive.content
+                    }
+                }
+            availabilityIssues.forEach { tool ->
+                assertTrue(
+                    "Expected issue for ${tool.name}",
+                    issueToolNames.contains(tool.name),
+                )
+            }
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Tools doctor"))
+            assertFalse(markdown.contains("inputSchema"))
+        }
+
+    @Test
+    fun `tools doctor filters namespace and omits markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tool.health"),
+                    arguments =
+                        buildJsonObject {
+                            put("namespace", "tools")
+                            put("includeMarkdown", false)
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val candidates =
+                registry
+                    .descriptors()
+                    .filter { tool -> tool.name.substringBefore(".", tool.name) == "tools" }
+            val availabilityIssues =
+                candidates.filter { tool ->
+                    tool.availability.status != ToolAvailabilityStatus.Available
+                }
+            val globalIssueCount =
+                if (candidates.isEmpty() || candidates.none { tool -> tool.availability.status == ToolAvailabilityStatus.Available }) {
+                    1
+                } else {
+                    0
+                }
+            val expectedIssueCount = availabilityIssues.size + globalIssueCount
+
+            assertEquals("tools", result.payload["namespace"]?.jsonPrimitive?.content)
+            assertEquals("tools", result.payload["canonicalNamespace"]?.jsonPrimitive?.content)
+            assertEquals(candidates.size.toString(), result.payload["candidateToolCount"]?.jsonPrimitive?.content)
+            assertEquals(candidates.take(20).size.toString(), result.payload["toolCheckCount"]?.jsonPrimitive?.content)
+            assertEquals(expectedIssueCount.toString(), result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals(expectedIssueCount.coerceAtMost(2).toString(), result.payload["includedIssueCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["limit"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertTrue(
+                result.payload
+                    .getValue("toolChecks")
+                    .jsonArray
+                    .all { tool ->
+                        tool.jsonObject
+                            .getValue("namespace")
+                            .jsonPrimitive
+                            .content == "tools"
                     },
             )
         }

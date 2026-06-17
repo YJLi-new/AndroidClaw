@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.doctor` /
+  `tool.doctor` / `tools.health` / `tool.health` plus diagnostics aliases as
+  a dedicated Tool Contract diagnostics tool. Agents can now scan all typed
+  tools or one namespace for unavailable, permission-gated, foreground-only,
+  disabled, empty-namespace, and no-available-tool conditions with OK/WARN/ERROR
+  status, bounded issue/check payloads, optional markdown, aggregate registry
+  stats, and explicit input-schema omission. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `sessions.doctor` /
   `session.doctor` / `sessions.check` / `session.check` plus chat aliases as a
   dedicated Session Contract diagnostics tool. Agents can now inspect all

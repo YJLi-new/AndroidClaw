@@ -5400,6 +5400,115 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.doctor",
+                    aliases =
+                        listOf(
+                            "tool.doctor",
+                            "tools.health",
+                            "tool.health",
+                            "tools.diagnostics",
+                            "tool.diagnostics",
+                        ),
+                    description = "Return actionable typed-tool diagnostics without input schemas.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "namespace",
+                                required = false,
+                                description = "Optional canonical namespace prefix before the first dot.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum diagnostic issues to include. Defaults to 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val namespaceFilter = arguments.optionalText("namespace") ?: arguments.optionalText("name")
+            val candidates =
+                tools.filter { tool ->
+                    namespaceFilter == null || tool.toolNamespace().equals(namespaceFilter, ignoreCase = true)
+                }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_DOCTOR_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_DOCTOR_MAX_LIMIT)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val issues = candidates.toToolDoctorIssues(namespaceFilter = namespaceFilter)
+            val includedIssues = issues.take(limit)
+            val status = issues.toToolDoctorStatus()
+            val includedChecks = candidates.take(TOOL_DOCTOR_CHECK_MAX_LIMIT)
+            val doctorMarkdown =
+                if (includeMarkdown) {
+                    includedIssues.toToolDoctorMarkdown(
+                        status = status,
+                        totalToolCount = tools.size,
+                        candidateToolCount = candidates.size,
+                        issueCount = issues.size,
+                        namespaceFilter = namespaceFilter,
+                        limit = limit,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    when {
+                        issues.isEmpty() ->
+                            "Tool doctor found no issues across ${candidates.size} candidate tool(s)."
+                        includedIssues.size == issues.size ->
+                            "Tool doctor found ${issues.size} issue(s) across ${candidates.size} candidate tool(s)."
+                        else ->
+                            "Tool doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("status", status)
+                        put("toolCount", tools.size)
+                        put("candidateToolCount", candidates.size)
+                        put("toolCheckCount", includedChecks.size)
+                        put("toolChecksOmitted", (candidates.size - includedChecks.size).coerceAtLeast(0))
+                        put("namespace", namespaceFilter?.let(::JsonPrimitive) ?: JsonNull)
+                        put("canonicalNamespace", candidates.firstOrNull()?.toolNamespace()?.let(::JsonPrimitive) ?: JsonNull)
+                        put("inputSchemaIncluded", false)
+                        put("issueCount", issues.size)
+                        put("includedIssueCount", includedIssues.size)
+                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                        put("limit", limit)
+                        put("includeMarkdown", includeMarkdown)
+                        put("stats", tools.toToolStatsPayload())
+                        put(
+                            "toolChecks",
+                            buildJsonArray {
+                                includedChecks.forEach { tool ->
+                                    add(tool.toToolDoctorCheckPayload())
+                                }
+                            },
+                        )
+                        put(
+                            "issues",
+                            buildJsonArray {
+                                includedIssues.forEach { issue ->
+                                    add(issue.toToolDoctorPayload())
+                                }
+                            },
+                        )
+                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.list",
                     aliases = listOf("tool.list"),
                     description = "List typed native tools with current availability and argument metadata.",
@@ -9137,6 +9246,10 @@ private const val TOOL_ARGUMENTS_DEFAULT_LIMIT = 50
 private const val TOOL_ARGUMENTS_MAX_LIMIT = 100
 private const val TOOL_AVAILABILITY_DEFAULT_LIMIT = 50
 private const val TOOL_AVAILABILITY_MAX_LIMIT = 100
+private const val TOOL_DOCTOR_CHECK_MAX_LIMIT = 20
+private const val TOOL_DOCTOR_DEFAULT_LIMIT = 20
+private const val TOOL_DOCTOR_MAX_LIMIT = 50
+private const val TOOL_DOCTOR_TEXT_MAX_CHARS = 500
 private const val TOOL_HANDOFF_DEFAULT_LIMIT = 12
 private const val TOOL_HANDOFF_MAX_LIMIT = 30
 private const val TOOL_PERMISSIONS_DEFAULT_LIMIT = 50
@@ -9204,6 +9317,18 @@ private data class SessionDoctorIssue(
     val title: String?,
     val isMain: Boolean?,
     val archived: Boolean?,
+    val summary: String,
+    val action: String,
+    val detail: String? = null,
+)
+
+private data class ToolDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val toolName: String?,
+    val namespace: String?,
+    val availabilityStatus: String?,
     val summary: String,
     val action: String,
     val detail: String? = null,
@@ -10744,6 +10869,236 @@ private fun ToolDescriptor.toToolHandoffMarkdownLine(): String =
         append(" - ")
         append(description.toHandoffLine())
     }
+
+private fun List<ToolDescriptor>.toToolDoctorIssues(namespaceFilter: String?): List<ToolDoctorIssue> {
+    val tools = this
+    return buildList {
+        if (tools.isEmpty()) {
+            val filtered = namespaceFilter != null
+            add(
+                ToolDoctorIssue(
+                    id =
+                        if (filtered) {
+                            "namespace:${namespaceFilter.orEmpty()}:tool.namespace.empty"
+                        } else {
+                            "registry:tool.registry.empty"
+                        },
+                    severity =
+                        if (filtered) {
+                            "Warning"
+                        } else {
+                            "Error"
+                        },
+                    code =
+                        if (filtered) {
+                            "tool.namespace.empty"
+                        } else {
+                            "tool.registry.empty"
+                        },
+                    toolName = null,
+                    namespace = namespaceFilter,
+                    availabilityStatus = null,
+                    summary =
+                        (
+                            if (filtered) {
+                                "No typed tools match namespace ${namespaceFilter.orEmpty()}."
+                            } else {
+                                "The typed tool registry is empty."
+                            }
+                        ).toToolDoctorText(),
+                    action =
+                        (
+                            if (filtered) {
+                                "Run tools.namespaces or remove the namespace filter before selecting a tool."
+                            } else {
+                                "Wire built-in tools before relying on tool dispatch."
+                            }
+                        ).toToolDoctorText(),
+                ),
+            )
+            return@buildList
+        }
+
+        tools.forEach { tool ->
+            val status = tool.availability.status
+            if (status != ToolAvailabilityStatus.Available) {
+                add(
+                    ToolDoctorIssue(
+                        id = "${tool.name}:${status.toToolDoctorCode()}",
+                        severity = status.toToolDoctorSeverity(),
+                        code = status.toToolDoctorCode(),
+                        toolName = tool.name,
+                        namespace = tool.toolNamespace(),
+                        availabilityStatus = status.name,
+                        summary = "Tool ${tool.name} is ${status.name}.".toToolDoctorText(),
+                        action = status.toToolDoctorAction().toToolDoctorText(),
+                        detail = tool.availability.reason?.toToolDoctorText(),
+                    ),
+                )
+            }
+        }
+
+        if (tools.none { tool -> tool.availability.status == ToolAvailabilityStatus.Available }) {
+            val namespace = namespaceFilter ?: tools.firstOrNull()?.toolNamespace()
+            add(
+                ToolDoctorIssue(
+                    id =
+                        if (namespace != null) {
+                            "namespace:$namespace:tool.none_available"
+                        } else {
+                            "registry:tool.none_available"
+                        },
+                    severity = "Error",
+                    code = "tool.none_available",
+                    toolName = null,
+                    namespace = namespace,
+                    availabilityStatus = null,
+                    summary =
+                        (
+                            if (namespace != null) {
+                                "No candidate tools in namespace $namespace are currently available."
+                            } else {
+                                "No candidate tools are currently available."
+                            }
+                        ).toToolDoctorText(),
+                    action = "Grant required permissions, enable disabled features, or choose a different namespace.".toToolDoctorText(),
+                ),
+            )
+        }
+    }
+}
+
+private fun ToolAvailabilityStatus.toToolDoctorSeverity(): String =
+    when (this) {
+        ToolAvailabilityStatus.Available -> "Info"
+        ToolAvailabilityStatus.Unavailable,
+        ToolAvailabilityStatus.DisabledByConfig,
+        -> "Error"
+        ToolAvailabilityStatus.PermissionRequired,
+        ToolAvailabilityStatus.ForegroundRequired,
+        -> "Warning"
+    }
+
+private fun ToolAvailabilityStatus.toToolDoctorCode(): String =
+    when (this) {
+        ToolAvailabilityStatus.Available -> "tool.availability.available"
+        ToolAvailabilityStatus.Unavailable -> "tool.availability.unavailable"
+        ToolAvailabilityStatus.PermissionRequired -> "tool.availability.permission_required"
+        ToolAvailabilityStatus.ForegroundRequired -> "tool.availability.foreground_required"
+        ToolAvailabilityStatus.DisabledByConfig -> "tool.availability.disabled_by_config"
+    }
+
+private fun ToolAvailabilityStatus.toToolDoctorAction(): String =
+    when (this) {
+        ToolAvailabilityStatus.Available -> "No action required."
+        ToolAvailabilityStatus.Unavailable -> "Inspect the availability reason and enable the platform/runtime prerequisite."
+        ToolAvailabilityStatus.PermissionRequired -> "Grant the required Android permission(s) or choose a tool that does not require them."
+        ToolAvailabilityStatus.ForegroundRequired -> "Run the tool from an interactive foreground app context or use a background-safe tool."
+        ToolAvailabilityStatus.DisabledByConfig -> "Enable the related feature/configuration or select an alternative tool."
+    }
+
+private fun ToolDescriptor.toToolDoctorCheckPayload(): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("namespace", toolNamespace())
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("foregroundRequired", foregroundRequired)
+        put("aliasCount", aliases.size)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put("requiredPermissionCount", requiredPermissions.size)
+        put("inputSchemaIncluded", false)
+        put(
+            "requiredPermissions",
+            buildJsonArray {
+                requiredPermissions.forEach { permission ->
+                    add(permission.toToolPermissionPayload())
+                }
+            },
+        )
+    }
+
+private fun ToolDoctorIssue.toToolDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("toolName", toolName?.let(::JsonPrimitive) ?: JsonNull)
+        put("namespace", namespace?.let(::JsonPrimitive) ?: JsonNull)
+        put("availabilityStatus", availabilityStatus?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", summary)
+        put("action", action)
+        put("detail", detail?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<ToolDoctorIssue>.toToolDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun List<ToolDoctorIssue>.toToolDoctorMarkdown(
+    status: String,
+    totalToolCount: Int,
+    candidateToolCount: Int,
+    issueCount: Int,
+    namespaceFilter: String?,
+    limit: Int,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Tools doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Tools in registry: $totalToolCount")
+        appendLine("- Candidate tools after filters: $candidateToolCount")
+        appendLine("- Namespace filter: ${namespaceFilter?.toHandoffLine() ?: "none"}")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Limit: $limit")
+        appendLine("- Input schemas omitted: true")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No tool issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toToolDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun ToolDoctorIssue.toToolDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(toolName?.toHandoffLine() ?: "registry")
+        append("`")
+        namespace?.let { namespace ->
+            append(" namespace=")
+            append(namespace.toHandoffLine())
+        }
+        append(" code=")
+        append(code)
+        availabilityStatus?.let { status ->
+            append(" availability=")
+            append(status)
+        }
+        append(": ")
+        append(summary.toHandoffLine())
+        detail?.let { detail ->
+            append(" detail=")
+            append(detail.toHandoffLine())
+        }
+        append(" Action: ")
+        append(action.toHandoffLine())
+    }
+
+private fun String.toToolDoctorText(): String = toHandoffLine().take(TOOL_DOCTOR_TEXT_MAX_CHARS)
 
 private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
     buildJsonObject {
