@@ -6818,6 +6818,164 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider export returns non secret selected provider and endpoint backup`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-export-secret")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "codex-export-access-secret",
+                    refreshToken = "codex-export-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli(),
+                    profileName = "Export",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.DeepSeek)
+                    .withEndpointSettings(
+                        providerType = ProviderType.DeepSeek,
+                        settings =
+                            ProviderType.DeepSeek
+                                .defaultEndpointSettings()
+                                .copy(
+                                    baseUrl = "https://export.example/v1",
+                                    modelId = "deepseek-export",
+                                    timeoutSeconds = 44,
+                                ),
+                    ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.export"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.providers.export.v1", result.payload["exportFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["exportVersion"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.entries.size.toString(), result.payload["providerCount"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.entries.size.toString(), result.payload["includedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["currentProviderId"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["includeDefaults"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["apiKeyValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["credentialValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["authStateIncluded"]?.jsonPrimitive?.content)
+            val providers = result.payload.getValue("providers").jsonArray
+            val deepSeek =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.DeepSeek.providerId
+                    }.jsonObject
+            assertEquals(true.toString(), deepSeek.getValue("selected").jsonPrimitive.content)
+            assertEquals(false.toString(), deepSeek.getValue("secretValuesIncluded").jsonPrimitive.content)
+            val endpointSettings = deepSeek.getValue("endpointSettings").jsonObject
+            assertEquals("https://export.example/v1", endpointSettings.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals("deepseek-export", endpointSettings.getValue("modelId").jsonPrimitive.content)
+            assertEquals("44", endpointSettings.getValue("timeoutSeconds").jsonPrimitive.content)
+            assertEquals(true.toString(), endpointSettings.getValue("customBaseUrl").jsonPrimitive.content)
+            assertEquals(true.toString(), endpointSettings.getValue("customModelId").jsonPrimitive.content)
+            assertEquals(true.toString(), endpointSettings.getValue("customTimeout").jsonPrimitive.content)
+            val defaultEndpointSettings = deepSeek.getValue("defaultEndpointSettings").jsonObject
+            assertEquals(ProviderType.DeepSeek.defaultBaseUrl, defaultEndpointSettings.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals(ProviderType.DeepSeek.defaultModelId, defaultEndpointSettings.getValue("modelId").jsonPrimitive.content)
+            val fake =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.Fake.providerId
+                    }.jsonObject
+            assertEquals(JsonNull, fake.getValue("endpointSettings"))
+            assertEquals(JsonNull, fake.getValue("defaultEndpointSettings"))
+            val markdown =
+                result.payload
+                    .getValue("exportMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider settings export"))
+            assertTrue(markdown.contains("deepseek-export"))
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-export-secret"))
+            assertFalse(payloadText.contains("codex-export-access-secret"))
+            assertFalse(payloadText.contains("codex-export-refresh-secret"))
+        }
+
+    @Test
+    fun `provider export can focus one provider and omit defaults markdown`() =
+        runTest {
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .withEndpointSettings(
+                        providerType = ProviderType.OpenAiCodex,
+                        settings =
+                            ProviderType.OpenAiCodex
+                                .defaultEndpointSettings()
+                                .copy(
+                                    baseUrl = "https://codex-export.example/backend",
+                                    modelId = "codex-export-model",
+                                    timeoutSeconds = 55,
+                                ),
+                    ),
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.backup"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "OpenAI Codex")
+                            put("includeDefaults", false)
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.export"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "missing-provider")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("OpenAI Codex", result.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeDefaults"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals((ProviderType.entries.size - 1).toString(), result.payload["omittedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("exportMarkdown"))
+            val provider =
+                result.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(ProviderType.OpenAiCodex.providerId, provider.getValue("providerId").jsonPrimitive.content)
+            assertEquals(JsonNull, provider.getValue("defaultEndpointSettings"))
+            val endpointSettings = provider.getValue("endpointSettings").jsonObject
+            assertEquals("https://codex-export.example/backend", endpointSettings.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals("codex-export-model", endpointSettings.getValue("modelId").jsonPrimitive.content)
+            assertEquals("55", endpointSettings.getValue("timeoutSeconds").jsonPrimitive.content)
+            assertEquals(true.toString(), endpointSettings.getValue("customBaseUrl").jsonPrimitive.content)
+            assertEquals(true.toString(), endpointSettings.getValue("customModelId").jsonPrimitive.content)
+            assertEquals(false.toString(), provider.getValue("secretValuesIncluded").jsonPrimitive.content)
+            assertFalse(missing.success)
+            assertEquals("PROVIDER_NOT_FOUND", missing.errorCode)
+        }
+
+    @Test
     fun `provider doctor reports selected provider issues without secrets`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()

@@ -71,6 +71,14 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.export` /
+  `provider.export` / `providers.backup` / `provider.backup` plus settings
+  export aliases as a Provider/OAuth portability feature. Agents can now export
+  the selected provider and bounded non-secret endpoint settings with stable
+  export format/version, optional single-provider focus, optional endpoint
+  default omission, optional markdown, accurate custom endpoint/model/timeout
+  flags, and explicit API-key/OAuth-token/credential/auth-state omission flags.
+  Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tasks.import` /
   `task.import` / `automations.import` / `automation.import` plus restore
   aliases as the companion Automation Contract portability feature for

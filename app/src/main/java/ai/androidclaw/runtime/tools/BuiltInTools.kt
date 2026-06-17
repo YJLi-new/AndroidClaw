@@ -6097,6 +6097,117 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.export",
+                    aliases =
+                        listOf(
+                            "provider.export",
+                            "providers.backup",
+                            "provider.backup",
+                            "providers.settings.export",
+                            "provider.settings.export",
+                        ),
+                    description = "Export non-secret provider selection and endpoint settings.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Optional provider id, storage value, or display name to include only one provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeDefaults",
+                                description = "Set false to omit endpoint default values. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exportMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val includedProviders =
+                if (identifier == null) {
+                    ProviderType.entries
+                } else {
+                    listOf(
+                        ProviderType.entries.firstOrNull { providerType ->
+                            providerType.matchesProviderIdentifier(identifier)
+                        } ?: return@Entry ToolExecutionResult.failure(
+                            summary = "Provider $identifier was not found.",
+                            errorCode = "PROVIDER_NOT_FOUND",
+                            payload =
+                                buildJsonObject {
+                                    put("errorCode", "PROVIDER_NOT_FOUND")
+                                    put("toolName", "providers.export")
+                                    put("providerId", identifier)
+                                },
+                        ),
+                    )
+                }
+            val includeDefaults = arguments.optionalBoolean("includeDefaults", defaultValue = true)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val exportMarkdown =
+                if (includeMarkdown) {
+                    includedProviders.toProviderExportMarkdown(
+                        settings = settings,
+                        requestedProviderId = identifier,
+                        includeDefaults = includeDefaults,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (identifier == null) {
+                        "Prepared provider settings export with ${includedProviders.size} provider(s)."
+                    } else {
+                        "Prepared provider settings export for ${includedProviders.single().displayName}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("exportFormat", PROVIDER_EXPORT_FORMAT)
+                        put("exportVersion", PROVIDER_EXPORT_VERSION)
+                        put("generatedAtIso", clock.instant().toString())
+                        put("providerCount", ProviderType.entries.size)
+                        put("includedProviderCount", includedProviders.size)
+                        put("omittedProviderCount", ProviderType.entries.size - includedProviders.size)
+                        put("remoteProviderCount", includedProviders.count { provider -> provider.requiresRemoteSettings })
+                        put("requestedProviderId", identifier?.let(::JsonPrimitive) ?: JsonNull)
+                        put("currentProviderId", settings.providerType.providerId)
+                        put("currentProviderStorageValue", settings.providerType.storageValue)
+                        put("currentProviderDisplayName", settings.providerType.displayName)
+                        put("includeDefaults", includeDefaults)
+                        put("includeMarkdown", includeMarkdown)
+                        put("secretValuesIncluded", false)
+                        put("apiKeyValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put("credentialValuesIncluded", false)
+                        put("authStateIncluded", false)
+                        put(
+                            "providers",
+                            buildJsonArray {
+                                includedProviders.forEach { providerType ->
+                                    add(
+                                        providerType.toProviderExportPayload(
+                                            settings = settings,
+                                            includeDefaults = includeDefaults,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put("exportMarkdown", exportMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.doctor",
                     aliases =
                         listOf(
@@ -11446,6 +11557,8 @@ private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
 private const val PROVIDER_DOCTOR_DEFAULT_LIMIT = 20
 private const val PROVIDER_DOCTOR_MAX_LIMIT = 50
 private const val PROVIDER_DOCTOR_TEXT_MAX_CHARS = 500
+private const val PROVIDER_EXPORT_FORMAT = "androidclaw.providers.export.v1"
+private const val PROVIDER_EXPORT_VERSION = 1
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
@@ -12203,6 +12316,123 @@ private fun ProviderType.toProviderCatalogMarkdownLine(settings: ProviderSetting
             append(currentEndpointSettings.baseUrl != defaultEndpointSettings.baseUrl)
             append(" customModel=")
             append(currentEndpointSettings.modelId != defaultEndpointSettings.modelId)
+        }
+    }
+
+private fun ProviderType.toProviderExportPayload(
+    settings: ProviderSettingsSnapshot,
+    includeDefaults: Boolean,
+): JsonObject {
+    val currentEndpointSettings = if (requiresRemoteSettings) settings.endpointSettings(this) else null
+    val comparisonEndpointSettings = if (requiresRemoteSettings) defaultEndpointSettings() else null
+    val defaultEndpointSettings = if (includeDefaults) comparisonEndpointSettings else null
+    return buildJsonObject {
+        put("storageValue", storageValue)
+        put("providerId", providerId)
+        put("displayName", displayName)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("selected", settings.providerType == this@toProviderExportPayload)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("requiresRemoteSettings", requiresRemoteSettings)
+        put("requiresApiKey", requiresApiKey)
+        put("usesOpenAiCodexOAuth", usesOpenAiCodexOAuth)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("credentialValuesIncluded", false)
+        put("authStateIncluded", false)
+        put(
+            "endpointSettings",
+            if (currentEndpointSettings != null) {
+                buildJsonObject {
+                    put("baseUrl", currentEndpointSettings.baseUrl)
+                    put("modelId", currentEndpointSettings.modelId)
+                    put("timeoutSeconds", currentEndpointSettings.timeoutSeconds)
+                    put("customBaseUrl", currentEndpointSettings.baseUrl != comparisonEndpointSettings?.baseUrl)
+                    put("customModelId", currentEndpointSettings.modelId != comparisonEndpointSettings?.modelId)
+                    put("customTimeout", currentEndpointSettings.timeoutSeconds != comparisonEndpointSettings?.timeoutSeconds)
+                }
+            } else {
+                JsonNull
+            },
+        )
+        put(
+            "defaultEndpointSettings",
+            if (defaultEndpointSettings != null) {
+                buildJsonObject {
+                    put("baseUrl", defaultEndpointSettings.baseUrl)
+                    put("modelId", defaultEndpointSettings.modelId)
+                    put("timeoutSeconds", defaultEndpointSettings.timeoutSeconds)
+                }
+            } else {
+                JsonNull
+            },
+        )
+    }
+}
+
+private fun List<ProviderType>.toProviderExportMarkdown(
+    settings: ProviderSettingsSnapshot,
+    requestedProviderId: String?,
+    includeDefaults: Boolean,
+): String {
+    val includedProviders = this
+    return buildString {
+        appendLine("# Provider settings export")
+        appendLine()
+        appendLine("- Format: $PROVIDER_EXPORT_FORMAT")
+        appendLine("- Version: $PROVIDER_EXPORT_VERSION")
+        appendLine("- Current provider: `${settings.providerType.providerId}` (${settings.providerType.displayName.toHandoffLine()})")
+        appendLine("- Requested provider filter: ${requestedProviderId?.toHandoffLine() ?: "none"}")
+        appendLine("- Providers included: ${includedProviders.size}")
+        appendLine("- Defaults included: $includeDefaults")
+        appendLine("- Secret values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine()
+        appendLine("## Providers")
+        if (includedProviders.isEmpty()) {
+            appendLine("_No providers included._")
+        } else {
+            includedProviders.forEach { providerType ->
+                appendLine(providerType.toProviderExportMarkdownLine(settings = settings, includeDefaults = includeDefaults))
+            }
+        }
+    }
+}
+
+private fun ProviderType.toProviderExportMarkdownLine(
+    settings: ProviderSettingsSnapshot,
+    includeDefaults: Boolean,
+): String =
+    buildString {
+        append("- `")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(providerId)
+        append("` selected=")
+        append(settings.providerType == this@toProviderExportMarkdownLine)
+        append(" mode=")
+        append(authMode.name)
+        append(" remote=")
+        append(requiresRemoteSettings)
+        if (requiresRemoteSettings) {
+            val endpointSettings = settings.endpointSettings(this@toProviderExportMarkdownLine)
+            append(" endpoint=`")
+            append(endpointSettings.baseUrl.toHandoffLine())
+            append("` model=`")
+            append(endpointSettings.modelId.toHandoffLine())
+            append("` timeoutSeconds=")
+            append(endpointSettings.timeoutSeconds)
+            if (includeDefaults) {
+                val defaultEndpointSettings = defaultEndpointSettings()
+                append(" defaultEndpoint=`")
+                append(defaultEndpointSettings.baseUrl.toHandoffLine())
+                append("` defaultModel=`")
+                append(defaultEndpointSettings.modelId.toHandoffLine())
+                append("` defaultTimeoutSeconds=")
+                append(defaultEndpointSettings.timeoutSeconds)
+            }
         }
     }
 
