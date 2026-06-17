@@ -4474,6 +4474,98 @@ private fun toolDiscoveryEntries(toolRegistryProvider: () -> ToolRegistry): List
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tools.handoff",
+                    aliases =
+                        listOf(
+                            "tool.handoff",
+                            "tools.snapshot",
+                            "tool.snapshot",
+                        ),
+                    description = "Return a compact tool registry handoff without input schemas.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "namespace",
+                                required = false,
+                                description = "Optional canonical namespace prefix before the first dot.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "availableOnly",
+                                description = "Set true to include only currently available tools. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum tool entries to include. Defaults to 12.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val tools = toolRegistryProvider().descriptors()
+            val namespaceFilter = arguments.optionalText("namespace") ?: arguments.optionalText("name")
+            val availableOnly = arguments.optionalBoolean("availableOnly", defaultValue = false)
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TOOL_HANDOFF_DEFAULT_LIMIT,
+                    ).coerceIn(0, TOOL_HANDOFF_MAX_LIMIT)
+            val candidates =
+                tools.filter { tool ->
+                    (namespaceFilter == null || tool.toolNamespace().equals(namespaceFilter, ignoreCase = true)) &&
+                        (!availableOnly || tool.availability.status == ToolAvailabilityStatus.Available)
+                }
+            val includedTools = candidates.take(limit)
+            val handoffMarkdown =
+                if (includeMarkdown) {
+                    includedTools.toToolHandoffMarkdown(
+                        totalToolCount = tools.size,
+                        candidateToolCount = candidates.size,
+                        namespaceFilter = namespaceFilter,
+                        availableOnly = availableOnly,
+                        limit = limit,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (tools.isEmpty()) {
+                        "Prepared empty tool handoff."
+                    } else {
+                        "Prepared tool handoff with ${includedTools.size} of ${candidates.size} candidate tool(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("toolCount", tools.size)
+                        put("candidateToolCount", candidates.size)
+                        put("includedToolCount", includedTools.size)
+                        put("omittedToolCount", (candidates.size - includedTools.size).coerceAtLeast(0))
+                        put("namespace", namespaceFilter?.let(::JsonPrimitive) ?: JsonNull)
+                        put("canonicalNamespace", candidates.firstOrNull()?.toolNamespace()?.let(::JsonPrimitive) ?: JsonNull)
+                        put("availableOnly", availableOnly)
+                        put("limit", limit)
+                        put("includeMarkdown", includeMarkdown)
+                        put("stats", tools.toToolStatsPayload())
+                        put(
+                            "tools",
+                            buildJsonArray {
+                                includedTools.forEach { tool ->
+                                    add(tool.toToolHandoffPayload())
+                                }
+                            },
+                        )
+                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tools.list",
                     aliases = listOf("tool.list"),
                     description = "List typed native tools with current availability and argument metadata.",
@@ -8067,6 +8159,8 @@ private const val TOOL_ARGUMENTS_DEFAULT_LIMIT = 50
 private const val TOOL_ARGUMENTS_MAX_LIMIT = 100
 private const val TOOL_AVAILABILITY_DEFAULT_LIMIT = 50
 private const val TOOL_AVAILABILITY_MAX_LIMIT = 100
+private const val TOOL_HANDOFF_DEFAULT_LIMIT = 12
+private const val TOOL_HANDOFF_MAX_LIMIT = 30
 private const val TOOL_PERMISSIONS_DEFAULT_LIMIT = 50
 private const val TOOL_PERMISSIONS_MAX_LIMIT = 100
 private const val TOOL_NAMESPACES_DEFAULT_LIMIT = 50
@@ -8823,6 +8917,97 @@ private fun ToolDescriptor.toToolNamespaceMatchPayload(): JsonObject =
     }
 
 private fun ToolDescriptor.toolNamespace(): String = name.substringBefore(".", name)
+
+private fun ToolDescriptor.toToolHandoffPayload(): JsonObject =
+    buildJsonObject {
+        put("name", name)
+        put("namespace", toolNamespace())
+        put("description", description)
+        put("availabilityStatus", availability.status.name)
+        put("availabilityReason", availability.reason?.let(::JsonPrimitive) ?: JsonNull)
+        put("foregroundRequired", foregroundRequired)
+        put("aliasCount", aliases.size)
+        put("argumentCount", arguments.size)
+        put("requiredArgumentCount", arguments.count { argument -> argument.required })
+        put("requiredPermissionCount", requiredPermissions.size)
+        put(
+            "aliases",
+            buildJsonArray {
+                aliases.forEach { alias ->
+                    add(JsonPrimitive(alias))
+                }
+            },
+        )
+        put(
+            "arguments",
+            buildJsonArray {
+                arguments.forEach { argument ->
+                    add(argument.toToolArgumentPayload())
+                }
+            },
+        )
+        put(
+            "requiredPermissions",
+            buildJsonArray {
+                requiredPermissions.forEach { permission ->
+                    add(permission.toToolPermissionPayload())
+                }
+            },
+        )
+        put("inputSchemaIncluded", false)
+    }
+
+private fun List<ToolDescriptor>.toToolHandoffMarkdown(
+    totalToolCount: Int,
+    candidateToolCount: Int,
+    namespaceFilter: String?,
+    availableOnly: Boolean,
+    limit: Int,
+): String {
+    val includedTools = this
+    return buildString {
+        appendLine("# Tools handoff")
+        appendLine()
+        appendLine("- Tools in registry: $totalToolCount")
+        appendLine("- Candidate tools after filters: $candidateToolCount")
+        appendLine("- Tools included: ${includedTools.size} of up to $limit")
+        appendLine("- Namespace filter: ${namespaceFilter?.toHandoffLine() ?: "none"}")
+        appendLine("- Available only: $availableOnly")
+        appendLine()
+        appendLine("## Included tools")
+        if (includedTools.isEmpty()) {
+            appendLine("_No tools included._")
+        } else {
+            includedTools.forEach { tool ->
+                appendLine(tool.toToolHandoffMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun ToolDescriptor.toToolHandoffMarkdownLine(): String =
+    buildString {
+        append("- `")
+        append(name.toHandoffLine())
+        append("` namespace=")
+        append(toolNamespace())
+        append(" availability=")
+        append(availability.status.name)
+        append(" args=")
+        append(arguments.size)
+        append(" requiredArgs=")
+        append(arguments.count { argument -> argument.required })
+        if (aliases.isNotEmpty()) {
+            append(" aliases=")
+            append(aliases.size)
+        }
+        if (requiredPermissions.isNotEmpty()) {
+            append(" permissions=")
+            append(requiredPermissions.joinToString(",") { permission -> permission.permission }.toHandoffLine())
+        }
+        append(" - ")
+        append(description.toHandoffLine())
+    }
 
 private fun ToolDescriptor.toToolDescriptorPayload(includeInputSchema: Boolean): JsonObject =
     buildJsonObject {

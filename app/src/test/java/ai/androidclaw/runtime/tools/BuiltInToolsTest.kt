@@ -5578,6 +5578,130 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tools handoff returns bounded registry metadata without schemas`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.snapshot"),
+                    arguments =
+                        buildJsonObject {
+                            put("namespace", "tools")
+                            put("limit", 4)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val descriptors = registry.descriptors()
+            assertEquals(
+                descriptors.size.toString(),
+                result.payload
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals("tools", result.payload["namespace"]?.jsonPrimitive?.content)
+            assertEquals("tools", result.payload["canonicalNamespace"]?.jsonPrimitive?.content)
+            assertEquals("4", result.payload["includedToolCount"]?.jsonPrimitive?.content)
+            assertTrue(
+                result.payload
+                    .getValue("omittedToolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() > 0,
+            )
+            assertEquals(
+                descriptors.size.toString(),
+                result.payload
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("toolCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            val tools = result.payload.getValue("tools").jsonArray
+            assertEquals(4, tools.size)
+            assertTrue(
+                tools.all { tool ->
+                    tool.jsonObject
+                        .getValue("namespace")
+                        .jsonPrimitive
+                        .content == "tools"
+                },
+            )
+            val handoffTool =
+                tools
+                    .first { tool ->
+                        tool.jsonObject
+                            .getValue("name")
+                            .jsonPrimitive
+                            .content == "tools.handoff"
+                    }.jsonObject
+            assertEquals("false", handoffTool["inputSchemaIncluded"]?.jsonPrimitive?.content)
+            assertFalse(handoffTool.containsKey("inputSchema"))
+            assertTrue(
+                handoffTool
+                    .getValue("arguments")
+                    .jsonArray
+                    .any { argument ->
+                        argument.jsonObject
+                            .getValue("name")
+                            .jsonPrimitive
+                            .content == "limit"
+                    },
+            )
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Tools handoff"))
+            assertTrue(markdown.contains("tools.handoff"))
+            assertFalse(markdown.contains("inputSchema"))
+        }
+
+    @Test
+    fun `tools handoff can filter available tools and omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tools.handoff"),
+                    arguments =
+                        buildJsonObject {
+                            put("availableOnly", true)
+                            put("includeMarkdown", false)
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("true", result.payload["availableOnly"]?.jsonPrimitive?.content)
+            assertEquals("10", result.payload["limit"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("handoffMarkdown"))
+            assertTrue(
+                result.payload
+                    .getValue("includedToolCount")
+                    .jsonPrimitive
+                    .content
+                    .toInt() <= 10,
+            )
+            assertTrue(
+                result.payload
+                    .getValue("tools")
+                    .jsonArray
+                    .all { tool ->
+                        tool.jsonObject
+                            .getValue("availabilityStatus")
+                            .jsonPrimitive
+                            .content == "Available"
+                    },
+            )
+        }
+
+    @Test
     fun `tools search returns matching descriptors`() =
         runTest {
             val registry = buildRegistry()

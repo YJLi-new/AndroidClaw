@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tools.handoff` / `tool.handoff` /
+  `tools.snapshot` / `tool.snapshot` as a Tool Contract context-transfer
+  feature. Agents can now prepare a compact bounded registry handoff with
+  aggregate stats, namespace and availability filters, argument and permission
+  metadata, optional markdown, and no input schemas in the included tool
+  entries. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `skills.handoff` / `skill.handoff` /
   `skills.snapshot` / `skill.snapshot` as a Skill Contract context-transfer
   tool. Agents can now prepare a compact bounded skill inventory handoff with
