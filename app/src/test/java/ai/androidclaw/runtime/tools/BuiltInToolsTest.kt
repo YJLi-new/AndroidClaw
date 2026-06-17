@@ -15,6 +15,7 @@ import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
@@ -2516,6 +2517,125 @@ class BuiltInToolsTest {
             assertEquals("1", roleStats.getValue("User"))
             assertEquals("2", roleStats.getValue("Assistant"))
             assertEquals("1", roleStats.getValue("ToolResult"))
+        }
+
+    @Test
+    fun `messages doctor reports transcript diagnostics without message bodies`() =
+        runTest {
+            val session = sessionRepository.createSession("Doctor transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Do not leak this transcript body.",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.ToolCall,
+                content = "",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.ToolResult,
+                content = "x".repeat(MESSAGE_CONTENT_MAX_CHARS + 20),
+            )
+            sessionRepository.archiveSession(session.id)
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "messages.health", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 10)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("ERROR", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals(session.id, result.payload["sessionId"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["archived"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["messageCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["messageBodiesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["providerMetaIncluded"]?.jsonPrimitive?.content)
+            assertFalse(result.payload.toString().contains("Do not leak this transcript body."))
+            val issueCodes =
+                result.payload
+                    .getValue("issues")
+                    .jsonArray
+                    .map { issue ->
+                        issue.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(issueCodes.contains("messages.session.archived"))
+            assertTrue(issueCodes.contains("message.content.blank"))
+            assertTrue(issueCodes.contains("message.tool_reference.missing"))
+            assertTrue(issueCodes.contains("message.content.max_length"))
+            assertTrue(
+                result.payload
+                    .getValue("messageChecks")
+                    .jsonArray
+                    .all { message ->
+                        val payload = message.jsonObject
+                        payload.getValue("messageBodyIncluded").jsonPrimitive.content == false.toString() &&
+                            payload.getValue("providerMetaIncluded").jsonPrimitive.content == false.toString() &&
+                            !payload.containsKey("content") &&
+                            !payload.containsKey("providerMeta")
+                    },
+            )
+            val markdown =
+                result.payload
+                    .getValue("doctorMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Message doctor"))
+            assertFalse(markdown.contains("Do not leak this transcript body."))
+        }
+
+    @Test
+    fun `messages doctor reports ok and can omit markdown`() =
+        runTest {
+            val session = sessionRepository.createSession("Healthy transcript")
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.User,
+                content = "Hello",
+            )
+            messageRepository.addMessage(
+                sessionId = session.id,
+                role = ai.androidclaw.data.model.MessageRole.Assistant,
+                content = "Hi there",
+            )
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "transcript.doctor", sessionId = session.id),
+                    arguments =
+                        buildJsonObject {
+                            put("includeMarkdown", false)
+                            put("limit", 2)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("OK", result.payload["status"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["issueCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["recentCheckCount"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["includeMarkdown"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, result.payload.getValue("doctorMarkdown"))
+            assertFalse(result.payload.toString().contains("Hello"))
+            assertFalse(result.payload.toString().contains("Hi there"))
+            val checks = result.payload.getValue("messageChecks").jsonArray
+            assertEquals(2, checks.size)
+            assertTrue(
+                checks.all { message ->
+                    val payload = message.jsonObject
+                    payload.getValue("messageBodyIncluded").jsonPrimitive.content == false.toString() &&
+                        !payload.containsKey("content")
+                },
+            )
         }
 
     @Test

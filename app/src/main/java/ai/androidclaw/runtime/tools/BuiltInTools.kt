@@ -18,6 +18,7 @@ import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
 import ai.androidclaw.data.model.TaskRunStatus
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MESSAGE_REFERENCE_ID_MAX_CHARS
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -3786,6 +3787,155 @@ internal fun createBuiltInToolRegistry(
                                                 }
                                             },
                                         )
+                                    },
+                            )
+                        },
+                    )
+                    add(
+                        ToolRegistry.Entry(
+                            descriptor =
+                                ToolDescriptor(
+                                    name = "messages.doctor",
+                                    aliases =
+                                        listOf(
+                                            "message.doctor",
+                                            "messages.health",
+                                            "message.health",
+                                            "messages.check",
+                                            "message.check",
+                                            "transcript.doctor",
+                                            "transcript.health",
+                                            "transcript.check",
+                                        ),
+                                    description = "Return actionable transcript diagnostics without message bodies.",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "sessionId",
+                                                description = "Session id to inspect. Defaults to the active session.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "limit",
+                                                description = "Maximum recent message checks and diagnostic issues. Defaults to 20, max 50.",
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "includeMarkdown",
+                                                description = "Set false to omit doctorMarkdown. Defaults to true.",
+                                            ),
+                                        ),
+                                ),
+                        ) { context, arguments ->
+                            val sessionId = arguments.optionalText("sessionId") ?: context.sessionId
+                            if (sessionId.isNullOrBlank()) {
+                                return@Entry ToolExecutionResult.failure(
+                                    summary = "No active session is available to inspect.",
+                                    errorCode = "MISSING_SESSION",
+                                    payload =
+                                        buildJsonObject {
+                                            put("errorCode", "MISSING_SESSION")
+                                        },
+                                )
+                            }
+                            val session =
+                                sessionRepository.getSession(sessionId)
+                                    ?: return@Entry ToolExecutionResult.failure(
+                                        summary = "Session $sessionId was not found.",
+                                        errorCode = "MISSING_SESSION",
+                                        payload =
+                                            buildJsonObject {
+                                                put("errorCode", "MISSING_SESSION")
+                                                put("sessionId", sessionId)
+                                            },
+                                    )
+                            val limit =
+                                arguments
+                                    .optionalInt(
+                                        field = "limit",
+                                        defaultValue = MESSAGE_DOCTOR_DEFAULT_LIMIT,
+                                    ).coerceIn(0, MESSAGE_DOCTOR_MAX_LIMIT)
+                            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+                            val stats = messageRepository.getMessageStats(session.id)
+                            val recentMessages =
+                                messageRepository.getRecentMessagesChronological(
+                                    sessionId = session.id,
+                                    limit = limit,
+                                )
+                            val issues =
+                                session.toMessageDoctorIssues(
+                                    stats = stats,
+                                    recentMessages = recentMessages,
+                                )
+                            val includedIssues = issues.take(limit)
+                            val status = issues.toMessageDoctorStatus()
+                            val doctorMarkdown =
+                                if (includeMarkdown) {
+                                    includedIssues.toMessageDoctorMarkdown(
+                                        status = status,
+                                        session = session,
+                                        stats = stats,
+                                        recentCheckCount = recentMessages.size,
+                                        issueCount = issues.size,
+                                        limit = limit,
+                                    )
+                                } else {
+                                    null
+                                }
+                            ToolExecutionResult.success(
+                                summary =
+                                    when {
+                                        issues.isEmpty() ->
+                                            "Message doctor found no issues across ${recentMessages.size} checked message(s)."
+                                        includedIssues.size == issues.size ->
+                                            "Message doctor found ${issues.size} issue(s) across ${recentMessages.size} checked message(s)."
+                                        else ->
+                                            "Message doctor found ${issues.size} issue(s) and included ${includedIssues.size}."
+                                    },
+                                payload =
+                                    buildJsonObject {
+                                        put("status", status)
+                                        put("sessionId", session.id)
+                                        put("sessionTitle", session.title)
+                                        put("archived", session.archived)
+                                        put("messageCount", stats.totalMessageCount)
+                                        put("contentCharCount", stats.totalContentCharCount)
+                                        put("oldestMessageAtIso", stats.oldestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                                        put("newestMessageAtIso", stats.newestMessageAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                                        put("limit", limit)
+                                        put("recentCheckCount", recentMessages.size)
+                                        put("recentChecksOmitted", (stats.totalMessageCount - recentMessages.size.toLong()).coerceAtLeast(0))
+                                        put("issueCount", issues.size)
+                                        put("includedIssueCount", includedIssues.size)
+                                        put("omittedIssueCount", (issues.size - includedIssues.size).coerceAtLeast(0))
+                                        put("errorCount", issues.count { issue -> issue.severity == "Error" })
+                                        put("warningCount", issues.count { issue -> issue.severity == "Warning" })
+                                        put("includeMarkdown", includeMarkdown)
+                                        put("messageBodiesIncluded", false)
+                                        put("providerMetaIncluded", false)
+                                        put(
+                                            "roleStats",
+                                            buildJsonArray {
+                                                stats.roleStats.forEach { roleStats ->
+                                                    add(roleStats.toMessageRoleStatsPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "messageChecks",
+                                            buildJsonArray {
+                                                recentMessages.forEach { message ->
+                                                    add(message.toMessageDoctorCheckPayload())
+                                                }
+                                            },
+                                        )
+                                        put(
+                                            "issues",
+                                            buildJsonArray {
+                                                includedIssues.forEach { issue ->
+                                                    add(issue.toMessageDoctorPayload())
+                                                }
+                                            },
+                                        )
+                                        put("doctorMarkdown", doctorMarkdown?.let(::JsonPrimitive) ?: JsonNull)
                                     },
                             )
                         },
@@ -9187,6 +9337,10 @@ private const val EVENT_LOG_MESSAGE_PAYLOAD_MAX_CHARS = 500
 private const val EVENT_LOG_DETAILS_PAYLOAD_MAX_CHARS = 1_000
 private const val EVENT_LOG_FILTER_MAX_CHARS = 80
 private const val MESSAGE_CONTEXT_DEFAULT_RADIUS = 3
+private const val MESSAGE_DOCTOR_DEFAULT_LIMIT = 20
+private const val MESSAGE_DOCTOR_MAX_LIMIT = 50
+private const val MESSAGE_DOCTOR_LARGE_TRANSCRIPT_CHARS = 100_000L
+private const val MESSAGE_DOCTOR_TEXT_MAX_CHARS = 500
 private const val MESSAGE_RECENT_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_DEFAULT_LIMIT = 20
 private const val MESSAGE_SEARCH_SNIPPET_MAX_CHARS = 500
@@ -9317,6 +9471,18 @@ private data class SessionDoctorIssue(
     val title: String?,
     val isMain: Boolean?,
     val archived: Boolean?,
+    val summary: String,
+    val action: String,
+    val detail: String? = null,
+)
+
+private data class MessageDoctorIssue(
+    val id: String,
+    val severity: String,
+    val code: String,
+    val sessionId: String,
+    val messageId: String?,
+    val role: String?,
     val summary: String,
     val action: String,
     val detail: String? = null,
@@ -11878,6 +12044,207 @@ private fun String.toMessageSearchSnippet(): String =
     } else {
         take(MESSAGE_SEARCH_SNIPPET_MAX_CHARS)
     }
+
+private fun Session.toMessageDoctorIssues(
+    stats: MessageRepository.SessionMessageStats,
+    recentMessages: List<ChatMessage>,
+): List<MessageDoctorIssue> =
+    buildList {
+        fun addIssue(
+            severity: String,
+            code: String,
+            summary: String,
+            action: String,
+            message: ChatMessage? = null,
+            detail: String? = null,
+        ) {
+            add(
+                MessageDoctorIssue(
+                    id = "${message?.id ?: id}:$code",
+                    severity = severity,
+                    code = code,
+                    sessionId = id,
+                    messageId = message?.id,
+                    role = message?.role?.name,
+                    summary = summary.toMessageDoctorText(),
+                    action = action.toMessageDoctorText(),
+                    detail = detail?.toMessageDoctorText(),
+                ),
+            )
+        }
+
+        val roleCounts = stats.roleStats.associate { roleStats -> roleStats.role to roleStats.messageCount }
+        if (archived) {
+            addIssue(
+                severity = "Warning",
+                code = "messages.session.archived",
+                summary = "Session $title is archived, so its transcript is hidden from normal active-session flows.",
+                action = "Unarchive the session before continuing active work in this transcript.",
+            )
+        }
+        if (stats.totalMessageCount == 0L) {
+            addIssue(
+                severity = "Warning",
+                code = "messages.empty",
+                summary = "Session $title has no persisted messages.",
+                action = "Send or import messages before relying on transcript context.",
+            )
+        } else {
+            if ((roleCounts[MessageRole.User] ?: 0L) == 0L) {
+                addIssue(
+                    severity = "Warning",
+                    code = "messages.user.missing",
+                    summary = "Transcript has messages but no user turns.",
+                    action = "Add or import the user turn that anchors this conversation if the transcript should be replayable.",
+                )
+            }
+            if ((roleCounts[MessageRole.User] ?: 0L) > 0L && (roleCounts[MessageRole.Assistant] ?: 0L) == 0L) {
+                addIssue(
+                    severity = "Warning",
+                    code = "messages.assistant.missing",
+                    summary = "Transcript has user turns but no assistant turns.",
+                    action = "Run the provider or import assistant responses before treating the transcript as complete.",
+                )
+            }
+            if ((roleCounts[MessageRole.ToolResult] ?: 0L) > 0L && (roleCounts[MessageRole.ToolCall] ?: 0L) == 0L) {
+                addIssue(
+                    severity = "Warning",
+                    code = "messages.tool_calls.missing",
+                    summary = "Transcript has tool results but no tool-call messages.",
+                    action = "Import or repair matching tool-call records so provider replay can preserve tool context.",
+                )
+            }
+            if (stats.totalContentCharCount >= MESSAGE_DOCTOR_LARGE_TRANSCRIPT_CHARS && summaryText.isNullOrBlank()) {
+                addIssue(
+                    severity = "Warning",
+                    code = "messages.large_unsummarized",
+                    summary = "Transcript has ${stats.totalContentCharCount} content characters without a session summary.",
+                    action = "Run sessions.compact or sessions.summary.update before relying on long-session context.",
+                )
+            }
+        }
+        recentMessages.forEach { message ->
+            if (message.content.isBlank()) {
+                addIssue(
+                    severity = "Error",
+                    code = "message.content.blank",
+                    summary = "A ${message.role.name} message has blank content.",
+                    action = "Delete the blank message or replace it with meaningful content.",
+                    message = message,
+                )
+            }
+            if (message.content.length >= MESSAGE_CONTENT_MAX_CHARS) {
+                addIssue(
+                    severity = "Warning",
+                    code = "message.content.max_length",
+                    summary = "A ${message.role.name} message is at the $MESSAGE_CONTENT_MAX_CHARS character storage limit.",
+                    action = "Review whether the message was truncated and summarize or split it if needed.",
+                    message = message,
+                )
+            }
+            if ((message.role == MessageRole.ToolCall || message.role == MessageRole.ToolResult) && message.toolCallId.isNullOrBlank()) {
+                addIssue(
+                    severity = "Error",
+                    code = "message.tool_reference.missing",
+                    summary = "${message.role.name} message is missing toolCallId.",
+                    action = "Repair the toolCallId reference or remove the orphaned tool message before provider replay.",
+                    message = message,
+                )
+            }
+        }
+    }
+
+private fun ChatMessage.toMessageDoctorCheckPayload(): JsonObject =
+    buildJsonObject {
+        put("messageId", id)
+        put("role", role.name)
+        put("createdAtIso", createdAt.toString())
+        put("contentLength", content.length)
+        put("contentAtStorageLimit", content.length >= MESSAGE_CONTENT_MAX_CHARS)
+        put("hasProviderMeta", providerMeta != null)
+        put("hasToolCallId", !toolCallId.isNullOrBlank())
+        put("hasTaskRunId", !taskRunId.isNullOrBlank())
+        put("messageBodyIncluded", false)
+        put("providerMetaIncluded", false)
+    }
+
+private fun List<MessageDoctorIssue>.toMessageDoctorStatus(): String =
+    when {
+        any { issue -> issue.severity == "Error" } -> "ERROR"
+        any { issue -> issue.severity == "Warning" } -> "WARN"
+        else -> "OK"
+    }
+
+private fun MessageDoctorIssue.toMessageDoctorPayload(): JsonObject =
+    buildJsonObject {
+        put("id", id)
+        put("severity", severity)
+        put("code", code)
+        put("sessionId", sessionId)
+        put("messageId", messageId?.let(::JsonPrimitive) ?: JsonNull)
+        put("role", role?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", summary)
+        put("action", action)
+        put("detail", detail?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+private fun List<MessageDoctorIssue>.toMessageDoctorMarkdown(
+    status: String,
+    session: Session,
+    stats: MessageRepository.SessionMessageStats,
+    recentCheckCount: Int,
+    issueCount: Int,
+    limit: Int,
+): String {
+    val includedIssues = this
+    return buildString {
+        appendLine("# Message doctor")
+        appendLine()
+        appendLine("- Status: $status")
+        appendLine("- Session: `${session.title.toHandoffLine()}`")
+        appendLine("- Session id: `${session.id}`")
+        appendLine("- Archived: ${session.archived}")
+        appendLine("- Messages: ${stats.totalMessageCount}")
+        appendLine("- Content characters: ${stats.totalContentCharCount}")
+        appendLine("- Recent messages checked: $recentCheckCount of up to $limit")
+        appendLine("- Issues included: ${includedIssues.size} of $issueCount")
+        appendLine("- Message bodies included: false")
+        appendLine("- Provider metadata included: false")
+        appendLine()
+        appendLine("## Issues")
+        if (includedIssues.isEmpty()) {
+            appendLine("_No message issues found._")
+        } else {
+            includedIssues.forEach { issue ->
+                appendLine(issue.toMessageDoctorMarkdownLine())
+            }
+        }
+    }
+}
+
+private fun MessageDoctorIssue.toMessageDoctorMarkdownLine(): String =
+    buildString {
+        append("- ")
+        append(severity)
+        append(" `")
+        append(messageId?.toHandoffLine() ?: "session")
+        append("` code=")
+        append(code)
+        role?.let { role ->
+            append(" role=")
+            append(role)
+        }
+        append(": ")
+        append(summary.toHandoffLine())
+        detail?.let { detail ->
+            append(" detail=")
+            append(detail.toHandoffLine())
+        }
+        append(" Action: ")
+        append(action.toHandoffLine())
+    }
+
+private fun String.toMessageDoctorText(): String = toHandoffLine().take(MESSAGE_DOCTOR_TEXT_MAX_CHARS)
 
 private fun ChatMessage.toMessageContextPayload(
     relativePosition: String,

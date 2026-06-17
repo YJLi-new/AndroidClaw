@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `messages.doctor` /
+  `message.doctor` / `messages.health` / `message.health` plus transcript
+  aliases as a dedicated transcript diagnostics tool. Agents can now inspect
+  the active or selected session for archived transcript usage, empty or
+  role-incomplete transcripts, large unsummarized transcripts, blank messages,
+  max-length stored messages, and tool-call/tool-result messages missing
+  `toolCallId` with OK/WARN/ERROR status, bounded recent-message checks,
+  optional markdown, and explicit message-body/provider-metadata omission
+  flags. Focused `BuiltInToolsTest`, ktlint, and the full offline fast loop
+  passed.
 - 2026-06-17: Added `memory.doctor` /
   `memories.doctor` / `memory.health` / `memories.health` plus check aliases
   and `/memory doctor` command dispatch as a dedicated Memory Contract
