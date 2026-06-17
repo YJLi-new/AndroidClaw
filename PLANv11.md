@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `memory.handoff` /
+  `memories.handoff` / `memory.snapshot` / `memories.snapshot` as a Memory
+  Contract context-transfer tool. Agents can now prepare a compact local-memory
+  handoff with bounded active memory payloads, aggregate source-type stats,
+  optional markdown, and no install owner id exposure; `/memory handoff` also
+  supports a bounded count argument. Focused `BuiltInToolsTest`, ktlint, and
+  the full offline fast loop passed.
 - 2026-06-17: Added `tasks.handoff` / `task.handoff` /
   `tasks.snapshot` / `task.snapshot` plus automation aliases as an Automation
   Contract context-transfer tool. Agents can now prepare a compact handoff for

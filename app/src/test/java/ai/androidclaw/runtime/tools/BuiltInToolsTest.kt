@@ -7377,6 +7377,70 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `memory handoff returns bounded memories stats and markdown without owner identifier`() =
+        runTest {
+            val registry = buildRegistry()
+            settingsDataStore.setMemoryEnabled(true)
+            val ownerUserId = settingsDataStore.memorySettingsSnapshot().installUserId
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "User prefers compact memory handoffs.",
+                sourceSessionId = "session-memory",
+                sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
+            )
+            memoryRepository.remember(
+                ownerUserId = ownerUserId,
+                text = "User wants summaries\nwith flattened markdown.",
+                sourceType = MemoryRepository.SOURCE_TYPE_AUTOMATIC,
+            )
+
+            val directHandoff =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memories.snapshot"),
+                    arguments =
+                        buildJsonObject {
+                            put("limit", 2)
+                        },
+                )
+            val commandHandoff =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "memory.command"),
+                    arguments =
+                        buildJsonObject {
+                            put("command", "handoff 1")
+                        },
+                )
+
+            assertTrue(directHandoff.summary, directHandoff.success)
+            assertEquals("true", directHandoff.payload["enabled"]?.jsonPrimitive?.content)
+            assertEquals("local-device", directHandoff.payload["scope"]?.jsonPrimitive?.content)
+            assertEquals("2", directHandoff.payload["memoryLimit"]?.jsonPrimitive?.content)
+            assertEquals("2", directHandoff.payload["memoryCount"]?.jsonPrimitive?.content)
+            assertEquals("2", directHandoff.payload["activeMemoryCount"]?.jsonPrimitive?.content)
+            assertEquals("0", directHandoff.payload["deletedMemoryCount"]?.jsonPrimitive?.content)
+            assertFalse(directHandoff.payload.containsKey("installUserId"))
+            assertFalse(directHandoff.payload.toString().contains(ownerUserId))
+            val memories =
+                directHandoff.payload
+                    .getValue("memories")
+                    .jsonArray
+                    .map { memory -> memory.jsonObject }
+            assertEquals("2", memories.size.toString())
+            assertTrue(memories.none { memory -> memory.containsKey("ownerUserId") })
+            val markdown =
+                directHandoff.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Memory handoff"))
+            assertTrue(markdown.contains("User prefers compact memory handoffs."))
+            assertTrue(markdown.contains("User wants summaries with flattened markdown."))
+            assertTrue(commandHandoff.success)
+            assertEquals("1", commandHandoff.payload["memoryLimit"]?.jsonPrimitive?.content)
+            assertEquals("1", commandHandoff.payload["memoryCount"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `memory tools reject malformed or out of range limits`() =
         runTest {
             val registry = buildRegistry()

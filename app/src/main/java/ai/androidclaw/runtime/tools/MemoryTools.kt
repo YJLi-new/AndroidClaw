@@ -39,6 +39,49 @@ internal fun memoryToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "memory.handoff",
+                    aliases =
+                        listOf(
+                            "memories.handoff",
+                            "memory.snapshot",
+                            "memories.snapshot",
+                        ),
+                    description = "Return a compact local memory handoff without exposing the install owner id.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Recent active memory count. Defaults to 8, max 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val limit =
+                when (
+                    val parsedLimit =
+                        arguments.parseMemoryLimit(
+                            field = "limit",
+                            defaultValue = MEMORY_HANDOFF_DEFAULT_LIMIT,
+                            maxValue = MEMORY_HANDOFF_MAX_LIMIT,
+                        )
+                ) {
+                    is MemoryLimitParseResult.Failure -> return@Entry parsedLimit.result
+                    is MemoryLimitParseResult.Success -> parsedLimit.value
+                }
+            memoryHandoffResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = limit,
+                includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "memory.remember",
                     description = "Store an explicit local cross-session memory.",
                     arguments =
@@ -626,6 +669,14 @@ private suspend fun executeMemoryCommand(
     if (trimmed.equals("stats", ignoreCase = true)) {
         return memoryStatsResult(settingsDataStore, memoryRepository)
     }
+    if (trimmed.equals("handoff", ignoreCase = true) || trimmed.equals("snapshot", ignoreCase = true)) {
+        return memoryHandoffResult(
+            settingsDataStore = settingsDataStore,
+            memoryRepository = memoryRepository,
+            limit = MEMORY_HANDOFF_DEFAULT_LIMIT,
+            includeMarkdown = true,
+        )
+    }
     val verb = trimmed.substringBefore(' ').lowercase()
     val rest = trimmed.substringAfter(' ', "").trim()
     val settings = settingsDataStore.memorySettingsSnapshot()
@@ -691,6 +742,35 @@ private suspend fun executeMemoryCommand(
                 emptySummary = "No memories stored.",
                 nonEmptySummary = "Found stored memories.",
             )
+
+        "handoff", "snapshot" -> {
+            val limit =
+                if (rest.isBlank()) {
+                    MEMORY_HANDOFF_DEFAULT_LIMIT
+                } else {
+                    val parsedLimit =
+                        rest.toLongOrNull()
+                            ?: return invalidMemoryLimitResult(
+                                field = "limit",
+                                maxValue = MEMORY_HANDOFF_MAX_LIMIT,
+                                rawValue = rest,
+                            )
+                    if (parsedLimit !in 1L..MEMORY_HANDOFF_MAX_LIMIT.toLong()) {
+                        return invalidMemoryLimitResult(
+                            field = "limit",
+                            maxValue = MEMORY_HANDOFF_MAX_LIMIT,
+                            rawValue = rest,
+                        )
+                    }
+                    parsedLimit.toInt()
+                }
+            memoryHandoffResult(
+                settingsDataStore = settingsDataStore,
+                memoryRepository = memoryRepository,
+                limit = limit,
+                includeMarkdown = true,
+            )
+        }
 
         "session", "by-session" -> {
             val sourceSessionId = rest.ifBlank { context.sessionId.orEmpty() }.trim()
@@ -924,6 +1004,83 @@ private suspend fun memoryStatsResult(
     )
 }
 
+private suspend fun memoryHandoffResult(
+    settingsDataStore: SettingsDataStore,
+    memoryRepository: MemoryRepository,
+    limit: Int,
+    includeMarkdown: Boolean,
+): ToolExecutionResult {
+    val settings = settingsDataStore.memorySettingsSnapshot()
+    if (!settings.enabled) {
+        return memoryDisabledResult()
+    }
+    val stats = memoryRepository.stats(settings.installUserId)
+    val memories =
+        memoryRepository.listRecent(
+            ownerUserId = settings.installUserId,
+            limit = limit,
+        )
+    val handoffMarkdown =
+        if (includeMarkdown) {
+            memoryHandoffMarkdown(
+                stats = stats,
+                memories = memories,
+                limit = limit,
+            )
+        } else {
+            null
+        }
+    return ToolExecutionResult.success(
+        summary =
+            if (memories.isEmpty()) {
+                "Prepared memory handoff with no active memories."
+            } else {
+                "Prepared memory handoff with ${memories.size} active memory item(s)."
+            },
+        payload =
+            buildJsonObject {
+                put("enabled", true)
+                put("scope", "local-device")
+                put("memoryLimit", limit)
+                put("memoryCount", memories.size)
+                put("activeMemoryCount", stats.activeMemoryCount)
+                put("deletedMemoryCount", stats.deletedMemoryCount)
+                put("totalMemoryCount", stats.totalMemoryCount)
+                put("activeWithSourceSessionCount", stats.activeWithSourceSessionCount)
+                put(
+                    "oldestActiveCreatedAt",
+                    stats.oldestActiveCreatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                )
+                put(
+                    "newestActiveUpdatedAt",
+                    stats.newestActiveUpdatedAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull,
+                )
+                put(
+                    "sourceTypeStats",
+                    buildJsonArray {
+                        stats.sourceTypeStats.forEach { sourceTypeStats ->
+                            add(
+                                buildJsonObject {
+                                    put("sourceType", sourceTypeStats.sourceType)
+                                    put("memoryCount", sourceTypeStats.memoryCount)
+                                },
+                            )
+                        }
+                    },
+                )
+                put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                put(
+                    "memories",
+                    buildJsonArray {
+                        memories.forEach { memory ->
+                            add(memoryPayload(memory))
+                        }
+                    },
+                )
+            },
+    )
+}
+
 private fun memoryDisabledResult(): ToolExecutionResult =
     ToolExecutionResult.failure(
         summary = "Memory is disabled. Enable it in Settings before using memory tools.",
@@ -1103,6 +1260,60 @@ private fun memoryRestoreResult(
         )
     }
 
+private fun memoryHandoffMarkdown(
+    stats: MemoryRepository.MemoryStats,
+    memories: List<MemoryItem>,
+    limit: Int,
+): String =
+    buildString {
+        appendLine("# Memory handoff")
+        appendLine()
+        appendLine("- Scope: local-device")
+        appendLine("- Active memories: ${stats.activeMemoryCount}")
+        appendLine("- Deleted memories: ${stats.deletedMemoryCount}")
+        appendLine("- Total memories: ${stats.totalMemoryCount}")
+        appendLine("- Active with source session: ${stats.activeWithSourceSessionCount}")
+        appendLine("- Memories included: ${memories.size} of up to $limit")
+        appendLine()
+        appendLine("## Source types")
+        if (stats.sourceTypeStats.isEmpty()) {
+            appendLine("_No active source type counts._")
+        } else {
+            stats.sourceTypeStats.forEach { sourceTypeStats ->
+                appendLine("- ${sourceTypeStats.sourceType}: ${sourceTypeStats.memoryCount}")
+            }
+        }
+        appendLine()
+        appendLine("## Memories")
+        if (memories.isEmpty()) {
+            appendLine("_No active memories included._")
+        } else {
+            memories.forEach { memory ->
+                appendLine(memory.toMemoryHandoffMarkdownLine())
+            }
+        }
+    }
+
+private fun MemoryItem.toMemoryHandoffMarkdownLine(): String =
+    buildString {
+        append("- [")
+        append(sourceType)
+        append("] ")
+        append(text.toMemoryHandoffLine())
+        sourceSessionId?.let { sessionId ->
+            append(" (sourceSession=")
+            append(sessionId.toMemoryHandoffLine())
+            append(")")
+        }
+    }
+
+private fun String.toMemoryHandoffLine(): String =
+    lineSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .joinToString(" ")
+        .ifBlank { "(blank)" }
+
 private fun memoryPayload(
     memory: MemoryItem,
     restored: Boolean? = null,
@@ -1196,6 +1407,18 @@ private fun missingMemorySourceMessageIdResult(): ToolExecutionResult =
 private fun JsonObject.optionalText(field: String): String? {
     val primitive = this[field] as? JsonPrimitive ?: return null
     return primitive.contentOrNull?.trim()?.ifBlank { null }
+}
+
+private fun JsonObject.optionalBoolean(
+    field: String,
+    defaultValue: Boolean = false,
+): Boolean {
+    val primitive = this[field] as? JsonPrimitive ?: return defaultValue
+    return when (primitive.contentOrNull?.trim()?.lowercase()) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> defaultValue
+    }
 }
 
 private fun JsonObject.sourceSessionIdOrContext(context: ToolExecutionContext): String? =
@@ -1305,3 +1528,5 @@ private fun JsonObjectBuilder.putAllowedMemorySourceTypes() {
 
 private const val MAX_MEMORY_SOURCE_TYPE_PAYLOAD_CHARS = 80
 private const val MAX_MEMORY_LIMIT_PAYLOAD_CHARS = 80
+private const val MEMORY_HANDOFF_DEFAULT_LIMIT = 8
+private const val MEMORY_HANDOFF_MAX_LIMIT = 20
