@@ -2751,6 +2751,65 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `tasks preview occurrences previews unsaved schedule without creating automation`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "automation.preview.occurrences"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "interval")
+                            put("anchorAtIso", "2026-03-07T00:00:00Z")
+                            put("repeatEveryMinutes", 1_440)
+                            put("limit", 2)
+                        },
+                )
+            val invalid =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "tasks.preview.occurrences"),
+                    arguments =
+                        buildJsonObject {
+                            put("scheduleKind", "interval")
+                            put("anchorAtIso", "2026-03-07T00:00:00Z")
+                            put("repeatEveryMinutes", 1_440)
+                            put("afterIso", "invalid")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("interval", result.payload["scheduleKind"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["nowIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-08T00:00:00Z", result.payload["afterIso"]?.jsonPrimitive?.content)
+            assertEquals("2026-03-09T00:00:00Z", result.payload["nextRunAtIso"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["occurrenceCount"]?.jsonPrimitive?.content)
+            val schedule = result.payload.getValue("schedule").jsonObject
+            assertEquals("interval", schedule.getValue("kind").jsonPrimitive.content)
+            assertEquals("1440", schedule.getValue("repeatEveryMinutes").jsonPrimitive.content)
+            val occurrences =
+                result.payload
+                    .getValue("occurrences")
+                    .jsonArray
+                    .map { item ->
+                        item.jsonObject
+                            .getValue("runAtIso")
+                            .jsonPrimitive
+                            .content
+                    }
+            assertEquals(
+                listOf(
+                    "2026-03-09T00:00:00Z",
+                    "2026-03-10T00:00:00Z",
+                ),
+                occurrences,
+            )
+            assertEquals(emptyList<ai.androidclaw.data.model.Task>(), taskRepository.observeTasks().first())
+            assertFalse(invalid.success)
+            assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        }
+
+    @Test
     fun `tasks next returns upcoming enabled automations in next run order`() =
         runTest {
             val dueTask =

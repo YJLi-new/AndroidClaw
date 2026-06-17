@@ -21,6 +21,7 @@ import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.scheduler.NextRunCalculator
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
@@ -5767,6 +5768,134 @@ private fun taskToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "tasks.preview.occurrences",
+                    aliases =
+                        listOf(
+                            "task.preview.occurrences",
+                            "tasks.schedule.preview_occurrences",
+                            "task.schedule.preview_occurrences",
+                            "automations.preview.occurrences",
+                            "automation.preview.occurrences",
+                        ),
+                    description = "Preview multiple run times for an unsaved automation schedule.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "scheduleKind",
+                                required = true,
+                                description = "once | interval | cron",
+                            ),
+                            ToolArgumentSpec(
+                                name = "atIso",
+                                description = "ISO-8601 instant for once schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "anchorAtIso",
+                                description = "ISO-8601 anchor instant for interval schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "repeatEveryMinutes",
+                                description = "Positive interval minutes; must meet scheduler minimum.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "cronExpression",
+                                description = "Five-field cron expression for cron schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "timezone",
+                                description = "IANA timezone id for cron schedules.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum occurrence count. Defaults to 5, max 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "afterIso",
+                                description = "Optional exclusive ISO-8601 lower bound. Defaults to now.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val now = clock.instant()
+            val preview =
+                try {
+                    parseTaskSchedulePreview(
+                        arguments = arguments,
+                        capabilities = schedulerCoordinator.capabilities(),
+                        now = now,
+                        toolName = "tasks.preview.occurrences",
+                    )
+                } catch (error: IllegalArgumentException) {
+                    return@Entry invalidTaskArguments(
+                        toolName = "tasks.preview.occurrences",
+                        summary = error.message ?: "tasks.preview.occurrences received invalid arguments.",
+                    )
+                }
+            val schedulePreview =
+                when (preview) {
+                    is TaskToolParseResult.Failure -> return@Entry preview.result
+                    is TaskToolParseResult.Success -> preview.value
+                }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = TASK_OCCURRENCES_DEFAULT_LIMIT,
+                    ).coerceIn(0, TASK_OCCURRENCES_MAX_LIMIT)
+            val after =
+                arguments.optionalText("afterIso")?.let { rawAfterIso ->
+                    try {
+                        Instant.parse(rawAfterIso)
+                    } catch (_: DateTimeParseException) {
+                        return@Entry invalidTaskArguments(
+                            toolName = "tasks.preview.occurrences",
+                            summary = "tasks.preview.occurrences received an invalid afterIso.",
+                            field = "afterIso",
+                        )
+                    }
+                } ?: now
+            val occurrences =
+                schedulePreview.schedule.computeScheduledOccurrences(
+                    after = after,
+                    limit = limit,
+                )
+            ToolExecutionResult.success(
+                summary =
+                    if (occurrences.isEmpty()) {
+                        "No scheduled occurrences found for preview schedule."
+                    } else {
+                        "Previewed ${occurrences.size} scheduled occurrence(s)."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("nowIso", now.toString())
+                        put("afterIso", after.toString())
+                        put("scheduleKind", schedulePreview.schedule.toTaskSearchKind())
+                        put("schedule", schedulePreview.schedule.toPayload())
+                        put("nextRunAtIso", schedulePreview.nextRunAt?.let { JsonPrimitive(it.toString()) } ?: JsonNull)
+                        put("limit", limit)
+                        put("occurrenceCount", occurrences.size)
+                        put(
+                            "occurrences",
+                            buildJsonArray {
+                                occurrences.forEachIndexed { index, occurrence ->
+                                    add(
+                                        schedulePreview.schedule.toScheduledOccurrencePayload(
+                                            occurrence = occurrence,
+                                            index = index,
+                                            after = after,
+                                            now = now,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "tasks.preview",
                     aliases =
                         listOf(
@@ -5902,10 +6031,9 @@ private fun taskToolEntries(
                 } ?: clock.instant()
             val now = clock.instant()
             val occurrences =
-                task.computeScheduledOccurrences(
+                task.schedule.computeScheduledOccurrences(
                     after = after,
                     limit = limit,
-                    nextRunProvider = schedulerCoordinator.taskPlanner::nextScheduledRun,
                 )
             ToolExecutionResult.success(
                 summary =
@@ -5930,7 +6058,7 @@ private fun taskToolEntries(
                             buildJsonArray {
                                 occurrences.forEachIndexed { index, occurrence ->
                                     add(
-                                        task.toScheduledOccurrencePayload(
+                                        task.schedule.toScheduledOccurrencePayload(
                                             occurrence = occurrence,
                                             index = index,
                                             after = after,
@@ -9092,15 +9220,14 @@ private fun Task.toUpcomingTaskPayload(now: Instant): JsonObject {
     }
 }
 
-private fun Task.computeScheduledOccurrences(
+private fun TaskSchedule.computeScheduledOccurrences(
     after: Instant,
     limit: Int,
-    nextRunProvider: (Task, Instant) -> Instant?,
 ): List<Instant> {
     val occurrences = mutableListOf<Instant>()
     var cursor = after
     for (index in 0 until limit.coerceAtLeast(0)) {
-        val nextRun = nextRunProvider(this, cursor) ?: break
+        val nextRun = NextRunCalculator.computeNextRun(this, cursor) ?: break
         if (!nextRun.isAfter(cursor)) {
             break
         }
@@ -9110,7 +9237,7 @@ private fun Task.computeScheduledOccurrences(
     return occurrences
 }
 
-private fun Task.toScheduledOccurrencePayload(
+private fun TaskSchedule.toScheduledOccurrencePayload(
     occurrence: Instant,
     index: Int,
     after: Instant,
@@ -9119,7 +9246,7 @@ private fun Task.toScheduledOccurrencePayload(
     buildJsonObject {
         put("index", index)
         put("runAtIso", occurrence.toString())
-        put("scheduleKind", schedule.toTaskSearchKind())
+        put("scheduleKind", toTaskSearchKind())
         put("dueAtNow", !occurrence.isAfter(now))
         put("secondsAfterLowerBound", Duration.between(after, occurrence).seconds)
         put("secondsFromNow", Duration.between(now, occurrence).seconds)

@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `tasks.preview.occurrences` /
+  `task.preview.occurrences` plus automation preview aliases as an Automation
+  Contract schedule-planning tool for unsaved schedules. Agents can now provide
+  a once, interval, or cron schedule payload and inspect a bounded sequence of
+  upcoming run instants before creating or updating an automation, with no task
+  persistence or work enqueueing. Focused `BuiltInToolsTest`, ktlint, and the
+  full offline fast loop passed.
 - 2026-06-17: Added `tasks.occurrences` / `task.occurrences` /
   `tasks.schedule.occurrences` / `task.schedule.occurrences` plus automation
   aliases as an Automation Contract schedule-planning tool. Agents can now

@@ -638,7 +638,7 @@ private fun TaskSchedule.kindName(): String =
         is TaskSchedule.Cron -> "cron"
     }
 
-private fun TaskSchedule.toPayload(): JsonObject =
+internal fun TaskSchedule.toPayload(): JsonObject =
     when (this) {
         is TaskSchedule.Once ->
             buildJsonObject {
