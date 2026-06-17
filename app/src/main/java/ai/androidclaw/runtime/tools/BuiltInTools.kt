@@ -7195,6 +7195,89 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.auth.example",
+                    aliases =
+                        listOf(
+                            "provider.auth.example",
+                            "providers.credentials.example",
+                            "provider.credentials.example",
+                            "providers.login.example",
+                            "provider.login.example",
+                        ),
+                    description = "Return non-secret provider authentication setup examples without mutating credentials.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Provider id, storage value, or display name. Defaults to the current provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit exampleMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val providerType =
+                if (identifier == null) {
+                    settings.providerType
+                } else {
+                    ProviderType.entries.firstOrNull { providerType ->
+                        providerType.matchesProviderIdentifier(identifier)
+                    } ?: return@Entry ToolExecutionResult.failure(
+                        summary = "Provider $identifier was not found.",
+                        errorCode = "PROVIDER_NOT_FOUND",
+                        payload =
+                            buildJsonObject {
+                                put("errorCode", "PROVIDER_NOT_FOUND")
+                                put("toolName", "providers.auth.example")
+                                put("providerId", identifier)
+                            },
+                    )
+                }
+            val authState =
+                providerType.toProviderAuthState(
+                    providerSecretStore = providerSecretStore,
+                    clock = clock,
+                )
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val exampleMarkdown =
+                if (includeMarkdown) {
+                    providerType.toProviderAuthExampleMarkdown(
+                        settings = settings,
+                        authState = authState,
+                        secretStatusAvailable = providerSecretStore != null,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (providerType.requiresApiKey || providerType.usesOpenAiCodexOAuth) {
+                        "Prepared non-secret auth example for ${providerType.displayName}."
+                    } else {
+                        "Provider ${providerType.displayName} does not require credentials."
+                    },
+                payload =
+                    providerType.toProviderAuthExamplePayload(
+                        settings = settings,
+                        authState = authState,
+                        requestedProviderId = identifier,
+                        includeMarkdown = includeMarkdown,
+                        exampleMarkdown = exampleMarkdown,
+                        secretStatusAvailable = providerSecretStore != null,
+                    ),
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.auth.clear",
                     aliases =
                         listOf(
@@ -15943,6 +16026,192 @@ private data class ProviderAuthState(
     val oauthExpired: Boolean?,
     val oauthProfileConfigured: Boolean?,
 )
+
+private fun ProviderType.toProviderAuthExamplePayload(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+    requestedProviderId: String?,
+    includeMarkdown: Boolean,
+    exampleMarkdown: String?,
+    secretStatusAvailable: Boolean,
+): JsonObject {
+    val credentialType = providerAuthExampleCredentialType()
+    return buildJsonObject {
+        put("requestedProviderId", requestedProviderId?.let(::JsonPrimitive) ?: JsonNull)
+        put("providerId", providerId)
+        put("storageValue", storageValue)
+        put("displayName", displayName)
+        put("selected", settings.providerType == this@toProviderAuthExamplePayload)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("requiresApiKey", requiresApiKey)
+        put("usesOpenAiCodexOAuth", usesOpenAiCodexOAuth)
+        put("credentialType", credentialType)
+        put("secretStatusAvailable", secretStatusAvailable)
+        put("authStatus", authState.status)
+        put("configured", authState.configuredForProviderAuthExample()?.let(::JsonPrimitive) ?: JsonNull)
+        put("apiKeyConfigured", authState.apiKeyConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthConfigured", authState.oauthConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthExpired", authState.oauthExpired?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthProfileConfigured", authState.oauthProfileConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("exampleOnly", true)
+        put("executesAuthentication", false)
+        put("writesCredential", false)
+        put("secretInputAccepted", false)
+        put("secretValuesIncluded", false)
+        put("apiKeyValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("credentialValuesIncluded", false)
+        put("includeMarkdown", includeMarkdown)
+        put("statusExampleArguments", buildJsonObject { put("providerId", providerId) })
+        put(
+            "clearExampleArguments",
+            if (requiresApiKey || usesOpenAiCodexOAuth) {
+                buildJsonObject {
+                    put("providerId", providerId)
+                    put("credentialType", credentialType)
+                    put("confirm", "CONFIRM")
+                }
+            } else {
+                JsonNull
+            },
+        )
+        put(
+            "credentialSetup",
+            buildJsonObject {
+                put("credentialType", credentialType)
+                put("setupMode", providerAuthExampleSetupMode())
+                put("canSetCredentialWithTool", false)
+                put("canInspectCredentialWithTool", true)
+                put("canClearCredentialWithTool", requiresApiKey || usesOpenAiCodexOAuth)
+                put("recommendedEntryPoint", providerAuthExampleEntryPoint())
+                put(
+                    "steps",
+                    buildJsonArray {
+                        providerAuthExampleSetupSteps().forEach { step ->
+                            add(JsonPrimitive(step))
+                        }
+                    },
+                )
+            },
+        )
+        put(
+            "suggestedTools",
+            buildJsonArray {
+                add(JsonPrimitive("providers.auth.status"))
+                if (requiresRemoteSettings) {
+                    add(JsonPrimitive("providers.configure.example"))
+                }
+                if (requiresApiKey || usesOpenAiCodexOAuth) {
+                    add(JsonPrimitive("providers.auth.clear"))
+                } else {
+                    add(JsonPrimitive("providers.select"))
+                }
+                add(JsonPrimitive("providers.catalog"))
+            },
+        )
+        put("exampleMarkdown", exampleMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+    }
+}
+
+private fun ProviderType.toProviderAuthExampleMarkdown(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+    secretStatusAvailable: Boolean,
+): String =
+    buildString {
+        appendLine("# Provider auth example")
+        appendLine()
+        appendLine("- Provider: `$providerId` (${displayName.toHandoffLine()})")
+        appendLine("- Selected: ${settings.providerType == this@toProviderAuthExampleMarkdown}")
+        appendLine("- Auth mode: ${authMode.name}")
+        appendLine("- Credential type: ${providerAuthExampleCredentialType()}")
+        appendLine("- Current auth status: ${authState.status}")
+        appendLine("- Secret status available: $secretStatusAvailable")
+        appendLine("- Example only: true")
+        appendLine("- Executes authentication: false")
+        appendLine("- Writes credential: false")
+        appendLine("- Secret values included: false")
+        appendLine("- API key values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine()
+        appendLine("## Setup steps")
+        providerAuthExampleSetupSteps().forEachIndexed { index, step ->
+            appendLine("${index + 1}. ${step.toHandoffLine()}")
+        }
+        appendLine()
+        appendLine("## Tool examples")
+        appendLine("```json")
+        appendLine(
+            buildJsonObject {
+                put("providerId", providerId)
+            }.toString(),
+        )
+        appendLine("```")
+        if (requiresApiKey || usesOpenAiCodexOAuth) {
+            appendLine()
+            appendLine("Credential clearing example:")
+            appendLine("```json")
+            appendLine(
+                buildJsonObject {
+                    put("providerId", providerId)
+                    put("credentialType", providerAuthExampleCredentialType())
+                    put("confirm", "CONFIRM")
+                }.toString(),
+            )
+            appendLine("```")
+        }
+    }
+
+private fun ProviderAuthState.configuredForProviderAuthExample(): Boolean? =
+    when (status) {
+        "Configured", "NotRequired" -> true
+        "Missing" -> false
+        else -> null
+    }
+
+private fun ProviderType.providerAuthExampleCredentialType(): String =
+    when {
+        requiresApiKey -> "api_key"
+        usesOpenAiCodexOAuth -> "oauth"
+        else -> "none"
+    }
+
+private fun ProviderType.providerAuthExampleSetupMode(): String =
+    when {
+        requiresApiKey -> "api_key_entry"
+        usesOpenAiCodexOAuth -> "openai_codex_oauth"
+        else -> "not_required"
+    }
+
+private fun ProviderType.providerAuthExampleEntryPoint(): String =
+    when {
+        requiresApiKey -> "Settings provider API-key field"
+        usesOpenAiCodexOAuth -> "Settings OpenAI Codex sign-in flow"
+        else -> "No credential setup required"
+    }
+
+private fun ProviderType.providerAuthExampleSetupSteps(): List<String> =
+    when {
+        requiresApiKey ->
+            listOf(
+                "Open Settings and select $displayName if needed.",
+                "Paste the provider API key into the API-key field.",
+                "Run providers.auth.status for this provider to verify that credentials are configured.",
+            )
+        usesOpenAiCodexOAuth ->
+            listOf(
+                "Open Settings and choose the OpenAI Codex provider.",
+                "Start the OpenAI Codex OAuth sign-in flow and complete the browser or device-code prompt.",
+                "Run providers.auth.status for this provider to verify OAuth status and expiry metadata.",
+            )
+        else ->
+            listOf(
+                "No credential setup is required for $displayName.",
+                "Use providers.select if you want to make this provider current.",
+            )
+    }
 
 private data class ProviderDoctorIssue(
     val id: String,

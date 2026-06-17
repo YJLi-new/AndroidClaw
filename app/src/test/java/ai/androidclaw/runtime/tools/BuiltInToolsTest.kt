@@ -6892,6 +6892,169 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider auth example returns api key setup guidance without exposing secret`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-auth-example-secret")
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.DeepSeek),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.credentials.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-auth-example-secret"))
+            assertEquals("deepseek", result.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["selected"]?.jsonPrimitive?.content)
+            assertEquals("ApiKey", result.payload["authMode"]?.jsonPrimitive?.content)
+            assertEquals("api_key", result.payload["credentialType"]?.jsonPrimitive?.content)
+            assertEquals("Configured", result.payload["authStatus"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["configured"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["apiKeyConfigured"]?.jsonPrimitive?.content)
+            assertEquals("true", result.payload["exampleOnly"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["executesAuthentication"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["writesCredential"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretInputAccepted"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["apiKeyValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["credentialValuesIncluded"]?.jsonPrimitive?.content)
+            val statusExampleArguments = result.payload.getValue("statusExampleArguments").jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, statusExampleArguments.getValue("providerId").jsonPrimitive.content)
+            val clearExampleArguments = result.payload.getValue("clearExampleArguments").jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, clearExampleArguments.getValue("providerId").jsonPrimitive.content)
+            assertEquals("api_key", clearExampleArguments.getValue("credentialType").jsonPrimitive.content)
+            assertEquals("CONFIRM", clearExampleArguments.getValue("confirm").jsonPrimitive.content)
+            val setup = result.payload.getValue("credentialSetup").jsonObject
+            assertEquals("api_key", setup.getValue("credentialType").jsonPrimitive.content)
+            assertEquals("api_key_entry", setup.getValue("setupMode").jsonPrimitive.content)
+            assertEquals("false", setup.getValue("canSetCredentialWithTool").jsonPrimitive.content)
+            assertEquals("true", setup.getValue("canInspectCredentialWithTool").jsonPrimitive.content)
+            assertEquals("true", setup.getValue("canClearCredentialWithTool").jsonPrimitive.content)
+            assertTrue(setup.getValue("steps").jsonArray.isNotEmpty())
+            assertEquals(
+                listOf(
+                    "providers.auth.status",
+                    "providers.configure.example",
+                    "providers.auth.clear",
+                    "providers.catalog",
+                ),
+                result.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+            val markdown =
+                result.payload
+                    .getValue("exampleMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider auth example"))
+            assertTrue(markdown.contains(ProviderType.DeepSeek.providerId))
+            assertFalse(markdown.contains("deepseek-auth-example-secret"))
+        }
+
+    @Test
+    fun `provider auth example reports oauth local and missing providers safely`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "codex-auth-example-access-secret",
+                    refreshToken = "codex-auth-example-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli(),
+                    profileName = "Auth Example",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot().copy(providerType = ProviderType.OpenAiCodex),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val oauth =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.login.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "OpenAI Codex")
+                        },
+                )
+            val local =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.auth.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "fake")
+                            put("includeMarkdown", false)
+                        },
+                )
+            val missing =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.auth.example"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "missing-provider")
+                        },
+                )
+
+            assertTrue(oauth.summary, oauth.success)
+            val oauthPayloadText = oauth.payload.toString()
+            assertFalse(oauthPayloadText.contains("codex-auth-example-access-secret"))
+            assertFalse(oauthPayloadText.contains("codex-auth-example-refresh-secret"))
+            assertEquals("OpenAI Codex", oauth.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.OpenAiCodex.providerId, oauth.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("oauth", oauth.payload["credentialType"]?.jsonPrimitive?.content)
+            assertEquals("Configured", oauth.payload["authStatus"]?.jsonPrimitive?.content)
+            assertEquals("true", oauth.payload["oauthConfigured"]?.jsonPrimitive?.content)
+            assertEquals("false", oauth.payload["oauthExpired"]?.jsonPrimitive?.content)
+            assertEquals("true", oauth.payload["oauthProfileConfigured"]?.jsonPrimitive?.content)
+            val oauthSetup = oauth.payload.getValue("credentialSetup").jsonObject
+            assertEquals("openai_codex_oauth", oauthSetup.getValue("setupMode").jsonPrimitive.content)
+            assertEquals("false", oauthSetup.getValue("canSetCredentialWithTool").jsonPrimitive.content)
+            val oauthClearExampleArguments = oauth.payload.getValue("clearExampleArguments").jsonObject
+            assertEquals("oauth", oauthClearExampleArguments.getValue("credentialType").jsonPrimitive.content)
+            assertTrue(
+                oauth.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .any { tool -> tool.jsonPrimitive.content == "providers.auth.clear" },
+            )
+
+            assertTrue(local.summary, local.success)
+            assertEquals(ProviderType.Fake.providerId, local.payload["providerId"]?.jsonPrimitive?.content)
+            assertEquals("none", local.payload["credentialType"]?.jsonPrimitive?.content)
+            assertEquals("NotRequired", local.payload["authStatus"]?.jsonPrimitive?.content)
+            assertEquals("true", local.payload["configured"]?.jsonPrimitive?.content)
+            assertEquals("false", local.payload["requiresCredential"]?.jsonPrimitive?.content)
+            assertEquals(JsonNull, local.payload.getValue("clearExampleArguments"))
+            assertEquals(JsonNull, local.payload.getValue("exampleMarkdown"))
+            assertEquals(
+                listOf("providers.auth.status", "providers.select", "providers.catalog"),
+                local.payload
+                    .getValue("suggestedTools")
+                    .jsonArray
+                    .map { tool -> tool.jsonPrimitive.content },
+            )
+
+            assertFalse(missing.success)
+            assertEquals("PROVIDER_NOT_FOUND", missing.errorCode)
+            assertEquals("providers.auth.example", missing.payload["toolName"]?.jsonPrimitive?.content)
+            assertEquals("missing-provider", missing.payload["providerId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `provider auth clear removes api key after confirmation without exposing secret`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()

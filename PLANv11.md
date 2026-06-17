@@ -71,6 +71,16 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.auth.example` /
+  `provider.auth.example` / `providers.credentials.example` /
+  `provider.credentials.example` plus login-example aliases as a Provider/OAuth
+  usability feature. Agents can now request non-secret credential setup
+  guidance for API-key, OpenAI Codex OAuth, and local/offline providers without
+  mutating credentials, see current non-secret auth status, safe status/clear
+  example arguments, suggested follow-up tools, optional markdown, and explicit
+  example-only / executes-authentication=false / writes-credential=false /
+  secret/API-key/OAuth-token omission flags. Focused `BuiltInToolsTest`,
+  ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `providers.configure.example` /
   `provider.configure.example` / `providers.endpoint.example` plus config
   example aliases as a Provider/OAuth usability feature. Agents can now prepare
