@@ -6976,6 +6976,216 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider import dry run previews non secret endpoint restore without writing`() =
+        runTest {
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.providers.export.v1")
+                    put("exportVersion", 1)
+                    put("currentProviderId", ProviderType.DeepSeek.providerId)
+                    put(
+                        "providers",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("providerId", ProviderType.DeepSeek.providerId)
+                                    put("displayName", ProviderType.DeepSeek.displayName)
+                                    put("selected", true)
+                                    put(
+                                        "endpointSettings",
+                                        buildJsonObject {
+                                            put("baseUrl", "https://dry-run-import.example/v1")
+                                            put("modelId", "deepseek-dry-run-import")
+                                            put("timeoutSeconds", 45)
+                                        },
+                                    )
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("providerId", ProviderType.Fake.providerId)
+                                    put("displayName", ProviderType.Fake.displayName)
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("providerId", "missing-provider")
+                                    put("displayName", "Missing")
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.import"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("dryRun", true)
+                            put("includeLocalProviders", false)
+                            put("selectCurrentProvider", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("androidclaw.providers.import.v1", result.payload["importFormat"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importVersion"]?.jsonPrimitive?.content)
+            assertEquals("androidclaw.providers.export.v1", result.payload["acceptedExportFormat"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["includeLocalProviders"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["selectCurrentProvider"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.Fake.providerId, result.payload["currentProviderIdBefore"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.Fake.providerId, result.payload["currentProviderIdAfter"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["selectedProviderChanged"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["sourceCurrentProviderId"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["selectedProviderImported"]?.jsonPrimitive?.content)
+            assertEquals("3", result.payload["receivedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["importableProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("0", result.payload["importedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["skippedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["localProviderSkippedCount"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["invalidProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["oauthTokenValuesImported"]?.jsonPrimitive?.content)
+            val candidate =
+                result.payload
+                    .getValue("candidateProviders")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, candidate.getValue("providerId").jsonPrimitive.content)
+            assertEquals(true.toString(), candidate.getValue("endpointImportable").jsonPrimitive.content)
+            val endpointSettings = candidate.getValue("endpointSettings").jsonObject
+            assertEquals("https://dry-run-import.example/v1", endpointSettings.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals("deepseek-dry-run-import", endpointSettings.getValue("modelId").jsonPrimitive.content)
+            val settingsAfter = settingsDataStore.settings.first()
+            assertEquals(ProviderType.Fake, settingsAfter.providerType)
+            assertEquals(ProviderType.DeepSeek.defaultBaseUrl, settingsAfter.endpointSettings(ProviderType.DeepSeek).baseUrl)
+            val skippedCodes =
+                result.payload
+                    .getValue("skippedProviders")
+                    .jsonArray
+                    .map { skipped ->
+                        skipped.jsonObject
+                            .getValue("code")
+                            .jsonPrimitive
+                            .content
+                    }.toSet()
+            assertTrue(skippedCodes.contains("providers.import.local_skipped"))
+            assertTrue(skippedCodes.contains("providers.import.invalid_unknown_provider"))
+        }
+
+    @Test
+    fun `provider import confirms endpoint restore and selected provider opt in without credentials`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-import-secret")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "codex-import-access-secret",
+                    refreshToken = "codex-import-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-09T00:00:00Z").toEpochMilli(),
+                    profileName = "Import",
+                ),
+            )
+            val exportPayload =
+                buildJsonObject {
+                    put("exportFormat", "androidclaw.providers.export.v1")
+                    put("exportVersion", 1)
+                    put("currentProviderId", ProviderType.DeepSeek.providerId)
+                    put(
+                        "providers",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("providerId", ProviderType.DeepSeek.providerId)
+                                    put("displayName", ProviderType.DeepSeek.displayName)
+                                    put("selected", true)
+                                    put(
+                                        "endpointSettings",
+                                        buildJsonObject {
+                                            put("baseUrl", "https://confirmed-import.example/v1")
+                                            put("modelId", "deepseek-confirmed-import")
+                                            put("timeoutSeconds", 46)
+                                        },
+                                    )
+                                },
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("providerId", ProviderType.OpenAiCodex.providerId)
+                                    put("displayName", ProviderType.OpenAiCodex.displayName)
+                                    put("selected", false)
+                                    put(
+                                        "endpointSettings",
+                                        buildJsonObject {
+                                            put("baseUrl", "https://codex-import.example/backend")
+                                            put("modelId", "codex-confirmed-import")
+                                            put("timeoutSeconds", 47)
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                    )
+                }
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.restore"),
+                    arguments =
+                        buildJsonObject {
+                            put("export", exportPayload)
+                            put("confirm", "CONFIRM")
+                            put("selectCurrentProvider", true)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals(false.toString(), result.payload["dryRun"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.Fake.providerId, result.payload["currentProviderIdBefore"]?.jsonPrimitive?.content)
+            assertEquals(ProviderType.DeepSeek.providerId, result.payload["currentProviderIdAfter"]?.jsonPrimitive?.content)
+            assertEquals(true.toString(), result.payload["selectedProviderChanged"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importableProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["importedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals("2", result.payload["endpointImportedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["secretValuesImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["apiKeyValuesImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["oauthTokenValuesImported"]?.jsonPrimitive?.content)
+            assertEquals(false.toString(), result.payload["authStateImported"]?.jsonPrimitive?.content)
+            val settingsAfter = settingsDataStore.settings.first()
+            assertEquals(ProviderType.DeepSeek, settingsAfter.providerType)
+            val deepSeekEndpoint = settingsAfter.endpointSettings(ProviderType.DeepSeek)
+            assertEquals("https://confirmed-import.example/v1", deepSeekEndpoint.baseUrl)
+            assertEquals("deepseek-confirmed-import", deepSeekEndpoint.modelId)
+            assertEquals(46, deepSeekEndpoint.timeoutSeconds)
+            val codexEndpoint = settingsAfter.endpointSettings(ProviderType.OpenAiCodex)
+            assertEquals("https://codex-import.example/backend", codexEndpoint.baseUrl)
+            assertEquals("codex-confirmed-import", codexEndpoint.modelId)
+            assertEquals(47, codexEndpoint.timeoutSeconds)
+            val importedProviders =
+                result.payload
+                    .getValue("importedProviders")
+                    .jsonArray
+                    .map { provider ->
+                        val providerPayload = provider.jsonObject
+                        providerPayload.getValue("providerId").jsonPrimitive.content
+                    }.toSet()
+            assertTrue(importedProviders.contains(ProviderType.DeepSeek.providerId))
+            assertTrue(importedProviders.contains(ProviderType.OpenAiCodex.providerId))
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-import-secret"))
+            assertFalse(payloadText.contains("codex-import-access-secret"))
+            assertFalse(payloadText.contains("codex-import-refresh-secret"))
+        }
+
+    @Test
     fun `provider doctor reports selected provider issues without secrets`() =
         runTest {
             val providerSecretStore = FakeProviderSecretStore()

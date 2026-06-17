@@ -6208,6 +6208,190 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.import",
+                    aliases =
+                        listOf(
+                            "provider.import",
+                            "providers.restore",
+                            "provider.restore",
+                            "providers.settings.import",
+                            "provider.settings.import",
+                        ),
+                    description = "Import non-secret provider endpoint settings from a providers.export payload.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providers",
+                                description = "Array of exported provider entries, or pass export.providers.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "export",
+                                description = "Optional providers.export payload containing a providers array.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "limit",
+                                description = "Maximum provider entries to scan. Defaults to 20, max 20.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "selectCurrentProvider",
+                                description = "Set true to restore the exported current provider when present. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeLocalProviders",
+                                description = "Set false to skip local/offline provider entries. Defaults to true.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "dryRun",
+                                description = "Set true to preview importable settings without writing. Defaults to false.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "confirm",
+                                description = "Must be CONFIRM unless dryRun=true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val dryRun = arguments.optionalBoolean("dryRun", defaultValue = false)
+            if (!dryRun && arguments.optionalText("confirm") != "CONFIRM") {
+                return@Entry missingProviderImportConfirmationResult()
+            }
+            val rawEntries =
+                when (val parsedEntries = arguments.providerImportEntries()) {
+                    is ProviderImportEntriesParseResult.Failure -> return@Entry parsedEntries.result
+                    is ProviderImportEntriesParseResult.Success -> parsedEntries.entries
+                }
+            val limit =
+                arguments
+                    .optionalInt(
+                        field = "limit",
+                        defaultValue = PROVIDER_IMPORT_DEFAULT_LIMIT,
+                    ).coerceIn(0, PROVIDER_IMPORT_MAX_LIMIT)
+            val selectCurrentProvider = arguments.optionalBoolean("selectCurrentProvider", defaultValue = false)
+            val includeLocalProviders = arguments.optionalBoolean("includeLocalProviders", defaultValue = true)
+            val scannedEntries = rawEntries.take(limit)
+            val candidates = mutableListOf<ProviderImportCandidate>()
+            val skipped = mutableListOf<ProviderImportSkippedEntry>()
+            scannedEntries.forEachIndexed { sourceIndex, element ->
+                when (val parsedCandidate = element.toProviderImportCandidate(sourceIndex = sourceIndex)) {
+                    is ProviderImportCandidateParseResult.Candidate -> {
+                        if (!includeLocalProviders && !parsedCandidate.candidate.providerType.requiresRemoteSettings) {
+                            skipped +=
+                                ProviderImportSkippedEntry(
+                                    sourceIndex = sourceIndex,
+                                    code = "providers.import.local_skipped",
+                                    summary = "Local provider entry skipped because includeLocalProviders=false.",
+                                )
+                        } else {
+                            candidates += parsedCandidate.candidate
+                        }
+                    }
+                    is ProviderImportCandidateParseResult.Skipped -> skipped += parsedCandidate.skipped
+                }
+            }
+            val settingsBefore = settingsDataStore.settings.first()
+            val sourceCurrentProvider = arguments.providerImportCurrentProvider()
+            val candidateProviderTypes = candidates.map(ProviderImportCandidate::providerType).toSet()
+            val selectedProviderCandidate =
+                if (selectCurrentProvider) {
+                    sourceCurrentProvider
+                        ?.takeIf { providerType -> providerType in candidateProviderTypes }
+                        ?: candidates.firstOrNull { candidate -> candidate.sourceSelected }?.providerType
+                } else {
+                    null
+                }
+            var updatedSettings = settingsBefore
+            candidates.forEach { candidate ->
+                val endpointSettings = candidate.endpointSettings
+                if (endpointSettings != null && candidate.providerType.requiresRemoteSettings) {
+                    updatedSettings =
+                        updatedSettings.withEndpointSettings(
+                            providerType = candidate.providerType,
+                            settings = endpointSettings,
+                        )
+                }
+            }
+            selectedProviderCandidate?.let { providerType ->
+                updatedSettings = updatedSettings.copy(providerType = providerType)
+            }
+            if (!dryRun) {
+                settingsDataStore.saveProviderSettings(updatedSettings)
+            }
+            val settingsAfter = if (dryRun) settingsBefore else settingsDataStore.settings.first()
+            ToolExecutionResult.success(
+                summary =
+                    if (dryRun) {
+                        "Prepared dry-run provider settings import with ${candidates.size} importable provider entr${if (candidates.size == 1) "y" else "ies"}."
+                    } else {
+                        "Imported provider settings for ${candidates.size} provider entr${if (candidates.size == 1) "y" else "ies"}; skipped ${skipped.size}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("importFormat", PROVIDER_IMPORT_FORMAT)
+                        put("importVersion", PROVIDER_IMPORT_VERSION)
+                        put("acceptedExportFormat", PROVIDER_EXPORT_FORMAT)
+                        put("acceptedExportVersion", PROVIDER_EXPORT_VERSION)
+                        put("providerLimit", limit)
+                        put("importLimit", limit)
+                        put("dryRun", dryRun)
+                        put("selectCurrentProvider", selectCurrentProvider)
+                        put("includeLocalProviders", includeLocalProviders)
+                        put("secretValuesImported", false)
+                        put("apiKeyValuesImported", false)
+                        put("oauthTokenValuesImported", false)
+                        put("credentialValuesImported", false)
+                        put("authStateImported", false)
+                        put("secretValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put("currentProviderIdBefore", settingsBefore.providerType.providerId)
+                        put("currentProviderIdAfter", settingsAfter.providerType.providerId)
+                        put("selectedProviderChanged", settingsBefore.providerType != settingsAfter.providerType)
+                        put("sourceCurrentProviderId", sourceCurrentProvider?.providerId?.let(::JsonPrimitive) ?: JsonNull)
+                        put("selectedProviderImported", selectedProviderCandidate?.providerId?.let(::JsonPrimitive) ?: JsonNull)
+                        put("receivedProviderCount", rawEntries.size)
+                        put("scannedProviderCount", scannedEntries.size)
+                        put("omittedInputProviderCount", (rawEntries.size - scannedEntries.size).coerceAtLeast(0))
+                        put("importableProviderCount", candidates.size)
+                        put("importedProviderCount", if (dryRun) 0 else candidates.size)
+                        put("endpointImportedProviderCount", if (dryRun) 0 else candidates.count { candidate -> candidate.endpointSettings != null })
+                        put("skippedProviderCount", skipped.size)
+                        put("invalidProviderCount", skipped.count { entry -> entry.code.startsWith("providers.import.invalid") })
+                        put("localProviderSkippedCount", skipped.count { entry -> entry.code == "providers.import.local_skipped" })
+                        put(
+                            "candidateProviders",
+                            buildJsonArray {
+                                candidates.forEach { candidate ->
+                                    add(candidate.toProviderImportCandidatePayload())
+                                }
+                            },
+                        )
+                        put(
+                            "importedProviders",
+                            buildJsonArray {
+                                if (!dryRun) {
+                                    candidates.forEach { candidate ->
+                                        add(
+                                            candidate.toProviderImportedPayload(
+                                                settings = settingsAfter,
+                                            ),
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                        put(
+                            "skippedProviders",
+                            buildJsonArray {
+                                skipped.forEach { skippedEntry ->
+                                    add(skippedEntry.toProviderImportSkippedPayload())
+                                }
+                            },
+                        )
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.doctor",
                     aliases =
                         listOf(
@@ -11559,6 +11743,10 @@ private const val PROVIDER_DOCTOR_MAX_LIMIT = 50
 private const val PROVIDER_DOCTOR_TEXT_MAX_CHARS = 500
 private const val PROVIDER_EXPORT_FORMAT = "androidclaw.providers.export.v1"
 private const val PROVIDER_EXPORT_VERSION = 1
+private const val PROVIDER_IMPORT_FORMAT = "androidclaw.providers.import.v1"
+private const val PROVIDER_IMPORT_VERSION = 1
+private const val PROVIDER_IMPORT_DEFAULT_LIMIT = 20
+private const val PROVIDER_IMPORT_MAX_LIMIT = 20
 private const val RUNTIME_HANDOFF_DEFAULT_SECTION_LIMIT = 5
 private const val RUNTIME_HANDOFF_MAX_SECTION_LIMIT = 10
 private const val SESSION_ACTIVITY_SNIPPET_MAX_CHARS = 300
@@ -12436,6 +12624,203 @@ private fun ProviderType.toProviderExportMarkdownLine(
         }
     }
 
+private fun JsonObject.providerImportEntries(): ProviderImportEntriesParseResult {
+    val directEntries = this["providers"]
+    val exportEntries = (this["export"] as? JsonObject)?.get("providers")
+    val payloadEntries = (this["payload"] as? JsonObject)?.get("providers")
+    val entries =
+        directEntries ?: exportEntries ?: payloadEntries ?: return ProviderImportEntriesParseResult.Failure(
+            missingProviderImportEntriesResult(),
+        )
+    return (entries as? JsonArray)?.let(ProviderImportEntriesParseResult::Success)
+        ?: ProviderImportEntriesParseResult.Failure(invalidProviderImportEntriesResult())
+}
+
+private fun JsonObject.providerImportCurrentProvider(): ProviderType? {
+    val sourceObject =
+        (this["export"] as? JsonObject)
+            ?: (this["payload"] as? JsonObject)
+            ?: this
+    val identifier =
+        sourceObject.optionalText("currentProviderId")
+            ?: sourceObject.optionalText("currentProviderStorageValue")
+            ?: sourceObject.optionalText("currentProviderDisplayName")
+            ?: return null
+    return ProviderType.entries.firstOrNull { providerType ->
+        providerType.matchesProviderIdentifier(identifier)
+    }
+}
+
+private fun JsonElement.toProviderImportCandidate(sourceIndex: Int): ProviderImportCandidateParseResult {
+    val objectValue =
+        this as? JsonObject ?: return providerImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "providers.import.invalid_entry",
+            summary = "Import entry must be a provider object.",
+        )
+    val providerIdentifier =
+        objectValue.optionalText("providerId")
+            ?: objectValue.optionalText("storageValue")
+            ?: objectValue.optionalText("id")
+            ?: objectValue.optionalText("displayName")
+            ?: objectValue.optionalText("name")
+            ?: return providerImportSkipped(
+                sourceIndex = sourceIndex,
+                code = "providers.import.invalid_missing_provider",
+                summary = "Import entry skipped because provider id is missing.",
+            )
+    val providerType =
+        ProviderType.entries.firstOrNull { providerType ->
+            providerType.matchesProviderIdentifier(providerIdentifier)
+        } ?: return providerImportSkipped(
+            sourceIndex = sourceIndex,
+            code = "providers.import.invalid_unknown_provider",
+            summary = "Import entry skipped because provider $providerIdentifier is unknown.",
+        )
+    val endpointSettings =
+        if (providerType.requiresRemoteSettings) {
+            val endpointObject =
+                objectValue["endpointSettings"] as? JsonObject ?: return providerImportSkipped(
+                    sourceIndex = sourceIndex,
+                    code = "providers.import.invalid_missing_endpoint",
+                    summary = "Import entry skipped because remote provider endpointSettings are missing.",
+                )
+            val timeoutText = endpointObject.optionalText("timeoutSeconds")
+            val timeoutSeconds =
+                if (timeoutText == null) {
+                    providerType.defaultTimeoutSeconds
+                } else {
+                    timeoutText.toIntOrNull()
+                        ?: return providerImportSkipped(
+                            sourceIndex = sourceIndex,
+                            code = "providers.import.invalid_timeout",
+                            summary = "Import entry skipped because endpoint timeoutSeconds is not numeric.",
+                        )
+                }
+            ProviderEndpointSettings(
+                baseUrl = endpointObject.optionalRawText("baseUrl") ?: providerType.defaultBaseUrl,
+                modelId = endpointObject.optionalRawText("modelId") ?: providerType.defaultModelId,
+                timeoutSeconds = timeoutSeconds,
+            )
+        } else {
+            null
+        }
+    return ProviderImportCandidateParseResult.Candidate(
+        ProviderImportCandidate(
+            sourceIndex = sourceIndex,
+            providerType = providerType,
+            sourceProviderId = providerIdentifier,
+            sourceSelected = objectValue.optionalBoolean("selected", defaultValue = false),
+            endpointSettings = endpointSettings,
+        ),
+    )
+}
+
+private fun providerImportSkipped(
+    sourceIndex: Int,
+    code: String,
+    summary: String,
+): ProviderImportCandidateParseResult.Skipped =
+    ProviderImportCandidateParseResult.Skipped(
+        ProviderImportSkippedEntry(
+            sourceIndex = sourceIndex,
+            code = code,
+            summary = summary,
+        ),
+    )
+
+private fun missingProviderImportConfirmationResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Pass confirm=CONFIRM to import provider settings, or dryRun=true to preview without writing.",
+        errorCode = "MISSING_PROVIDER_IMPORT_CONFIRMATION",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_PROVIDER_IMPORT_CONFIRMATION")
+                put("field", "confirm")
+            },
+    )
+
+private fun missingProviderImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provide a providers array or an export object containing providers to import.",
+        errorCode = "MISSING_PROVIDER_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "MISSING_PROVIDER_IMPORT_ENTRIES")
+                put("field", "providers")
+            },
+    )
+
+private fun invalidProviderImportEntriesResult(): ToolExecutionResult =
+    ToolExecutionResult.failure(
+        summary = "Provider import entries must be an array.",
+        errorCode = "INVALID_PROVIDER_IMPORT_ENTRIES",
+        payload =
+            buildJsonObject {
+                put("errorCode", "INVALID_PROVIDER_IMPORT_ENTRIES")
+                put("field", "providers")
+            },
+    )
+
+private fun ProviderImportCandidate.toProviderImportCandidatePayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceProviderId", sourceProviderId?.let(::JsonPrimitive) ?: JsonNull)
+        put("storageValue", providerType.storageValue)
+        put("providerId", providerType.providerId)
+        put("displayName", providerType.displayName)
+        put("protocolFamily", providerType.protocolFamily.name)
+        put("authMode", providerType.authMode.name)
+        put("sourceSelected", sourceSelected)
+        put("requiresRemoteSettings", providerType.requiresRemoteSettings)
+        put("requiresApiKey", providerType.requiresApiKey)
+        put("usesOpenAiCodexOAuth", providerType.usesOpenAiCodexOAuth)
+        put("secretValuesImported", false)
+        put("apiKeyValuesImported", false)
+        put("oauthTokenValuesImported", false)
+        put("credentialValuesImported", false)
+        put("authStateImported", false)
+        put("secretValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put("endpointImportable", endpointSettings != null)
+        put("endpointSettings", endpointSettings.toProviderEndpointPayload())
+    }
+
+private fun ProviderImportCandidate.toProviderImportedPayload(settings: ProviderSettingsSnapshot): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("sourceProviderId", sourceProviderId?.let(::JsonPrimitive) ?: JsonNull)
+        put("storageValue", providerType.storageValue)
+        put("providerId", providerType.providerId)
+        put("displayName", providerType.displayName)
+        put("selected", settings.providerType == providerType)
+        put("endpointImported", endpointSettings != null)
+        put("endpointSettings", if (providerType.requiresRemoteSettings) settings.endpointSettings(providerType).toProviderEndpointPayload() else JsonNull)
+        put("secretValuesImported", false)
+        put("apiKeyValuesImported", false)
+        put("oauthTokenValuesImported", false)
+        put("credentialValuesImported", false)
+        put("authStateImported", false)
+        put("secretValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+    }
+
+private fun ProviderEndpointSettings?.toProviderEndpointPayload(): JsonElement =
+    this?.let { settings ->
+        buildJsonObject {
+            put("baseUrl", settings.baseUrl)
+            put("modelId", settings.modelId)
+            put("timeoutSeconds", settings.timeoutSeconds)
+        }
+    } ?: JsonNull
+
+private fun ProviderImportSkippedEntry.toProviderImportSkippedPayload(): JsonObject =
+    buildJsonObject {
+        put("sourceIndex", sourceIndex)
+        put("code", code)
+        put("summary", summary)
+    }
+
 private enum class ProviderCredentialClearTarget(
     val storageValue: String,
     val clearsApiKey: Boolean,
@@ -12537,6 +12922,40 @@ private data class ProviderDoctorIssue(
     val action: String,
     val detail: String? = null,
 )
+
+private data class ProviderImportCandidate(
+    val sourceIndex: Int,
+    val providerType: ProviderType,
+    val sourceProviderId: String?,
+    val sourceSelected: Boolean,
+    val endpointSettings: ProviderEndpointSettings?,
+)
+
+private data class ProviderImportSkippedEntry(
+    val sourceIndex: Int,
+    val code: String,
+    val summary: String,
+)
+
+private sealed interface ProviderImportEntriesParseResult {
+    data class Success(
+        val entries: JsonArray,
+    ) : ProviderImportEntriesParseResult
+
+    data class Failure(
+        val result: ToolExecutionResult,
+    ) : ProviderImportEntriesParseResult
+}
+
+private sealed interface ProviderImportCandidateParseResult {
+    data class Candidate(
+        val candidate: ProviderImportCandidate,
+    ) : ProviderImportCandidateParseResult
+
+    data class Skipped(
+        val skipped: ProviderImportSkippedEntry,
+    ) : ProviderImportCandidateParseResult
+}
 
 private fun ProviderType.toProviderHandoffPayload(
     settings: ProviderSettingsSnapshot,

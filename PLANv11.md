@@ -71,6 +71,15 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.import` /
+  `provider.import` / `providers.restore` / `provider.restore` plus settings
+  import aliases as the companion Provider/OAuth portability feature for
+  `providers.export`. Agents can now dry-run or confirm import of bounded
+  non-secret provider endpoint settings, optionally restore exported current
+  provider selection, skip local/offline provider entries, keep credentials and
+  auth state untouched, and receive explicit API-key/OAuth-token/credential
+  omission flags. Focused `BuiltInToolsTest`, ktlint, and the full offline
+  fast loop passed.
 - 2026-06-17: Added `providers.export` /
   `provider.export` / `providers.backup` / `provider.backup` plus settings
   export aliases as a Provider/OAuth portability feature. Agents can now export
