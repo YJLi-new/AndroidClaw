@@ -4404,6 +4404,116 @@ private fun providerToolEntries(
         ToolRegistry.Entry(
             descriptor =
                 ToolDescriptor(
+                    name = "providers.handoff",
+                    aliases =
+                        listOf(
+                            "provider.handoff",
+                            "providers.snapshot",
+                            "provider.snapshot",
+                        ),
+                    description = "Return a compact provider and auth-status handoff without secret values.",
+                    arguments =
+                        listOf(
+                            ToolArgumentSpec(
+                                name = "providerId",
+                                required = false,
+                                description = "Optional provider id, storage value, or display name to include only one provider.",
+                            ),
+                            ToolArgumentSpec(
+                                name = "includeMarkdown",
+                                description = "Set false to omit handoffMarkdown. Defaults to true.",
+                            ),
+                        ),
+                ),
+        ) { _, arguments ->
+            val settings = settingsDataStore.settings.first()
+            val identifier =
+                arguments.optionalText("providerId")
+                    ?: arguments.optionalText("id")
+                    ?: arguments.optionalText("name")
+            val includedProviders =
+                if (identifier == null) {
+                    ProviderType.entries
+                } else {
+                    listOf(
+                        ProviderType.entries.firstOrNull { providerType ->
+                            providerType.matchesProviderIdentifier(identifier)
+                        } ?: return@Entry ToolExecutionResult.failure(
+                            summary = "Provider $identifier was not found.",
+                            errorCode = "PROVIDER_NOT_FOUND",
+                            payload =
+                                buildJsonObject {
+                                    put("errorCode", "PROVIDER_NOT_FOUND")
+                                    put("toolName", "providers.handoff")
+                                    put("providerId", identifier)
+                                },
+                        ),
+                    )
+                }
+            val includeMarkdown = arguments.optionalBoolean("includeMarkdown", defaultValue = true)
+            val authStates =
+                includedProviders.map { providerType ->
+                    providerType.toProviderAuthState(
+                        providerSecretStore = providerSecretStore,
+                        clock = clock,
+                    )
+                }
+            val providersWithAuth = includedProviders.zip(authStates)
+            val handoffMarkdown =
+                if (includeMarkdown) {
+                    providersWithAuth.toProviderHandoffMarkdown(
+                        settings = settings,
+                        requestedProviderId = identifier,
+                    )
+                } else {
+                    null
+                }
+            ToolExecutionResult.success(
+                summary =
+                    if (identifier == null) {
+                        "Prepared provider handoff with ${includedProviders.size} provider(s)."
+                    } else {
+                        "Prepared provider handoff for ${includedProviders.single().displayName}."
+                    },
+                payload =
+                    buildJsonObject {
+                        put("providerCount", ProviderType.entries.size)
+                        put("includedProviderCount", includedProviders.size)
+                        put("omittedProviderCount", ProviderType.entries.size - includedProviders.size)
+                        put("requestedProviderId", identifier?.let(::JsonPrimitive) ?: JsonNull)
+                        put("currentProviderId", settings.providerType.providerId)
+                        put("currentProviderDisplayName", settings.providerType.displayName)
+                        put("secretStatusAvailable", providerSecretStore != null)
+                        put("includeMarkdown", includeMarkdown)
+                        put("secretValuesIncluded", false)
+                        put("oauthTokenValuesIncluded", false)
+                        put(
+                            "stats",
+                            settings.toProviderStatsPayload(
+                                providerSecretStore = providerSecretStore,
+                                clock = clock,
+                            ),
+                        )
+                        put(
+                            "providers",
+                            buildJsonArray {
+                                providersWithAuth.forEach { (providerType, authState) ->
+                                    add(
+                                        providerType.toProviderHandoffPayload(
+                                            settings = settings,
+                                            authState = authState,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        put("handoffMarkdown", handoffMarkdown?.let(::JsonPrimitive) ?: JsonNull)
+                    },
+            )
+        },
+        ToolRegistry.Entry(
+            descriptor =
+                ToolDescriptor(
                     name = "providers.get",
                     aliases = listOf("provider.get"),
                     description = "Return one provider by id, storage value, or display name.",
@@ -8210,6 +8320,99 @@ private data class ProviderAuthState(
     val oauthExpired: Boolean?,
     val oauthProfileConfigured: Boolean?,
 )
+
+private fun ProviderType.toProviderHandoffPayload(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+): JsonObject {
+    val endpointSettings = if (requiresRemoteSettings) settings.endpointSettings(this) else null
+    val defaultEndpointSettings = if (requiresRemoteSettings) defaultEndpointSettings() else null
+    return buildJsonObject {
+        put("storageValue", storageValue)
+        put("providerId", providerId)
+        put("displayName", displayName)
+        put("protocolFamily", protocolFamily.name)
+        put("authMode", authMode.name)
+        put("selected", settings.providerType == this@toProviderHandoffPayload)
+        put("requiresCredential", requiresApiKey || usesOpenAiCodexOAuth)
+        put("requiresRemoteSettings", requiresRemoteSettings)
+        put("requiresApiKey", requiresApiKey)
+        put("usesOpenAiCodexOAuth", usesOpenAiCodexOAuth)
+        put("authStatus", authState.status)
+        put("apiKeyConfigured", authState.apiKeyConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthConfigured", authState.oauthConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthExpired", authState.oauthExpired?.let(::JsonPrimitive) ?: JsonNull)
+        put("oauthProfileConfigured", authState.oauthProfileConfigured?.let(::JsonPrimitive) ?: JsonNull)
+        put("secretValuesIncluded", false)
+        put("oauthTokenValuesIncluded", false)
+        put(
+            "endpointSettings",
+            if (endpointSettings != null) {
+                buildJsonObject {
+                    put("baseUrl", endpointSettings.baseUrl)
+                    put("modelId", endpointSettings.modelId)
+                    put("timeoutSeconds", endpointSettings.timeoutSeconds)
+                    put("customBaseUrl", endpointSettings.baseUrl != defaultEndpointSettings?.baseUrl)
+                    put("customModelId", endpointSettings.modelId != defaultEndpointSettings?.modelId)
+                    put("customTimeout", endpointSettings.timeoutSeconds != defaultEndpointSettings?.timeoutSeconds)
+                }
+            } else {
+                JsonNull
+            },
+        )
+    }
+}
+
+private fun List<Pair<ProviderType, ProviderAuthState>>.toProviderHandoffMarkdown(
+    settings: ProviderSettingsSnapshot,
+    requestedProviderId: String?,
+): String {
+    val includedProviders = this
+    return buildString {
+        appendLine("# Provider handoff")
+        appendLine()
+        appendLine("- Current provider: `${settings.providerType.providerId}` (${settings.providerType.displayName.toHandoffLine()})")
+        appendLine("- Requested provider filter: ${requestedProviderId?.toHandoffLine() ?: "none"}")
+        appendLine("- Providers included: ${includedProviders.size}")
+        appendLine("- Secret values included: false")
+        appendLine("- OAuth token values included: false")
+        appendLine()
+        appendLine("## Included providers")
+        if (includedProviders.isEmpty()) {
+            appendLine("_No providers included._")
+        } else {
+            includedProviders.forEach { (providerType, authState) ->
+                appendLine(providerType.toProviderHandoffMarkdownLine(settings = settings, authState = authState))
+            }
+        }
+    }
+}
+
+private fun ProviderType.toProviderHandoffMarkdownLine(
+    settings: ProviderSettingsSnapshot,
+    authState: ProviderAuthState,
+): String =
+    buildString {
+        append("- `")
+        append(displayName.toHandoffLine())
+        append("` id=`")
+        append(providerId)
+        append("` selected=")
+        append(settings.providerType == this@toProviderHandoffMarkdownLine)
+        append(" auth=")
+        append(authState.status)
+        append(" mode=")
+        append(authMode.name)
+        if (requiresRemoteSettings) {
+            val endpointSettings = settings.endpointSettings(this@toProviderHandoffMarkdownLine)
+            append(" endpoint=`")
+            append(endpointSettings.baseUrl.toHandoffLine())
+            append("` model=`")
+            append(endpointSettings.modelId.toHandoffLine())
+            append("` timeoutSeconds=")
+            append(endpointSettings.timeoutSeconds)
+        }
+    }
 
 private suspend fun ProviderSettingsSnapshot.toProviderStatsPayload(
     providerSecretStore: ProviderSecretStore?,

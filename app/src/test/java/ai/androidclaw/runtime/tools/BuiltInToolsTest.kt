@@ -4892,6 +4892,150 @@ class BuiltInToolsTest {
         }
 
     @Test
+    fun `provider handoff returns compact auth and endpoint metadata without secrets`() =
+        runTest {
+            val providerSecretStore = FakeProviderSecretStore()
+            providerSecretStore.writeApiKey(ProviderType.DeepSeek, "deepseek-handoff-secret")
+            providerSecretStore.writeOAuthCredential(
+                ProviderType.OpenAiCodex,
+                ProviderOAuthCredential(
+                    provider = ProviderType.OpenAiCodex.providerId,
+                    accessToken = "codex-handoff-access-secret",
+                    refreshToken = "codex-handoff-refresh-secret",
+                    expiresAtEpochMillis = Instant.parse("2026-03-07T00:00:00Z").toEpochMilli(),
+                    email = "handoff@example.test",
+                ),
+            )
+            settingsDataStore.saveProviderSettings(
+                ProviderSettingsSnapshot()
+                    .copy(providerType = ProviderType.OpenAiCodex)
+                    .withEndpointSettings(
+                        providerType = ProviderType.DeepSeek,
+                        settings =
+                            ProviderType.DeepSeek
+                                .defaultEndpointSettings()
+                                .copy(
+                                    baseUrl = "https://proxy.example/v1",
+                                    modelId = "deepseek-handoff",
+                                    timeoutSeconds = 42,
+                                ),
+                    ),
+            )
+            val registry = buildRegistry(providerSecretStore = providerSecretStore)
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "providers.snapshot"),
+                    arguments = buildJsonObject {},
+                )
+
+            assertTrue(result.summary, result.success)
+            val payloadText = result.payload.toString()
+            assertFalse(payloadText.contains("deepseek-handoff-secret"))
+            assertFalse(payloadText.contains("codex-handoff-access-secret"))
+            assertFalse(payloadText.contains("codex-handoff-refresh-secret"))
+            assertEquals(
+                ProviderType.entries.size.toString(),
+                result.payload
+                    .getValue("providerCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(
+                ProviderType.OpenAiCodex.providerId,
+                result.payload
+                    .getValue("currentProviderId")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals("false", result.payload["secretValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals("false", result.payload["oauthTokenValuesIncluded"]?.jsonPrimitive?.content)
+            assertEquals(
+                ProviderType.entries.size.toString(),
+                result.payload
+                    .getValue("stats")
+                    .jsonObject
+                    .getValue("providerCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            val providers = result.payload.getValue("providers").jsonArray
+            val deepSeek =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.DeepSeek.providerId
+                    }.jsonObject
+            assertEquals("Configured", deepSeek.getValue("authStatus").jsonPrimitive.content)
+            assertEquals("true", deepSeek.getValue("apiKeyConfigured").jsonPrimitive.content)
+            val deepSeekEndpoint = deepSeek.getValue("endpointSettings").jsonObject
+            assertEquals("https://proxy.example/v1", deepSeekEndpoint.getValue("baseUrl").jsonPrimitive.content)
+            assertEquals("deepseek-handoff", deepSeekEndpoint.getValue("modelId").jsonPrimitive.content)
+            assertEquals("true", deepSeekEndpoint.getValue("customBaseUrl").jsonPrimitive.content)
+            assertEquals("true", deepSeekEndpoint.getValue("customModelId").jsonPrimitive.content)
+            assertEquals("true", deepSeekEndpoint.getValue("customTimeout").jsonPrimitive.content)
+            val codex =
+                providers
+                    .first { provider ->
+                        provider.jsonObject
+                            .getValue("providerId")
+                            .jsonPrimitive
+                            .content == ProviderType.OpenAiCodex.providerId
+                    }.jsonObject
+            assertEquals("Configured", codex.getValue("authStatus").jsonPrimitive.content)
+            assertEquals("true", codex.getValue("oauthConfigured").jsonPrimitive.content)
+            assertEquals("true", codex.getValue("oauthExpired").jsonPrimitive.content)
+            assertEquals("true", codex.getValue("oauthProfileConfigured").jsonPrimitive.content)
+            val markdown =
+                result.payload
+                    .getValue("handoffMarkdown")
+                    .jsonPrimitive
+                    .content
+            assertTrue(markdown.contains("# Provider handoff"))
+            assertTrue(markdown.contains(ProviderType.OpenAiCodex.providerId))
+            assertTrue(markdown.contains("DeepSeek"))
+            assertFalse(markdown.contains("deepseek-handoff-secret"))
+            assertFalse(markdown.contains("codex-handoff-access-secret"))
+        }
+
+    @Test
+    fun `provider handoff can focus one provider and omit markdown`() =
+        runTest {
+            val registry = buildRegistry()
+
+            val result =
+                registry.execute(
+                    context = ToolExecutionContext.internal(requestedName = "provider.handoff"),
+                    arguments =
+                        buildJsonObject {
+                            put("providerId", "deepseek")
+                            put("includeMarkdown", false)
+                        },
+                )
+
+            assertTrue(result.summary, result.success)
+            assertEquals("deepseek", result.payload["requestedProviderId"]?.jsonPrimitive?.content)
+            assertEquals("1", result.payload["includedProviderCount"]?.jsonPrimitive?.content)
+            assertEquals(
+                (ProviderType.entries.size - 1).toString(),
+                result.payload
+                    .getValue("omittedProviderCount")
+                    .jsonPrimitive
+                    .content,
+            )
+            assertEquals(JsonNull, result.payload.getValue("handoffMarkdown"))
+            val provider =
+                result.payload
+                    .getValue("providers")
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(ProviderType.DeepSeek.providerId, provider.getValue("providerId").jsonPrimitive.content)
+        }
+
+    @Test
     fun `tools list and get expose typed descriptors`() =
         runTest {
             val registry = buildRegistry()

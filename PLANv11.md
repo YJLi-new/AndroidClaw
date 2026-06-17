@@ -71,6 +71,13 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-17: Added `providers.handoff` /
+  `provider.handoff` / `providers.snapshot` / `provider.snapshot` as a
+  Provider/OAuth context-transfer feature. Agents can now prepare a compact
+  provider inventory handoff with selected-provider metadata, non-secret auth
+  status, endpoint customization details, optional provider filtering, optional
+  markdown, and explicit secret/token omission flags. Focused
+  `BuiltInToolsTest`, ktlint, and the full offline fast loop passed.
 - 2026-06-17: Added `tools.handoff` / `tool.handoff` /
   `tools.snapshot` / `tool.snapshot` as a Tool Contract context-transfer
   feature. Agents can now prepare a compact bounded registry handoff with
