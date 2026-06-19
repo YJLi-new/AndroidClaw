@@ -344,6 +344,28 @@ class MessageRepositoryTest {
             assertEquals("main", results.single().sessionId)
             assertEquals("Main session", results.single().sessionTitle)
             assertEquals("Alpha status is green", results.single().content)
+            assertTrue(database.messageDao().countSearchTokensForMessage(results.single().messageId) > 0)
+        }
+
+    @Test
+    fun `message search uses token index for non-contiguous terms beyond exact phrase matching`() =
+        runTest {
+            val indexed =
+                repository.addMessage(
+                    sessionId = "main",
+                    role = MessageRole.Assistant,
+                    content = "The violet status uses compact keyboards.",
+                )
+            repository.addMessage(
+                sessionId = "main",
+                role = MessageRole.Assistant,
+                content = "Filler message with no matching words.",
+            )
+
+            val results = repository.searchMessages("violet keyboards", limit = 10)
+
+            assertEquals(listOf(indexed.id), results.map { result -> result.messageId })
+            assertTrue(database.messageDao().countSearchTokensForMessage(indexed.id) > 0)
         }
 
     @Test
@@ -428,6 +450,26 @@ class MessageRepositoryTest {
 
             assertEquals(MESSAGE_QUERY_MAX_LIMIT, recent.size)
             assertEquals(MESSAGE_QUERY_MAX_LIMIT, search.size)
+        }
+
+    @Test
+    fun `repair missing message search tokens indexes legacy rows`() =
+        runTest {
+            database.messageDao().insert(
+                messageEntity(
+                    id = "legacy-index-message",
+                    sessionId = "main",
+                    content = "Legacy indexed message with orange keyboards.",
+                ),
+            )
+            assertEquals(0, database.messageDao().countSearchTokensForMessage("legacy-index-message"))
+
+            val repaired = repository.repairMissingSearchTokens(limit = 10)
+            val search = repository.searchMessages("orange keyboards", limit = 10)
+
+            assertEquals(1, repaired)
+            assertTrue(database.messageDao().countSearchTokensForMessage("legacy-index-message") > 0)
+            assertEquals(listOf("legacy-index-message"), search.map { result -> result.messageId })
         }
 
     @Test

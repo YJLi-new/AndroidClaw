@@ -538,7 +538,7 @@ class ChatViewModel(
     fun exportCurrentSession(format: ChatExportFormat) {
         if (isRunning.value) return
         viewModelScope.launch {
-            runCatching { buildExportPayload(format) }
+            runCatching { buildExportFileRequest(format) }
                 .onSuccess { payload ->
                     errorMessage.value = null
                     noticeMessage.value = "Ready to save ${payload.fileName}."
@@ -595,7 +595,7 @@ class ChatViewModel(
     fun shareCurrentSessionAsFile(format: ChatExportFormat = ChatExportFormat.Markdown) {
         if (isRunning.value) return
         viewModelScope.launch {
-            runCatching { buildExportPayload(format) }
+            runCatching { buildExportFileRequest(format) }
                 .onSuccess { payload ->
                     errorMessage.value = null
                     noticeMessage.value = "Opening share sheet."
@@ -619,6 +619,48 @@ class ChatViewModel(
     fun onExportCancelled() {
         noticeMessage.value = "Export cancelled."
     }
+
+    suspend fun writeExportFile(
+        request: ChatExportFileRequest,
+        appendable: Appendable,
+    ): ChatExportWriteResult =
+        withContext(Dispatchers.IO) {
+            val session =
+                sessionRepository.getSession(request.sessionId)
+                    ?: error("Session is no longer available.")
+            val totalMessageCount = messageRepository.getMessageCount(request.sessionId)
+            val writer =
+                ChatExportFormatter.openStreamingWriter(
+                    session = session,
+                    format = request.format,
+                    exportedAt = request.exportedAt,
+                    appendable = appendable,
+                )
+            var offset = 0
+            var emittedMessages = 0
+            var stoppedBySizeLimit = false
+            while (!stoppedBySizeLimit) {
+                val page =
+                    messageRepository.getMessagePage(
+                        sessionId = request.sessionId,
+                        limit = CHAT_EXPORT_PAGE_SIZE,
+                        offset = offset,
+                    )
+                if (page.isEmpty()) {
+                    break
+                }
+                for (message in page) {
+                    if (writer.writeMessage(message)) {
+                        emittedMessages += 1
+                    } else {
+                        stoppedBySizeLimit = true
+                        break
+                    }
+                }
+                offset += page.size
+            }
+            writer.close(omittedMessageCount = totalMessageCount - emittedMessages)
+        }
 
     private fun startTurn(
         sessionId: String,
@@ -795,13 +837,65 @@ class ChatViewModel(
             )
         }
 
+    private suspend fun buildExportFileRequest(format: ChatExportFormat): ChatExportFileRequest =
+        withContext(Dispatchers.IO) {
+            val sessionId =
+                currentSessionId.value.takeIf { it.isNotBlank() }
+                    ?: error("No active session to export.")
+            val session =
+                sessionRepository.getSession(sessionId)
+                    ?: error("Session is no longer available.")
+            ChatExportFormatter.buildFileRequest(
+                session = session,
+                format = format,
+            )
+        }
+
     private suspend fun buildShareText(): String =
         withContext(Dispatchers.IO) {
-            val (session, messages) = loadExportSource()
-            ChatExportFormatter.buildShareText(
-                session = session,
-                messages = messages,
-            )
+            val sessionId =
+                currentSessionId.value.takeIf { it.isNotBlank() }
+                    ?: error("No active session to share.")
+            val session =
+                sessionRepository.getSession(sessionId)
+                    ?: error("Session is no longer available.")
+            val totalMessageCount = messageRepository.getMessageCount(sessionId)
+            val output = StringBuilder()
+            val writer =
+                ChatExportFormatter.openStreamingWriter(
+                    session = session,
+                    format = ChatExportFormat.Text,
+                    exportedAt = java.time.Instant.now(),
+                    appendable = output,
+                    maxChars = (CHAT_SHARE_TEXT_MAX_CHARS - CHAT_SHARE_TEXT_TRUNCATED_NOTICE.length).coerceAtLeast(0),
+                    truncatedNotice = CHAT_SHARE_TEXT_TRUNCATED_NOTICE,
+                    includeOmittedCountNotice = false,
+                )
+            var offset = 0
+            var emittedMessages = 0
+            var stoppedBySizeLimit = false
+            while (!stoppedBySizeLimit) {
+                val page =
+                    messageRepository.getMessagePage(
+                        sessionId = sessionId,
+                        limit = CHAT_EXPORT_PAGE_SIZE,
+                        offset = offset,
+                    )
+                if (page.isEmpty()) {
+                    break
+                }
+                for (message in page) {
+                    if (writer.writeMessage(message)) {
+                        emittedMessages += 1
+                    } else {
+                        stoppedBySizeLimit = true
+                        break
+                    }
+                }
+                offset += page.size
+            }
+            writer.close(omittedMessageCount = totalMessageCount - emittedMessages)
+            output.toString()
         }
 
     private suspend fun loadExportSource(): Pair<Session, List<ChatMessage>> {
@@ -819,6 +913,7 @@ class ChatViewModel(
         private const val SEARCH_SESSION_LIMIT = 6
         private const val SEARCH_MESSAGE_LIMIT = 10
         private const val MAX_SEARCH_RESULTS = 12
+        private const val CHAT_EXPORT_PAGE_SIZE = 100
 
         fun factory(dependencies: ChatDependencies) =
             viewModelFactory {

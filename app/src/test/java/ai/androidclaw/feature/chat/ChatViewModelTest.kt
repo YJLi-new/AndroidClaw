@@ -682,10 +682,13 @@ class ChatViewModelTest {
                 val action = actionDeferred.await()
                 val exported = awaitState { it.noticeMessage?.contains("Ready to save") == true }
                 val payload = (action as ChatExternalAction.ExportDocument).payload
+                val written = StringBuilder()
+                val result = viewModel.writeExportFile(payload, written)
 
                 assertTrue(payload.fileName.endsWith(".md"))
-                assertTrue(payload.content.contains("Export this session."))
-                assertTrue(payload.content.contains("## Transcript"))
+                assertTrue(written.toString().contains("Export this session."))
+                assertTrue(written.toString().contains("## Transcript"))
+                assertEquals(1, result.messageCount)
                 assertEquals(mainSession.id, exported.currentSessionId)
                 cancelAndIgnoreRemainingEvents()
             }
@@ -695,11 +698,13 @@ class ChatViewModelTest {
     fun `share current session as file emits share file payload`() =
         runTest {
             val mainSession = sessionRepository.getOrCreateMainSession()
-            messageRepository.addMessage(
-                sessionId = mainSession.id,
-                role = MessageRole.Assistant,
-                content = "Share this session.",
-            )
+            repeat(125) { index ->
+                messageRepository.addMessage(
+                    sessionId = mainSession.id,
+                    role = MessageRole.Assistant,
+                    content = "Share this session page message $index.",
+                )
+            }
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
@@ -709,9 +714,14 @@ class ChatViewModelTest {
 
                 val action = actionDeferred.await()
                 val payload = (action as ChatExternalAction.ShareFile).payload
+                val written = StringBuilder()
+                val result = viewModel.writeExportFile(payload, written)
 
                 assertTrue(payload.fileName.endsWith(".json"))
-                assertTrue(payload.content.contains("\"messages\""))
+                assertTrue(written.toString().contains("\"messages\""))
+                assertTrue(written.toString().contains("Share this session page message 0."))
+                assertTrue(written.toString().contains("Share this session page message 124."))
+                assertEquals(125, result.messageCount)
                 cancelAndIgnoreRemainingEvents()
             }
         }

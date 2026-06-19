@@ -116,10 +116,65 @@ object AndroidClawDatabaseMigrations {
             }
         }
 
+    val MIGRATION_4_5: Migration =
+        object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `message_search_tokens` (
+                        `messageId` TEXT NOT NULL,
+                        `sessionId` TEXT NOT NULL,
+                        `token` TEXT NOT NULL,
+                        PRIMARY KEY(`messageId`, `token`),
+                        FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_message_search_tokens_token` " +
+                        "ON `message_search_tokens` (`token`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_message_search_tokens_sessionId_token` " +
+                        "ON `message_search_tokens` (`sessionId`, `token`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_message_search_tokens_messageId` " +
+                        "ON `message_search_tokens` (`messageId`)",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_search_tokens` (
+                        `memoryId` TEXT NOT NULL,
+                        `ownerUserId` TEXT NOT NULL,
+                        `token` TEXT NOT NULL,
+                        PRIMARY KEY(`memoryId`, `token`),
+                        FOREIGN KEY(`memoryId`) REFERENCES `memory_items`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_search_tokens_token` " +
+                        "ON `memory_search_tokens` (`token`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_search_tokens_ownerUserId_token` " +
+                        "ON `memory_search_tokens` (`ownerUserId`, `token`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_search_tokens_memoryId` " +
+                        "ON `memory_search_tokens` (`memoryId`)",
+                )
+            }
+        }
+
     val ALL: Array<Migration> =
         arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
+            MIGRATION_4_5,
         )
 }

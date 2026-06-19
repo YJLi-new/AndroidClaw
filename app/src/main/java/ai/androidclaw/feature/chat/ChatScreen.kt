@@ -90,7 +90,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val context = LocalContext.current
     var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
     var renameNotice by rememberSaveable(state.currentSessionId) { mutableStateOf<String?>(null) }
-    var pendingExport by remember { mutableStateOf<ChatExportPayload?>(null) }
+    var pendingExport by remember { mutableStateOf<ChatExportFileRequest?>(null) }
     var showSearchDialog by rememberSaveable { mutableStateOf(false) }
     var showShareDialog by rememberSaveable { mutableStateOf(false) }
     var showUsageDialog by rememberSaveable { mutableStateOf(false) }
@@ -116,7 +116,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             externalActionScope.launch {
                 runCatching {
                     withContext(Dispatchers.IO) {
-                        writeExportPayload(context, uri, payload)
+                        writeExportPayload(context, uri, payload, viewModel)
                     }
                 }.onSuccess {
                     viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
@@ -174,7 +174,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     runCatching {
                         val uri =
                             withContext(Dispatchers.IO) {
-                                writeShareFile(context, action.payload)
+                                writeShareFile(context, action.payload, viewModel)
                             }
                         launchShareFile(context, action.payload, uri)
                     }.onFailure { error ->
@@ -952,21 +952,22 @@ private fun CompactChipText(
     )
 }
 
-private fun createExportDocumentIntent(payload: ChatExportPayload): Intent =
+private fun createExportDocumentIntent(payload: ChatExportFileRequest): Intent =
     Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
         addCategory(Intent.CATEGORY_OPENABLE)
         type = payload.mimeType
         putExtra(Intent.EXTRA_TITLE, payload.fileName)
     }
 
-private fun writeExportPayload(
+private suspend fun writeExportPayload(
     context: Context,
     uri: Uri,
-    payload: ChatExportPayload,
+    payload: ChatExportFileRequest,
+    viewModel: ChatViewModel,
 ) {
     context.contentResolver.openOutputStream(uri)?.bufferedWriter().use { writer ->
         requireNotNull(writer) { "Unable to open destination for ${payload.fileName}" }
-        writer.write(payload.content)
+        viewModel.writeExportFile(payload, writer)
     }
 }
 
@@ -983,13 +984,16 @@ private fun launchShareText(
     context.startActivity(Intent.createChooser(intent, "Share session"))
 }
 
-private fun writeShareFile(
+private suspend fun writeShareFile(
     context: Context,
-    payload: ChatExportPayload,
+    payload: ChatExportFileRequest,
+    viewModel: ChatViewModel,
 ): Uri {
     val exportDirectory = File(context.cacheDir, "chat-exports").apply { mkdirs() }
     val exportFile = File(exportDirectory, payload.fileName)
-    exportFile.writeText(payload.content)
+    exportFile.bufferedWriter().use { writer ->
+        viewModel.writeExportFile(payload, writer)
+    }
     return FileProvider.getUriForFile(
         context,
         "${context.packageName}.chat-export-provider",
@@ -999,7 +1003,7 @@ private fun writeShareFile(
 
 private fun launchShareFile(
     context: Context,
-    payload: ChatExportPayload,
+    payload: ChatExportFileRequest,
     uri: Uri,
 ) {
     val intent =

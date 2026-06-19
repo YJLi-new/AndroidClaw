@@ -123,6 +123,10 @@ local toolchain recovery with `-Pandroidclaw.mavenLocal=true` or
 `ANDROIDCLAW_MAVEN_LOCAL=true`. Test-source lint can be probed with
 `-Pandroidclaw.lintTestSources=true`; default CI keeps production-source lint
 enabled while AGP/Kotlin test-source lint instability is tracked separately.
+The app also ships a checked-in startup baseline profile at
+`app/src/main/baseline-prof.txt` for cold start and the chat/settings/tasks
+flows; regenerate it with an official managed-device baseline profile lane when
+KVM-backed emulator access is available.
 
 For PATH-independent adb access from this repo:
 
@@ -171,7 +175,7 @@ ANDROIDCLAW_JAVA_HOME=/path/to/jdk17 \
 | ✅ | Session-summary generation and context-budgeted prompt assembly |
 | ✅ | Chat export / share / search |
 | ✅ | Room `kapt → ksp` migration |
-| 🔲 | Baseline Profiles for startup optimization |
+| ✅ | Baseline profile seed for startup optimization |
 
 ## 🚧 Non-Goals (v0)
 

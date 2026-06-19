@@ -159,6 +159,44 @@ class ChatExportFormatterTest {
             assertFalse(exported.contains("refresh-secret"))
         }
     }
+
+    @Test
+    fun `streaming writer enforces file size limit without building complete export string`() {
+        val session = testSession(summaryText = "Streaming summary")
+        val output = StringBuilder()
+        val writer =
+            ChatExportFormatter.openStreamingWriter(
+                session = session,
+                format = ChatExportFormat.Text,
+                exportedAt = Instant.parse("2026-03-17T13:00:00Z"),
+                appendable = output,
+                maxChars = 450,
+            )
+        val messages =
+            (1..10).map { index ->
+                testMessage(
+                    id = "assistant-$index",
+                    role = MessageRole.Assistant,
+                    content = "streaming-message-$index " + "x".repeat(80),
+                )
+            }
+        var emitted = 0
+        for (message in messages) {
+            if (writer.writeMessage(message)) {
+                emitted += 1
+            } else {
+                break
+            }
+        }
+
+        val result = writer.close(omittedMessageCount = messages.size - emitted)
+
+        assertTrue(emitted < messages.size)
+        assertTrue(result.truncatedBySizeLimit)
+        assertEquals(messages.size - emitted, result.omittedMessageCount)
+        assertTrue(output.contains(CHAT_FILE_EXPORT_TRUNCATED_NOTICE))
+        assertFalse(output.contains("streaming-message-10"))
+    }
 }
 
 private fun testSession(summaryText: String?): Session =

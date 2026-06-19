@@ -3,6 +3,7 @@ package ai.androidclaw.data.repository
 import ai.androidclaw.data.db.dao.MemoryItemDao
 import ai.androidclaw.data.db.dao.MemorySourceTypeStatsRow
 import ai.androidclaw.data.db.entity.MemoryItemEntity
+import ai.androidclaw.data.db.entity.MemorySearchTokenEntity
 import ai.androidclaw.data.model.MemoryItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -72,6 +73,7 @@ class MemoryRepository(
                 deletedAt = null,
             )
         dao.insert(entity)
+        replaceSearchTokens(entity)
         return entity.toDomain(json)
     }
 
@@ -81,23 +83,30 @@ class MemoryRepository(
         limit: Int = DEFAULT_SEARCH_LIMIT,
     ): List<MemoryItem> {
         val boundedLimit = limit.coerceIn(0, MAX_SEARCH_LIMIT)
-        val queryTerms = tokenize(query)
+        val queryTerms = tokenizeSearchText(query)
         if (ownerUserId.isBlank() || queryTerms.isEmpty() || boundedLimit == 0) {
             return emptyList()
         }
         val normalizedQuery = normalizeForDuplicate(query)
+        val tokenCandidates =
+            dao.searchActiveByTokens(
+                ownerUserId = ownerUserId,
+                tokens = queryTerms.toList(),
+                minimumMatchedTokens = minimumSearchTokenMatches(queryTerms),
+                limit = SEARCH_SCAN_LIMIT,
+            )
         val directCandidates =
             normalizedQuery
                 .takeIf { it.length >= MIN_DATABASE_SEARCH_CHARS }
                 ?.let { databaseQuery ->
                     dao.searchActiveByTextLike(
                         ownerUserId = ownerUserId,
-                        escapedQuery = databaseQuery.toSqliteLikeEscaped(),
+                        escapedQuery = databaseQuery.toSqliteLikeEscapedLiteral(),
                         limit = SEARCH_SCAN_LIMIT,
                     )
                 }.orEmpty()
         val recentCandidates = dao.getActiveByOwner(ownerUserId = ownerUserId, limit = SEARCH_SCAN_LIMIT)
-        return (directCandidates + recentCandidates)
+        return (tokenCandidates + directCandidates + recentCandidates)
             .distinctBy(MemoryItemEntity::id)
             .mapNotNull { entity ->
                 val score = scoreMemory(normalizedQuery, queryTerms, entity)
@@ -251,7 +260,9 @@ class MemoryRepository(
         if (updated <= 0) {
             return null
         }
-        return get(ownerUserId, id)
+        val updatedMemory = dao.getActiveByOwnerAndId(ownerUserId, id) ?: return null
+        replaceSearchTokens(updatedMemory)
+        return updatedMemory.toDomain(json)
     }
 
     suspend fun countActive(ownerUserId: String): Int =
@@ -338,9 +349,11 @@ class MemoryRepository(
         if (restored <= 0) {
             return null
         }
-        return get(ownerUserId, id)?.let { memory ->
+        val memory = dao.getActiveByOwnerAndId(ownerUserId, id) ?: return null
+        replaceSearchTokens(memory)
+        return memory.toDomain(json).let { restoredMemory ->
             RestoredMemory(
-                memory = memory,
+                memory = restoredMemory,
                 restored = true,
             )
         }
@@ -356,6 +369,26 @@ class MemoryRepository(
         )
     }
 
+    suspend fun repairMissingSearchTokens(limit: Int = MEMORY_SEARCH_INDEX_REPAIR_LIMIT): Int {
+        val boundedLimit = limit.coerceIn(0, SEARCH_SCAN_LIMIT)
+        if (boundedLimit == 0) {
+            return 0
+        }
+        val missing = dao.getActiveMissingSearchTokens(boundedLimit)
+        missing.forEach { entity ->
+            replaceSearchTokens(entity)
+        }
+        return missing.size
+    }
+
+    private suspend fun replaceSearchTokens(entity: MemoryItemEntity) {
+        dao.deleteSearchTokensByMemoryId(entity.id)
+        val tokens = entity.toSearchTokenEntities()
+        if (tokens.isNotEmpty()) {
+            dao.insertSearchTokens(tokens)
+        }
+    }
+
     companion object {
         const val SOURCE_TYPE_AUTOMATIC = "automatic"
         const val SOURCE_TYPE_MANUAL = "manual"
@@ -368,6 +401,7 @@ class MemoryRepository(
         const val MAX_SOURCE_MESSAGE_ID_CHARS = 120
         private const val DUPLICATE_SCAN_LIMIT = 1_000
         private const val SEARCH_SCAN_LIMIT = 500
+        private const val MEMORY_SEARCH_INDEX_REPAIR_LIMIT = 500
         private const val SOURCE_MESSAGE_SCAN_LIMIT = 1_000
         private const val MIN_DATABASE_SEARCH_CHARS = 2
     }
@@ -392,7 +426,7 @@ private fun scoreMemory(
     if (normalizedQuery.length >= 4 && normalizedText.contains(normalizedQuery)) {
         score += 8
     }
-    val memoryTerms = tokenize(boundedText)
+    val memoryTerms = tokenizeSearchText(boundedText)
     queryTerms.forEach { term ->
         if (term in memoryTerms) {
             score += if (term.length == 1) 1 else 3
@@ -403,71 +437,9 @@ private fun scoreMemory(
     return score
 }
 
-internal fun normalizeMemoryText(text: String): String =
-    text
-        .lineSequence()
-        .map(String::trim)
-        .filter(String::isNotBlank)
-        .joinToString(separator = " ")
-        .replace(Regex("\\s+"), " ")
-        .trim()
+internal fun normalizeMemoryText(text: String): String = normalizeSearchText(text)
 
 private fun normalizeForDuplicate(text: String): String = normalizeMemoryText(text).lowercase()
-
-private fun String.toSqliteLikeEscaped(): String =
-    buildString {
-        this@toSqliteLikeEscaped.forEach { char ->
-            when (char) {
-                '\\', '%', '_' -> {
-                    append('\\')
-                    append(char)
-                }
-                else -> append(char)
-            }
-        }
-    }
-
-private fun tokenize(text: String): Set<String> {
-    val normalizedText = normalizeMemoryText(text).lowercase()
-    if (normalizedText.isBlank()) {
-        return emptySet()
-    }
-
-    val tokens = linkedSetOf<String>()
-    searchTokenRegex.findAll(normalizedText).forEach { match ->
-        val rawToken = match.value.trim('_')
-        if (rawToken.isBlank()) {
-            return@forEach
-        }
-        if (rawToken.any(Char::isCompactScriptSearchChar)) {
-            val compactChars = rawToken.filter(Char::isCompactScriptSearchChar)
-            compactChars.forEach { tokens += it.toString() }
-            compactChars.windowed(size = 2).forEach { tokens += it }
-            rawToken
-                .split(Regex("[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}]+"))
-                .map(String::trim)
-                .filter { it.length >= 2 }
-                .forEach { tokens += it }
-        } else if (rawToken.length >= 2) {
-            tokens += rawToken
-        }
-    }
-    return tokens
-}
-
-private val searchTokenRegex = Regex("[\\p{L}\\p{N}_]+")
-
-private fun Char.isCompactScriptSearchChar(): Boolean {
-    val block = Character.UnicodeBlock.of(this)
-    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.HIRAGANA ||
-        block == Character.UnicodeBlock.KATAKANA ||
-        block == Character.UnicodeBlock.HANGUL_SYLLABLES ||
-        block == Character.UnicodeBlock.HANGUL_JAMO ||
-        block == Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO
-}
 
 private fun MemoryItemEntity.toDomain(json: Json): MemoryItem =
     MemoryItem(
@@ -501,6 +473,16 @@ private fun decodeSourceMessageIds(
     }.toBoundedSourceMessageIds()
 
 private fun String.toBoundedMemoryText(): String = take(MemoryRepository.MAX_MEMORY_TEXT_CHARS)
+
+private fun MemoryItemEntity.toSearchTokenEntities(): List<MemorySearchTokenEntity> =
+    tokenizeSearchText(text.toBoundedMemoryText())
+        .map { token ->
+            MemorySearchTokenEntity(
+                memoryId = id,
+                ownerUserId = ownerUserId,
+                token = token,
+            )
+        }
 
 private fun List<String>.toBoundedSourceMessageIds(): List<String> =
     asSequence()

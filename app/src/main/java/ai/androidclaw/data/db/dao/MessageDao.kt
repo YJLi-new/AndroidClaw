@@ -1,8 +1,10 @@
 package ai.androidclaw.data.db.dao
 
 import ai.androidclaw.data.db.entity.MessageEntity
+import ai.androidclaw.data.db.entity.MessageSearchTokenEntity
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
@@ -13,6 +15,15 @@ interface MessageDao {
 
     @Insert
     suspend fun insertAll(messages: List<MessageEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSearchTokens(tokens: List<MessageSearchTokenEntity>)
+
+    @Query("DELETE FROM message_search_tokens WHERE messageId = :messageId")
+    suspend fun deleteSearchTokensByMessageId(messageId: String): Int
+
+    @Query("DELETE FROM message_search_tokens WHERE sessionId = :sessionId")
+    suspend fun deleteSearchTokensBySessionId(sessionId: String): Int
 
     @Query(
         """
@@ -31,6 +42,20 @@ interface MessageDao {
         """,
     )
     suspend fun getAllBySessionId(sessionId: String): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
+        ORDER BY createdAt ASC, rowid ASC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun getPageBySessionId(
+        sessionId: String,
+        limit: Int,
+        offset: Int,
+    ): List<MessageEntity>
 
     @Query(
         """
@@ -198,6 +223,51 @@ interface MessageDao {
         queryPattern: String,
         limit: Int,
     ): List<MessageSearchRow>
+
+    @Query(
+        """
+        SELECT
+            messages.id AS id,
+            messages.sessionId AS sessionId,
+            sessions.title AS sessionTitle,
+            messages.role AS role,
+            messages.content AS content,
+            messages.createdAt AS createdAt
+        FROM messages
+        INNER JOIN sessions ON sessions.id = messages.sessionId
+        INNER JOIN (
+            SELECT messageId, COUNT(DISTINCT token) AS matchedTokenCount
+            FROM message_search_tokens
+            WHERE token IN (:tokens)
+            GROUP BY messageId
+            HAVING matchedTokenCount >= :minimumMatchedTokens
+        ) AS token_matches ON token_matches.messageId = messages.id
+        WHERE sessions.archivedAt IS NULL
+        ORDER BY token_matches.matchedTokenCount DESC, messages.createdAt DESC, messages.rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchByTokens(
+        tokens: List<String>,
+        minimumMatchedTokens: Int,
+        limit: Int,
+    ): List<MessageSearchRow>
+
+    @Query(
+        """
+        SELECT messages.*
+        FROM messages
+        LEFT JOIN message_search_tokens ON message_search_tokens.messageId = messages.id
+        WHERE message_search_tokens.messageId IS NULL
+          AND LENGTH(TRIM(messages.content)) > 0
+        ORDER BY messages.createdAt DESC, messages.rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getMessagesMissingSearchTokens(limit: Int): List<MessageEntity>
+
+    @Query("SELECT COUNT(*) FROM message_search_tokens WHERE messageId = :messageId")
+    suspend fun countSearchTokensForMessage(messageId: String): Int
 
     @Query("DELETE FROM messages WHERE sessionId = :sessionId")
     suspend fun deleteBySessionId(sessionId: String)

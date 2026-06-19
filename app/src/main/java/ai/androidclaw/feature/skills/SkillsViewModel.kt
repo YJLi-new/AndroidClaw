@@ -4,11 +4,13 @@ import ai.androidclaw.app.SkillsDependencies
 import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.SKILL_CONFIG_VALUE_MAX_CHARS
 import ai.androidclaw.data.SKILL_SECRET_VALUE_MAX_CHARS
+import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillConfigField
 import ai.androidclaw.runtime.skills.SkillImportResult
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
+import ai.androidclaw.runtime.skills.SkillSourceType
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -52,6 +54,7 @@ data class SkillsUiState(
     val skills: List<SkillSnapshot> = emptyList(),
     val statusMessage: String? = null,
     val configurationDialog: SkillConfigurationDialogState? = null,
+    val enableConfirmation: SkillEnableConfirmationState? = null,
 )
 
 data class SkillConfigurationDialogState(
@@ -90,6 +93,14 @@ data class EditableSkillConfigField(
     val hasPendingChange: Boolean
         get() = clearRequested || draftValue != (storedValue ?: "")
 }
+
+data class SkillEnableConfirmationState(
+    val skillId: String,
+    val displayName: String,
+    val sourceLabel: String,
+    val dispatchSummary: String,
+    val scopeSummary: String,
+)
 
 class SkillsViewModel(
     private val skillManager: SkillManager,
@@ -325,10 +336,44 @@ class SkillsViewModel(
         skillId: String,
         enabled: Boolean,
     ) {
+        val skill = mutableState.value.skills.firstOrNull { it.id == skillId }
+        if (enabled && skill != null && skill.requiresEnableConfirmation()) {
+            mutableState.update {
+                it.copy(
+                    enableConfirmation = skill.toEnableConfirmationState(),
+                    statusMessage = null,
+                )
+            }
+            return
+        }
+        setSkillEnabled(
+            skillId = skillId,
+            enabled = enabled,
+        )
+    }
+
+    fun dismissEnableConfirmation() {
+        mutableState.update { it.copy(enableConfirmation = null) }
+    }
+
+    fun confirmEnableSkill() {
+        val confirmation = mutableState.value.enableConfirmation ?: return
+        mutableState.update { it.copy(enableConfirmation = null) }
+        setSkillEnabled(
+            skillId = confirmation.skillId,
+            enabled = true,
+        )
+    }
+
+    private fun setSkillEnabled(
+        skillId: String,
+        enabled: Boolean,
+    ) {
         viewModelScope.launch {
             skillManager.setEnabled(skillId = skillId, enabled = enabled)
             mutableState.update {
                 it.copy(
+                    enableConfirmation = null,
                     statusMessage =
                         if (enabled) {
                             "Enabled skill."
@@ -472,4 +517,40 @@ private fun List<SkillConfigField>.toEditableConfigFields(): List<EditableSkillC
             storedValue = field.value,
             draftValue = field.value.orEmpty(),
         )
+    }
+
+private fun SkillSnapshot.requiresEnableConfirmation(): Boolean = sourceType == SkillSourceType.Local || sourceType == SkillSourceType.Workspace
+
+private fun SkillSnapshot.toEnableConfirmationState(): SkillEnableConfirmationState {
+    val frontmatter = frontmatter
+    val dispatchSummary =
+        when {
+            frontmatter?.commandDispatch == SkillCommandDispatch.Tool &&
+                !frontmatter.commandTool.isNullOrBlank() ->
+                "Slash command dispatches to tool `${frontmatter.commandTool}`."
+            frontmatter?.commandDispatch == SkillCommandDispatch.Tool ->
+                "Slash command requests tool dispatch but no target tool is declared."
+            else ->
+                "Model-dispatched skill may be added to model context when eligible."
+        }
+    val scopeSummary =
+        if (frontmatter?.commandDispatch == SkillCommandDispatch.Tool) {
+            "Tool calls run with this skill id as active scope; registry origin and risk gates still apply."
+        } else {
+            "Instructions are local untrusted context; they do not bypass tool origin, risk, or confirmation gates."
+        }
+    return SkillEnableConfirmationState(
+        skillId = id,
+        displayName = displayName,
+        sourceLabel = sourceLabelForConfirmation(),
+        dispatchSummary = dispatchSummary,
+        scopeSummary = scopeSummary,
+    )
+}
+
+private fun SkillSnapshot.sourceLabelForConfirmation(): String =
+    when (sourceType) {
+        SkillSourceType.Bundled -> "Bundled"
+        SkillSourceType.Local -> "Local import (untrusted)"
+        SkillSourceType.Workspace -> "Workspace import (untrusted) ${workspaceSessionId.orEmpty()}".trim()
     }

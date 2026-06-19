@@ -7,6 +7,7 @@ import ai.androidclaw.data.db.dao.MessageDao
 import ai.androidclaw.data.db.dao.MessageSearchRow
 import ai.androidclaw.data.db.dao.MessageStatsRow
 import ai.androidclaw.data.db.entity.MessageEntity
+import ai.androidclaw.data.db.entity.MessageSearchTokenEntity
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
@@ -197,9 +198,23 @@ private class ThrowingMessageDao(
         }
     }
 
+    override suspend fun insertSearchTokens(tokens: List<MessageSearchTokenEntity>) {
+        delegate.insertSearchTokens(tokens)
+    }
+
+    override suspend fun deleteSearchTokensByMessageId(messageId: String): Int = delegate.deleteSearchTokensByMessageId(messageId)
+
+    override suspend fun deleteSearchTokensBySessionId(sessionId: String): Int = delegate.deleteSearchTokensBySessionId(sessionId)
+
     override fun getBySessionId(sessionId: String): Flow<List<MessageEntity>> = delegate.getBySessionId(sessionId)
 
     override suspend fun getAllBySessionId(sessionId: String): List<MessageEntity> = delegate.getAllBySessionId(sessionId)
+
+    override suspend fun getPageBySessionId(
+        sessionId: String,
+        limit: Int,
+        offset: Int,
+    ): List<MessageEntity> = delegate.getPageBySessionId(sessionId, limit, offset)
 
     override suspend fun getRecentBySessionId(
         sessionId: String,
@@ -256,6 +271,16 @@ private class ThrowingMessageDao(
         queryPattern: String,
         limit: Int,
     ): List<MessageSearchRow> = delegate.searchByContent(queryPattern, limit)
+
+    override suspend fun searchByTokens(
+        tokens: List<String>,
+        minimumMatchedTokens: Int,
+        limit: Int,
+    ): List<MessageSearchRow> = delegate.searchByTokens(tokens, minimumMatchedTokens, limit)
+
+    override suspend fun getMessagesMissingSearchTokens(limit: Int): List<MessageEntity> = delegate.getMessagesMissingSearchTokens(limit)
+
+    override suspend fun countSearchTokensForMessage(messageId: String): Int = delegate.countSearchTokensForMessage(messageId)
 
     override suspend fun deleteBySessionId(sessionId: String) {
         delegate.deleteBySessionId(sessionId)

@@ -4,6 +4,7 @@ import ai.androidclaw.data.db.dao.MessageDao
 import ai.androidclaw.data.db.dao.MessageSearchRow
 import ai.androidclaw.data.db.dao.MessageStatsRow
 import ai.androidclaw.data.db.entity.MessageEntity
+import ai.androidclaw.data.db.entity.MessageSearchTokenEntity
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,8 @@ internal const val MESSAGE_CONTENT_MAX_CHARS = 40_000
 internal const val MESSAGE_PROVIDER_META_MAX_CHARS = 4_000
 internal const val MESSAGE_REFERENCE_ID_MAX_CHARS = 256
 internal const val MESSAGE_CONTEXT_MAX_SIDE_LIMIT = 50
+internal const val MESSAGE_SEARCH_INDEX_REPAIR_LIMIT = 500
+private const val MESSAGE_SEARCH_CANDIDATE_LIMIT = 500
 
 class MessageRepository(
     private val dao: MessageDao,
@@ -78,6 +81,7 @@ class MessageRepository(
                 taskRunId = taskRunId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
             )
         dao.insert(entity)
+        replaceSearchTokens(entity)
         return entity.toDomain()
     }
 
@@ -87,6 +91,24 @@ class MessageRepository(
         }
 
     suspend fun getMessages(sessionId: String): List<ChatMessage> = dao.getAllBySessionId(sessionId).map(MessageEntity::toDomain)
+
+    suspend fun getMessagePage(
+        sessionId: String,
+        limit: Int,
+        offset: Int,
+    ): List<ChatMessage> {
+        val boundedLimit = limit.toSafeQueryLimit()
+        val boundedOffset = offset.coerceAtLeast(0)
+        if (sessionId.isBlank() || boundedLimit == 0) {
+            return emptyList()
+        }
+        return dao
+            .getPageBySessionId(
+                sessionId = sessionId,
+                limit = boundedLimit,
+                offset = boundedOffset,
+            ).map(MessageEntity::toDomain)
+    }
 
     suspend fun getMessage(messageId: String): ChatMessage? {
         if (messageId.isBlank()) {
@@ -112,7 +134,9 @@ class MessageRepository(
         if (updated <= 0) {
             return null
         }
-        return dao.getById(normalizedMessageId)?.toDomain()
+        val entity = dao.getById(normalizedMessageId) ?: return null
+        replaceSearchTokens(entity)
+        return entity.toDomain()
     }
 
     suspend fun getRecentMessages(
@@ -294,15 +318,47 @@ class MessageRepository(
         query: String,
         limit: Int,
     ): List<SearchResult> {
-        val queryPattern = query.toSqlLikeContainsPatternOrNull()
+        val queryPattern = query.toSqlLikeContainsPatternOrNull() ?: return emptyList()
         val boundedLimit = limit.toSafeQueryLimit()
-        if (queryPattern == null || boundedLimit == 0) {
+        if (boundedLimit == 0) {
             return emptyList()
         }
-        return dao.searchByContent(queryPattern, boundedLimit).map(MessageSearchRow::toSearchResult)
+        val normalizedQuery = normalizeSearchText(query).lowercase()
+        val queryTokens = tokenizeSearchText(query)
+        val tokenCandidates =
+            queryTokens
+                .takeIf { it.isNotEmpty() }
+                ?.let { tokens ->
+                    dao.searchByTokens(
+                        tokens = tokens.toList(),
+                        minimumMatchedTokens = minimumSearchTokenMatches(tokens),
+                        limit = MESSAGE_SEARCH_CANDIDATE_LIMIT,
+                    )
+                }.orEmpty()
+        val directCandidates = dao.searchByContent(queryPattern, MESSAGE_SEARCH_CANDIDATE_LIMIT)
+        return (tokenCandidates + directCandidates)
+            .distinctBy(MessageSearchRow::id)
+            .mapNotNull { row ->
+                val score =
+                    scoreMessageSearchResult(
+                        normalizedQuery = normalizedQuery,
+                        queryTokens = queryTokens,
+                        row = row,
+                    )
+                if (score <= 0) {
+                    null
+                } else {
+                    ScoredMessageSearchResult(row.toSearchResult(), score)
+                }
+            }.sortedWith(
+                compareByDescending<ScoredMessageSearchResult> { it.score }
+                    .thenByDescending { it.result.createdAt },
+            ).take(boundedLimit)
+            .map(ScoredMessageSearchResult::result)
     }
 
     suspend fun deleteSessionMessages(sessionId: String) {
+        dao.deleteSearchTokensBySessionId(sessionId)
         dao.deleteBySessionId(sessionId)
     }
 
@@ -310,6 +366,7 @@ class MessageRepository(
         if (messageId.isBlank()) {
             return false
         }
+        dao.deleteSearchTokensByMessageId(messageId)
         return dao.deleteById(messageId) > 0
     }
 
@@ -349,13 +406,43 @@ class MessageRepository(
                 )
             }
         dao.insertAll(copiedMessages)
+        replaceSearchTokens(copiedMessages)
         return CopyResult(
             sourceMessageCount = sourceMessages.size,
             copiedMessageCount = copiedMessages.size,
             messageIdMap = messageIdMap,
         )
     }
+
+    suspend fun repairMissingSearchTokens(limit: Int = MESSAGE_SEARCH_INDEX_REPAIR_LIMIT): Int {
+        val boundedLimit = limit.toSafeQueryLimit()
+        if (boundedLimit == 0) {
+            return 0
+        }
+        val missing = dao.getMessagesMissingSearchTokens(boundedLimit)
+        replaceSearchTokens(missing)
+        return missing.size
+    }
+
+    private suspend fun replaceSearchTokens(entity: MessageEntity) {
+        dao.deleteSearchTokensByMessageId(entity.id)
+        val tokens = entity.toSearchTokenEntities()
+        if (tokens.isNotEmpty()) {
+            dao.insertSearchTokens(tokens)
+        }
+    }
+
+    private suspend fun replaceSearchTokens(entities: List<MessageEntity>) {
+        entities.forEach { entity ->
+            replaceSearchTokens(entity)
+        }
+    }
 }
+
+private data class ScoredMessageSearchResult(
+    val result: MessageRepository.SearchResult,
+    val score: Int,
+)
 
 private fun Int.toSafeQueryLimit(): Int = coerceIn(0, MESSAGE_QUERY_MAX_LIMIT)
 
@@ -407,6 +494,31 @@ private fun MessageSearchRow.toSearchResult(): MessageRepository.SearchResult =
         createdAt = Instant.ofEpochMilli(createdAt),
     )
 
+private fun scoreMessageSearchResult(
+    normalizedQuery: String,
+    queryTokens: Set<String>,
+    row: MessageSearchRow,
+): Int {
+    val boundedContent = row.content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS)
+    val normalizedContent = normalizeSearchText(boundedContent).lowercase()
+    if (normalizedContent.isBlank()) {
+        return 0
+    }
+    var score = 0
+    if (normalizedQuery.isNotBlank() && normalizedContent.contains(normalizedQuery)) {
+        score += 8
+    }
+    val messageTokens = tokenizeSearchText(boundedContent)
+    queryTokens.forEach { token ->
+        if (token in messageTokens) {
+            score += if (token.length == 1) 1 else 3
+        } else if (token.length > 1 && normalizedContent.contains(token)) {
+            score += 1
+        }
+    }
+    return score
+}
+
 private fun MessageStatsRow.toRoleMessageStats(): MessageRepository.RoleMessageStats =
     MessageRepository.RoleMessageStats(
         role = role.toMessageRole(),
@@ -417,3 +529,13 @@ private fun MessageStatsRow.toRoleMessageStats(): MessageRepository.RoleMessageS
     )
 
 private fun String.toBoundedMessageText(maxChars: Int): String = take(maxChars)
+
+private fun MessageEntity.toSearchTokenEntities(): List<MessageSearchTokenEntity> =
+    tokenizeSearchText(content.toBoundedMessageText(MESSAGE_CONTENT_MAX_CHARS))
+        .map { token ->
+            MessageSearchTokenEntity(
+                messageId = id,
+                sessionId = sessionId,
+                token = token,
+            )
+        }

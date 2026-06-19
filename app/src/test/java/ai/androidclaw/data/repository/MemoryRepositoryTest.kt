@@ -64,6 +64,7 @@ class MemoryRepositoryTest {
             assertEquals(listOf("user-message"), matches.single().sourceMessageIds)
             assertEquals(testClock.instant(), matches.single().createdAt)
             assertEquals(testClock.instant(), matches.single().updatedAt)
+            assertTrue(database.memoryItemDao().countSearchTokensForMemory(requireNotNull(first).id) > 0)
         }
 
     @Test
@@ -300,6 +301,7 @@ class MemoryRepositoryTest {
             assertEquals(laterClock.instant(), updated?.updatedAt)
             assertEquals("session-1", updated?.sourceSessionId)
             assertEquals(listOf("message-1"), updated?.sourceMessageIds)
+            assertTrue(database.memoryItemDao().countSearchTokensForMemory(first.id) > 0)
             assertEquals(listOf(first.id), laterRepository.search("install-user", "blue", limit = 5).map { it.id })
             assertEquals(emptyList<ai.androidclaw.data.model.MemoryItem>(), laterRepository.search("install-user", "green", limit = 5))
             assertEquals(null, laterRepository.update("install-user", "missing-memory", "New text."))
@@ -367,6 +369,49 @@ class MemoryRepositoryTest {
             val matches = repository.search("install-user", "violet keyboards", limit = 5)
 
             assertEquals(listOf("memory-0"), matches.map { memory -> memory.id })
+        }
+
+    @Test
+    fun `search uses token index for non-contiguous memory terms beyond recent scan window`() =
+        runTest {
+            val indexed =
+                requireNotNull(
+                    repository.remember(
+                        ownerUserId = "install-user",
+                        text = "User wants violet Android keyboards.",
+                    ),
+                )
+            repeat(600) { index ->
+                repository.remember(
+                    ownerUserId = "install-user",
+                    text = "Filler memory $index with unrelated content.",
+                )
+            }
+
+            val matches = repository.search("install-user", "violet keyboards", limit = 5)
+
+            assertEquals(listOf(indexed.id), matches.map { memory -> memory.id })
+            assertTrue(database.memoryItemDao().countSearchTokensForMemory(indexed.id) > 0)
+        }
+
+    @Test
+    fun `repair missing memory search tokens indexes legacy rows`() =
+        runTest {
+            database.memoryItemDao().insert(
+                memoryItemEntity(
+                    id = "legacy-index-memory",
+                    text = "Legacy memory with orange keyboards.",
+                    sourceMessageIdsJson = "[]",
+                ),
+            )
+            assertEquals(0, database.memoryItemDao().countSearchTokensForMemory("legacy-index-memory"))
+
+            val repaired = repository.repairMissingSearchTokens(limit = 10)
+            val matches = repository.search("install-user", "orange keyboards", limit = 5)
+
+            assertEquals(1, repaired)
+            assertTrue(database.memoryItemDao().countSearchTokensForMemory("legacy-index-memory") > 0)
+            assertEquals(listOf("legacy-index-memory"), matches.map { memory -> memory.id })
         }
 
     @Test

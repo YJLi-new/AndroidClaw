@@ -1,8 +1,10 @@
 package ai.androidclaw.data.db.dao
 
 import ai.androidclaw.data.db.entity.MemoryItemEntity
+import ai.androidclaw.data.db.entity.MemorySearchTokenEntity
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
@@ -10,6 +12,15 @@ import kotlinx.coroutines.flow.Flow
 interface MemoryItemDao {
     @Insert
     suspend fun insert(memory: MemoryItemEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSearchTokens(tokens: List<MemorySearchTokenEntity>)
+
+    @Query("DELETE FROM memory_search_tokens WHERE memoryId = :memoryId")
+    suspend fun deleteSearchTokensByMemoryId(memoryId: String): Int
+
+    @Query("DELETE FROM memory_search_tokens WHERE ownerUserId = :ownerUserId")
+    suspend fun deleteSearchTokensByOwner(ownerUserId: String): Int
 
     @Query(
         """
@@ -40,6 +51,51 @@ interface MemoryItemDao {
         escapedQuery: String,
         limit: Int,
     ): List<MemoryItemEntity>
+
+    @Query(
+        """
+        SELECT memory_items.*
+        FROM memory_items
+        INNER JOIN (
+            SELECT memoryId, COUNT(DISTINCT token) AS matchedTokenCount
+            FROM memory_search_tokens
+            WHERE ownerUserId = :ownerUserId
+              AND token IN (:tokens)
+            GROUP BY memoryId
+            HAVING matchedTokenCount >= :minimumMatchedTokens
+        ) AS token_matches ON token_matches.memoryId = memory_items.id
+        WHERE memory_items.ownerUserId = :ownerUserId
+          AND memory_items.deletedAt IS NULL
+        ORDER BY token_matches.matchedTokenCount DESC,
+          memory_items.updatedAt DESC,
+          memory_items.createdAt DESC,
+          memory_items.rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchActiveByTokens(
+        ownerUserId: String,
+        tokens: List<String>,
+        minimumMatchedTokens: Int,
+        limit: Int,
+    ): List<MemoryItemEntity>
+
+    @Query(
+        """
+        SELECT memory_items.*
+        FROM memory_items
+        LEFT JOIN memory_search_tokens ON memory_search_tokens.memoryId = memory_items.id
+        WHERE memory_search_tokens.memoryId IS NULL
+          AND memory_items.deletedAt IS NULL
+          AND LENGTH(TRIM(memory_items.text)) > 0
+        ORDER BY memory_items.updatedAt DESC, memory_items.createdAt DESC, memory_items.rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getActiveMissingSearchTokens(limit: Int): List<MemoryItemEntity>
+
+    @Query("SELECT COUNT(*) FROM memory_search_tokens WHERE memoryId = :memoryId")
+    suspend fun countSearchTokensForMemory(memoryId: String): Int
 
     @Query(
         """

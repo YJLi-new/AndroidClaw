@@ -71,6 +71,7 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-20: Continued the review-report completion pass with the remaining medium-term fixes that were previously only deferred. Chat export/share now uses a streaming writer and paged Room reads for TXT/MD/JSON file output with explicit truncation metadata instead of building whole exports in memory. Message and memory search now have Room token-index tables, repository-side token maintenance on create/update/copy/restore, and bounded startup repair for legacy rows missing tokens while preserving LIKE fallbacks for literal searches. Local/workspace imported skills now require an explicit enable confirmation that displays untrusted source, dispatch target, and active tool-dispatch scope. Added a checked-in startup baseline profile seed for startup/chat/settings/tasks/skills paths and a security-focused CI job for dependency verification, redaction/origin/endpoint tests, production lint, and non-blocking test-source lint audit. Confirmed the Google Drive mapping for this repo is `mode=tree`, so Drive receives tracked files in the same nested folder layout as GitHub rather than only a `.tar.gz` archive. Ktlint, focused token-index tests, and the full offline fast suite passed.
 - 2026-06-20: Implemented the 2026-06-19 review-report hardening pass across
   P1/P2/P3 focus areas. Added registry-level tool origin/risk gating for model,
   scheduled-model, slash, and internal origins; provider prompts now receive

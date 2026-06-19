@@ -91,3 +91,46 @@ jobs:
           path: |
             app/build/outputs/apk/**
             app/build/outputs/bundle/**
+
+  security-hardening:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x ./gradlew
+
+      - name: Strict dependency verification
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict help
+
+      - name: Redaction capability and endpoint policy tests
+        run: >
+          ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache
+          --dependency-verification strict
+          :app:testDebugUnitTest
+          --tests 'ai.androidclaw.runtime.tools.ToolRegistryTest'
+          --tests 'ai.androidclaw.runtime.orchestrator.AgentRunnerTest'
+          --tests 'ai.androidclaw.feature.chat.ChatExportFormatterTest'
+          --tests 'ai.androidclaw.data.ProviderEndpointPolicyTest'
+
+      - name: Production lint security lane
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict :app:lintDebug
+
+      - name: Test-source lint audit
+        continue-on-error: true
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict -Pandroidclaw.lintTestSources=true :app:lintDebug

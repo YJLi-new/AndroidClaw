@@ -12,10 +12,12 @@ import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.skills.SkillImportResult
 import ai.androidclaw.runtime.skills.SkillManager
+import ai.androidclaw.runtime.skills.SkillPackageImportEntry
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
 import ai.androidclaw.runtime.skills.createTestSkillManager
+import ai.androidclaw.runtime.skills.testSkillSnapshot
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.testutil.InMemorySkillConfigStore
 import ai.androidclaw.testutil.InMemorySkillSecretStore
@@ -300,6 +302,68 @@ class SkillsViewModelTest {
             assertFalse(dialog.configFields.single().clearRequested)
         }
 
+    @Test
+    fun `enabling local imported skill requires explicit confirmation with dispatch scope`() =
+        runTest {
+            val localSkill =
+                testSkillSnapshot(
+                    id = "local-tool-skill",
+                    name = "local_tool_skill",
+                    sourceType = SkillSourceType.Local,
+                    commandDispatch = SkillCommandDispatch.Tool,
+                    commandTool = "tasks.list",
+                    enabled = false,
+                )
+            val skillManager =
+                createTestSkillManager(
+                    application = application,
+                    skillRepository = skillRepository,
+                    bundledSkillLoader = staticLoader(emptyList()),
+                    toolDescriptor = { name -> ToolDescriptor(name = name, description = name) },
+                )
+            skillManager.importSkillPackage(
+                entries =
+                    listOf(
+                        SkillPackageImportEntry(
+                            sourceIndex = 0,
+                            frontmatter = localSkill.frontmatter!!,
+                            instructionsMd = localSkill.instructionsMd,
+                            sourceEnabled = false,
+                        ),
+                    ),
+                enableImported = false,
+                importConfigValues = false,
+            )
+            val viewModel =
+                SkillsViewModel(
+                    skillManager = skillManager,
+                )
+
+            val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
+            val skill = loaded.skills.single()
+
+            viewModel.toggleSkill(skillId = skill.id, enabled = true)
+            val waitingForConfirmation =
+                waitForState(viewModel) {
+                    it.enableConfirmation?.skillId == skill.id &&
+                        it.skills.single().enabled == false
+                }
+
+            val confirmation = waitingForConfirmation.enableConfirmation!!
+            assertEquals("Local import (untrusted)", confirmation.sourceLabel)
+            assertTrue(confirmation.dispatchSummary.contains("tasks.list"))
+            assertTrue(confirmation.scopeSummary.contains("active scope"))
+
+            viewModel.confirmEnableSkill()
+            val enabled =
+                waitForState(viewModel) {
+                    it.enableConfirmation == null &&
+                        it.skills.single().enabled
+                }
+
+            assertEquals("Enabled skill.", enabled.statusMessage)
+        }
+
     private fun createSkillManager(
         skill: SkillSnapshot,
         configStore: InMemorySkillConfigStore,
@@ -334,13 +398,15 @@ private fun TestScope.waitForState(
     error("Timed out waiting for state. Last state=$lastState")
 }
 
-private fun staticLoader(skill: SkillSnapshot): BundledSkillLoader {
+private fun staticLoader(skill: SkillSnapshot): BundledSkillLoader = staticLoader(listOf(skill))
+
+private fun staticLoader(skills: List<SkillSnapshot>): BundledSkillLoader {
     val application = ApplicationProvider.getApplicationContext<android.app.Application>()
     return CountingBundledSkillLoader(
         assetManager = application.assets,
         batches =
             ArrayDeque<List<SkillSnapshot>>().apply {
-                repeat(6) { add(listOf(skill)) }
+                repeat(6) { add(skills) }
             },
     )
 }

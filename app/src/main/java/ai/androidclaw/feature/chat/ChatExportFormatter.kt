@@ -38,13 +38,31 @@ data class ChatExportPayload(
     val content: String,
 )
 
+data class ChatExportFileRequest(
+    val sessionId: String,
+    val fileName: String,
+    val mimeType: String,
+    val format: ChatExportFormat,
+    val exportedAt: Instant,
+)
+
+data class ChatExportWriteResult(
+    val fileName: String,
+    val messageCount: Int,
+    val omittedMessageCount: Int,
+    val truncatedBySizeLimit: Boolean,
+)
+
 internal const val CHAT_SHARE_TEXT_MAX_CHARS = 100_000
 internal const val CHAT_SHARE_TEXT_TRUNCATED_NOTICE =
     "\n\n[Share text truncated by AndroidClaw. Use Export or Share file for the full transcript.]"
+internal const val CHAT_FILE_EXPORT_MAX_CHARS = 5_000_000
+internal const val CHAT_FILE_EXPORT_TRUNCATED_NOTICE =
+    "\n\n[File export truncated by AndroidClaw because it reached the configured size limit.]"
 
 sealed interface ChatExternalAction {
     data class ExportDocument(
-        val payload: ChatExportPayload,
+        val payload: ChatExportFileRequest,
     ) : ChatExternalAction
 
     data class ShareText(
@@ -53,7 +71,7 @@ sealed interface ChatExternalAction {
     ) : ChatExternalAction
 
     data class ShareFile(
-        val payload: ChatExportPayload,
+        val payload: ChatExportFileRequest,
     ) : ChatExternalAction
 }
 
@@ -68,20 +86,67 @@ object ChatExportFormatter {
         messages: List<ChatMessage>,
         format: ChatExportFormat,
         exportedAt: Instant = Instant.now(),
+        maxChars: Int = CHAT_FILE_EXPORT_MAX_CHARS,
     ): ChatExportPayload {
-        val fileStem = buildFileStem(session, exportedAt)
+        val request = buildFileRequest(session = session, format = format, exportedAt = exportedAt)
         val content =
-            when (format) {
-                ChatExportFormat.Text -> buildTextExport(session, messages, exportedAt)
-                ChatExportFormat.Markdown -> buildMarkdownExport(session, messages, exportedAt)
-                ChatExportFormat.Json -> buildJsonExport(session, messages, exportedAt)
+            buildString {
+                val writer =
+                    openStreamingWriter(
+                        session = session,
+                        format = format,
+                        exportedAt = exportedAt,
+                        appendable = this,
+                        maxChars = maxChars,
+                    )
+                var emitted = 0
+                for (message in messages) {
+                    if (writer.writeMessage(message)) {
+                        emitted += 1
+                    } else {
+                        break
+                    }
+                }
+                writer.close(omittedMessageCount = messages.size - emitted)
             }
         return ChatExportPayload(
-            fileName = "$fileStem.${format.extension}",
-            mimeType = format.mimeType,
+            fileName = request.fileName,
+            mimeType = request.mimeType,
             content = content,
         )
     }
+
+    fun buildFileRequest(
+        session: Session,
+        format: ChatExportFormat,
+        exportedAt: Instant = Instant.now(),
+    ): ChatExportFileRequest =
+        ChatExportFileRequest(
+            sessionId = session.id,
+            fileName = "${buildFileStem(session, exportedAt)}.${format.extension}",
+            mimeType = format.mimeType,
+            format = format,
+            exportedAt = exportedAt,
+        )
+
+    fun openStreamingWriter(
+        session: Session,
+        format: ChatExportFormat,
+        exportedAt: Instant,
+        appendable: Appendable,
+        maxChars: Int = CHAT_FILE_EXPORT_MAX_CHARS,
+        truncatedNotice: String = CHAT_FILE_EXPORT_TRUNCATED_NOTICE,
+        includeOmittedCountNotice: Boolean = true,
+    ): ChatStreamingExportWriter =
+        ChatStreamingExportWriter(
+            session = session,
+            format = format,
+            exportedAt = exportedAt,
+            appendable = appendable,
+            maxChars = maxChars,
+            truncatedNotice = truncatedNotice,
+            includeOmittedCountNotice = includeOmittedCountNotice,
+        )
 
     fun buildShareText(
         session: Session,
@@ -97,6 +162,22 @@ object ChatExportFormatter {
         exportedAt: Instant,
     ): String =
         buildString {
+            append(buildTextHeader(session, exportedAt))
+            messages.forEachIndexed { index, message ->
+                append(
+                    buildTextMessage(
+                        message = message,
+                        includeLeadingBlankLine = index > 0,
+                    ),
+                )
+            }
+        }.trimEnd()
+
+    private fun buildTextHeader(
+        session: Session,
+        exportedAt: Instant,
+    ): String =
+        buildString {
             appendLine("AndroidClaw session export")
             appendLine("Title: ${session.title}")
             appendLine("Session ID: ${session.id}")
@@ -109,16 +190,20 @@ object ChatExportFormatter {
                 appendLine("Summary: ${summary.trim()}")
             }
             appendLine()
-            messages.forEachIndexed { index, message ->
-                if (index > 0) appendLine()
-                appendLine("[${message.createdAt}] ${message.role.displayName()}")
-                appendLine(message.exportContent().trimEnd())
-            }
-        }.trimEnd()
+        }
 
-    private fun buildMarkdownExport(
+    private fun buildTextMessage(
+        message: ChatMessage,
+        includeLeadingBlankLine: Boolean,
+    ): String =
+        buildString {
+            if (includeLeadingBlankLine) appendLine()
+            appendLine("[${message.createdAt}] ${message.role.displayName()}")
+            appendLine(message.exportContent().trimEnd())
+        }
+
+    private fun buildMarkdownHeader(
         session: Session,
-        messages: List<ChatMessage>,
         exportedAt: Instant,
     ): String =
         buildString {
@@ -138,50 +223,73 @@ object ChatExportFormatter {
             }
             appendLine()
             appendLine("## Transcript")
-            messages.forEach { message ->
-                appendLine()
-                appendLine("### ${message.role.displayName()} · `${message.createdAt}`")
-                message.toolCallId?.let { appendLine("- Tool call ID: `$it`") }
-                message.providerMeta?.takeIf { it.isNotBlank() }?.let { appendLine("- Provider meta: `${escapeMarkdown(it)}`") }
-                appendLine()
-                appendLine("```text")
-                appendLine(message.exportContent().trimEnd())
-                appendLine("```")
-            }
-        }.trimEnd()
+        }
 
-    private fun buildJsonExport(
+    private fun buildMarkdownMessage(message: ChatMessage): String =
+        buildString {
+            appendLine()
+            appendLine("### ${message.role.displayName()} · `${message.createdAt}`")
+            message.toolCallId?.let { appendLine("- Tool call ID: `$it`") }
+            message.providerMeta?.takeIf { it.isNotBlank() }?.let { appendLine("- Provider meta: `${escapeMarkdown(it)}`") }
+            appendLine()
+            appendLine("```text")
+            appendLine(message.exportContent().trimEnd())
+            appendLine("```")
+        }
+
+    private fun buildJsonHeader(
         session: Session,
-        messages: List<ChatMessage>,
         exportedAt: Instant,
     ): String =
-        exportJson.encodeToString(
-            ExportedSessionDocument(
-                exportedAt = exportedAt.toString(),
-                app = "AndroidClaw",
-                session =
-                    ExportedSessionMetadata(
-                        id = session.id,
-                        title = session.title,
-                        isMain = session.isMain,
-                        archived = session.archived,
-                        createdAt = session.createdAt.toString(),
-                        updatedAt = session.updatedAt.toString(),
-                        summaryText = session.summaryText,
-                    ),
-                messages =
-                    messages.map { message ->
-                        ExportedMessage(
-                            id = message.id,
-                            role = message.role.storageName(),
-                            content = message.exportContent(),
-                            createdAt = message.createdAt.toString(),
-                            providerMeta = message.providerMeta,
-                            toolCallId = message.toolCallId,
-                            taskRunId = message.taskRunId,
-                        )
-                    },
-            ),
+        buildString {
+            appendLine("{")
+            appendLine("  \"exportedAt\": ${exportJson.encodeToString(exportedAt.toString())},")
+            appendLine("  \"app\": \"AndroidClaw\",")
+            appendLine("  \"session\": ${exportJson.encodeToString(session.toExportedMetadata()).prependIndent("  ").trimStart()},")
+            appendLine("  \"messages\": [")
+        }
+
+    private fun buildJsonMessage(
+        message: ChatMessage,
+        includeComma: Boolean,
+    ): String =
+        buildString {
+            if (includeComma) appendLine(",")
+            append(exportJson.encodeToString(message.toExportedMessage()).prependIndent("    "))
+        }
+
+    private fun buildJsonFooter(
+        omittedMessageCount: Int,
+        maxChars: Int,
+    ): String =
+        buildString {
+            appendLine()
+            appendLine("  ],")
+            appendLine("  \"messagesOmittedDueToSizeLimit\": $omittedMessageCount,")
+            appendLine("  \"sizeLimitChars\": $maxChars")
+            appendLine("}")
+        }
+
+    private fun Session.toExportedMetadata(): ExportedSessionMetadata =
+        ExportedSessionMetadata(
+            id = id,
+            title = title,
+            isMain = isMain,
+            archived = archived,
+            createdAt = createdAt.toString(),
+            updatedAt = updatedAt.toString(),
+            summaryText = summaryText,
+        )
+
+    private fun ChatMessage.toExportedMessage(): ExportedMessage =
+        ExportedMessage(
+            id = id,
+            role = role.storageName(),
+            content = exportContent(),
+            createdAt = createdAt.toString(),
+            providerMeta = providerMeta,
+            toolCallId = toolCallId,
+            taskRunId = taskRunId,
         )
 
     private fun buildFileStem(
@@ -238,6 +346,98 @@ object ChatExportFormatter {
             (CHAT_SHARE_TEXT_MAX_CHARS - CHAT_SHARE_TEXT_TRUNCATED_NOTICE.length)
                 .coerceAtLeast(0)
         return take(prefixLength).trimEnd() + CHAT_SHARE_TEXT_TRUNCATED_NOTICE
+    }
+
+    class ChatStreamingExportWriter internal constructor(
+        private val session: Session,
+        private val format: ChatExportFormat,
+        private val exportedAt: Instant,
+        private val appendable: Appendable,
+        private val maxChars: Int,
+        private val truncatedNotice: String,
+        private val includeOmittedCountNotice: Boolean,
+    ) {
+        private var closed = false
+        private var writtenChars = 0
+        private var emittedMessageCount = 0
+        private var truncated = false
+
+        init {
+            appendRequired(
+                when (format) {
+                    ChatExportFormat.Text -> buildTextHeader(session, exportedAt)
+                    ChatExportFormat.Markdown -> buildMarkdownHeader(session, exportedAt)
+                    ChatExportFormat.Json -> buildJsonHeader(session, exportedAt)
+                },
+            )
+        }
+
+        fun writeMessage(message: ChatMessage): Boolean {
+            check(!closed) { "Export writer is already closed." }
+            val messageText =
+                when (format) {
+                    ChatExportFormat.Text ->
+                        buildTextMessage(
+                            message = message,
+                            includeLeadingBlankLine = emittedMessageCount > 0,
+                        )
+                    ChatExportFormat.Markdown -> buildMarkdownMessage(message)
+                    ChatExportFormat.Json ->
+                        buildJsonMessage(
+                            message = message,
+                            includeComma = emittedMessageCount > 0,
+                        )
+                }
+            if (!appendOptional(messageText)) {
+                truncated = true
+                return false
+            }
+            emittedMessageCount += 1
+            return true
+        }
+
+        fun close(omittedMessageCount: Int): ChatExportWriteResult {
+            if (closed) {
+                return toResult(omittedMessageCount)
+            }
+            closed = true
+            val boundedOmitted = omittedMessageCount.coerceAtLeast(0)
+            when (format) {
+                ChatExportFormat.Text,
+                ChatExportFormat.Markdown,
+                -> {
+                    if (boundedOmitted > 0 || truncated) {
+                        appendRequired(truncatedNotice)
+                        if (includeOmittedCountNotice) {
+                            appendRequired("\nMessages omitted: $boundedOmitted\n")
+                        }
+                    }
+                }
+                ChatExportFormat.Json -> appendRequired(buildJsonFooter(boundedOmitted, maxChars))
+            }
+            return toResult(boundedOmitted)
+        }
+
+        private fun toResult(omittedMessageCount: Int): ChatExportWriteResult =
+            ChatExportWriteResult(
+                fileName = buildFileRequest(session, format, exportedAt).fileName,
+                messageCount = emittedMessageCount,
+                omittedMessageCount = omittedMessageCount.coerceAtLeast(0),
+                truncatedBySizeLimit = truncated || omittedMessageCount > 0,
+            )
+
+        private fun appendOptional(value: String): Boolean {
+            if (writtenChars + value.length > maxChars) {
+                return false
+            }
+            appendRequired(value)
+            return true
+        }
+
+        private fun appendRequired(value: String) {
+            appendable.append(value)
+            writtenChars += value.length
+        }
     }
 }
 

@@ -1,0 +1,14 @@
+Lai/androidclaw/app/AndroidClawApplication;
+Lai/androidclaw/app/MainActivity;
+Lai/androidclaw/ui/navigation/AndroidClawAppKt;
+Lai/androidclaw/feature/chat/ChatScreenKt;
+Lai/androidclaw/feature/chat/ChatViewModel;
+Lai/androidclaw/feature/settings/SettingsScreenKt;
+Lai/androidclaw/feature/settings/SettingsViewModel;
+Lai/androidclaw/feature/tasks/TasksScreenKt;
+Lai/androidclaw/feature/tasks/TasksViewModel;
+Lai/androidclaw/feature/skills/SkillsScreenKt;
+Lai/androidclaw/feature/skills/SkillsViewModel;
+Lai/androidclaw/data/db/AndroidClawDatabase;
+Lai/androidclaw/runtime/orchestrator/AgentRunner;
+Lai/androidclaw/runtime/tools/ToolRegistry;

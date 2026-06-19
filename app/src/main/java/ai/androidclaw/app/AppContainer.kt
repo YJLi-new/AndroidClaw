@@ -278,6 +278,7 @@ class AppContainer(
             eventLogRepository = eventLogRepository,
             ensureMainSession = ::ensureMainSession,
             rescheduleAll = schedulerCoordinator::rescheduleAll,
+            memoryRepository = memoryRepository,
         )
     val workerFactory = AppWorkerFactory { this }
 

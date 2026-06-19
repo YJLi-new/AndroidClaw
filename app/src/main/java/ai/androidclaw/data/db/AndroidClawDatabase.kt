@@ -9,7 +9,9 @@ import ai.androidclaw.data.db.dao.TaskDao
 import ai.androidclaw.data.db.dao.TaskRunDao
 import ai.androidclaw.data.db.entity.EventLogEntity
 import ai.androidclaw.data.db.entity.MemoryItemEntity
+import ai.androidclaw.data.db.entity.MemorySearchTokenEntity
 import ai.androidclaw.data.db.entity.MessageEntity
+import ai.androidclaw.data.db.entity.MessageSearchTokenEntity
 import ai.androidclaw.data.db.entity.SessionEntity
 import ai.androidclaw.data.db.entity.SkillRecordEntity
 import ai.androidclaw.data.db.entity.TaskEntity
@@ -23,13 +25,15 @@ import androidx.room.RoomDatabase
     entities = [
         SessionEntity::class,
         MessageEntity::class,
+        MessageSearchTokenEntity::class,
         TaskEntity::class,
         TaskRunEntity::class,
         SkillRecordEntity::class,
         EventLogEntity::class,
         MemoryItemEntity::class,
+        MemorySearchTokenEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AndroidClawDatabase : RoomDatabase() {

@@ -1,6 +1,7 @@
 package ai.androidclaw.app
 
 import ai.androidclaw.data.repository.EventLogRepository
+import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
@@ -11,6 +12,8 @@ data class StartupMaintenanceResult(
     val trimmedTaskRuns: Int,
     val trimmedEventLogs: Int,
     val repairedCompactionBoundaries: Int,
+    val repairedMessageSearchTokens: Int,
+    val repairedMemorySearchTokens: Int,
 )
 
 class StartupMaintenance(
@@ -21,6 +24,7 @@ class StartupMaintenance(
     private val eventLogRepository: EventLogRepository,
     private val ensureMainSession: suspend () -> Unit,
     private val rescheduleAll: suspend () -> Unit,
+    private val memoryRepository: MemoryRepository? = null,
 ) {
     suspend fun run(): StartupMaintenanceResult {
         ensureMainSession()
@@ -28,11 +32,15 @@ class StartupMaintenance(
         val trimmedTaskRuns = taskRepository.trimRunsOlderThan(now.minus(TASK_RUN_RETENTION))
         val trimmedEventLogs = eventLogRepository.trimOlderThan(now.minus(EVENT_LOG_RETENTION))
         val repairedCompactionBoundaries = repairInvalidCompactionBoundaries()
+        val repairedMessageSearchTokens = messageRepository.repairMissingSearchTokens()
+        val repairedMemorySearchTokens = memoryRepository?.repairMissingSearchTokens() ?: 0
         rescheduleAll()
         return StartupMaintenanceResult(
             trimmedTaskRuns = trimmedTaskRuns,
             trimmedEventLogs = trimmedEventLogs,
             repairedCompactionBoundaries = repairedCompactionBoundaries,
+            repairedMessageSearchTokens = repairedMessageSearchTokens,
+            repairedMemorySearchTokens = repairedMemorySearchTokens,
         )
     }
 

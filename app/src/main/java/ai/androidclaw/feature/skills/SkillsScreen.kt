@@ -152,6 +152,13 @@ fun SkillsScreen(viewModel: SkillsViewModel) {
             onSave = viewModel::saveConfiguration,
         )
     }
+    state.enableConfirmation?.let { confirmation ->
+        SkillEnableConfirmationDialog(
+            state = confirmation,
+            onConfirm = viewModel::confirmEnableSkill,
+            onDismiss = viewModel::dismissEnableConfirmation,
+        )
+    }
 }
 
 @Composable
@@ -225,6 +232,13 @@ private fun SkillCard(
             skill.frontmatter?.commandTool?.let { commandTool ->
                 ClawFactRow(label = "Dispatch tool", value = commandTool)
             }
+            if (skill.sourceType != SkillSourceType.Bundled && !skill.enabled) {
+                Text(
+                    text = "Enabling this imported skill requires confirmation.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ClawInkMuted,
+                )
+            }
             if (skill.skillKey != skill.displayName) {
                 Text(
                     text = "Skill key: ${skill.skillKey}",
@@ -264,6 +278,41 @@ private fun EligibilitySummary(skill: SkillSnapshot) {
             color = ClawInkMuted,
         )
     }
+}
+
+@Composable
+private fun SkillEnableConfirmationDialog(
+    state: SkillEnableConfirmationState,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enable imported skill?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Skill: ${state.displayName}", style = MaterialTheme.typography.titleSmall)
+                Text("Source: ${state.sourceLabel}", style = MaterialTheme.typography.bodyMedium)
+                Text(state.dispatchSummary, style = MaterialTheme.typography.bodyMedium)
+                Text(state.scopeSummary, style = MaterialTheme.typography.bodySmall, color = ClawInkMuted)
+                Text(
+                    text = "Only enable imported skills you trust. They can influence model context or slash-command tool dispatch.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ClawInkMuted,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("Enable")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable
