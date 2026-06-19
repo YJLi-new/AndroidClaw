@@ -436,6 +436,6 @@ private fun SkillSnapshot.statusSummary(
 private fun SkillSnapshot.sourceLabel(): String =
     when (sourceType) {
         SkillSourceType.Bundled -> "Bundled"
-        SkillSourceType.Local -> "Local"
-        SkillSourceType.Workspace -> "Workspace ${workspaceSessionId.orEmpty()}".trim()
+        SkillSourceType.Local -> "Local import (untrusted)"
+        SkillSourceType.Workspace -> "Workspace import (untrusted) ${workspaceSessionId.orEmpty()}".trim()
     }

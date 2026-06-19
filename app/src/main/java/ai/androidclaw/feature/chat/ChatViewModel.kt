@@ -23,6 +23,7 @@ import ai.androidclaw.runtime.skills.SkillManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -783,22 +785,24 @@ class ChatViewModel(
         }
     }
 
-    private suspend fun buildExportPayload(format: ChatExportFormat): ChatExportPayload {
-        val (session, messages) = loadExportSource()
-        return ChatExportFormatter.buildExportPayload(
-            session = session,
-            messages = messages,
-            format = format,
-        )
-    }
+    private suspend fun buildExportPayload(format: ChatExportFormat): ChatExportPayload =
+        withContext(Dispatchers.IO) {
+            val (session, messages) = loadExportSource()
+            ChatExportFormatter.buildExportPayload(
+                session = session,
+                messages = messages,
+                format = format,
+            )
+        }
 
-    private suspend fun buildShareText(): String {
-        val (session, messages) = loadExportSource()
-        return ChatExportFormatter.buildShareText(
-            session = session,
-            messages = messages,
-        )
-    }
+    private suspend fun buildShareText(): String =
+        withContext(Dispatchers.IO) {
+            val (session, messages) = loadExportSource()
+            ChatExportFormatter.buildShareText(
+                session = session,
+                messages = messages,
+            )
+        }
 
     private suspend fun loadExportSource(): Pair<Session, List<ChatMessage>> {
         val sessionId =

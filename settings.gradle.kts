@@ -1,3 +1,12 @@
+fun String?.isAndroidClawTruthy(): Boolean =
+    equals("true", ignoreCase = true) ||
+        equals("1", ignoreCase = true) ||
+        equals("yes", ignoreCase = true)
+
+val androidClawUseMavenLocal =
+    providers.gradleProperty("androidclaw.mavenLocal").orNull.isAndroidClawTruthy() ||
+        System.getenv("ANDROIDCLAW_MAVEN_LOCAL").isAndroidClawTruthy()
+
 pluginManagement {
     repositories {
         val androidClawLocalMavenFallback = rootDir.resolve(".gradle/local-maven")
@@ -47,11 +56,13 @@ dependencyResolutionManagement {
                 }
             }
         }
-        mavenLocal {
-            content {
-                includeGroup("com.google.devtools.ksp")
-                includeGroup("org.jetbrains.kotlin")
-                includeGroup("org.jetbrains.kotlinx")
+        if (androidClawUseMavenLocal) {
+            mavenLocal {
+                content {
+                    includeGroup("com.google.devtools.ksp")
+                    includeGroup("org.jetbrains.kotlin")
+                    includeGroup("org.jetbrains.kotlinx")
+                }
             }
         }
         google()

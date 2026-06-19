@@ -1,6 +1,7 @@
 package ai.androidclaw.runtime.tools
 
 import ai.androidclaw.data.model.EventLevel
+import ai.androidclaw.runtime.providers.ModelRunMode
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -213,6 +214,309 @@ class ToolRegistryTest {
             assertEquals("sessions.list", descriptor?.name)
             assertTrue(result.success)
             assertEquals(1, executionCount)
+        }
+
+    @Test
+    fun `origin policy hides and blocks destructive tools from model and scheduled model`() =
+        runTest {
+            var deleteExecutionCount = 0
+            val registry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "sessions.list",
+                                        description = "List sessions",
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success("listed", buildJsonObject {})
+                            },
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "sessions.delete",
+                                        description = "Delete a session",
+                                    ),
+                            ) { _, _ ->
+                                deleteExecutionCount += 1
+                                ToolExecutionResult.success("deleted", buildJsonObject {})
+                            },
+                        ),
+                )
+
+            val interactiveDescriptors =
+                registry
+                    .descriptorsFor(
+                        origin = ToolInvocationOrigin.Model,
+                        runMode = ModelRunMode.Interactive,
+                    ).map { descriptor -> descriptor.name }
+            val scheduledDescriptors =
+                registry
+                    .descriptorsFor(
+                        origin = ToolInvocationOrigin.ScheduledModel,
+                        runMode = ModelRunMode.Scheduled,
+                    ).map { descriptor -> descriptor.name }
+            val modelDelete =
+                registry.execute(
+                    context =
+                        testToolContext(
+                            requestedName = "sessions.delete",
+                            origin = ToolInvocationOrigin.Model,
+                            runMode = ModelRunMode.Interactive,
+                        ),
+                    arguments = buildJsonObject {},
+                )
+            val slashDelete =
+                registry.execute(
+                    context =
+                        testToolContext(
+                            requestedName = "sessions.delete",
+                            origin = ToolInvocationOrigin.SlashCommand,
+                            runMode = ModelRunMode.Interactive,
+                        ),
+                    arguments = buildJsonObject {},
+                )
+
+            assertEquals(listOf("sessions.list"), interactiveDescriptors)
+            assertEquals(listOf("sessions.list"), scheduledDescriptors)
+            assertFalse(modelDelete.success)
+            assertEquals("TOOL_ORIGIN_NOT_ALLOWED", modelDelete.errorCode)
+            assertEquals("Destructive", modelDelete.payload["riskTier"]?.jsonPrimitive?.content)
+            assertTrue(slashDelete.success)
+            assertEquals(1, deleteExecutionCount)
+        }
+
+    @Test
+    fun `scheduled model descriptors omit local write tools while interactive model keeps them`() {
+        val registry =
+            ToolRegistry(
+                tools =
+                    listOf(
+                        testEntry(
+                            ToolDescriptor(
+                                name = "tasks.create",
+                                description = "Create task",
+                            ),
+                        ),
+                        testEntry(
+                            ToolDescriptor(
+                                name = "tasks.list",
+                                description = "List tasks",
+                            ),
+                        ),
+                    ),
+            )
+
+        val interactiveNames =
+            registry
+                .descriptorsFor(
+                    origin = ToolInvocationOrigin.Model,
+                    runMode = ModelRunMode.Interactive,
+                ).map { descriptor -> descriptor.name }
+        val scheduledNames =
+            registry
+                .descriptorsFor(
+                    origin = ToolInvocationOrigin.ScheduledModel,
+                    runMode = ModelRunMode.Scheduled,
+                ).map { descriptor -> descriptor.name }
+
+        assertEquals(listOf("tasks.create", "tasks.list"), interactiveNames)
+        assertEquals(listOf("tasks.list"), scheduledNames)
+    }
+
+    @Test
+    fun `redactArguments removes secret-like fields recursively and honors sensitive argument specs`() {
+        val registry =
+            ToolRegistry(
+                tools =
+                    listOf(
+                        testEntry(
+                            ToolDescriptor(
+                                name = "providers.configure",
+                                description = "Configure provider",
+                                arguments =
+                                    listOf(
+                                        ToolArgumentSpec(name = "endpoint"),
+                                        ToolArgumentSpec(name = "plainSecretField", sensitive = true),
+                                    ),
+                            ),
+                        ),
+                    ),
+            )
+
+        val redaction =
+            registry.redactArguments(
+                toolName = "providers.configure",
+                arguments =
+                    buildJsonObject {
+                        put("endpoint", "https://example.test")
+                        put("apiKey", "sk-secret")
+                        put("plainSecretField", "hidden")
+                        put(
+                            "nested",
+                            buildJsonObject {
+                                put("refreshToken", "refresh-secret")
+                                put("safe", "visible")
+                            },
+                        )
+                    },
+            )
+
+        assertEquals(
+            "https://example.test",
+            redaction.arguments
+                .getValue("endpoint")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(
+            "[REDACTED]",
+            redaction.arguments
+                .getValue("apiKey")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(
+            "[REDACTED]",
+            redaction.arguments
+                .getValue("plainSecretField")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(
+            "[REDACTED]",
+            redaction.arguments
+                .getValue("nested")
+                .jsonObject
+                .getValue("refreshToken")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(
+            "visible",
+            redaction.arguments
+                .getValue("nested")
+                .jsonObject
+                .getValue("safe")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(setOf("apiKey", "plainSecretField", "nested.refreshToken"), redaction.redactedKeys.toSet())
+    }
+
+    @Test
+    fun `input schema reflects typed enum and sensitive argument metadata`() {
+        val descriptor =
+            ToolDescriptor(
+                name = "typed.tool",
+                description = "Typed schema",
+                arguments =
+                    listOf(
+                        ToolArgumentSpec(
+                            name = "enabled",
+                            type = ToolArgumentType.Boolean,
+                        ),
+                        ToolArgumentSpec(
+                            name = "mode",
+                            type = ToolArgumentType.String,
+                            enumValues = listOf("safe", "full"),
+                        ),
+                        ToolArgumentSpec(
+                            name = "apiKey",
+                            sensitive = true,
+                        ),
+                    ),
+            )
+
+        val properties = descriptor.inputSchema.getValue("properties").jsonObject
+
+        assertEquals(
+            "boolean",
+            properties
+                .getValue("enabled")
+                .jsonObject
+                .getValue("type")
+                .jsonPrimitive
+                .content,
+        )
+        assertEquals(
+            listOf("safe", "full"),
+            properties
+                .getValue("mode")
+                .jsonObject
+                .getValue("enum")
+                .jsonArray
+                .map { value -> value.jsonPrimitive.content },
+        )
+        assertEquals(
+            "true",
+            properties
+                .getValue("apiKey")
+                .jsonObject
+                .getValue("x-sensitive")
+                .jsonPrimitive
+                .content,
+        )
+    }
+
+    @Test
+    fun `typed argument validation rejects invalid type and enum values`() =
+        runTest {
+            val registry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testEntry(
+                                ToolDescriptor(
+                                    name = "typed.tool",
+                                    description = "Typed tool",
+                                    arguments =
+                                        listOf(
+                                            ToolArgumentSpec(
+                                                name = "enabled",
+                                                type = ToolArgumentType.Boolean,
+                                                validate = true,
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "mode",
+                                                enumValues = listOf("safe", "full"),
+                                                validate = true,
+                                            ),
+                                            ToolArgumentSpec(
+                                                name = "config",
+                                                type = ToolArgumentType.Object,
+                                                validate = true,
+                                            ),
+                                        ),
+                                ),
+                            ),
+                        ),
+                )
+
+            val result =
+                registry.execute(
+                    context = testToolContext("typed.tool"),
+                    arguments =
+                        buildJsonObject {
+                            put("enabled", "maybe")
+                            put("mode", "turbo")
+                            put("config", "not-object")
+                        },
+                )
+
+            val invalidArguments =
+                result.payload
+                    .getValue("invalidArguments")
+                    .jsonArray
+                    .map { value -> value.jsonPrimitive.content }
+
+            assertFalse(result.success)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertTrue(invalidArguments.any { value -> value.contains("enabled expected Boolean") })
+            assertTrue(invalidArguments.any { value -> value.contains("mode expected one of [safe, full]") })
+            assertTrue(invalidArguments.any { value -> value.contains("config expected Object") })
         }
 
     @Test
@@ -664,4 +968,17 @@ private fun testEntry(descriptor: ToolDescriptor): ToolRegistry.Entry =
         )
     }
 
-private fun testToolContext(requestedName: String): ToolExecutionContext = ToolExecutionContext.internal(requestedName = requestedName)
+private fun testToolContext(
+    requestedName: String,
+    origin: ToolInvocationOrigin = ToolInvocationOrigin.Internal,
+    runMode: ModelRunMode? = null,
+): ToolExecutionContext =
+    ToolExecutionContext(
+        sessionId = null,
+        taskRunId = null,
+        origin = origin,
+        runMode = runMode,
+        requestedName = requestedName,
+        canonicalName = requestedName,
+        requestId = null,
+    )

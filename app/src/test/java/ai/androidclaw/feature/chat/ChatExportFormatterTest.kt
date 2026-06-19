@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -112,6 +113,51 @@ class ChatExportFormatterTest {
         assertTrue(filePayload.content.contains("tail-marker"))
         assertTrue(shareText.length <= CHAT_SHARE_TEXT_MAX_CHARS)
         assertTrue(shareText.endsWith(CHAT_SHARE_TEXT_TRUNCATED_NOTICE))
+    }
+
+    @Test
+    fun `exports and share text redact secret-like tool arguments`() {
+        val session = testSession(summaryText = null)
+        val messages =
+            listOf(
+                testMessage(
+                    id = "tool-secret",
+                    role = MessageRole.ToolCall,
+                    content =
+                        """
+                        Tool request: providers.configure {"endpoint":"https://example.test","apiKey":"sk-secret","nested":{"refreshToken":"refresh-secret","safe":"visible"}}
+                        """.trimIndent(),
+                    toolCallId = "call-secret",
+                ),
+            )
+
+        val markdownPayload =
+            ChatExportFormatter.buildExportPayload(
+                session = session,
+                messages = messages,
+                format = ChatExportFormat.Markdown,
+                exportedAt = Instant.parse("2026-03-17T13:00:00Z"),
+            )
+        val jsonPayload =
+            ChatExportFormatter.buildExportPayload(
+                session = session,
+                messages = messages,
+                format = ChatExportFormat.Json,
+                exportedAt = Instant.parse("2026-03-17T13:00:00Z"),
+            )
+        val shareText =
+            ChatExportFormatter.buildShareText(
+                session = session,
+                messages = messages,
+                exportedAt = Instant.parse("2026-03-17T13:00:00Z"),
+            )
+
+        listOf(markdownPayload.content, jsonPayload.content, shareText).forEach { exported ->
+            assertTrue(exported.contains("[REDACTED]"))
+            assertTrue(exported.contains("visible"))
+            assertFalse(exported.contains("sk-secret"))
+            assertFalse(exported.contains("refresh-secret"))
+        }
     }
 }
 

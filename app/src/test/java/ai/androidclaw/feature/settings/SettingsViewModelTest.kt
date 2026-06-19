@@ -242,6 +242,30 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `saving provider settings rejects invalid base url before persistence`() =
+        runTest {
+            val viewModel = buildViewModel()
+
+            viewModel.selectProviderType(ProviderType.Anthropic)
+            waitForState(viewModel) { it.providerType == ProviderType.Anthropic }
+            viewModel.onBaseUrlChanged("https://token@example.test/v1")
+            viewModel.onModelIdChanged("claude-sonnet-4-5")
+            viewModel.onApiKeyChanged("sk-ant-test")
+
+            viewModel.save()
+
+            val rejected =
+                waitForState(viewModel) {
+                    it.statusMessage == "Provider base URL must not include credentials."
+                }
+            val storedSettings = settingsDataStore.settings.first()
+
+            assertFalse(rejected.configured)
+            assertEquals(ProviderType.Fake, storedSettings.providerType)
+            assertEquals(null, secretStore.readApiKey(ProviderType.Anthropic))
+        }
+
+    @Test
     fun `switching providers loads stored config for each provider`() =
         runTest {
             settingsDataStore.saveProviderSettings(

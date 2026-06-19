@@ -350,6 +350,26 @@ class MemoryRepositoryTest {
         }
 
     @Test
+    fun `search uses database text candidates beyond recent scan window`() =
+        runTest {
+            repeat(600) { index ->
+                database.memoryItemDao().insert(
+                    memoryItemEntity(
+                        id = "memory-$index",
+                        text = if (index == 0) "User prefers violet keyboards." else "Filler memory $index",
+                        sourceMessageIdsJson = "[]",
+                        createdAt = index.toLong(),
+                        updatedAt = index.toLong(),
+                    ),
+                )
+            }
+
+            val matches = repository.search("install-user", "violet keyboards", limit = 5)
+
+            assertEquals(listOf("memory-0"), matches.map { memory -> memory.id })
+        }
+
+    @Test
     fun `memory reads bound legacy oversized rows`() =
         runTest {
             val longText = "a".repeat(MemoryRepository.MAX_MEMORY_TEXT_CHARS) + " needle-after-bound"
@@ -388,6 +408,8 @@ private fun memoryItemEntity(
     id: String,
     text: String,
     sourceMessageIdsJson: String,
+    createdAt: Long = 1L,
+    updatedAt: Long = 1L,
 ): MemoryItemEntity =
     MemoryItemEntity(
         id = id,
@@ -396,7 +418,7 @@ private fun memoryItemEntity(
         sourceSessionId = "session-1",
         sourceMessageIdsJson = sourceMessageIdsJson,
         sourceType = MemoryRepository.SOURCE_TYPE_MANUAL,
-        createdAt = 1L,
-        updatedAt = 1L,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
         deletedAt = null,
     )

@@ -4,6 +4,7 @@ import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.firstProviderEndpointPolicyError
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -116,6 +117,12 @@ class OpenAiCodexResponsesProvider(
             throw ModelProviderException(
                 kind = ModelProviderFailureKind.Configuration,
                 userMessage = "Provider base URL is required.",
+            )
+        }
+        endpointSettings.firstProviderEndpointPolicyError(ProviderType.OpenAiCodex)?.let { issue ->
+            throw invalidEndpointFailure(
+                baseUrl = endpointSettings.baseUrl,
+                detail = issue.message,
             )
         }
         if (endpointSettings.modelId.isBlank()) {

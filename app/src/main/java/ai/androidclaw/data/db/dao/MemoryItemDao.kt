@@ -29,6 +29,22 @@ interface MemoryItemDao {
         """
         SELECT * FROM memory_items
         WHERE ownerUserId = :ownerUserId
+          AND deletedAt IS NULL
+          AND text LIKE '%' || :escapedQuery || '%' ESCAPE '\'
+        ORDER BY updatedAt DESC, createdAt DESC, rowid DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchActiveByTextLike(
+        ownerUserId: String,
+        escapedQuery: String,
+        limit: Int,
+    ): List<MemoryItemEntity>
+
+    @Query(
+        """
+        SELECT * FROM memory_items
+        WHERE ownerUserId = :ownerUserId
           AND deletedAt IS NOT NULL
         ORDER BY deletedAt DESC, rowid DESC
         LIMIT :limit

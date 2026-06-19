@@ -4,18 +4,35 @@ import ai.androidclaw.data.model.EventLevel
 import ai.androidclaw.runtime.providers.ModelRunMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 data class ToolArgumentSpec(
     val name: String,
     val required: Boolean = false,
     val description: String = "",
+    val type: ToolArgumentType = inferToolArgumentType(name),
+    val enumValues: List<String> = emptyList(),
+    val validate: Boolean = false,
+    val sensitive: Boolean = isDefaultSensitiveToolArgumentName(name),
 )
+
+enum class ToolArgumentType {
+    String,
+    Boolean,
+    Integer,
+    Number,
+    Object,
+    Array,
+}
 
 data class ToolPermissionRequirement(
     val permission: String,
@@ -28,6 +45,20 @@ enum class ToolAvailabilityStatus {
     PermissionRequired,
     ForegroundRequired,
     DisabledByConfig,
+}
+
+enum class ToolInvocationOrigin {
+    Model,
+    SlashCommand,
+    ScheduledModel,
+    Internal,
+}
+
+enum class ToolRiskTier {
+    ReadOnly,
+    WritesLocalState,
+    Destructive,
+    ExternalSideEffect,
 }
 
 data class ToolAvailability(
@@ -43,6 +74,8 @@ data class ToolDescriptor(
     val requiredPermissions: List<ToolPermissionRequirement> = emptyList(),
     val availability: ToolAvailability = ToolAvailability(),
     val arguments: List<ToolArgumentSpec> = emptyList(),
+    val riskTier: ToolRiskTier = inferToolRiskTier(name),
+    val allowedOrigins: Set<ToolInvocationOrigin> = emptySet(),
     val inputSchema: JsonObject = buildToolInputSchema(arguments),
 )
 
@@ -83,13 +116,6 @@ internal const val TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS = 256
 internal const val TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS = 50
 internal const val TOOL_REGISTRY_ALIAS_LIST_MAX_ITEMS = 50
 internal const val TOOL_REGISTRY_PERMISSION_LIST_MAX_ITEMS = 50
-
-enum class ToolInvocationOrigin {
-    Model,
-    SlashCommand,
-    ScheduledModel,
-    Internal,
-}
 
 data class ToolExecutionContext(
     val sessionId: String?,
@@ -166,6 +192,36 @@ class ToolRegistry(
         canonicalEntries
             .map { it.resolvedDescriptor() }
 
+    fun descriptorsFor(
+        origin: ToolInvocationOrigin,
+        runMode: ModelRunMode? = null,
+    ): List<ToolDescriptor> =
+        canonicalEntries
+            .map { it.resolvedDescriptor() }
+            .filter { descriptor ->
+                descriptor.isAllowedForOrigin(
+                    origin = origin,
+                    runMode = runMode,
+                )
+            }
+
+    fun redactArguments(
+        toolName: String,
+        arguments: JsonObject,
+    ): ToolArgumentRedaction {
+        val descriptor = entriesByName[toolName]?.resolvedDescriptor()
+        return redactToolArguments(
+            arguments = arguments,
+            sensitiveArgumentNames =
+                descriptor
+                    ?.arguments
+                    .orEmpty()
+                    .filter { argument -> argument.sensitive }
+                    .map { argument -> argument.name }
+                    .toSet(),
+        )
+    }
+
     suspend fun execute(
         context: ToolExecutionContext,
         arguments: JsonObject,
@@ -193,6 +249,18 @@ class ToolRegistry(
             }
         val descriptor = entry.resolvedDescriptor()
         val resolvedContext = context.copy(canonicalName = descriptor.name)
+        originPolicyFailure(
+            descriptor = descriptor,
+            context = resolvedContext,
+        )?.let { result ->
+            logToolEvent(
+                level = EventLevel.Warn,
+                message = "Tool ${descriptor.name} is blocked for origin ${resolvedContext.origin.name}.",
+                context = resolvedContext,
+                result = result,
+            )
+            return result
+        }
         validateArguments(
             descriptor = descriptor,
             arguments = arguments,
@@ -279,7 +347,26 @@ class ToolRegistry(
                     }
                 }
         if (missingRequiredArguments.isEmpty()) {
-            return null
+            val invalidArguments =
+                descriptor.arguments
+                    .mapNotNull { argument ->
+                        val value = arguments[argument.name] ?: return@mapNotNull null
+                        argument.invalidArgumentReason(value)
+                    }
+            if (invalidArguments.isEmpty()) {
+                return null
+            }
+            return ToolExecutionResult.failure(
+                summary = "Invalid arguments for ${descriptor.name}: ${invalidArguments.joinToString()}",
+                errorCode = "INVALID_ARGUMENTS",
+                payload =
+                    buildJsonObject {
+                        put("errorCode", "INVALID_ARGUMENTS")
+                        put("toolName", descriptor.name.toBoundedToolRegistryName())
+                        put("invalidArguments", invalidArguments.toStringJsonArray())
+                        put("providedArguments", arguments.keys.sorted().toStringJsonArray(maxItems = TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS))
+                    },
+            )
         }
         return ToolExecutionResult.failure(
             summary = "Missing required arguments for ${descriptor.name}: ${missingRequiredArguments.joinToString()}",
@@ -336,6 +423,35 @@ class ToolRegistry(
         )
     }
 
+    private fun originPolicyFailure(
+        descriptor: ToolDescriptor,
+        context: ToolExecutionContext,
+    ): ToolExecutionResult? {
+        if (descriptor.isAllowedForOrigin(origin = context.origin, runMode = context.runMode)) {
+            return null
+        }
+        return ToolExecutionResult.failure(
+            summary = "Tool ${descriptor.name} is not allowed for ${context.origin.name} execution.",
+            errorCode = "TOOL_ORIGIN_NOT_ALLOWED",
+            payload =
+                buildJsonObject {
+                    put("errorCode", "TOOL_ORIGIN_NOT_ALLOWED")
+                    put("requestedName", context.requestedName.toBoundedToolRegistryName())
+                    put("toolName", descriptor.name.toBoundedToolRegistryName())
+                    put("origin", context.origin.name)
+                    put("runMode", context.runMode?.name?.let(::JsonPrimitive) ?: JsonNull)
+                    put("riskTier", descriptor.riskTier.name)
+                    put(
+                        "allowedOrigins",
+                        descriptor
+                            .effectiveAllowedOrigins()
+                            .map { origin -> origin.name }
+                            .toStringJsonArray(),
+                    )
+                },
+        )
+    }
+
     private suspend fun logToolEvent(
         level: EventLevel,
         message: String,
@@ -360,6 +476,43 @@ class ToolRegistry(
         )
     }
 }
+
+private fun ToolArgumentSpec.invalidArgumentReason(value: JsonElement): String? {
+    if (!validate) {
+        return null
+    }
+    if (!value.matchesArgumentType(type)) {
+        return "$name expected ${type.name}"
+    }
+    if (enumValues.isNotEmpty()) {
+        val scalarValue = (value as? JsonPrimitive)?.content ?: return "$name expected ${type.name}"
+        if (scalarValue !in enumValues) {
+            return "$name expected one of ${enumValues.joinToString(prefix = "[", postfix = "]")}"
+        }
+    }
+    return null
+}
+
+private fun JsonElement.matchesArgumentType(type: ToolArgumentType): Boolean =
+    when (type) {
+        ToolArgumentType.String -> this is JsonPrimitive
+        ToolArgumentType.Boolean ->
+            (this as? JsonPrimitive)?.let { primitive ->
+                primitive.booleanOrNull != null ||
+                    primitive.content.equals("true", ignoreCase = true) ||
+                    primitive.content.equals("false", ignoreCase = true)
+            } == true
+        ToolArgumentType.Integer ->
+            (this as? JsonPrimitive)?.let { primitive ->
+                primitive.longOrNull != null || primitive.content.toLongOrNull() != null
+            } == true
+        ToolArgumentType.Number ->
+            (this as? JsonPrimitive)?.let { primitive ->
+                primitive.doubleOrNull != null || primitive.content.toDoubleOrNull() != null
+            } == true
+        ToolArgumentType.Object -> this is JsonObject
+        ToolArgumentType.Array -> this is JsonArray
+    }
 
 private fun ToolExecutionResult.toBoundedToolExecutionResult(fallbackSummary: String): ToolExecutionResult =
     copy(
@@ -428,7 +581,20 @@ private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject 
                     put(
                         argument.name,
                         buildJsonObject {
-                            put("type", "string")
+                            put("type", argument.type.jsonSchemaType)
+                            if (argument.enumValues.isNotEmpty()) {
+                                put(
+                                    "enum",
+                                    buildJsonArray {
+                                        argument.enumValues.forEach { value ->
+                                            add(JsonPrimitive(value))
+                                        }
+                                    },
+                                )
+                            }
+                            if (argument.sensitive) {
+                                put("x-sensitive", true)
+                            }
                             argument
                                 .description
                                 .toBoundedToolRegistryText(
@@ -450,6 +616,17 @@ private fun buildToolInputSchema(arguments: List<ToolArgumentSpec>): JsonObject 
             },
         )
     }
+
+private val ToolArgumentType.jsonSchemaType: String
+    get() =
+        when (this) {
+            ToolArgumentType.String -> "string"
+            ToolArgumentType.Boolean -> "boolean"
+            ToolArgumentType.Integer -> "integer"
+            ToolArgumentType.Number -> "number"
+            ToolArgumentType.Object -> "object"
+            ToolArgumentType.Array -> "array"
+        }
 
 private fun List<ToolPermissionRequirement>.toPermissionJsonArray(): JsonArray =
     buildJsonArray {
@@ -505,3 +682,237 @@ private fun ToolDescriptor.validateRegistrationDescriptor() {
         }
     }
 }
+
+data class ToolArgumentRedaction(
+    val arguments: JsonObject,
+    val redactedKeys: List<String>,
+)
+
+private const val REDACTED_TOOL_ARGUMENT_VALUE = "[REDACTED]"
+
+private val SECRET_LIKE_ARGUMENT_KEY_TOKENS =
+    listOf(
+        "apikey",
+        "authorization",
+        "bearer",
+        "credential",
+        "oauth",
+        "password",
+        "privatekey",
+        "providersecret",
+        "refreshtoken",
+        "secret",
+        "skillsecret",
+        "token",
+    )
+
+internal fun redactToolArguments(
+    arguments: JsonObject,
+    sensitiveArgumentNames: Set<String>,
+): ToolArgumentRedaction {
+    val redactedKeys = mutableListOf<String>()
+    val sensitiveNames = sensitiveArgumentNames.map { name -> name.normalizedSensitiveKey() }.toSet()
+    val redacted =
+        redactToolArgumentElement(
+            element = arguments,
+            path = "",
+            sensitiveArgumentNames = sensitiveNames,
+            redactedKeys = redactedKeys,
+        ) as JsonObject
+    return ToolArgumentRedaction(
+        arguments = redacted,
+        redactedKeys = redactedKeys.distinct(),
+    )
+}
+
+private fun redactToolArgumentElement(
+    element: JsonElement,
+    path: String,
+    sensitiveArgumentNames: Set<String>,
+    redactedKeys: MutableList<String>,
+): JsonElement =
+    when (element) {
+        is JsonObject ->
+            buildJsonObject {
+                element.forEach { (key, value) ->
+                    val childPath = if (path.isBlank()) key else "$path.$key"
+                    if (key.isSensitiveToolArgumentKey(sensitiveArgumentNames)) {
+                        redactedKeys += childPath
+                        put(key, REDACTED_TOOL_ARGUMENT_VALUE)
+                    } else {
+                        put(
+                            key,
+                            redactToolArgumentElement(
+                                element = value,
+                                path = childPath,
+                                sensitiveArgumentNames = sensitiveArgumentNames,
+                                redactedKeys = redactedKeys,
+                            ),
+                        )
+                    }
+                }
+            }
+        is JsonArray ->
+            buildJsonArray {
+                element.forEachIndexed { index, value ->
+                    add(
+                        redactToolArgumentElement(
+                            element = value,
+                            path = "$path[$index]",
+                            sensitiveArgumentNames = sensitiveArgumentNames,
+                            redactedKeys = redactedKeys,
+                        ),
+                    )
+                }
+            }
+        else -> element
+    }
+
+private fun String.isSensitiveToolArgumentKey(sensitiveArgumentNames: Set<String>): Boolean {
+    val normalized = normalizedSensitiveKey()
+    return normalized in sensitiveArgumentNames ||
+        SECRET_LIKE_ARGUMENT_KEY_TOKENS.any { token -> normalized.contains(token) }
+}
+
+private fun String.normalizedSensitiveKey(): String = lowercase().filter { char -> char.isLetterOrDigit() }
+
+private fun ToolDescriptor.isAllowedForOrigin(
+    origin: ToolInvocationOrigin,
+    runMode: ModelRunMode?,
+): Boolean {
+    if (origin !in effectiveAllowedOrigins()) {
+        return false
+    }
+    return when (runMode) {
+        ModelRunMode.Scheduled -> riskTier == ToolRiskTier.ReadOnly || origin == ToolInvocationOrigin.Internal
+        ModelRunMode.Interactive, null -> true
+    }
+}
+
+private fun ToolDescriptor.effectiveAllowedOrigins(): Set<ToolInvocationOrigin> =
+    allowedOrigins.takeIf { origins -> origins.isNotEmpty() }
+        ?: defaultAllowedOriginsForRisk(riskTier)
+
+private fun defaultAllowedOriginsForRisk(riskTier: ToolRiskTier): Set<ToolInvocationOrigin> =
+    when (riskTier) {
+        ToolRiskTier.ReadOnly ->
+            setOf(
+                ToolInvocationOrigin.Model,
+                ToolInvocationOrigin.SlashCommand,
+                ToolInvocationOrigin.ScheduledModel,
+                ToolInvocationOrigin.Internal,
+            )
+        ToolRiskTier.WritesLocalState ->
+            setOf(
+                ToolInvocationOrigin.Model,
+                ToolInvocationOrigin.SlashCommand,
+                ToolInvocationOrigin.Internal,
+            )
+        ToolRiskTier.Destructive,
+        ToolRiskTier.ExternalSideEffect,
+        ->
+            setOf(
+                ToolInvocationOrigin.SlashCommand,
+                ToolInvocationOrigin.Internal,
+            )
+    }
+
+private fun inferToolRiskTier(name: String): ToolRiskTier {
+    val normalized = name.lowercase()
+    if (normalized == "notifications.post") {
+        return ToolRiskTier.ExternalSideEffect
+    }
+    if (
+        normalized == "providers.auth.clear" ||
+        normalized == "providers.reset" ||
+        normalized == "tasks.run_now" ||
+        normalized.endsWith(".delete") ||
+        normalized.endsWith(".clear") ||
+        normalized.endsWith(".import") ||
+        normalized.endsWith(".restore") ||
+        normalized.endsWith(".reset") ||
+        normalized.endsWith(".trim") ||
+        normalized.endsWith(".prune")
+    ) {
+        return ToolRiskTier.Destructive
+    }
+    if (
+        normalized.endsWith(".create") ||
+        normalized.endsWith(".update") ||
+        normalized.endsWith(".enable") ||
+        normalized.endsWith(".disable") ||
+        normalized.endsWith(".archive") ||
+        normalized.endsWith(".unarchive") ||
+        normalized.endsWith(".move") ||
+        normalized.endsWith(".copy") ||
+        normalized.endsWith(".duplicate") ||
+        normalized.endsWith(".configure") ||
+        normalized.endsWith(".select") ||
+        normalized.endsWith(".remember") ||
+        normalized.endsWith(".ingest")
+    ) {
+        return ToolRiskTier.WritesLocalState
+    }
+    return ToolRiskTier.ReadOnly
+}
+
+private fun inferToolArgumentType(name: String): ToolArgumentType {
+    val normalized = name.normalizedSensitiveKey()
+    return when {
+        normalized in
+            setOf(
+                "arguments",
+                "backup",
+                "export",
+            ) ->
+            ToolArgumentType.Object
+        normalized in
+            setOf(
+                "events",
+                "exports",
+                "memories",
+                "messages",
+                "providers",
+                "sessions",
+                "skills",
+                "tasks",
+            ) ->
+            ToolArgumentType.Array
+        normalized == "limit" ||
+            normalized.endsWith("limit") ||
+            normalized.endsWith("count") ||
+            normalized.endsWith("seconds") ||
+            normalized.endsWith("minutes") ||
+            normalized.endsWith("hours") ||
+            normalized.endsWith("days") ||
+            normalized.endsWith("index") ||
+            normalized.endsWith("retries") ||
+            normalized.endsWith("version") ||
+            normalized == "radius" ->
+            ToolArgumentType.Integer
+        normalized == "enabled" ||
+            normalized == "dryrun" ||
+            normalized == "availableonly" ||
+            normalized == "requiredonly" ||
+            normalized == "foregroundrequiredonly" ||
+            normalized == "precise" ||
+            normalized == "archivesource" ||
+            normalized == "replacesummary" ||
+            normalized == "selectcurrentprovider" ||
+            normalized == "copymessages" ||
+            normalized == "copysummary" ||
+            normalized == "copyprovidermeta" ||
+            normalized == "copyreferences" ||
+            normalized.startsWith("include") ||
+            normalized.startsWith("import") ||
+            normalized.startsWith("preserve") ||
+            normalized.startsWith("clear") ||
+            normalized.startsWith("enable") ||
+            normalized.startsWith("force") ||
+            normalized.startsWith("allow") ->
+            ToolArgumentType.Boolean
+        else -> ToolArgumentType.String
+    }
+}
+
+private fun isDefaultSensitiveToolArgumentName(name: String): Boolean = name.isSensitiveToolArgumentKey(sensitiveArgumentNames = emptySet())

@@ -53,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,7 +74,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 private val ChatChipMaxWidth = 160.dp
@@ -92,6 +96,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var showUsageDialog by rememberSaveable { mutableStateOf(false) }
     var showMoreFeatures by rememberSaveable { mutableStateOf(false) }
     val messageListState = rememberLazyListState()
+    val externalActionScope = rememberCoroutineScope()
     val exportLauncher =
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.StartActivityForResult(),
@@ -108,14 +113,18 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 viewModel.onExternalActionFailed("Failed to export ${payload.fileName}: no file destination selected.")
                 return@rememberLauncherForActivityResult
             }
-            runCatching {
-                writeExportPayload(context, uri, payload)
-            }.onSuccess {
-                viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
-            }.onFailure { error ->
-                viewModel.onExternalActionFailed(
-                    "Failed to export ${payload.fileName}: ${error.message ?: "unknown error"}.",
-                )
+            externalActionScope.launch {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        writeExportPayload(context, uri, payload)
+                    }
+                }.onSuccess {
+                    viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
+                }.onFailure { error ->
+                    viewModel.onExternalActionFailed(
+                        "Failed to export ${payload.fileName}: ${error.message ?: "unknown error"}.",
+                    )
+                }
             }
         }
 
@@ -163,7 +172,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
                 is ChatExternalAction.ShareFile -> {
                     runCatching {
-                        val uri = writeShareFile(context, action.payload)
+                        val uri =
+                            withContext(Dispatchers.IO) {
+                                writeShareFile(context, action.payload)
+                            }
                         launchShareFile(context, action.payload, uri)
                     }.onFailure { error ->
                         viewModel.onExternalActionFailed(

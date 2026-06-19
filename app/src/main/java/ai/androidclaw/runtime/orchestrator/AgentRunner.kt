@@ -285,7 +285,12 @@ class AgentRunner(
                 } else {
                     skillManager.selectModelSkills(availableSkills)
                 }
-            val toolDescriptors = toolRegistry.descriptors()
+            val toolOrigin = runMode.toModelToolInvocationOrigin()
+            val toolDescriptors =
+                toolRegistry.descriptorsFor(
+                    origin = toolOrigin,
+                    runMode = runMode,
+                )
             val providerSettings = settingsDataStore.settings.first()
             if (
                 providerSettings.providerType.requiresRemoteSettings &&
@@ -534,6 +539,7 @@ class AgentRunner(
                 }
             }
         val isCompactDirectDispatch = toolName == COMPACT_TOOL_NAME && slashCommand.name == COMPACT_COMMAND_NAME
+        val redactedToolArguments = toolRegistry.redactArguments(toolName, toolArguments).arguments
         val toolCallMessage =
             messageRepository.addMessage(
                 sessionId = sessionId,
@@ -542,7 +548,7 @@ class AgentRunner(
                     if (isCompactDirectDispatch) {
                         "Tool request: $toolName {summary stored in session summary}"
                     } else {
-                        "Tool request: $toolName $toolArguments"
+                        "Tool request: $toolName $redactedToolArguments"
                     },
                 toolCallId = toolCallId,
                 taskRunId = taskRunId,
@@ -673,10 +679,16 @@ class AgentRunner(
     ): List<ModelMessage> =
         buildList {
             toolCalls.forEach { toolCall ->
+                val redactedToolArguments =
+                    toolRegistry
+                        .redactArguments(
+                            toolName = toolCall.name,
+                            arguments = toolCall.argumentsJson,
+                        ).arguments
                 messageRepository.addMessage(
                     sessionId = sessionId,
                     role = MessageRole.ToolCall,
-                    content = "Tool request: ${toolCall.name} ${toolCall.argumentsJson}",
+                    content = "Tool request: ${toolCall.name} $redactedToolArguments",
                     toolCallId = toolCall.id,
                     taskRunId = taskRunId,
                 )
@@ -1044,6 +1056,12 @@ private fun StringBuilder.appendBoundedAgentText(text: String) {
         append(text.take(remainingChars))
     }
 }
+
+private fun ModelRunMode.toModelToolInvocationOrigin(): ToolInvocationOrigin =
+    when (this) {
+        ModelRunMode.Interactive -> ToolInvocationOrigin.Model
+        ModelRunMode.Scheduled -> ToolInvocationOrigin.ScheduledModel
+    }
 
 private fun Throwable.isRetryable(): Boolean =
     this is ModelProviderException &&

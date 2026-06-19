@@ -13,8 +13,10 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.time.Instant
 
 class TaskExecutionWorker(
@@ -171,6 +173,8 @@ class TaskExecutionWorker(
                     nextRunAt = nextRunAt,
                 )
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: ModelProviderException) {
             val finishedAt = Instant.now()
             taskRepository.updateRun(
@@ -202,15 +206,15 @@ class TaskExecutionWorker(
             )
         } catch (error: Exception) {
             val finishedAt = Instant.now()
-            val message = error.message ?: "Task execution failed."
+            val failure = error.toTaskWorkerFailure()
             taskRepository.updateRun(
                 run.copy(
                     status = TaskRunStatus.Failure,
                     startedAt = startedAt,
                     finishedAt = finishedAt,
-                    errorCode = "WORK_INTERRUPTED",
-                    errorMessage = message,
-                    resultSummary = message,
+                    errorCode = failure.errorCode,
+                    errorMessage = failure.message,
+                    resultSummary = failure.message,
                 ),
             )
             val nextRunAt =
@@ -218,16 +222,16 @@ class TaskExecutionWorker(
                     task = task,
                     finishedAt = finishedAt,
                     trigger = trigger,
-                    errorCode = "WORK_INTERRUPTED",
-                    errorMessage = message,
-                    retryable = true,
+                    errorCode = failure.errorCode,
+                    errorMessage = failure.message,
+                    retryable = failure.retryable,
                 )
             taskNotifier.notifyTaskFailed(
                 task = task,
                 taskRunId = run.id,
                 trigger = trigger,
-                errorCode = "WORK_INTERRUPTED",
-                errorMessage = message,
+                errorCode = failure.errorCode,
+                errorMessage = failure.message,
                 nextRunAt = nextRunAt,
             )
         } finally {
@@ -353,6 +357,40 @@ class TaskExecutionWorker(
         const val KEY_SCHEDULED_AT_EPOCH_MS = "task_scheduled_at_epoch_ms"
     }
 }
+
+internal data class TaskWorkerFailure(
+    val errorCode: String,
+    val message: String,
+    val retryable: Boolean,
+)
+
+internal fun Throwable.toTaskWorkerFailure(): TaskWorkerFailure =
+    when (this) {
+        is IOException ->
+            TaskWorkerFailure(
+                errorCode = "TASK_IO_FAILED",
+                message = message ?: "Task failed while reading or writing local data.",
+                retryable = true,
+            )
+        is IllegalArgumentException ->
+            TaskWorkerFailure(
+                errorCode = "TASK_INVALID_ARGUMENT",
+                message = message ?: "Task execution received invalid local input.",
+                retryable = false,
+            )
+        is IllegalStateException ->
+            TaskWorkerFailure(
+                errorCode = "TASK_INVALID_STATE",
+                message = message ?: "Task execution reached an invalid local state.",
+                retryable = false,
+            )
+        else ->
+            TaskWorkerFailure(
+                errorCode = "TASK_RUNTIME_EXCEPTION",
+                message = message ?: "Task execution failed unexpectedly.",
+                retryable = false,
+            )
+    }
 
 private fun ModelProviderFailureKind.isRetryable(): Boolean =
     when (this) {

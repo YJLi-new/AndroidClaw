@@ -71,6 +71,37 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-20: Implemented the 2026-06-19 review-report hardening pass across
+  P1/P2/P3 focus areas. Added registry-level tool origin/risk gating for model,
+  scheduled-model, slash, and internal origins; provider prompts now receive
+  only origin-allowed descriptors, and execution enforces the same policy. Tool
+  arguments now carry inferred type/sensitive metadata, schema output includes
+  typed/enum/sensitive fields, and explicit high-priority type/enum validation
+  can fail bad inputs before handler execution without breaking legacy JSON/object
+  built-in tools. Provider and direct tool-call transcripts are redacted before
+  persistence, and chat export/share sanitizes legacy raw tool-call JSON before
+  leaving the app. Chat export payload construction, message fetching, export
+  writes, share-file writes, and Android encrypted provider/skill secret-store
+  operations now run behind IO dispatch boundaries. Provider base URLs now have
+  shared policy validation for malformed URLs, unsupported schemes, embedded
+  credentials, query/fragment suffixes, and non-loopback HTTP warnings. The
+  scheduler no longer treats every generic exception as `WORK_INTERRUPTED`;
+  cancellation propagates, and unexpected failures are classified into IO,
+  invalid argument, invalid state, and runtime buckets. SKILL.md parsing now
+  rejects oversized documents/frontmatter/bodies and excessive frontmatter
+  fields, ZIP skill import rejects excessive entries and per-entry sizes, and
+  local/workspace skills are labeled as untrusted imports in the UI. Memory
+  search now uses a database-side text candidate query before bounded in-memory
+  scoring, improving recall beyond the recent scan window without a heavy FTS
+  migration. Reproducibility changes made `mavenLocal()` opt-in, enabled strict
+  Gradle dependency verification with checked-in metadata, documented build
+  prerequisites, and added an opt-in test-source lint probe property. Focused
+  regression suites, ktlint, the full offline fast suite, and QA/release
+  packaging passed; connected testing is blocked in this environment because the
+  available AVD exits without KVM permission. Full physical namespace splitting
+  of `BuiltInTools.kt` remains a larger follow-up because the current file still
+  contains many private cross-namespace helpers; this pass began reducing policy sprawl by
+  moving shared provider endpoint policy out to the data/provider boundary.
 - 2026-06-18: Added `tasks.duplicate.example` /
   `task.duplicate.example` / `tasks.copy.example` / `task.copy.example` plus
   automation duplicate aliases as an Automation Contract usability feature.

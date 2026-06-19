@@ -36,14 +36,17 @@ jobs:
       - name: Ktlint validation
         run: ./scripts/run_ktlint.sh
 
+      - name: Dependency verification
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict help
+
       - name: Assemble debug
-        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:assembleDebug
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict :app:assembleDebug
 
       - name: Unit tests
-        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:testDebugUnitTest
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict :app:testDebugUnitTest
 
       - name: Lint debug
-        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:lintDebug
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict :app:lintDebug
 
       - name: Upload fast reports
         uses: actions/upload-artifact@v4
@@ -78,7 +81,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Packaging validation
-        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache :app:assembleDebugAndroidTest :app:assembleQa :app:assembleRelease :app:bundleRelease
+        run: ./gradlew --no-daemon --console=plain --no-configuration-cache --no-build-cache --dependency-verification strict :app:assembleDebugAndroidTest :app:assembleQa :app:assembleRelease :app:bundleRelease
 
       - name: Upload packaging outputs
         uses: actions/upload-artifact@v4

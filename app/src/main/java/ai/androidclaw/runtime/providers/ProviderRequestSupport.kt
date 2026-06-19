@@ -1,6 +1,8 @@
 package ai.androidclaw.runtime.providers
 
 import ai.androidclaw.data.ProviderEndpointSettings
+import ai.androidclaw.data.ProviderType
+import ai.androidclaw.data.firstProviderEndpointPolicyError
 import ai.androidclaw.data.normalizeProviderTimeoutSeconds
 import ai.androidclaw.runtime.tools.TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS
 import ai.androidclaw.runtime.tools.TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS
@@ -63,6 +65,7 @@ internal data class ProviderStreamContext(
 )
 
 internal fun validateRemoteProviderSettings(
+    providerType: ProviderType,
     settings: ProviderEndpointSettings,
     apiKey: String?,
 ) {
@@ -70,6 +73,12 @@ internal fun validateRemoteProviderSettings(
         throw ModelProviderException(
             kind = ModelProviderFailureKind.Configuration,
             userMessage = "Provider base URL is required.",
+        )
+    }
+    settings.firstProviderEndpointPolicyError(providerType = providerType)?.let { issue ->
+        throw invalidEndpointFailure(
+            baseUrl = settings.baseUrl,
+            detail = issue.message,
         )
     }
     if (settings.modelId.isBlank()) {

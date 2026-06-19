@@ -1,6 +1,8 @@
 package ai.androidclaw.data
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -62,42 +64,45 @@ class AndroidProviderSecretStore(
         }
 
     override suspend fun readApiKey(providerType: ProviderType): String? =
-        encryptedStore
-            .read(storageKey(providerType))
-            .toBoundedProviderSecretValue(PROVIDER_API_KEY_MAX_CHARS)
+        withContext(Dispatchers.IO) {
+            encryptedStore
+                .read(storageKey(providerType))
+                .toBoundedProviderSecretValue(PROVIDER_API_KEY_MAX_CHARS)
+        }
 
     override suspend fun writeApiKey(
         providerType: ProviderType,
         apiKey: String?,
-    ) {
+    ) = withContext(Dispatchers.IO) {
         encryptedStore.write(
             storageKey = storageKey(providerType),
             value = apiKey.toBoundedProviderSecretValue(PROVIDER_API_KEY_MAX_CHARS),
         )
     }
 
-    override suspend fun readOAuthCredential(providerType: ProviderType): ProviderOAuthCredential? {
-        val payload = encryptedStore.read(oAuthStorageKey(providerType)) ?: return null
-        return try {
-            val decoded = json.decodeFromString<ProviderOAuthCredential>(payload)
-            decoded.toNormalizedProviderOAuthCredential(providerType)
-                ?: run {
-                    encryptedStore.write(oAuthStorageKey(providerType), null)
-                    null
-                }
-        } catch (_: SerializationException) {
-            encryptedStore.write(oAuthStorageKey(providerType), null)
-            null
-        } catch (_: IllegalArgumentException) {
-            encryptedStore.write(oAuthStorageKey(providerType), null)
-            null
+    override suspend fun readOAuthCredential(providerType: ProviderType): ProviderOAuthCredential? =
+        withContext(Dispatchers.IO) {
+            val payload = encryptedStore.read(oAuthStorageKey(providerType)) ?: return@withContext null
+            try {
+                val decoded = json.decodeFromString<ProviderOAuthCredential>(payload)
+                decoded.toNormalizedProviderOAuthCredential(providerType)
+                    ?: run {
+                        encryptedStore.write(oAuthStorageKey(providerType), null)
+                        null
+                    }
+            } catch (_: SerializationException) {
+                encryptedStore.write(oAuthStorageKey(providerType), null)
+                null
+            } catch (_: IllegalArgumentException) {
+                encryptedStore.write(oAuthStorageKey(providerType), null)
+                null
+            }
         }
-    }
 
     override suspend fun writeOAuthCredential(
         providerType: ProviderType,
         credential: ProviderOAuthCredential?,
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val normalizedCredential = credential?.toNormalizedProviderOAuthCredential(providerType)
         encryptedStore.write(
             storageKey = oAuthStorageKey(providerType),
@@ -106,11 +111,13 @@ class AndroidProviderSecretStore(
     }
 
     override suspend fun consumeRecoveryNotice(providerType: ProviderType): Boolean =
-        listOf(
-            storageKey(providerType),
-            oAuthStorageKey(providerType),
-        ).fold(false) { recovered, key ->
-            encryptedStore.consumeRecoveryNotice(key) || recovered
+        withContext(Dispatchers.IO) {
+            listOf(
+                storageKey(providerType),
+                oAuthStorageKey(providerType),
+            ).fold(false) { recovered, key ->
+                encryptedStore.consumeRecoveryNotice(key) || recovered
+            }
         }
 
     private fun storageKey(providerType: ProviderType): String = "api_key_${providerType.storageValue}"

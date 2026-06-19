@@ -1,6 +1,8 @@
 package ai.androidclaw.data
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
@@ -41,19 +43,21 @@ class AndroidSkillSecretStore(
         skillKey: String,
         envName: String,
     ): String? =
-        skillSecretStorageKeyCandidates(skillKey, envName)
-            .firstNotNullOfOrNull { storageKey ->
-                encryptedStore.read(storageKey).toBoundedSkillSecretValue()
-            }
+        withContext(Dispatchers.IO) {
+            skillSecretStorageKeyCandidates(skillKey, envName)
+                .firstNotNullOfOrNull { storageKey ->
+                    encryptedStore.read(storageKey).toBoundedSkillSecretValue()
+                }
+        }
 
     override suspend fun writeSecret(
         skillKey: String,
         envName: String,
         value: String?,
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val storageKeys = skillSecretStorageKeyCandidates(skillKey, envName)
         if (storageKeys.isEmpty()) {
-            return
+            return@withContext
         }
         val normalizedValue = value.toBoundedSkillSecretValue()
         encryptedStore.write(storageKeys.first(), normalizedValue)
@@ -66,10 +70,12 @@ class AndroidSkillSecretStore(
         skillKey: String,
         envName: String,
     ): Boolean =
-        skillSecretStorageKeyCandidates(skillKey, envName)
-            .fold(false) { recovered, storageKey ->
-                encryptedStore.consumeRecoveryNotice(storageKey) || recovered
-            }
+        withContext(Dispatchers.IO) {
+            skillSecretStorageKeyCandidates(skillKey, envName)
+                .fold(false) { recovered, storageKey ->
+                    encryptedStore.consumeRecoveryNotice(storageKey) || recovered
+                }
+        }
 
     private companion object {
         const val PREFERENCES_NAME = "androidclaw_skill_secrets"

@@ -8,6 +8,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.firstProviderEndpointPolicyError
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
@@ -63,7 +64,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import java.net.URI
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -7126,16 +7126,30 @@ private fun providerToolEntries(
                     )
                 }
             val updatedSettings =
+                ProviderEndpointSettings(
+                    baseUrl = arguments.optionalText("baseUrl") ?: existingEndpoint.baseUrl,
+                    modelId = arguments.optionalText("modelId") ?: existingEndpoint.modelId,
+                    timeoutSeconds = timeoutSeconds,
+                )
+            updatedSettings.firstProviderEndpointPolicyError(providerType)?.let { issue ->
+                return@Entry ToolExecutionResult.failure(
+                    summary = issue.message,
+                    errorCode = issue.code,
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", issue.code)
+                            put("toolName", "providers.configure")
+                            put("field", "baseUrl")
+                            put("providerId", providerType.providerId)
+                        },
+                )
+            }
+            val updatedSnapshot =
                 settings.withEndpointSettings(
                     providerType = providerType,
-                    settings =
-                        ProviderEndpointSettings(
-                            baseUrl = arguments.optionalText("baseUrl") ?: existingEndpoint.baseUrl,
-                            modelId = arguments.optionalText("modelId") ?: existingEndpoint.modelId,
-                            timeoutSeconds = timeoutSeconds,
-                        ),
+                    settings = updatedSettings,
                 )
-            settingsDataStore.saveProviderSettings(updatedSettings)
+            settingsDataStore.saveProviderSettings(updatedSnapshot)
             val reloadedSettings = settingsDataStore.settings.first()
             ToolExecutionResult.success(
                 summary = "Updated provider ${providerType.displayName} settings.",
@@ -18008,12 +18022,13 @@ private fun ProviderDoctorIssue.toProviderDoctorMarkdownLine(): String =
 private fun String.toProviderDoctorText(): String = toHandoffLine().take(PROVIDER_DOCTOR_TEXT_MAX_CHARS)
 
 private fun String.isValidProviderBaseUrl(): Boolean {
-    val parsed =
-        runCatching {
-            URI(this)
-        }.getOrNull() ?: return false
-    val scheme = parsed.scheme?.lowercase() ?: return false
-    return (scheme == "http" || scheme == "https") && !parsed.host.isNullOrBlank()
+    val settings =
+        ProviderEndpointSettings(
+            baseUrl = this,
+            modelId = "",
+            timeoutSeconds = ProviderType.OpenAiCompatible.defaultTimeoutSeconds,
+        )
+    return settings.firstProviderEndpointPolicyError(ProviderType.OpenAiCompatible) == null
 }
 
 private suspend fun ProviderSettingsSnapshot.toProviderStatsPayload(
@@ -18455,6 +18470,12 @@ private fun ToolArgumentSpec.toToolArgumentPayload(): JsonObject =
         put("name", name)
         put("required", required)
         put("description", description)
+        put("type", type.name)
+        put("validate", validate)
+        put("sensitive", sensitive)
+        if (enumValues.isNotEmpty()) {
+            put("enumValues", enumValues.toToolStringArrayPayload())
+        }
     }
 
 private fun ToolDescriptor.toToolExampleArgumentsPayload(includeOptional: Boolean): JsonObject =
@@ -18536,6 +18557,18 @@ private fun ToolArgumentSpec.toToolExampleValue(targetToolName: String): JsonEle
             normalizedName.contains("text") ||
             normalizedName.contains("message") ->
             JsonPrimitive("Example text")
+        enumValues.isNotEmpty() ->
+            JsonPrimitive(enumValues.first())
+        type == ToolArgumentType.Boolean ->
+            JsonPrimitive(false)
+        type == ToolArgumentType.Integer ->
+            JsonPrimitive(5)
+        type == ToolArgumentType.Number ->
+            JsonPrimitive(1.0)
+        type == ToolArgumentType.Object ->
+            buildJsonObject {}
+        type == ToolArgumentType.Array ->
+            buildJsonArray {}
         else ->
             JsonPrimitive("example-$name")
     }

@@ -37,6 +37,11 @@ val hasReleaseSigning =
         releaseKeyAlias,
         releaseKeyPassword,
     ).all { !it.isNullOrBlank() }
+val androidClawLintTestSources =
+    providers
+        .gradleProperty("androidclaw.lintTestSources")
+        .map(String::toBoolean)
+        .orElse(false)
 
 android {
     namespace = "ai.androidclaw"
@@ -45,7 +50,7 @@ android {
     lint {
         // AGP 8.13 / Kotlin FIR is crashing on debugUnitTest and debugAndroidTest
         // analysis in this environment. Keep production-source lint enabled.
-        ignoreTestSources = true
+        ignoreTestSources = !androidClawLintTestSources.get()
         // Keep the fast loop deterministic and local; these checks perform
         // remote version lookups and can stall on this workstation.
         disable += setOf("NewerVersionAvailable", "AndroidGradlePluginVersion")

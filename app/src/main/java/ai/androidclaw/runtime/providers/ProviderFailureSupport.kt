@@ -14,11 +14,20 @@ import java.net.SocketException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
-internal fun invalidEndpointFailure(baseUrl: String): ModelProviderException =
+internal fun invalidEndpointFailure(
+    baseUrl: String,
+    detail: String? = null,
+): ModelProviderException =
     ModelProviderException(
         kind = ModelProviderFailureKind.InvalidEndpoint,
         userMessage = "Provider base URL is invalid.",
-        details = "Configured base URL: $baseUrl",
+        details =
+            buildString {
+                append("Configured base URL: ").append(baseUrl)
+                detail?.takeIf { it.isNotBlank() }?.let { message ->
+                    append(" Detail: ").append(message)
+                }
+            },
     )
 
 internal fun offlineFailure(): ModelProviderException =

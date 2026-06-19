@@ -7,6 +7,7 @@ import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.model.EventCategory
+import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MemoryRepository
@@ -457,6 +458,190 @@ class AgentRunnerTest {
                     message.role == ai.androidclaw.data.model.MessageRole.Assistant &&
                         message.content.contains("Tool result:")
                 },
+            )
+        }
+
+    @Test
+    fun `provider tool call arguments are redacted before persistence`() =
+        runTest {
+            var providerCalls = 0
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            ToolRegistry.Entry(
+                                descriptor =
+                                    ToolDescriptor(
+                                        name = "health.status",
+                                        description = "Report health",
+                                    ),
+                            ) { _, _ ->
+                                ToolExecutionResult.success(
+                                    summary = "Health okay",
+                                    payload = buildJsonObject {},
+                                )
+                            },
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        providerCalls += 1
+                                        return if (providerCalls == 1) {
+                                            ModelResponse(
+                                                text = "",
+                                                finishReason = "tool_use",
+                                                toolCalls =
+                                                    listOf(
+                                                        ProviderToolCall(
+                                                            id = "call-secret",
+                                                            name = "health.status",
+                                                            argumentsJson =
+                                                                buildJsonObject {
+                                                                    put("apiKey", "sk-secret")
+                                                                    put("query", "public status")
+                                                                    put(
+                                                                        "nested",
+                                                                        buildJsonObject {
+                                                                            put("refreshToken", "refresh-secret")
+                                                                        },
+                                                                    )
+                                                                },
+                                                        ),
+                                                    ),
+                                            )
+                                        } else {
+                                            ModelResponse(text = "Done")
+                                        }
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry, skills = emptyList()),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "Inspect health with private credentials.",
+                ),
+            )
+
+            val toolCallMessage =
+                messageRepository
+                    .getRecentMessages(sessionId, limit = 10)
+                    .single { message ->
+                        message.role == MessageRole.ToolCall &&
+                            message.content.startsWith("Tool request: health.status")
+                    }
+
+            assertTrue(toolCallMessage.content.contains("[REDACTED]"))
+            assertTrue(toolCallMessage.content.contains("public status"))
+            assertFalse(toolCallMessage.content.contains("sk-secret"))
+            assertFalse(toolCallMessage.content.contains("refresh-secret"))
+        }
+
+    @Test
+    fun `interactive provider receives only origin allowed descriptors`() =
+        runTest {
+            var capturedRequest: ModelRequest? = null
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testToolEntry("health.status"),
+                            testToolEntry("tasks.create"),
+                            testToolEntry("sessions.delete"),
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        capturedRequest = request
+                                        return ModelResponse(text = "Done")
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry, skills = emptyList()),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            runner.runInteractiveTurn(
+                AgentTurnRequest(
+                    sessionId = sessionId,
+                    userMessage = "Which tools can you use?",
+                ),
+            )
+
+            assertEquals(
+                listOf("health.status", "tasks.create"),
+                checkNotNull(capturedRequest).toolDescriptors.map { descriptor -> descriptor.name },
+            )
+        }
+
+    @Test
+    fun `scheduled provider receives only read only descriptors`() =
+        runTest {
+            var capturedRequest: ModelRequest? = null
+            val toolRegistry =
+                ToolRegistry(
+                    tools =
+                        listOf(
+                            testToolEntry("health.status"),
+                            testToolEntry("tasks.create"),
+                            testToolEntry("sessions.delete"),
+                        ),
+                )
+            val runner =
+                AgentRunner(
+                    providerRegistry =
+                        buildTestProviderRegistry(
+                            fakeProvider =
+                                object : ModelProvider {
+                                    override val id: String = "fake"
+
+                                    override suspend fun generate(request: ModelRequest): ModelResponse {
+                                        capturedRequest = request
+                                        return ModelResponse(text = "Done")
+                                    }
+                                },
+                        ),
+                    settingsDataStore = settingsDataStore,
+                    messageRepository = messageRepository,
+                    skillManager = buildSkillManager(toolRegistry, skills = emptyList()),
+                    toolRegistry = toolRegistry,
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    promptAssembler = PromptAssembler(),
+                )
+
+            runner.runScheduledTurn(
+                sessionId = sessionId,
+                userMessage = "Scheduled check",
+            )
+
+            assertEquals(
+                listOf("health.status"),
+                checkNotNull(capturedRequest).toolDescriptors.map { descriptor -> descriptor.name },
             )
         }
 
@@ -1509,6 +1694,20 @@ private fun failOnGenerateProvider(): ModelProvider =
         override suspend fun generate(request: ModelRequest): ModelResponse {
             error("Provider should not have been called.")
         }
+    }
+
+private fun testToolEntry(name: String): ToolRegistry.Entry =
+    ToolRegistry.Entry(
+        descriptor =
+            ToolDescriptor(
+                name = name,
+                description = "Test tool $name",
+            ),
+    ) { _, _ ->
+        ToolExecutionResult.success(
+            summary = "ok",
+            payload = buildJsonObject {},
+        )
     }
 
 private class StaticBundledSkillLoader(

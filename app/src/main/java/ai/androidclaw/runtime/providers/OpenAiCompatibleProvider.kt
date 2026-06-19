@@ -127,7 +127,11 @@ class OpenAiCompatibleProvider(
         val endpointSettings = settings.endpointSettings(providerType)
         val apiKey = providerSecretStore.readApiKey(providerType)
 
-        validateRemoteProviderSettings(endpointSettings, apiKey)
+        validateRemoteProviderSettings(
+            providerType = providerType,
+            settings = endpointSettings,
+            apiKey = apiKey,
+        )
 
         val url =
             endpointSettings.baseUrl

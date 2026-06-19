@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.io.IOException
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
@@ -32,6 +33,20 @@ import java.time.ZoneOffset
 @Config(sdk = [31])
 class TaskExecutionWorkerTest {
     private lateinit var application: AndroidClawApplication
+
+    @Test
+    fun `task worker classifies unexpected failures without treating all as interrupted`() {
+        val ioFailure = IOException("disk unavailable").toTaskWorkerFailure()
+        val stateFailure = IllegalStateException("bad state").toTaskWorkerFailure()
+        val genericFailure = RuntimeException().toTaskWorkerFailure()
+
+        assertEquals("TASK_IO_FAILED", ioFailure.errorCode)
+        assertEquals(true, ioFailure.retryable)
+        assertEquals("TASK_INVALID_STATE", stateFailure.errorCode)
+        assertEquals(false, stateFailure.retryable)
+        assertEquals("TASK_RUNTIME_EXCEPTION", genericFailure.errorCode)
+        assertEquals(false, genericFailure.retryable)
+    }
 
     @Before
     fun setUp() =

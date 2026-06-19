@@ -86,8 +86,19 @@ class MemoryRepository(
             return emptyList()
         }
         val normalizedQuery = normalizeForDuplicate(query)
-        return dao
-            .getActiveByOwner(ownerUserId = ownerUserId, limit = SEARCH_SCAN_LIMIT)
+        val directCandidates =
+            normalizedQuery
+                .takeIf { it.length >= MIN_DATABASE_SEARCH_CHARS }
+                ?.let { databaseQuery ->
+                    dao.searchActiveByTextLike(
+                        ownerUserId = ownerUserId,
+                        escapedQuery = databaseQuery.toSqliteLikeEscaped(),
+                        limit = SEARCH_SCAN_LIMIT,
+                    )
+                }.orEmpty()
+        val recentCandidates = dao.getActiveByOwner(ownerUserId = ownerUserId, limit = SEARCH_SCAN_LIMIT)
+        return (directCandidates + recentCandidates)
+            .distinctBy(MemoryItemEntity::id)
             .mapNotNull { entity ->
                 val score = scoreMemory(normalizedQuery, queryTerms, entity)
                 if (score <= 0) {
@@ -358,6 +369,7 @@ class MemoryRepository(
         private const val DUPLICATE_SCAN_LIMIT = 1_000
         private const val SEARCH_SCAN_LIMIT = 500
         private const val SOURCE_MESSAGE_SCAN_LIMIT = 1_000
+        private const val MIN_DATABASE_SEARCH_CHARS = 2
     }
 }
 
@@ -401,6 +413,19 @@ internal fun normalizeMemoryText(text: String): String =
         .trim()
 
 private fun normalizeForDuplicate(text: String): String = normalizeMemoryText(text).lowercase()
+
+private fun String.toSqliteLikeEscaped(): String =
+    buildString {
+        this@toSqliteLikeEscaped.forEach { char ->
+            when (char) {
+                '\\', '%', '_' -> {
+                    append('\\')
+                    append(char)
+                }
+                else -> append(char)
+            }
+        }
+    }
 
 private fun tokenize(text: String): Set<String> {
     val normalizedText = normalizeMemoryText(text).lowercase()

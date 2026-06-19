@@ -101,13 +101,14 @@ AndroidClaw already ships a usable local-first runtime:
 ```bash
 export JAVA_HOME=/path/to/jdk17
 
-# Debug build
-./gradlew :app:assembleDebug
+# First online run populates the Gradle dependency cache and verifies
+# artifacts against gradle/verification-metadata.xml.
+./gradlew --dependency-verification strict :app:assembleDebug
 
 # Formatting, unit tests, and lint
 ./scripts/run_ktlint.sh
-./gradlew :app:testDebugUnitTest
-./gradlew :app:lintDebug
+./gradlew --dependency-verification strict :app:testDebugUnitTest
+./gradlew --dependency-verification strict :app:lintDebug
 ```
 
 If Gradle cannot reach Google Maven from WSL but direct `curl` downloads work, seed the project-local fallback repo and rerun the fast loop offline:
@@ -116,6 +117,12 @@ If Gradle cannot reach Google Maven from WSL but direct `curl` downloads work, s
 ./scripts/seed_android_build_local_maven.sh
 ./gradlew --offline :app:assembleDebug :app:lintDebug
 ```
+
+`mavenLocal()` is disabled by default for reproducible builds. Use it only for
+local toolchain recovery with `-Pandroidclaw.mavenLocal=true` or
+`ANDROIDCLAW_MAVEN_LOCAL=true`. Test-source lint can be probed with
+`-Pandroidclaw.lintTestSources=true`; default CI keeps production-source lint
+enabled while AGP/Kotlin test-source lint instability is tracked separately.
 
 For PATH-independent adb access from this repo:
 
@@ -126,11 +133,11 @@ For PATH-independent adb access from this repo:
 ### Release Artifacts
 
 ```bash
-./gradlew :app:assembleRelease
-./gradlew :app:bundleRelease
+./gradlew --dependency-verification strict :app:assembleRelease
+./gradlew --dependency-verification strict :app:bundleRelease
 
 # Or all packaging lanes at once
-./gradlew :app:assembleQa :app:assembleRelease :app:bundleRelease
+./gradlew --dependency-verification strict :app:assembleQa :app:assembleRelease :app:bundleRelease
 ```
 
 ### 📱 Device Validation (Windows AVD from WSL)

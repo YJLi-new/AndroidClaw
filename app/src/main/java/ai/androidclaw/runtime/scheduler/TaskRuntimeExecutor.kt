@@ -6,6 +6,7 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
+import kotlinx.coroutines.CancellationException
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 
@@ -97,6 +98,8 @@ class TaskRuntimeExecutor(
                         taskRunId = taskRunId,
                     )
                 }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 return TaskRuntimeExecution(
                     success = false,

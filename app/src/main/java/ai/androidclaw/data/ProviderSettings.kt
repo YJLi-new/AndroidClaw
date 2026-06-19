@@ -1,5 +1,7 @@
 package ai.androidclaw.data
 
+import java.net.URI
+
 enum class ProviderProtocolFamily {
     Fake,
     OpenAiCompatible,
@@ -149,6 +151,17 @@ data class ProviderEndpointSettings(
     val timeoutSeconds: Int,
 )
 
+enum class ProviderEndpointPolicySeverity {
+    Error,
+    Warning,
+}
+
+data class ProviderEndpointPolicyIssue(
+    val code: String,
+    val severity: ProviderEndpointPolicySeverity,
+    val message: String,
+)
+
 data class ProviderSettingsSnapshot(
     val providerType: ProviderType = ProviderType.Fake,
     val providerConfigs: Map<ProviderType, ProviderEndpointSettings> = defaultProviderConfigs(),
@@ -216,4 +229,87 @@ fun normalizeProviderTimeoutSeconds(
         timeoutSeconds > MAX_PROVIDER_TIMEOUT_SECONDS -> MAX_PROVIDER_TIMEOUT_SECONDS
         else -> timeoutSeconds
     }
+}
+
+fun ProviderEndpointSettings.providerEndpointPolicyIssues(providerType: ProviderType): List<ProviderEndpointPolicyIssue> {
+    if (!providerType.requiresRemoteSettings) {
+        return emptyList()
+    }
+    val normalizedBaseUrl = baseUrl.trim()
+    if (normalizedBaseUrl.isBlank()) {
+        return listOf(
+            ProviderEndpointPolicyIssue(
+                code = "PROVIDER_BASE_URL_REQUIRED",
+                severity = ProviderEndpointPolicySeverity.Error,
+                message = "Provider base URL is required.",
+            ),
+        )
+    }
+    val parsed =
+        runCatching { URI(normalizedBaseUrl) }
+            .getOrNull()
+            ?: return listOf(
+                ProviderEndpointPolicyIssue(
+                    code = "PROVIDER_BASE_URL_INVALID",
+                    severity = ProviderEndpointPolicySeverity.Error,
+                    message = "Provider base URL must be a valid HTTP(S) URL.",
+                ),
+            )
+    val scheme = parsed.scheme?.lowercase()
+    val host = parsed.host.orEmpty()
+    val issues = mutableListOf<ProviderEndpointPolicyIssue>()
+    if (scheme != "http" && scheme != "https") {
+        issues +=
+            ProviderEndpointPolicyIssue(
+                code = "PROVIDER_BASE_URL_UNSUPPORTED_SCHEME",
+                severity = ProviderEndpointPolicySeverity.Error,
+                message = "Provider base URL must use http or https.",
+            )
+    }
+    if (host.isBlank()) {
+        issues +=
+            ProviderEndpointPolicyIssue(
+                code = "PROVIDER_BASE_URL_MISSING_HOST",
+                severity = ProviderEndpointPolicySeverity.Error,
+                message = "Provider base URL must include a host.",
+            )
+    }
+    if (!parsed.userInfo.isNullOrBlank()) {
+        issues +=
+            ProviderEndpointPolicyIssue(
+                code = "PROVIDER_BASE_URL_USERINFO",
+                severity = ProviderEndpointPolicySeverity.Error,
+                message = "Provider base URL must not include credentials.",
+            )
+    }
+    if (!parsed.query.isNullOrBlank() || !parsed.fragment.isNullOrBlank()) {
+        issues +=
+            ProviderEndpointPolicyIssue(
+                code = "PROVIDER_BASE_URL_QUERY_OR_FRAGMENT",
+                severity = ProviderEndpointPolicySeverity.Error,
+                message = "Provider base URL must not include query parameters or fragments.",
+            )
+    }
+    if (scheme == "http" && !host.isLoopbackProviderHost()) {
+        issues +=
+            ProviderEndpointPolicyIssue(
+                code = "PROVIDER_BASE_URL_INSECURE_HTTP",
+                severity = ProviderEndpointPolicySeverity.Warning,
+                message = "Provider base URL uses plain HTTP; use HTTPS unless this is a trusted local endpoint.",
+            )
+    }
+    return issues
+}
+
+fun ProviderEndpointSettings.firstProviderEndpointPolicyError(providerType: ProviderType): ProviderEndpointPolicyIssue? =
+    providerEndpointPolicyIssues(providerType).firstOrNull { issue ->
+        issue.severity == ProviderEndpointPolicySeverity.Error
+    }
+
+fun String.isLoopbackProviderHost(): Boolean {
+    val normalized = trim().lowercase()
+    return normalized == "localhost" ||
+        normalized == "127.0.0.1" ||
+        normalized == "::1" ||
+        normalized == "[::1]"
 }

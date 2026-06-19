@@ -8,12 +8,17 @@ import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
 import ai.androidclaw.data.PROVIDER_BASE_URL_MAX_CHARS
 import ai.androidclaw.data.PROVIDER_MODEL_ID_MAX_CHARS
 import ai.androidclaw.data.ProviderAuthMode
+import ai.androidclaw.data.ProviderEndpointPolicyIssue
+import ai.androidclaw.data.ProviderEndpointPolicySeverity
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderOAuthCredential
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.data.firstProviderEndpointPolicyError
+import ai.androidclaw.data.isLoopbackProviderHost
+import ai.androidclaw.data.providerEndpointPolicyIssues
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
@@ -27,7 +32,6 @@ import ai.androidclaw.runtime.providers.OpenAiCodexDeviceCodePrompt
 import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -178,6 +182,7 @@ class SettingsViewModel(
                         resolveStatusMessage(
                             explicit = null,
                             providerType = providerType,
+                            baseUrl = endpointSettings.baseUrl,
                             recoveredApiKey = recoveredApiKey,
                             networkConnected = networkStatus.isConnected,
                         ),
@@ -261,7 +266,9 @@ class SettingsViewModel(
                         hasOAuthCredential = it.hasOAuthCredential,
                     ),
                 lastValidationSucceeded = false,
-                statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
+                statusMessage =
+                    it.nextStatusAfterSettingsInput(boundedInput.wasTruncated)
+                        ?: providerEndpointStatusMessage(it.providerType, boundedInput.value),
             )
         }
     }
@@ -356,6 +363,10 @@ class SettingsViewModel(
         val timeoutSeconds = snapshot.validatedTimeoutSeconds()
         if (timeoutSeconds == null) {
             mutateState { it.copy(statusMessage = providerTimeoutValidationMessage()) }
+            return
+        }
+        snapshot.providerEndpointPolicyError()?.let { issue ->
+            mutateState { it.copy(statusMessage = issue.message) }
             return
         }
         val networkStatus = networkStatusProvider.currentStatus()
@@ -470,6 +481,16 @@ class SettingsViewModel(
             mutateState { it.copy(statusMessage = providerTimeoutValidationMessage()) }
             return
         }
+        snapshot.providerEndpointPolicyError()?.let { issue ->
+            mutateState {
+                it.copy(
+                    configured = false,
+                    lastValidationSucceeded = false,
+                    statusMessage = issue.message,
+                )
+            }
+            return
+        }
         val normalizedTimeoutSeconds =
             timeoutSeconds
                 ?: snapshot.providerType.defaultTimeoutSeconds
@@ -493,6 +514,16 @@ class SettingsViewModel(
                     isValidatingConnection = false,
                     lastValidationSucceeded = false,
                     statusMessage = providerTimeoutValidationMessage(),
+                )
+            }
+            return
+        }
+        snapshot.providerEndpointPolicyError()?.let { issue ->
+            mutateState {
+                it.copy(
+                    isValidatingConnection = false,
+                    lastValidationSucceeded = false,
+                    statusMessage = issue.message,
                 )
             }
             return
@@ -582,11 +613,11 @@ class SettingsViewModel(
 
     private fun usesLoopbackEndpoint(baseUrl: String): Boolean {
         val host =
-            runCatching { Uri.parse(baseUrl.trim()).host }
+            runCatching { java.net.URI(baseUrl.trim()).host }
                 .getOrNull()
-                ?.lowercase()
+                .orEmpty()
 
-        return host == "localhost" || host == "127.0.0.1"
+        return host.isLoopbackProviderHost()
     }
 
     private fun refresh(
@@ -646,6 +677,7 @@ class SettingsViewModel(
                         resolveStatusMessage(
                             explicit = statusMessage,
                             providerType = providerType,
+                            baseUrl = endpointSettings.baseUrl,
                             recoveredApiKey = recoveredApiKey,
                             networkConnected = networkStatus.isConnected,
                         ),
@@ -699,10 +731,20 @@ class SettingsViewModel(
             ProviderAuthMode.None -> true
             ProviderAuthMode.ApiKey ->
                 baseUrl.isNotBlank() &&
+                    ProviderEndpointSettings(
+                        baseUrl = baseUrl,
+                        modelId = modelId,
+                        timeoutSeconds = providerType.defaultTimeoutSeconds,
+                    ).firstProviderEndpointPolicyError(providerType) == null &&
                     modelId.isNotBlank() &&
                     (apiKeyDraft.isNotBlank() || hasStoredApiKey)
             ProviderAuthMode.OpenAiCodexDeviceCode ->
                 baseUrl.isNotBlank() &&
+                    ProviderEndpointSettings(
+                        baseUrl = baseUrl,
+                        modelId = modelId,
+                        timeoutSeconds = providerType.defaultTimeoutSeconds,
+                    ).firstProviderEndpointPolicyError(providerType) == null &&
                     modelId.isNotBlank() &&
                     hasOAuthCredential
         }
@@ -738,16 +780,47 @@ class SettingsViewModel(
     private fun resolveStatusMessage(
         explicit: String?,
         providerType: ProviderType,
+        baseUrl: String,
         recoveredApiKey: Boolean,
         networkConnected: Boolean,
-    ): String? =
-        when {
+    ): String? {
+        val endpointStatusMessage = providerEndpointStatusMessage(providerType, baseUrl)
+        return when {
             !explicit.isNullOrBlank() -> explicit
+            !endpointStatusMessage.isNullOrBlank() -> endpointStatusMessage
             providerType.requiresApiKey && recoveredApiKey -> "Stored API key could not be restored on this device. Please enter it again."
             providerType.requiresRemoteSettings && !networkConnected ->
                 "No active network connection. Remote providers may fail until connectivity returns."
             else -> null
         }.toBoundedSettingsStatusMessageOrNull()
+    }
+
+    private fun SettingsUiState.providerEndpointPolicyError(): ProviderEndpointPolicyIssue? =
+        ProviderEndpointSettings(
+            baseUrl = baseUrl,
+            modelId = modelId,
+            timeoutSeconds = validatedTimeoutSeconds() ?: providerType.defaultTimeoutSeconds,
+        ).firstProviderEndpointPolicyError(providerType)
+
+    private fun providerEndpointStatusMessage(
+        providerType: ProviderType,
+        baseUrl: String,
+    ): String? {
+        val issue =
+            ProviderEndpointSettings(
+                baseUrl = baseUrl,
+                modelId = "",
+                timeoutSeconds = providerType.defaultTimeoutSeconds,
+            ).providerEndpointPolicyIssues(providerType)
+                .firstOrNull()
+                ?: return null
+        val prefix =
+            when (issue.severity) {
+                ProviderEndpointPolicySeverity.Error -> "Base URL issue"
+                ProviderEndpointPolicySeverity.Warning -> "Base URL warning"
+            }
+        return "$prefix: ${issue.message}"
+    }
 
     private fun validationFailureMessage(error: ModelProviderException): String =
         boundedSettingsStatusMessage(

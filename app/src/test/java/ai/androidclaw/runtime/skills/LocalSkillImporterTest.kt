@@ -134,6 +134,21 @@ class LocalSkillImporterTest {
             assertTrue(document.contains("command-tool: tools.echo"))
             assertTrue(document.contains("Replacement body."))
         }
+
+    @Test
+    fun `import zip rejects oversized archive entries before install`() =
+        runTest {
+            val error =
+                runCatching {
+                    importer.importZipStream(
+                        inputStream = ByteArrayInputStream(oversizedArchiveBytes()),
+                        sourceName = "oversized.zip",
+                    )
+                }.exceptionOrNull()
+
+            assertEquals("Skill archive entry is too large to import.", error?.message)
+            assertFalse(storage.localSkillsDir.exists())
+        }
 }
 
 private fun skillArchiveBytes(
@@ -153,6 +168,16 @@ private fun skillArchiveBytes(
             $body
             """.trimIndent().toByteArray(),
         )
+        zip.closeEntry()
+    }
+    return output.toByteArray()
+}
+
+private fun oversizedArchiveBytes(): ByteArray {
+    val output = ByteArrayOutputStream()
+    ZipOutputStream(output).use { zip ->
+        zip.putNextEntry(ZipEntry("skill/SKILL.md"))
+        zip.write(ByteArray(1_048_577) { 'x'.code.toByte() })
         zip.closeEntry()
     }
     return output.toByteArray()

@@ -25,6 +25,9 @@ class SkillParser {
 
     fun parse(rawMarkdown: String): SkillParseResult {
         val normalized = rawMarkdown.replace("\r\n", "\n")
+        if (normalized.length > SKILL_MARKDOWN_MAX_CHARS) {
+            return SkillParseResult.Failure("SKILL.md is too large.")
+        }
         if (!normalized.startsWith("---\n")) {
             return SkillParseResult.Failure("SKILL.md must begin with YAML frontmatter.")
         }
@@ -44,12 +47,21 @@ class SkillParser {
         val rawFrontmatter = normalized.substring(4, closingMarker)
         val bodyStart = if (inlineClosingMarker != -1) closingMarker + 5 else normalized.length
         val body = normalized.substring(bodyStart).trim()
+        if (rawFrontmatter.length > SKILL_FRONTMATTER_MAX_CHARS) {
+            return SkillParseResult.Failure("SKILL.md frontmatter is too large.")
+        }
+        if (body.length > SKILL_BODY_MAX_CHARS) {
+            return SkillParseResult.Failure("SKILL.md body is too large.")
+        }
         val frontmatterMap =
             runCatching {
                 @Suppress("UNCHECKED_CAST")
                 yaml.load<Any?>(rawFrontmatter) as? Map<String, Any?>
             }.getOrNull()
                 ?: return SkillParseResult.Failure("Frontmatter is not a YAML object.")
+        if (frontmatterMap.size > SKILL_FRONTMATTER_MAX_FIELDS) {
+            return SkillParseResult.Failure("SKILL.md frontmatter has too many fields.")
+        }
 
         val name = frontmatterMap["name"]?.toString()?.trim().orEmpty()
         val description = frontmatterMap["description"]?.toString()?.trim().orEmpty()
@@ -141,4 +153,11 @@ class SkillParser {
             is Boolean -> this
             else -> toString().toBooleanStrictOrNull()
         }
+
+    private companion object {
+        const val SKILL_MARKDOWN_MAX_CHARS = 200_000
+        const val SKILL_FRONTMATTER_MAX_CHARS = 20_000
+        const val SKILL_BODY_MAX_CHARS = 180_000
+        const val SKILL_FRONTMATTER_MAX_FIELDS = 64
+    }
 }

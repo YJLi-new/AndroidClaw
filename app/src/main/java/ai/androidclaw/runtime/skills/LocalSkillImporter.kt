@@ -145,9 +145,14 @@ class LocalSkillImporter(
         scratchDir: File,
     ) {
         var totalBytes = 0L
+        var entryCount = 0
         ZipInputStream(inputStream.buffered()).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
+                entryCount += 1
+                check(entryCount <= MAX_ARCHIVE_ENTRIES) {
+                    "Skill archive contains too many entries."
+                }
                 val normalizedName = entry.name.replace('\\', '/').trimStart('/')
                 if (normalizedName.isBlank()) {
                     zip.closeEntry()
@@ -170,12 +175,17 @@ class LocalSkillImporter(
                     destination.parentFile?.mkdirs()
                     destination.outputStream().use { output ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var entryBytes = 0L
                         while (true) {
                             val read = zip.read(buffer)
                             if (read <= 0) break
                             totalBytes += read
+                            entryBytes += read
                             check(totalBytes <= MAX_TOTAL_UNCOMPRESSED_BYTES) {
                                 "Skill archive is too large to import."
+                            }
+                            check(entryBytes <= MAX_ENTRY_UNCOMPRESSED_BYTES) {
+                                "Skill archive entry is too large to import."
                             }
                             output.write(buffer, 0, read)
                         }
@@ -194,6 +204,8 @@ class LocalSkillImporter(
     )
 
     private companion object {
+        const val MAX_ARCHIVE_ENTRIES = 256
+        const val MAX_ENTRY_UNCOMPRESSED_BYTES = 1L * 1024L * 1024L
         const val MAX_TOTAL_UNCOMPRESSED_BYTES = 10L * 1024L * 1024L
     }
 }

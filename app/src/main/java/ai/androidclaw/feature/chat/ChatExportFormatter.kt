@@ -3,9 +3,11 @@ package ai.androidclaw.feature.chat
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Session
+import ai.androidclaw.runtime.tools.redactToolArguments
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.time.Instant
 
 enum class ChatExportFormat(
@@ -110,7 +112,7 @@ object ChatExportFormatter {
             messages.forEachIndexed { index, message ->
                 if (index > 0) appendLine()
                 appendLine("[${message.createdAt}] ${message.role.displayName()}")
-                appendLine(message.content.trimEnd())
+                appendLine(message.exportContent().trimEnd())
             }
         }.trimEnd()
 
@@ -143,7 +145,7 @@ object ChatExportFormatter {
                 message.providerMeta?.takeIf { it.isNotBlank() }?.let { appendLine("- Provider meta: `${escapeMarkdown(it)}`") }
                 appendLine()
                 appendLine("```text")
-                appendLine(message.content.trimEnd())
+                appendLine(message.exportContent().trimEnd())
                 appendLine("```")
             }
         }.trimEnd()
@@ -172,7 +174,7 @@ object ChatExportFormatter {
                         ExportedMessage(
                             id = message.id,
                             role = message.role.storageName(),
-                            content = message.content,
+                            content = message.exportContent(),
                             createdAt = message.createdAt.toString(),
                             providerMeta = message.providerMeta,
                             toolCallId = message.toolCallId,
@@ -201,6 +203,29 @@ object ChatExportFormatter {
                 .replace(Regex("[^A-Za-z0-9._-]"), "-")
                 .trim('-')
         return "${sessionPart}_$timestampPart"
+    }
+
+    private fun ChatMessage.exportContent(): String =
+        if (role == MessageRole.ToolCall) {
+            content.redactToolCallExportContent()
+        } else {
+            content
+        }
+
+    private fun String.redactToolCallExportContent(): String {
+        val jsonStart = indexOf('{').takeIf { index -> index >= 0 } ?: return this
+        val prefix = take(jsonStart)
+        val jsonText = drop(jsonStart)
+        val arguments =
+            runCatching { exportJson.parseToJsonElement(jsonText).jsonObject }
+                .getOrNull()
+                ?: return this
+        val redactedArguments =
+            redactToolArguments(
+                arguments = arguments,
+                sensitiveArgumentNames = emptySet(),
+            ).arguments
+        return prefix + redactedArguments.toString()
     }
 
     private fun escapeMarkdown(value: String): String = value.replace("`", "\\`")

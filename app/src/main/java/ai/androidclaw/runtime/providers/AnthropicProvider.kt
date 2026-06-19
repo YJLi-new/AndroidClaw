@@ -106,7 +106,11 @@ class AnthropicProvider(
         val endpointSettings = settings.endpointSettings(ProviderType.Anthropic)
         val apiKey = providerSecretStore.readApiKey(ProviderType.Anthropic)
 
-        validateRemoteProviderSettings(endpointSettings, apiKey)
+        validateRemoteProviderSettings(
+            providerType = ProviderType.Anthropic,
+            settings = endpointSettings,
+            apiKey = apiKey,
+        )
 
         val url =
             endpointSettings.baseUrl
