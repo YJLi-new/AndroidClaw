@@ -71,6 +71,22 @@ available, or use the repo's Windows AVD scripts for manual QA.
 
 ## Running ledger
 
+- 2026-06-20: Closed the review-report physical tool-split acceptance gap.
+  The oversized built-in runtime surface is now split by namespace and support
+  concern into focused files for runtime, provider, tool discovery, event,
+  memory, task, task-run, session, message, skill, notification, and shared
+  payload helpers; every `app/src/main/java/ai/androidclaw/runtime/tools/*.kt`
+  file is now under 3,000 LOC (`BuiltInTools.kt` is ~1.5k LOC, the largest
+  tool file is `TaskTools.kt` at ~2.5k LOC). Google Drive publishing remains
+  required in tree mode so Drive mirrors the GitHub nested folder layout rather
+  than receiving only a `.tar.gz`. Validation evidence: ktlint passed, focused
+  `BuiltInToolsTest` passed after the split, the full offline fast suite
+  `:app:assembleDebug :app:testDebugUnitTest :app:lintDebug` passed on rerun
+  after one transient `SettingsViewModelTest` timeout passed in focused rerun,
+  and QA/release APK plus release bundle packaging passed. Connected Android
+  smoke remains environment-blocked: no device is attached, and the
+  `AndroidCliMedium` AVD exits because this Linux user lacks `/dev/kvm`
+  permission.
 - 2026-06-20: Continued the review-report completion pass with the remaining medium-term fixes that were previously only deferred. Chat export/share now uses a streaming writer and paged Room reads for TXT/MD/JSON file output with explicit truncation metadata instead of building whole exports in memory. Message and memory search now have Room token-index tables, repository-side token maintenance on create/update/copy/restore, and bounded startup repair for legacy rows missing tokens while preserving LIKE fallbacks for literal searches. Local/workspace imported skills now require an explicit enable confirmation that displays untrusted source, dispatch target, and active tool-dispatch scope. Added a checked-in startup baseline profile seed for startup/chat/settings/tasks/skills paths and a security-focused CI job for dependency verification, redaction/origin/endpoint tests, production lint, and non-blocking test-source lint audit. Confirmed the Google Drive mapping for this repo is `mode=tree`, so Drive receives tracked files in the same nested folder layout as GitHub rather than only a `.tar.gz` archive. Ktlint, focused token-index tests, and the full offline fast suite passed.
 - 2026-06-20: Implemented the 2026-06-19 review-report hardening pass across
   P1/P2/P3 focus areas. Added registry-level tool origin/risk gating for model,
@@ -99,10 +115,10 @@ available, or use the repo's Windows AVD scripts for manual QA.
   prerequisites, and added an opt-in test-source lint probe property. Focused
   regression suites, ktlint, the full offline fast suite, and QA/release
   packaging passed; connected testing is blocked in this environment because the
-  available AVD exits without KVM permission. Full physical namespace splitting
-  of `BuiltInTools.kt` remains a larger follow-up because the current file still
-  contains many private cross-namespace helpers; this pass began reducing policy sprawl by
-  moving shared provider endpoint policy out to the data/provider boundary.
+  available AVD exits without KVM permission. This pass began reducing policy
+  sprawl by moving shared provider endpoint policy out to the data/provider
+  boundary; the later 2026-06-20 split pass completed the physical namespace
+  decomposition.
 - 2026-06-18: Added `tasks.duplicate.example` /
   `task.duplicate.example` / `tasks.copy.example` / `task.copy.example` plus
   automation duplicate aliases as an Automation Contract usability feature.
