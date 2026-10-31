@@ -70,6 +70,8 @@
     <string name="chat_stage_tool_finished">%1$s 已完成</string>
     <string name="chat_stage_tool_failed">工具 %1$s 失败</string>
     <string name="chat_stage_cancelling">正在停止…</string>
+    <string name="chat_notice_ready">AndroidClaw 已就绪。</string>
+    <string name="chat_notice_turn_failed">本轮失败：%1$s</string>
     <string name="chat_tool_unknown">工具</string>
     <string name="chat_tool_status_done">完成</string>
     <string name="chat_tool_status_running">运行中</string>

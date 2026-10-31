@@ -120,13 +120,26 @@ internal fun ChatMessageRow(
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ) {
                     Text(
-                        text = message.text,
+                        text = localizedRuntimeNotice(message.text),
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center,
                     )
                 }
             }
+    }
+}
+
+/** System rows persisted by the runtime are English; show the known ones in the app language. */
+@Composable
+private fun localizedRuntimeNotice(text: String): String {
+    val trimmed = text.trim()
+    return when {
+        trimmed == "AndroidClaw is ready." -> stringResource(R.string.chat_notice_ready)
+        trimmed == "Turn cancelled." -> stringResource(R.string.chat_notice_turn_cancelled)
+        trimmed.startsWith("Turn failed:") ->
+            stringResource(R.string.chat_notice_turn_failed, trimmed.removePrefix("Turn failed:").trim())
+        else -> text
     }
 }
 

@@ -75,6 +75,8 @@
     <string name="chat_stage_tool_finished">Finished %1$s</string>
     <string name="chat_stage_tool_failed">Tool %1$s failed</string>
     <string name="chat_stage_cancelling">Cancelling…</string>
+    <string name="chat_notice_ready">AndroidClaw is ready.</string>
+    <string name="chat_notice_turn_failed">Turn failed: %1$s</string>
     <string name="chat_tool_unknown">Tool</string>
     <string name="chat_tool_status_done">Done</string>
     <string name="chat_tool_status_running">Running</string>
