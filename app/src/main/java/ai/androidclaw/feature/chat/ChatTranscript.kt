@@ -228,17 +228,22 @@ internal fun ChatToolCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            toolErrorHint(errorCode)?.let { hint ->
-                Text(
-                    text = stringResource(hint),
-                    modifier =
-                        Modifier
-                            .padding(start = 40.dp, end = 12.dp, bottom = 8.dp)
-                            .testTag("chatToolHint"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            toolErrorHint(errorCode)
+                ?.let { stringResource(it) }
+                ?.takeUnless { hint ->
+                    // The runtime summary is English; skip the hint when it already says the same thing.
+                    view?.summary?.startsWith(hint.trimEnd('.')) == true
+                }?.let { hint ->
+                    Text(
+                        text = hint,
+                        modifier =
+                            Modifier
+                                .padding(start = 40.dp, end = 12.dp, bottom = 8.dp)
+                                .testTag("chatToolHint"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             if (expanded) {
                 Column(
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),

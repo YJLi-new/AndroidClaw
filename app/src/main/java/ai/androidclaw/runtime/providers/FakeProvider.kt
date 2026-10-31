@@ -67,7 +67,9 @@ class FakeProvider(
             text =
                 buildString {
                     if (latestToolResult != null) {
-                        append("Tool result: ")
+                        // After a tool round trip the demo reply is one readable line about the
+                        // result; the tool card already shows the details.
+                        append("Done with ").append(requestedTool).append(": ")
                         append(
                             latestToolResult.content
                                 .lineSequence()
@@ -75,9 +77,7 @@ class FakeProvider(
                                 .orEmpty()
                                 .take(MAX_TOOL_ECHO_CHARS),
                         )
-                        append('\n')
-                    }
-                    if (lastUserMessage.isBlank()) {
+                    } else if (lastUserMessage.isBlank()) {
                         append("Hello from the offline fake provider.")
                     } else {
                         append("Reply: ").append(lastUserMessage.take(MAX_ECHO_CHARS))
@@ -95,7 +95,8 @@ class FakeProvider(
         }
 
     companion object {
-        private val TOOL_MARKER = Regex("""\[tool:([A-Za-z0-9._-]+)(?:\s+(\{.*?}))?]""")
+        // Android's ICU regex engine rejects unescaped `}` and `]` that the JVM accepts.
+        private val TOOL_MARKER = Regex("""\[tool:([A-Za-z0-9._-]+)(?:\s+(\{.*?\}))?\]""")
         private val FAKE_JSON = Json { ignoreUnknownKeys = true }
         private const val MAX_ECHO_CHARS = 500
         private const val MAX_TOOL_ECHO_CHARS = 300

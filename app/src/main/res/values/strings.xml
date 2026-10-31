@@ -321,6 +321,7 @@
     <string name="settings_section_advanced">Advanced</string>
     <string name="settings_section_about">About</string>
     <string name="settings_provider_fake">Offline demo</string>
+    <string name="settings_provider_openai_compatible">OpenAI-compatible</string>
     <string name="settings_field_provider">Provider</string>
     <string name="settings_field_base_url">Base URL</string>
     <string name="settings_field_model">Model</string>

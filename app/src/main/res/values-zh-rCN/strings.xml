@@ -310,6 +310,7 @@
     <string name="settings_section_advanced">高级</string>
     <string name="settings_section_about">关于</string>
     <string name="settings_provider_fake">离线演示</string>
+    <string name="settings_provider_openai_compatible">OpenAI 兼容</string>
     <string name="settings_field_provider">服务商</string>
     <string name="settings_field_base_url">接口地址（Base URL）</string>
     <string name="settings_field_model">模型</string>
