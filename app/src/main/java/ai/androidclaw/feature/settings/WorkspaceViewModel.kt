@@ -53,7 +53,11 @@ class WorkspaceViewModel(
         private set
 
     fun refresh() {
-        viewModelScope.launch {
+        viewModelScope.launch { reload() }
+    }
+
+    private suspend fun reload() {
+        run {
             val result = runCatchingNonCancellation { workspaceStore.list() }
             result
                 .onSuccess { infos ->
@@ -119,10 +123,11 @@ class WorkspaceViewModel(
         viewModelScope.launch {
             runCatchingNonCancellation { workspaceStore.write(path, text) }
                 .onSuccess {
+                    // Reload the list first so the saved state is the last update of this job.
+                    reload()
                     mutableState.update {
                         it.copy(saving = false, editorOriginal = text, message = UiText.res(R.string.workspace_saved, path))
                     }
-                    refresh()
                 }.onFailure { error ->
                     mutableState.update {
                         it.copy(saving = false, errorMessage = UiText.res(R.string.workspace_error_save, error.messageOrDash()))
@@ -140,10 +145,10 @@ class WorkspaceViewModel(
                 workspaceStore.read(path).orEmpty()
             }.onSuccess { text ->
                 editorText = text
+                reload()
                 mutableState.update {
                     it.copy(saving = false, editorOriginal = text, message = UiText.res(R.string.workspace_reset_done, path))
                 }
-                refresh()
             }.onFailure { error ->
                 mutableState.update {
                     it.copy(saving = false, errorMessage = UiText.res(R.string.workspace_error_save, error.messageOrDash()))
