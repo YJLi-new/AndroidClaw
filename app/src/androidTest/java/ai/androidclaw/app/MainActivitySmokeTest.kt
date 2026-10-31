@@ -1,41 +1,119 @@
 package ai.androidclaw.app
 
+import ai.androidclaw.data.model.MessageRole
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+/**
+ * Navigation and chat smoke checks. Assertions use test tags and structure only,
+ * so they hold in any locale and do not depend on FakeProvider reply text.
+ */
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<MainActivity>()
+    val composeRule = createEmptyComposeRule()
+
+    private lateinit var application: AndroidClawApplication
+
+    @Before
+    fun setUp() {
+        application =
+            InstrumentationRegistry
+                .getInstrumentation()
+                .targetContext
+                .applicationContext as AndroidClawApplication
+        resetApplicationState(application = application, onboardingCompleted = false)
+    }
+
+    @After
+    fun tearDown() {
+        resetApplicationState(application = application, onboardingCompleted = true)
+    }
 
     @Test
-    fun launchesNavigationShellAndNavigatesToTasks() {
-        composeRule.onNodeWithTag("topLevelNav").fetchSemanticsNode()
-        val onboardingButtons = composeRule.onAllNodesWithText("Use Fake (offline)")
-        if (onboardingButtons.fetchSemanticsNodes().isNotEmpty()) {
-            onboardingButtons.onFirst().performClick()
+    fun onboardingDemoThenFourTabsAndDiagnostics() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitForTag("onboardingDialog")
+            composeRule.onNodeWithTag("onboardingUseFakeButton").performClick()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodesWithTag("onboardingDialog").fetchSemanticsNodes().isEmpty()
+            }
+
+            composeRule.onNodeWithTag("chatScreen").fetchSemanticsNode()
+            composeRule.onNodeWithTag("chatHeading").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+            assertEquals(4, composeRule.onAllNodes(navItemMatcher).fetchSemanticsNodes().size)
+
+            composeRule.onNodeWithTag("navItem-tasks").performClick()
+            composeRule.onNodeWithTag("tasksHeading").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+
+            composeRule.onNodeWithTag("navItem-skills").performClick()
+            composeRule.onNodeWithTag("skillsHeading").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+
+            composeRule.onNodeWithTag("navItem-settings").performClick()
+            composeRule.onNodeWithTag("settingsHeading").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading))
+            composeRule.onNodeWithTag("settingsScreen").performScrollToNode(hasTestTag("settingsDiagnosticsItem"))
+            composeRule.onNodeWithTag("settingsDiagnosticsItem").performClick()
+            waitForTag("diagnosticsHeading")
+            assertEquals(0, composeRule.onAllNodesWithTag("topLevelNav").fetchSemanticsNodes().size)
         }
-        composeRule.onNodeWithTag("chatScreen").fetchSemanticsNode()
-        composeRule.onNodeWithTag("chatHeading").assert(
-            SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading),
-        )
+    }
 
-        composeRule.onNodeWithText("Tasks", useUnmergedTree = true).performClick()
+    @Test
+    fun chatSendStoresUserTurnAndShowsAssistantRow() {
+        resetApplicationState(application = application, onboardingCompleted = true)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitForTag("chatScreen")
+            composeRule.onNodeWithTag("chatInput").performTextInput("hello from smoke test")
+            composeRule.onNodeWithTag("chatSendButton").performClick()
 
-        composeRule.onNodeWithTag("tasksScreen").fetchSemanticsNode()
-        composeRule.onNodeWithTag("tasksHeading").assert(
-            SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading),
-        )
+            // A long reply can push the user row out of the lazy viewport, so the
+            // user turn is checked in storage and the newest row on screen.
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                composeRule.onAllNodesWithTag("chatMessage-assistant", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() &&
+                    composeRule.onAllNodesWithTag("chatStopButton").fetchSemanticsNodes().isEmpty()
+            }
+            composeRule.onNodeWithTag("chatSendButton").fetchSemanticsNode()
+            val stored =
+                runBlocking {
+                    val mainSession = application.container.sessionRepository.getOrCreateMainSession()
+                    application.container.messageRepository
+                        .observeMessages(mainSession.id)
+                        .first()
+                }
+            assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello from smoke test" })
+            assertTrue(stored.any { it.role == MessageRole.Assistant && it.content.isNotBlank() })
+        }
+    }
+
+    private val navItemMatcher =
+        SemanticsMatcher("top-level nav item") { node ->
+            node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("navItem-") == true
+        }
+
+    private fun waitForTag(tag: String) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }

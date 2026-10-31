@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.tasks
 
+import ai.androidclaw.R
 import ai.androidclaw.app.TasksDependencies
 import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.model.Task
@@ -14,7 +15,7 @@ import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.SchedulerDiagnostics
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
-import ai.androidclaw.runtime.scheduler.userVisiblePreciseWarnings
+import ai.androidclaw.ui.text.UiText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,10 +41,11 @@ data class TaskSessionUi(
 )
 
 data class TasksUiState(
+    val loaded: Boolean = false,
     val tasks: List<Task> = emptyList(),
     val sessions: List<TaskSessionUi> = emptyList(),
     val recentRunsByTaskId: Map<String, List<TaskRun>> = emptyMap(),
-    val runUsageSummaryByRunId: Map<String, String> = emptyMap(),
+    val runUsageSummaryByRunId: Map<String, UiText> = emptyMap(),
     val capabilities: SchedulerCapabilities =
         SchedulerCapabilities(
             minimumBackgroundInterval = Duration.ofMinutes(15),
@@ -51,12 +53,36 @@ data class TasksUiState(
             supportedKinds = emptyList(),
         ),
     val diagnostics: SchedulerDiagnostics = SchedulerDiagnostics(),
-    val nextDailyPreview: Instant? = null,
-    val nextWeekdayPreview: Instant? = null,
-    val actionMessage: String? = null,
+    val actionMessage: UiText? = null,
+) {
+    val minimumIntervalMinutes: Long
+        get() = capabilities.minimumBackgroundInterval.toMinutes().coerceAtLeast(1)
+
+    /** True when at least one precise task cannot get an exact alarm right now. */
+    val needsExactAlarmPermission: Boolean
+        get() = diagnostics.supportsExactAlarms && !diagnostics.exactAlarmGranted && tasks.any { it.precise && it.enabled }
+
+    val notificationsBlocked: Boolean
+        get() =
+            !diagnostics.notificationVisibility.appNotificationsEnabled ||
+                (
+                    diagnostics.notificationVisibility.runtimePermissionRequired &&
+                        !diagnostics.notificationVisibility.runtimePermissionGranted
+                )
+}
+
+/** What the editor submits. Schedule parsing happens in the ViewModel. */
+data class TaskForm(
+    val name: String,
+    val prompt: String,
+    val schedule: TaskScheduleDraft,
+    val executionMode: TaskExecutionMode,
+    val targetSessionId: String?,
+    val precise: Boolean,
 )
 
 internal const val TASK_ACTION_MESSAGE_MAX_CHARS = 1_000
+private const val RECENT_RUNS_PER_TASK = 5
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TasksViewModel(
@@ -64,10 +90,12 @@ class TasksViewModel(
     private val schedulerCoordinator: SchedulerCoordinator,
     private val sessionRepository: SessionRepository,
     private val messageRepository: MessageRepository,
+    private val zoneIdProvider: () -> ZoneId = ZoneId::systemDefault,
+    private val clock: () -> Instant = Instant::now,
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val capabilities = schedulerCoordinator.capabilities()
-    private val actionMessage = MutableStateFlow<String?>(null)
+    private val actionMessage = MutableStateFlow<UiText?>(null)
     private val diagnosticsRefreshes = MutableStateFlow(0)
     private val tasksFlow = taskRepository.observeTasks()
     private val sessionsFlow =
@@ -75,89 +103,62 @@ class TasksViewModel(
             .observeSessions()
             .map { sessions ->
                 sessions.map { session ->
-                    TaskSessionUi(
-                        id = session.id,
-                        title = session.title,
-                        isMain = session.isMain,
-                    )
+                    TaskSessionUi(id = session.id, title = session.title, isMain = session.isMain)
                 }
             }
     private val recentRunsFlow =
-        tasksFlow.flatMapLatest { tasks ->
-            if (tasks.isEmpty()) {
-                flowOf(emptyMap())
-            } else {
-                combine(
-                    tasks.map { task ->
-                        taskRepository.observeRuns(task.id).map { runs ->
-                            task.id to runs.take(3)
-                        }
-                    },
-                ) { taskRuns ->
-                    taskRuns.associate { (taskId, runs) -> taskId to runs }
+        tasksFlow
+            .map { tasks -> tasks.map(Task::id) }
+            .flatMapLatest { taskIds ->
+                if (taskIds.isEmpty()) {
+                    flowOf(emptyMap())
+                } else {
+                    combine(
+                        taskIds.map { taskId ->
+                            taskRepository.observeRuns(taskId).map { runs -> taskId to runs.take(RECENT_RUNS_PER_TASK) }
+                        },
+                    ) { taskRuns -> taskRuns.toMap() }
                 }
             }
-        }
     private val runUsageSummaryFlow =
         recentRunsFlow.flatMapLatest { recentRuns ->
             flow {
-                val outputMessageIds =
-                    recentRuns.values
-                        .flatten()
-                        .mapNotNull(TaskRun::outputMessageId)
-                        .distinct()
+                val runs = recentRuns.values.flatten()
+                val outputMessageIds = runs.mapNotNull(TaskRun::outputMessageId).distinct()
                 if (outputMessageIds.isEmpty()) {
                     emit(emptyMap())
                     return@flow
                 }
                 val messagesById = messageRepository.getMessagesByIds(outputMessageIds)
                 emit(
-                    recentRuns.values
-                        .flatten()
+                    runs
                         .mapNotNull { run ->
                             val outputMessageId = run.outputMessageId ?: return@mapNotNull null
                             val providerMeta =
                                 parseProviderMessageMeta(messagesById[outputMessageId]?.providerMeta)
                                     ?: return@mapNotNull null
-                            buildRunUsageSummary(providerMeta)?.let { usageSummary ->
-                                run.id to usageSummary
-                            }
+                            buildRunUsageSummary(providerMeta)?.let { run.id to it }
                         }.toMap(),
                 )
             }
         }
 
-    private val tasksChromeFlow =
-        combine(
-            tasksFlow,
-            sessionsFlow,
-            recentRunsFlow,
-            runUsageSummaryFlow,
-        ) { tasks, sessions, recentRuns, runUsageSummaries ->
-            val diagnostics = schedulerCoordinator.diagnostics()
-            TasksUiState(
-                tasks = tasks,
-                sessions = sessions,
-                recentRunsByTaskId = recentRuns,
-                runUsageSummaryByRunId = runUsageSummaries,
-                capabilities = capabilities,
-                diagnostics = diagnostics,
-                nextDailyPreview = schedulerCoordinator.nextRunPreview("@daily"),
-                nextWeekdayPreview =
-                    schedulerCoordinator.nextRunPreview(
-                        expression = "0 9 * * 1-5",
-                        zoneId = ZoneId.systemDefault(),
-                    ),
-            )
-        }
-
     val state: StateFlow<TasksUiState> =
         combine(
-            tasksChromeFlow,
+            combine(tasksFlow, sessionsFlow, recentRunsFlow, runUsageSummaryFlow, ::TaskData),
             actionMessage,
             diagnosticsRefreshes,
-        ) { tasksChrome, actionMessageValue, _ ->
-            tasksChrome.copy(actionMessage = actionMessageValue)
+        ) { data, message, _ ->
+            TasksUiState(
+                loaded = true,
+                tasks = data.tasks,
+                sessions = data.sessions,
+                recentRunsByTaskId = data.recentRuns,
+                runUsageSummaryByRunId = data.usage,
+                capabilities = capabilities,
+                diagnostics = schedulerCoordinator.diagnostics(),
+                actionMessage = message,
+            )
         }.stateIn(
             scope = viewModelScope,
             started = uiSharingStarted,
@@ -168,6 +169,8 @@ class TasksViewModel(
                 ),
         )
 
+    suspend fun findTask(taskId: String): Task? = state.value.tasks.firstOrNull { it.id == taskId } ?: taskRepository.getTask(taskId)
+
     fun createTask(
         name: String,
         prompt: String,
@@ -176,6 +179,7 @@ class TasksViewModel(
         targetSessionId: String?,
         precise: Boolean = false,
         maxRetries: Int = 3,
+        onSaved: () -> Unit = {},
     ) {
         viewModelScope.launch {
             val createdTask =
@@ -189,43 +193,114 @@ class TasksViewModel(
                     maxRetries = maxRetries,
                 )
             schedulerCoordinator.scheduleTask(createdTask.id)
-            val warnings = createdTask.userVisiblePreciseWarnings(schedulerCoordinator.diagnostics())
-            actionMessage.value =
-                boundedTaskActionMessage(
-                    buildString {
-                        append("Created task ${createdTask.name}.")
-                        warnings.forEach { warning ->
-                            append(' ').append(warning)
-                        }
-                    },
-                    fallback = "Created task.",
-                )
+            actionMessage.value = UiText.res(R.string.tasks_notice_created, createdTask.name)
+            onSaved()
         }
+    }
+
+    /**
+     * Validates and saves the editor form. Returns a validation error for the
+     * editor to show, or null when the save was started ([onSaved] runs after it
+     * is persisted and rescheduled).
+     */
+    fun saveTask(
+        form: TaskForm,
+        existingTaskId: String?,
+        onSaved: () -> Unit,
+    ): UiText? {
+        val name = form.name.trim()
+        val prompt = form.prompt.trim()
+        if (name.isBlank()) return UiText.res(R.string.tasks_error_name_required)
+        if (prompt.isBlank()) return UiText.res(R.string.tasks_error_prompt_required)
+        val now = clock()
+        val existing = existingTaskId?.let { id -> state.value.tasks.firstOrNull { it.id == id } }
+        val parsed =
+            parseTaskSchedule(
+                draft = form.schedule,
+                minimumIntervalMinutes = state.value.minimumIntervalMinutes,
+                now = now,
+                zoneId = zoneIdProvider(),
+                existing = existing?.schedule,
+            )
+        val schedule =
+            when (parsed) {
+                is TaskScheduleParseResult.Invalid -> return parsed.toUiText(state.value.minimumIntervalMinutes)
+                is TaskScheduleParseResult.Valid -> parsed.schedule
+            }
+        val targetSessionId = form.targetSessionId.takeIf { form.executionMode == TaskExecutionMode.MainSession }
+        if (existingTaskId == null) {
+            createTask(
+                name = name,
+                prompt = prompt,
+                schedule = schedule,
+                executionMode = form.executionMode,
+                targetSessionId = targetSessionId,
+                precise = form.precise,
+                onSaved = onSaved,
+            )
+            return null
+        }
+        viewModelScope.launch {
+            val current = taskRepository.getTask(existingTaskId)
+            if (current == null) {
+                actionMessage.value = UiText.res(R.string.tasks_error_not_found)
+                onSaved()
+                return@launch
+            }
+            val scheduleChanged = current.schedule != schedule
+            val updated =
+                current.copy(
+                    name = name,
+                    prompt = prompt,
+                    schedule = schedule,
+                    executionMode = form.executionMode,
+                    targetSessionId = targetSessionId,
+                    precise = form.precise,
+                    nextRunAt = if (scheduleChanged) initialNextRun(schedule, now) else current.nextRunAt,
+                    failureCount = if (scheduleChanged) 0 else current.failureCount,
+                    updatedAt = now,
+                )
+            taskRepository.updateTask(updated)
+            schedulerCoordinator.cancelTask(updated.id)
+            schedulerCoordinator.scheduleTask(updated.id)
+            actionMessage.value = UiText.res(R.string.tasks_notice_updated, updated.name)
+            onSaved()
+        }
+        return null
     }
 
     fun toggleEnabled(taskId: String) {
         val task = state.value.tasks.firstOrNull { it.id == taskId } ?: return
+        setEnabled(taskId, !task.enabled)
+    }
+
+    fun setEnabled(
+        taskId: String,
+        enabled: Boolean,
+    ) {
         viewModelScope.launch {
+            val task = taskRepository.getTask(taskId) ?: return@launch
+            if (task.enabled == enabled) return@launch
+            val now = clock()
             val updatedTask =
                 task.copy(
-                    enabled = !task.enabled,
-                    updatedAt = Instant.now(),
+                    enabled = enabled,
+                    // A re-enabled task whose stored wake time already passed gets a fresh one.
+                    nextRunAt =
+                        if (enabled && task.nextRunAt?.isAfter(now) != true) {
+                            initialNextRun(task.schedule, now)?.takeIf { it.isAfter(now) }
+                        } else {
+                            task.nextRunAt
+                        },
+                    updatedAt = now,
                 )
             taskRepository.updateTask(updatedTask)
-            if (updatedTask.enabled) {
+            if (enabled) {
                 schedulerCoordinator.scheduleTask(updatedTask.id)
-                actionMessage.value =
-                    boundedTaskActionMessage(
-                        "Enabled ${updatedTask.name}.",
-                        fallback = "Enabled task.",
-                    )
+                actionMessage.value = UiText.res(R.string.tasks_notice_enabled, updatedTask.name)
             } else {
                 schedulerCoordinator.cancelTask(updatedTask.id)
-                actionMessage.value =
-                    boundedTaskActionMessage(
-                        "Disabled ${updatedTask.name}.",
-                        fallback = "Disabled task.",
-                    )
+                actionMessage.value = UiText.res(R.string.tasks_notice_disabled, updatedTask.name)
             }
         }
     }
@@ -233,20 +308,12 @@ class TasksViewModel(
     fun runNow(taskId: String) {
         val task = state.value.tasks.firstOrNull { it.id == taskId }
         if (task == null) {
-            actionMessage.value =
-                boundedTaskActionMessage(
-                    "Run now failed: task not found.",
-                    fallback = "Run now failed.",
-                )
+            actionMessage.value = UiText.res(R.string.tasks_error_not_found)
             return
         }
         viewModelScope.launch {
             schedulerCoordinator.runNow(taskId)
-            actionMessage.value =
-                boundedTaskActionMessage(
-                    "Queued run now for ${task.name}.",
-                    fallback = "Queued run now.",
-                )
+            actionMessage.value = UiText.res(R.string.tasks_notice_run_now, task.name)
         }
     }
 
@@ -258,15 +325,16 @@ class TasksViewModel(
         val taskName =
             state.value.tasks
                 .firstOrNull { it.id == taskId }
-                ?.name ?: "task"
+                ?.name
         viewModelScope.launch {
             schedulerCoordinator.cancelTask(taskId)
             taskRepository.deleteTask(taskId)
             actionMessage.value =
-                boundedTaskActionMessage(
-                    "Deleted $taskName.",
-                    fallback = "Deleted task.",
-                )
+                if (taskName != null) {
+                    UiText.res(R.string.tasks_notice_deleted, taskName)
+                } else {
+                    UiText.res(R.string.tasks_notice_deleted_generic)
+                }
         }
     }
 
@@ -287,31 +355,52 @@ class TasksViewModel(
     }
 }
 
-internal fun boundedTaskActionMessage(
-    message: String?,
-    fallback: String,
-): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(TASK_ACTION_MESSAGE_MAX_CHARS)
+private data class TaskData(
+    val tasks: List<Task>,
+    val sessions: List<TaskSessionUi>,
+    val recentRuns: Map<String, List<TaskRun>>,
+    val usage: Map<String, UiText>,
+)
 
-internal fun buildRunUsageSummary(providerMeta: ProviderMessageMeta): String? {
+internal fun buildRunUsageSummary(providerMeta: ProviderMessageMeta): UiText? {
     val usage = providerMeta.usage ?: return null
-    val tokenSummary =
-        usage.totalTokens?.let { total ->
-            "total $total"
-        } ?: buildList {
-            usage.inputTokens?.let { add("in $it") }
-            usage.outputTokens?.let { add("out $it") }
-        }.takeIf { it.isNotEmpty() }?.joinToString(" / ")
-            ?: return null
-
     val providerLabel =
-        buildList {
-            providerMeta.providerId.takeIf { it.isNotBlank() }?.let(::add)
-            providerMeta.modelId?.takeIf { it.isNotBlank() }?.let(::add)
-        }.joinToString(" · ")
-
-    return if (providerLabel.isNotBlank()) {
-        "$providerLabel · $tokenSummary tokens"
-    } else {
-        "$tokenSummary tokens"
+        listOfNotNull(
+            providerMeta.providerId.takeIf { it.isNotBlank() },
+            providerMeta.modelId?.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+    val total = usage.totalTokens
+    val input = usage.inputTokens
+    val output = usage.outputTokens
+    return when {
+        total != null && providerLabel.isNotBlank() -> UiText.res(R.string.tasks_usage_total_with_provider, providerLabel, total)
+        total != null -> UiText.res(R.string.tasks_usage_total, total)
+        input != null || output != null ->
+            if (providerLabel.isNotBlank()) {
+                UiText.res(R.string.tasks_usage_split_with_provider, providerLabel, input ?: 0, output ?: 0)
+            } else {
+                UiText.res(R.string.tasks_usage_split, input ?: 0, output ?: 0)
+            }
+        else -> null
     }
 }
+
+/** How far through its retry budget a task is, for the run history header. */
+internal fun retryStateText(
+    task: Task,
+    latestRun: TaskRun?,
+    formatInstant: (Instant) -> String,
+): UiText =
+    when {
+        latestRun == null -> UiText.res(R.string.tasks_retry_no_runs)
+        task.failureCount <= 0 -> UiText.res(R.string.tasks_retry_healthy)
+        task.failureCount >= task.maxRetries -> UiText.res(R.string.tasks_retry_exhausted, task.failureCount, task.maxRetries)
+        else -> {
+            val nextWake = task.nextRunAt?.let(formatInstant)
+            if (nextWake == null) {
+                UiText.res(R.string.tasks_retry_budget_unscheduled, task.failureCount, task.maxRetries)
+            } else {
+                UiText.res(R.string.tasks_retry_budget, task.failureCount, task.maxRetries, nextWake)
+            }
+        }
+    }

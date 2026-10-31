@@ -24,6 +24,7 @@ import ai.androidclaw.testutil.FakeOpenAiCodexOAuthClient
 import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
+import ai.androidclaw.testutil.textOrNull
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -163,7 +164,7 @@ class SettingsViewModelTest {
             val state =
                 waitForState(viewModel) {
                     it.providerType == ProviderType.Anthropic &&
-                        it.statusMessage == "Provider settings saved."
+                        it.statusMessage.textOrNull() == "Provider settings saved."
                 }
             val storedSettings = settingsDataStore.settings.first()
             val anthropicSettings = storedSettings.endpointSettings(ProviderType.Anthropic)
@@ -213,7 +214,7 @@ class SettingsViewModelTest {
 
             viewModel.onModelIdChanged("claude-sonnet-4-5")
             state = waitForState(viewModel) { it.modelId == "claude-sonnet-4-5" }
-            assertNull(state.statusMessage)
+            assertNull(state.statusMessage.textOrNull())
         }
 
     @Test
@@ -232,7 +233,7 @@ class SettingsViewModelTest {
 
             val rejected =
                 waitForState(viewModel) {
-                    it.statusMessage == "Timeout must be an integer between 1 and 600 seconds."
+                    it.statusMessage.textOrNull() == "Timeout must be an integer between 1 and 600 seconds."
                 }
             val storedSettings = settingsDataStore.settings.first()
 
@@ -256,7 +257,7 @@ class SettingsViewModelTest {
 
             val rejected =
                 waitForState(viewModel) {
-                    it.statusMessage == "Provider base URL must not include credentials."
+                    it.statusMessage.textOrNull() == "Provider base URL must not include credentials."
                 }
             val storedSettings = settingsDataStore.settings.first()
 
@@ -326,7 +327,7 @@ class SettingsViewModelTest {
                 waitForState(viewModel) {
                     it.providerType == ProviderType.Kimi &&
                         !it.hasStoredApiKey &&
-                        it.statusMessage == "Stored API key cleared."
+                        it.statusMessage.textOrNull() == "Stored API key cleared."
                 }
 
             assertFalse(cleared.configured)
@@ -356,7 +357,7 @@ class SettingsViewModelTest {
                 waitForState(viewModel) {
                     it.providerType == ProviderType.OpenAiCodex &&
                         it.hasOAuthCredential &&
-                        it.statusMessage == "OpenAI Codex sign-in complete."
+                        it.statusMessage.textOrNull() == "OpenAI Codex sign-in complete."
                 }
 
             assertTrue(signedIn.configured)
@@ -395,7 +396,7 @@ class SettingsViewModelTest {
             val timedOut =
                 waitForState(viewModel) {
                     it.providerType == ProviderType.OpenAiCodex &&
-                        it.statusMessage == "OpenAI device authorization timed out after 15 minutes."
+                        it.statusMessage.textOrNull() == "OpenAI device authorization timed out after 15 minutes."
                 }
 
             assertFalse(timedOut.hasOAuthCredential)
@@ -436,7 +437,7 @@ class SettingsViewModelTest {
                 waitForState(viewModel) {
                     it.providerType == ProviderType.OpenAiCodex &&
                         !it.hasOAuthCredential &&
-                        it.statusMessage == "OpenAI Codex sign-in cleared."
+                        it.statusMessage.textOrNull() == "OpenAI Codex sign-in cleared."
                 }
 
             assertFalse(cleared.configured)
@@ -524,8 +525,8 @@ class SettingsViewModelTest {
                     }
                 val request = server.takeRequest(5, TimeUnit.SECONDS)
 
-                assertEquals("Connection test succeeded.", state.statusMessage)
-                assertEquals("Expires 2027-01-15T08:00:00Z", state.oAuthExpiresAtText)
+                assertEquals("Connection test succeeded.", state.statusMessage.textOrNull())
+                assertEquals(java.time.Instant.parse("2027-01-15T08:00:00Z"), state.oAuthExpiresAt)
                 assertEquals("Bearer fresh-access", request!!.getHeader("Authorization"))
                 assertEquals("fresh-access", secretStore.readOAuthCredential(ProviderType.OpenAiCodex)?.accessToken)
             } finally {
@@ -553,12 +554,12 @@ class SettingsViewModelTest {
             val state =
                 waitForState(viewModel) {
                     it.providerType == ProviderType.Anthropic &&
-                        it.statusMessage?.contains("could not be restored", ignoreCase = true) == true
+                        it.statusMessage.textOrNull()?.contains("could not be restored", ignoreCase = true) == true
                 }
 
             assertEquals(
                 "Stored API key could not be restored on this device. Please enter it again.",
-                state.statusMessage,
+                state.statusMessage.textOrNull(),
             )
             assertFalse(state.hasStoredApiKey)
         }
@@ -578,7 +579,7 @@ class SettingsViewModelTest {
 
             val state = waitForState(viewModel) { it.lastValidationSucceeded }
 
-            assertEquals("Connection test succeeded.", state.statusMessage)
+            assertEquals("Connection test succeeded.", state.statusMessage.textOrNull())
             assertEquals(ProviderType.OpenAiCompatible, settingsDataStore.settings.first().providerType)
             assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
         }
@@ -604,17 +605,17 @@ class SettingsViewModelTest {
 
             val state =
                 waitForState(viewModel) {
-                    !it.isValidatingConnection && it.statusMessage?.contains("No active network connection", ignoreCase = true) == true
+                    !it.isValidatingConnection && it.statusMessage.textOrNull()?.contains("No active network connection", ignoreCase = true) == true
                 }
 
             assertFalse(state.lastValidationSucceeded)
             assertEquals(
                 "No active network connection. Remote providers cannot be reached right now.",
-                state.statusMessage,
+                state.statusMessage.textOrNull(),
             )
             assertEquals(
                 "Remote provider calls will fail until network connectivity returns.",
-                state.connectionHint,
+                state.connectionHint.textOrNull(),
             )
             assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
         }
@@ -640,7 +641,7 @@ class SettingsViewModelTest {
 
             val state = waitForState(viewModel) { it.lastValidationSucceeded }
 
-            assertEquals("Connection test succeeded.", state.statusMessage)
+            assertEquals("Connection test succeeded.", state.statusMessage.textOrNull())
             assertEquals("sk-test", secretStore.readApiKey(ProviderType.OpenAiCompatible))
         }
 
@@ -695,7 +696,7 @@ class SettingsViewModelTest {
                 val state = waitForState(viewModel) { it.lastValidationSucceeded }
                 val request = server.takeRequest(5, TimeUnit.SECONDS)
 
-                assertEquals("Connection test succeeded.", state.statusMessage)
+                assertEquals("Connection test succeeded.", state.statusMessage.textOrNull())
                 assertEquals("/v1/chat/completions", request!!.path)
                 assertEquals("Bearer sk-test", request.getHeader("Authorization"))
             } finally {
@@ -737,7 +738,7 @@ class SettingsViewModelTest {
 
             assertEquals(
                 "Remote provider calls will fail until network connectivity returns.",
-                offline.connectionHint,
+                offline.connectionHint.textOrNull(),
             )
 
             currentNetworkStatus =
@@ -756,7 +757,7 @@ class SettingsViewModelTest {
 
             assertEquals(
                 "Use Test connection to verify credentials, endpoint, and model.",
-                recovered.connectionHint,
+                recovered.connectionHint.textOrNull(),
             )
         }
 
@@ -783,18 +784,18 @@ class SettingsViewModelTest {
             assertFalse(initial.memoryEnabled)
 
             viewModel.setMemoryEnabled(true)
-            val enabled = waitForState(viewModel) { it.memoryEnabled && it.statusMessage == "Memory enabled." }
+            val enabled = waitForState(viewModel) { it.memoryEnabled && it.statusMessage.textOrNull() == "Memory enabled." }
             memoryRepository.remember(enabled.memoryInstallUserId, "User prefers compact layouts.")
 
             viewModel.clearMemory()
-            val cleared = waitForState(viewModel) { it.statusMessage?.startsWith("Cleared") == true }
+            val cleared = waitForState(viewModel) { it.statusMessage.textOrNull()?.startsWith("Cleared") == true }
 
             assertEquals(enabled.memoryInstallUserId, cleared.memoryInstallUserId)
             assertEquals(0, cleared.memoryStoredCount)
             assertEquals(0, memoryRepository.countActive(enabled.memoryInstallUserId))
 
             viewModel.setMemoryEnabled(false)
-            val disabled = waitForState(viewModel) { !it.memoryEnabled && it.statusMessage == "Memory disabled." }
+            val disabled = waitForState(viewModel) { !it.memoryEnabled && it.statusMessage.textOrNull() == "Memory disabled." }
 
             assertFalse(disabled.memoryEnabled)
         }

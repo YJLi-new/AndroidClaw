@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.skills
 
+import ai.androidclaw.R
 import ai.androidclaw.app.SkillsDependencies
 import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.SKILL_CONFIG_VALUE_MAX_CHARS
@@ -11,6 +12,8 @@ import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSecretField
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
+import ai.androidclaw.ui.text.UiText
+import ai.androidclaw.ui.text.toRawUiTextOrNull
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,8 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal const val SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE =
-    "Skill configuration input truncated by AndroidClaw to keep the dialog responsive."
+internal val SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE: UiText = UiText.res(R.string.skills_config_input_truncated)
 internal const val SKILL_IMPORT_STATUS_MAX_LISTED_NAMES = 4
 internal const val SKILL_IMPORT_STATUS_NAME_MAX_CHARS = 80
 internal const val SKILL_IMPORT_STATUS_MAX_CHARS = 1_000
@@ -41,7 +43,7 @@ private fun String.toBoundedSkillConfigurationInput(maxChars: Int): BoundedSkill
     )
 }
 
-private fun skillConfigurationInputMessage(wasTruncated: Boolean): String? =
+private fun skillConfigurationInputMessage(wasTruncated: Boolean): UiText? =
     if (wasTruncated) {
         SKILL_CONFIGURATION_INPUT_TRUNCATED_NOTICE
     } else {
@@ -52,7 +54,7 @@ data class SkillsUiState(
     val loading: Boolean = true,
     val isImporting: Boolean = false,
     val skills: List<SkillSnapshot> = emptyList(),
-    val statusMessage: String? = null,
+    val statusMessage: UiText? = null,
     val configurationDialog: SkillConfigurationDialogState? = null,
     val enableConfirmation: SkillEnableConfirmationState? = null,
 )
@@ -63,7 +65,7 @@ data class SkillConfigurationDialogState(
     val displayName: String,
     val loading: Boolean = true,
     val saving: Boolean = false,
-    val message: String? = null,
+    val message: UiText? = null,
     val secretFields: List<EditableSkillSecretField> = emptyList(),
     val configFields: List<EditableSkillConfigField> = emptyList(),
 ) {
@@ -97,9 +99,9 @@ data class EditableSkillConfigField(
 data class SkillEnableConfirmationState(
     val skillId: String,
     val displayName: String,
-    val sourceLabel: String,
-    val dispatchSummary: String,
-    val scopeSummary: String,
+    val sourceLabel: UiText,
+    val dispatchSummary: UiText,
+    val scopeSummary: UiText,
 )
 
 class SkillsViewModel(
@@ -134,7 +136,7 @@ class SkillsViewModel(
                 updateDialog { dialog ->
                     dialog.copy(
                         loading = false,
-                        message = configuration.recoveryMessage.toBoundedSkillUiMessageOrNull(),
+                        message = configuration.recoveryMessage.toRawUiTextOrNull(SKILL_UI_MESSAGE_MAX_CHARS),
                         secretFields = configuration.secretFields.toEditableSecretFields(),
                         configFields = configuration.configFields.toEditableConfigFields(),
                     )
@@ -143,7 +145,7 @@ class SkillsViewModel(
                 updateDialog { dialog ->
                     dialog.copy(
                         loading = false,
-                        message = boundedSkillUiMessage(error.message, "Failed to load skill configuration."),
+                        message = boundedSkillUiText(error.message, R.string.skills_error_load_config),
                     )
                 }
             }
@@ -294,12 +296,12 @@ class SkillsViewModel(
                     val existingDialog = state.configurationDialog ?: return@update state
                     state.copy(
                         skills = skills,
-                        statusMessage = boundedSkillUiMessage("Saved configuration for ${existingDialog.displayName}.", "Saved configuration."),
+                        statusMessage = UiText.res(R.string.skills_notice_config_saved, existingDialog.displayName),
                         configurationDialog =
                             existingDialog.copy(
                                 loading = false,
                                 saving = false,
-                                message = if (configuration == null) "Saved configuration." else null,
+                                message = if (configuration == null) UiText.res(R.string.skills_notice_config_saved_generic) else null,
                                 secretFields =
                                     configuration?.secretFields?.toEditableSecretFields()
                                         ?: existingDialog.secretFields.map { field ->
@@ -325,7 +327,7 @@ class SkillsViewModel(
                 updateDialog { existingDialog ->
                     existingDialog.copy(
                         saving = false,
-                        message = boundedSkillUiMessage(error.message, "Failed to save skill configuration."),
+                        message = boundedSkillUiText(error.message, R.string.skills_error_save_config),
                     )
                 }
             }
@@ -376,9 +378,9 @@ class SkillsViewModel(
                     enableConfirmation = null,
                     statusMessage =
                         if (enabled) {
-                            "Enabled skill."
+                            UiText.res(R.string.skills_notice_enabled)
                         } else {
-                            "Disabled skill."
+                            UiText.res(R.string.skills_notice_disabled)
                         },
                 )
             }
@@ -408,7 +410,7 @@ class SkillsViewModel(
                 mutableState.update {
                     it.copy(
                         isImporting = false,
-                        statusMessage = boundedSkillUiMessage(error.message, "Skill import failed."),
+                        statusMessage = boundedSkillUiText(error.message, R.string.skills_error_import),
                     )
                 }
             }
@@ -435,7 +437,7 @@ class SkillsViewModel(
                 mutableState.update {
                     it.copy(
                         loading = false,
-                        statusMessage = boundedSkillUiMessage(error.message, "Failed to load skills."),
+                        statusMessage = boundedSkillUiText(error.message, R.string.skills_error_load),
                     )
                 }
             }
@@ -466,39 +468,40 @@ internal fun boundedSkillUiMessage(
     fallback: String,
 ): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(SKILL_UI_MESSAGE_MAX_CHARS)
 
-private fun String?.toBoundedSkillUiMessageOrNull(): String? =
-    this
-        ?.take(SKILL_UI_MESSAGE_MAX_CHARS)
-        ?.takeIf(String::isNotBlank)
+/** Runtime errors are shown verbatim (bounded); blank ones fall back to [fallbackRes]. */
+internal fun boundedSkillUiText(
+    message: String?,
+    fallbackRes: Int,
+): UiText = message.toRawUiTextOrNull(SKILL_UI_MESSAGE_MAX_CHARS) ?: UiText.res(fallbackRes)
 
-internal fun buildSkillImportStatusMessage(result: SkillImportResult): String =
-    buildString {
-        append("Imported ${result.importedSkillNames.size} skill")
-        if (result.importedSkillNames.size != 1) {
-            append('s')
+internal fun buildSkillImportStatusMessage(result: SkillImportResult): UiText {
+    val imported = result.importedSkillNames
+    val importedText =
+        if (imported.isEmpty()) {
+            UiText.plural(R.plurals.skills_import_summary_none, 0, 0)
+        } else {
+            UiText.plural(R.plurals.skills_import_summary, imported.size, imported.size, skillNameSummary(imported))
         }
-        appendSkillNameSummary(prefix = ": ", names = result.importedSkillNames)
-        appendSkillNameSummary(prefix = ". Replaced: ", names = result.replacedSkillNames)
-    }.take(SKILL_IMPORT_STATUS_MAX_CHARS)
-
-private fun StringBuilder.appendSkillNameSummary(
-    prefix: String,
-    names: List<String>,
-) {
-    if (names.isEmpty()) {
-        return
+    if (result.replacedSkillNames.isEmpty()) {
+        return importedText
     }
-    append(prefix)
-    append(
+    return UiText.res(
+        R.string.skills_import_summary_with_replaced,
+        importedText,
+        skillNameSummary(result.replacedSkillNames),
+    )
+}
+
+private fun skillNameSummary(names: List<String>): UiText {
+    val listed =
         names
             .take(SKILL_IMPORT_STATUS_MAX_LISTED_NAMES)
-            .joinToString { name -> name.take(SKILL_IMPORT_STATUS_NAME_MAX_CHARS) },
-    )
+            .joinToString { name -> name.take(SKILL_IMPORT_STATUS_NAME_MAX_CHARS) }
     val omittedCount = names.size - SKILL_IMPORT_STATUS_MAX_LISTED_NAMES
-    if (omittedCount > 0) {
-        append(", +")
-        append(omittedCount)
-        append(" more")
+    return if (omittedCount > 0) {
+        UiText.res(R.string.skills_import_names_more, listed, omittedCount)
+    } else {
+        UiText.raw(listed)
     }
 }
 
@@ -523,34 +526,34 @@ private fun SkillSnapshot.requiresEnableConfirmation(): Boolean = sourceType == 
 
 private fun SkillSnapshot.toEnableConfirmationState(): SkillEnableConfirmationState {
     val frontmatter = frontmatter
+    val commandTool = frontmatter?.commandTool
     val dispatchSummary =
         when {
-            frontmatter?.commandDispatch == SkillCommandDispatch.Tool &&
-                !frontmatter.commandTool.isNullOrBlank() ->
-                "Slash command dispatches to tool `${frontmatter.commandTool}`."
+            frontmatter?.commandDispatch == SkillCommandDispatch.Tool && !commandTool.isNullOrBlank() ->
+                UiText.res(R.string.skills_confirm_dispatch_tool, commandTool)
             frontmatter?.commandDispatch == SkillCommandDispatch.Tool ->
-                "Slash command requests tool dispatch but no target tool is declared."
-            else ->
-                "Model-dispatched skill may be added to model context when eligible."
+                UiText.res(R.string.skills_confirm_dispatch_tool_missing)
+            else -> UiText.res(R.string.skills_confirm_dispatch_model)
         }
     val scopeSummary =
         if (frontmatter?.commandDispatch == SkillCommandDispatch.Tool) {
-            "Tool calls run with this skill id as active scope; registry origin and risk gates still apply."
+            UiText.res(R.string.skills_confirm_scope_tool)
         } else {
-            "Instructions are local untrusted context; they do not bypass tool origin, risk, or confirmation gates."
+            UiText.res(R.string.skills_confirm_scope_model)
         }
     return SkillEnableConfirmationState(
         skillId = id,
         displayName = displayName,
-        sourceLabel = sourceLabelForConfirmation(),
+        sourceLabel = sourceLabel(),
         dispatchSummary = dispatchSummary,
         scopeSummary = scopeSummary,
     )
 }
 
-private fun SkillSnapshot.sourceLabelForConfirmation(): String =
+/** Long source label used in the trust confirmation and the detail screen. */
+internal fun SkillSnapshot.sourceLabel(): UiText =
     when (sourceType) {
-        SkillSourceType.Bundled -> "Bundled"
-        SkillSourceType.Local -> "Local import (untrusted)"
-        SkillSourceType.Workspace -> "Workspace import (untrusted) ${workspaceSessionId.orEmpty()}".trim()
+        SkillSourceType.Bundled -> UiText.res(R.string.skills_source_bundled)
+        SkillSourceType.Local -> UiText.res(R.string.skills_source_local_untrusted)
+        SkillSourceType.Workspace -> UiText.res(R.string.skills_source_workspace_untrusted)
     }

@@ -27,7 +27,9 @@ import java.time.Instant
 data class HealthUiState(
     val providerId: String = "",
     val networkSummary: String = "",
+    val network: ai.androidclaw.runtime.providers.NetworkStatusSnapshot? = null,
     val providerStatus: String = "",
+    val providerStatusKind: ProviderStatusKind = ProviderStatusKind.Fake,
     val lastProviderIssue: String? = null,
     val lastCrashSummary: String? = null,
     val lastCrashStackTrace: String? = null,
@@ -77,6 +79,7 @@ class HealthViewModel(
             HealthUiState(
                 providerId = providerRegistry.require(settings.providerType).id.toBoundedHealthUiField(),
                 networkSummary = networkStatus.summary.toBoundedHealthUiField(),
+                network = networkStatus,
                 providerStatus =
                     buildProviderStatus(
                         providerType = providerType,
@@ -84,6 +87,7 @@ class HealthViewModel(
                         lastProviderIssue = lastProviderIssueSummary,
                     ).toBoundedHealthUiField(),
                 lastProviderIssue = lastProviderIssueSummary,
+                providerStatusKind = providerStatusKind(providerType, networkStatus, lastProviderIssueSummary),
                 lastCrashSummary = crashMarker?.let(::buildCrashSummary).toBoundedHealthUiFieldOrNull(),
                 lastCrashStackTrace = crashMarker?.stackTrace.toBoundedHealthUiStackTraceOrNull(),
                 bugReportInstructions = BUG_REPORT_INSTRUCTIONS.toBoundedHealthUiField(),
@@ -152,6 +156,29 @@ class HealthViewModel(
             }
     }
 }
+
+enum class ProviderStatusKind {
+    Fake,
+    Offline,
+    Unvalidated,
+    LastIssue,
+    Metered,
+    Ready,
+}
+
+private fun providerStatusKind(
+    providerType: ProviderType,
+    networkStatus: ai.androidclaw.runtime.providers.NetworkStatusSnapshot,
+    lastProviderIssue: String?,
+): ProviderStatusKind =
+    when {
+        !providerType.requiresRemoteSettings -> ProviderStatusKind.Fake
+        !networkStatus.isConnected -> ProviderStatusKind.Offline
+        !networkStatus.isValidated -> ProviderStatusKind.Unvalidated
+        !lastProviderIssue.isNullOrBlank() -> ProviderStatusKind.LastIssue
+        networkStatus.isMetered -> ProviderStatusKind.Metered
+        else -> ProviderStatusKind.Ready
+    }
 
 private fun buildProviderStatus(
     providerType: ProviderType,

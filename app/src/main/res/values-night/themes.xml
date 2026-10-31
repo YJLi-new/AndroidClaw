@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.AndroidClaw" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/claw_window_background</item>
+    </style>
+</resources>

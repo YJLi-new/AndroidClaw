@@ -22,6 +22,8 @@ import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.testutil.InMemorySkillConfigStore
 import ai.androidclaw.testutil.InMemorySkillSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
+import ai.androidclaw.testutil.text
+import ai.androidclaw.testutil.textOrNull
 import android.content.res.AssetManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -94,7 +96,7 @@ class SkillsViewModelTest {
                     importedSkillNames = importedNames,
                     replacedSkillNames = replacedNames,
                 ),
-            )
+            ).text()
 
         assertTrue(message.length <= SKILL_IMPORT_STATUS_MAX_CHARS)
         assertTrue(message.startsWith("Imported ${importedNames.size} skills: imported-0-"))
@@ -243,7 +245,7 @@ class SkillsViewModelTest {
             assertFalse(dialog.secretFields.single().clearRequested)
             assertEquals("primary", dialog.configFields.single().storedValue)
             assertEquals("primary", dialog.configFields.single().draftValue)
-            assertEquals("Saved configuration for config_skill.", saved.statusMessage)
+            assertEquals("Saved configuration for config_skill.", saved.statusMessage.textOrNull())
         }
 
     @Test
@@ -350,9 +352,9 @@ class SkillsViewModelTest {
                 }
 
             val confirmation = waitingForConfirmation.enableConfirmation!!
-            assertEquals("Local import (untrusted)", confirmation.sourceLabel)
-            assertTrue(confirmation.dispatchSummary.contains("tasks.list"))
-            assertTrue(confirmation.scopeSummary.contains("active scope"))
+            assertEquals("Local import (untrusted)", confirmation.sourceLabel.text())
+            assertTrue(confirmation.dispatchSummary.text().contains("tasks.list"))
+            assertTrue(confirmation.scopeSummary.text().contains("active scope"))
 
             viewModel.confirmEnableSkill()
             val enabled =
@@ -361,7 +363,7 @@ class SkillsViewModelTest {
                         it.skills.single().enabled
                 }
 
-            assertEquals("Enabled skill.", enabled.statusMessage)
+            assertEquals("Enabled skill.", enabled.statusMessage.textOrNull())
         }
 
     private fun createSkillManager(
