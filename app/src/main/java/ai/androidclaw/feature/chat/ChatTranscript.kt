@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -149,13 +150,26 @@ internal fun ChatToolCard(
     running: Boolean,
 ) {
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
-    val title = item.toolName.ifBlank { stringResource(R.string.chat_tool_unknown) }
+    val view = remember(item.result) { item.result?.let(::parseToolResultView) }
+    val arguments = remember(item.arguments) { formatToolArguments(item.arguments) }
+    val toolName = item.toolName.ifBlank { stringResource(R.string.chat_tool_unknown) }
+    val errorCode = view?.errorCode
+    val failed = errorCode != null
+    val title = view?.headline?.takeIf(String::isNotBlank) ?: toolName
     val status =
         when {
-            item.result != null -> stringResource(R.string.chat_tool_status_done)
+            errorCode != null -> stringResource(R.string.chat_tool_status_failed, errorCode)
+            view != null -> stringResource(R.string.chat_tool_status_done)
             running -> stringResource(R.string.chat_tool_status_running)
             else -> stringResource(R.string.chat_tool_status_no_result)
         }
+    val subtitle = if (title == toolName) status else "$toolName · $status"
+    val resultBody =
+        view
+            ?.let { listOfNotNull(it.summary.takeIf { summary -> summary != it.headline }, it.payload) }
+            ?.filter(String::isNotBlank)
+            ?.joinToString("\n\n")
+            .orEmpty()
     val expandLabel =
         stringResource(if (expanded) R.string.chat_tool_collapse else R.string.chat_tool_expand)
     Surface(
@@ -187,24 +201,23 @@ internal fun ChatToolCard(
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                 } else {
                     ClawIcon(
-                        iconRes = R.drawable.ic_build,
+                        iconRes = if (failed) R.drawable.ic_error else R.drawable.ic_build,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
+                        maxLines = if (expanded) 4 else 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val summary = item.result?.lineSequence()?.firstOrNull { it.isNotBlank() }
                     Text(
-                        text = if (!expanded && summary != null) "$status · $summary" else status,
+                        text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -220,11 +233,11 @@ internal fun ChatToolCard(
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (item.arguments.isNotBlank()) {
-                        ToolDetail(label = stringResource(R.string.chat_tool_arguments), body = item.arguments)
+                    if (arguments.isNotBlank() && arguments != "{}") {
+                        ToolDetail(label = stringResource(R.string.chat_tool_arguments), body = arguments)
                     }
-                    item.result?.let { result ->
-                        ToolDetail(label = stringResource(R.string.chat_tool_result), body = result)
+                    if (resultBody.isNotBlank()) {
+                        ToolDetail(label = stringResource(R.string.chat_tool_result), body = resultBody)
                     }
                 }
             }

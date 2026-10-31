@@ -74,6 +74,7 @@
     <string name="chat_tool_status_done">完成</string>
     <string name="chat_tool_status_running">运行中</string>
     <string name="chat_tool_status_no_result">无结果</string>
+    <string name="chat_tool_status_failed">失败：%1$s</string>
     <string name="chat_tool_expand">显示详情</string>
     <string name="chat_tool_collapse">隐藏详情</string>
     <string name="chat_tool_arguments">参数</string>

@@ -79,6 +79,7 @@
     <string name="chat_tool_status_done">Done</string>
     <string name="chat_tool_status_running">Running</string>
     <string name="chat_tool_status_no_result">No result</string>
+    <string name="chat_tool_status_failed">Failed: %1$s</string>
     <string name="chat_tool_expand">Show details</string>
     <string name="chat_tool_collapse">Hide details</string>
     <string name="chat_tool_arguments">Arguments</string>
