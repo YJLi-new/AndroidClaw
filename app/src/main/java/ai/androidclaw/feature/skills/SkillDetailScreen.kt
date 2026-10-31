@@ -190,7 +190,7 @@ private fun SkillSummary(
                 },
         )
         ClawFactRow(label = stringResource(R.string.skills_detail_source), value = skill.sourceLabel().asString())
-        ClawFactRow(label = stringResource(R.string.skills_detail_eligibility), value = eligibilityLabel(skill.eligibility.status))
+        ClawFactRow(label = stringResource(R.string.skills_detail_eligibility), value = stringResource(skillStateLabelRes(skill.enabled, skill.eligibility.status)))
         if (skill.skillKey != skill.displayName) {
             ClawFactRow(label = stringResource(R.string.skills_detail_key), value = skill.skillKey)
         }
