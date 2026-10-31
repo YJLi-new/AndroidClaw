@@ -1,55 +1,62 @@
 package ai.androidclaw.feature.chat
 
 import ai.androidclaw.R
-import ai.androidclaw.ui.components.ClawActionPill
-import ai.androidclaw.ui.components.ClawBlueSoft
-import ai.androidclaw.ui.components.ClawCard
-import ai.androidclaw.ui.components.ClawCardBackground
-import ai.androidclaw.ui.components.ClawGreen
-import ai.androidclaw.ui.components.ClawGreenMuted
-import ai.androidclaw.ui.components.ClawInk
-import ai.androidclaw.ui.components.ClawInkMuted
-import ai.androidclaw.ui.components.ClawMintSoft
-import ai.androidclaw.ui.components.ClawPage
-import ai.androidclaw.ui.components.ClawScreenHeader
+import ai.androidclaw.ui.components.ClawConfirmDialog
+import ai.androidclaw.ui.components.ClawEmptyState
+import ai.androidclaw.ui.components.ClawIcon
+import ai.androidclaw.ui.components.ClawIconButton
+import ai.androidclaw.ui.components.ClawNotice
+import ai.androidclaw.ui.components.NoticeTone
+import ai.androidclaw.ui.text.UiText
+import ai.androidclaw.ui.text.asString
+import ai.androidclaw.ui.text.resolve
 import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,45 +65,61 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
-private val ChatChipMaxWidth = 160.dp
-private val SelectedSessionChipMaxWidth = 128.dp
-private val SessionChipMaxWidth = 92.dp
+private const val SLASH_SUGGESTION_LIMIT = 6
+
+private sealed interface ChatDialog {
+    data class Rename(
+        val session: ChatSessionUi,
+    ) : ChatDialog
+
+    data class Delete(
+        val session: ChatSessionUi,
+    ) : ChatDialog
+
+    data object Usage : ChatDialog
+
+    data object Search : ChatDialog
+
+    data object Share : ChatDialog
+}
 
 @Composable
-fun ChatScreen(viewModel: ChatViewModel) {
+fun ChatScreen(
+    viewModel: ChatViewModel,
+    onOpenProviderSettings: () -> Unit,
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var renameDraft by rememberSaveable(state.currentSessionId) { mutableStateOf(state.sessionTitle) }
-    var renameNotice by rememberSaveable(state.currentSessionId) { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val snackbarHostState = remember { SnackbarHostState() }
+    var dialog by remember { mutableStateOf<ChatDialog?>(null) }
     var pendingExport by remember { mutableStateOf<ChatExportFileRequest?>(null) }
-    var showSearchDialog by rememberSaveable { mutableStateOf(false) }
-    var showShareDialog by rememberSaveable { mutableStateOf(false) }
-    var showUsageDialog by rememberSaveable { mutableStateOf(false) }
-    var showMoreFeatures by rememberSaveable { mutableStateOf(false) }
-    val messageListState = rememberLazyListState()
-    val externalActionScope = rememberCoroutineScope()
     val exportLauncher =
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.StartActivityForResult(),
@@ -104,61 +127,25 @@ fun ChatScreen(viewModel: ChatViewModel) {
             val payload = pendingExport
             pendingExport = null
             if (payload == null) return@rememberLauncherForActivityResult
-            if (result.resultCode != Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (result.resultCode != Activity.RESULT_OK || uri == null) {
                 viewModel.onExportCancelled()
                 return@rememberLauncherForActivityResult
             }
-            val uri = result.data?.data
-            if (uri == null) {
-                viewModel.onExternalActionFailed("Failed to export ${payload.fileName}: no file destination selected.")
-                return@rememberLauncherForActivityResult
-            }
-            externalActionScope.launch {
+            scope.launch {
                 runCatching {
-                    withContext(Dispatchers.IO) {
-                        writeExportPayload(context, uri, payload, viewModel)
-                    }
+                    withContext(Dispatchers.IO) { writeExportPayload(context, uri, payload, viewModel) }
                 }.onSuccess {
-                    viewModel.onExternalActionCompleted("Saved ${payload.fileName}.")
+                    viewModel.onExternalActionCompleted(UiText.res(R.string.chat_notice_export_saved, payload.fileName))
                 }.onFailure { error ->
                     viewModel.onExternalActionFailed(
-                        "Failed to export ${payload.fileName}: ${error.message ?: "unknown error"}.",
+                        UiText.res(R.string.chat_error_export_failed, error.message ?: payload.fileName),
                     )
                 }
             }
         }
 
-    LaunchedEffect(state.sessionTitle, state.currentSessionId) {
-        renameDraft = state.sessionTitle
-        renameNotice = null
-    }
-
-    LaunchedEffect(state.highlightedMessageId, state.messages) {
-        val highlightedMessageId = state.highlightedMessageId ?: return@LaunchedEffect
-        val targetIndex = state.messages.indexOfFirst { it.id == highlightedMessageId }
-        if (targetIndex >= 0) {
-            val leadingItemCount = if (state.compactedHiddenMessageCount > 0) 1 else 0
-            messageListState.animateScrollToItem(targetIndex + leadingItemCount)
-        }
-    }
-
-    LaunchedEffect(state.messages.size, state.isRunning, state.activeTurnStage, state.highlightedMessageId) {
-        if (state.highlightedMessageId != null || state.messages.isEmpty()) {
-            return@LaunchedEffect
-        }
-        val streamingItemVisible = state.streamingAssistantText.isNotBlank() || state.activeTurnStage != null
-        val leadingItemCount = if (state.compactedHiddenMessageCount > 0) 1 else 0
-        val targetIndex =
-            leadingItemCount +
-                if (streamingItemVisible) {
-                    state.messages.size
-                } else {
-                    state.messages.lastIndex
-                }
-        messageListState.animateScrollToItem(targetIndex)
-    }
-
-    LaunchedEffect(viewModel, context) {
+    LaunchedEffect(viewModel) {
         viewModel.actions.collect { action ->
             when (action) {
                 is ChatExternalAction.ExportDocument -> {
@@ -166,591 +153,582 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     exportLauncher.launch(createExportDocumentIntent(action.payload))
                 }
 
-                is ChatExternalAction.ShareText -> {
-                    launchShareText(context, action)
-                }
+                is ChatExternalAction.ShareText -> launchShareText(context, action)
 
-                is ChatExternalAction.ShareFile -> {
+                is ChatExternalAction.ShareFile ->
                     runCatching {
-                        val uri =
-                            withContext(Dispatchers.IO) {
-                                writeShareFile(context, action.payload, viewModel)
-                            }
+                        val uri = withContext(Dispatchers.IO) { writeShareFile(context, action.payload, viewModel) }
                         launchShareFile(context, action.payload, uri)
                     }.onFailure { error ->
                         viewModel.onExternalActionFailed(
-                            "Failed to share ${action.payload.fileName}: ${error.message ?: "unknown error"}.",
+                            UiText.res(R.string.chat_error_share_failed, error.message ?: action.payload.fileName),
                         )
                     }
-                }
             }
         }
     }
 
-    ClawPage(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-                    .testTag("chatScreen"),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ClawScreenHeader(
-                iconRes = R.drawable.ic_launcher,
-                title = state.sessionTitle.ifBlank { "Loading session..." },
-                subtitle = "Active session",
-                titleTestTag = "chatHeading",
-                iconTint = null,
-            )
-            Text("Session", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = renameDraft,
-                    onValueChange = { value ->
-                        val boundedInput = boundChatRenameInput(value)
-                        renameDraft = boundedInput.value
-                        renameNotice =
-                            if (boundedInput.wasTruncated) {
-                                CHAT_SESSION_RENAME_TRUNCATED_NOTICE
-                            } else {
-                                null
-                            }
-                    },
-                    modifier = Modifier.weight(1f),
-                    label = { SingleLineText("Session title") },
-                    singleLine = true,
-                    enabled = !state.isRunning,
-                )
-                ClawActionPill(
-                    text = "Rename",
-                    onClick = { viewModel.renameCurrentSession(renameDraft) },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-                ClawActionPill(
-                    text = "Archive",
-                    onClick = viewModel::archiveCurrentSession,
-                    enabled = state.canArchiveCurrentSession && !state.isRunning,
-                )
-            }
-            renameNotice?.let { notice ->
-                Text(
-                    text = notice,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = ClawInkMuted,
-                )
-            }
-            state.providerNotice?.let { providerNotice ->
-                ClawCard(containerColor = ClawMintSoft) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Provider",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = ClawGreen,
-                        )
-                        Text(
-                            text = providerNotice,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                }
-            }
-            state.noticeMessage?.let { noticeMessage ->
-                ClawCard(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .semantics { liveRegion = LiveRegionMode.Polite },
-                    containerColor = ClawMintSoft,
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Status",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = ClawGreen,
-                        )
-                        Text(
-                            text = noticeMessage,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-                }
-            }
-            state.errorMessage?.let { errorMessage ->
-                ClawCard(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .semantics { liveRegion = LiveRegionMode.Assertive },
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = "Turn failed",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        Text(
-                            text = errorMessage,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        if (state.canRetryLastFailedTurn) {
-                            Button(onClick = viewModel::retryLastFailedTurn) {
-                                Text("Retry")
-                            }
-                        }
-                    }
-                }
-            }
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(end = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(state.sessions, key = { it.id }) { session ->
-                    val sessionLabelMaxWidth =
-                        if (session.isSelected) {
-                            SelectedSessionChipMaxWidth
-                        } else {
-                            SessionChipMaxWidth
-                        }
-                    ClawActionPill(
-                        text = session.title,
-                        onClick = { viewModel.switchSession(session.id) },
-                        modifier = Modifier.widthIn(max = sessionLabelMaxWidth),
-                        selected = session.isSelected,
-                        enabled = !state.isRunning,
-                    )
-                }
-                item {
-                    ClawActionPill(
-                        text = "New session",
-                        onClick = { viewModel.createNewSession("Session ${state.sessions.size + 1}") },
-                        enabled = !state.isRunning,
-                    )
-                }
-            }
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                state = messageListState,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (state.compactedHiddenMessageCount > 0) {
-                    item(key = "compact-summary") {
-                        ClawCard(containerColor = ClawMintSoft) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = "Session compacted",
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                state.sessionSummary?.takeIf { it.isNotBlank() }?.let { summary ->
-                                    ChatRichText(
-                                        text = summary,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                }
-                                Text(
-                                    text =
-                                        if (state.showCompactedHistory) {
-                                            "${state.compactedHiddenMessageCount} older messages are shown below for review."
-                                        } else {
-                                            "${state.compactedHiddenMessageCount} older messages hidden behind this summary."
-                                        },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                TextButton(
-                                    onClick = viewModel::toggleCompactedHistory,
-                                    enabled = !state.isRunning,
-                                ) {
-                                    Text(
-                                        text =
-                                            if (state.showCompactedHistory) {
-                                                "Hide older messages"
-                                            } else {
-                                                "Show older messages"
-                                            },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                if (
-                    state.messages.isEmpty() &&
-                    state.compactedHiddenMessageCount == 0 &&
-                    state.streamingAssistantText.isBlank() &&
-                    !state.isRunning
-                ) {
-                    item(key = "empty-chat") {
-                        ClawCard(containerColor = ClawMintSoft) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    text = "No messages yet",
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                Text(
-                                    text = "Start a conversation, run a slash command, or export/share the current session once it has content.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-                        }
-                    }
-                }
-                items(state.messages, key = { it.id }) { message ->
-                    val appearance =
-                        messageAppearance(
-                            role = message.role,
-                            isHighlighted = message.id == state.highlightedMessageId,
-                        )
-                    MessageBubble(
-                        message = message,
-                        appearance = appearance,
-                    )
-                }
-                if (state.streamingAssistantText.isNotBlank() || (state.isRunning && state.activeTurnStage != null)) {
-                    item(key = "streaming-assistant") {
-                        ClawCard(containerColor = ClawBlueSoft) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = "ASSISTANT",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                state.activeTurnStage?.let { stage ->
-                                    Text(
-                                        text = stage,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                                ChatRichText(
-                                    text = state.streamingAssistantText.ifBlank { "Working..." },
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            if (state.isRunning) {
-                ClawCard {
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val runningStateDescription =
-                            state.activeTurnStage ?: if (state.isCancelling) "Cancelling..." else "Waiting for response"
-                        CircularProgressIndicator(
-                            modifier =
-                                Modifier
-                                    .size(20.dp)
-                                    .semantics { stateDescription = runningStateDescription },
-                        )
-                        Text(
-                            text = runningStateDescription,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Button(
-                            onClick = viewModel::cancelActiveTurn,
-                            enabled = !state.isCancelling,
-                        ) {
-                            Text(if (state.isCancelling) "Cancelling" else "Cancel")
-                        }
-                    }
-                }
-            }
-            val canSendDraft = !state.isRunning && state.draft.isNotBlank()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                OutlinedTextField(
-                    value = state.draft,
-                    onValueChange = viewModel::onDraftChanged,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { SingleLineText("Message or slash command") },
-                    minLines = 1,
-                    maxLines = 4,
-                    enabled = !state.isRunning,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions =
-                        KeyboardActions(
-                            onSend = {
-                                if (canSendDraft) {
-                                    viewModel.sendCurrentDraft()
-                                }
-                            },
-                        ),
-                )
-                ComposerIconButton(
-                    iconRes = R.drawable.ic_send_enter,
-                    contentDescription = "Send message",
-                    onClick = viewModel::sendCurrentDraft,
-                    enabled = canSendDraft,
-                    accentColor = ClawGreen,
-                    accentContentColor = Color.White,
-                    disabledContainerColor = ClawGreenMuted,
-                    disabledIconColor = ClawGreen,
-                )
-                ComposerIconButton(
-                    iconRes = R.drawable.ic_plus_circle,
-                    contentDescription =
-                        if (showMoreFeatures) {
-                            "Hide more features"
-                        } else {
-                            "Show more features"
+    LaunchedEffect(state.noticeMessage) {
+        val notice = state.noticeMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(notice.resolve(context))
+        viewModel.clearNotice()
+    }
+
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
+    val defaultNewSessionTitle = stringResource(R.string.chat_new_session_default_title, state.sessions.size + 1)
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen,
+        drawerContent = {
+            ChatSessionDrawer(
+                sessions = state.sessions,
+                archivedSessions = state.archivedSessions,
+                showArchived = state.showArchivedSessions,
+                enabled = !state.isRunning,
+                actions =
+                    SessionDrawerActions(
+                        onNewSession = {
+                            viewModel.createNewSession(defaultNewSessionTitle)
+                            scope.launch { drawerState.close() }
                         },
-                    selected = showMoreFeatures,
-                    enabled = !state.isRunning,
-                    onClick = { showMoreFeatures = !showMoreFeatures },
-                    accentColor = ClawInk,
-                )
-            }
-            if (showMoreFeatures) {
-                MoreFeaturesPanel(
+                        onSelect = { session ->
+                            viewModel.switchSession(session.id)
+                            scope.launch { drawerState.close() }
+                        },
+                        onRename = { session -> dialog = ChatDialog.Rename(session) },
+                        onArchive = { session -> viewModel.archiveSession(session.id) },
+                        onRestore = { session -> viewModel.restoreSession(session.id) },
+                        onDelete = { session -> dialog = ChatDialog.Delete(session) },
+                        onToggleArchived = { viewModel.setShowArchivedSessions(!state.showArchivedSessions) },
+                    ),
+            )
+        },
+    ) {
+        Scaffold(
+            modifier = Modifier.testTag("chatScreen"),
+            contentWindowInsets = WindowInsets(0),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            topBar = {
+                ChatTopBar(
                     state = state,
-                    onSearch = { showSearchDialog = true },
-                    onShare = { showShareDialog = true },
-                    onUsage = { showUsageDialog = true },
-                    onCompact = {
-                        viewModel.compactCurrentSession()
-                        showMoreFeatures = false
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onRename = {
+                        state.sessions.firstOrNull { it.isSelected }?.let { dialog = ChatDialog.Rename(it) }
                     },
-                    onSlashCommand = { command ->
-                        viewModel.onDraftChanged("$command ")
-                        showMoreFeatures = false
-                    },
+                    onSearch = { dialog = ChatDialog.Search },
+                    onShare = { dialog = ChatDialog.Share },
+                    onUsage = { dialog = ChatDialog.Usage },
+                    onCompact = viewModel::compactCurrentSession,
+                    onNewSession = { viewModel.createNewSession(defaultNewSessionTitle) },
+                    onArchive = viewModel::archiveCurrentSession,
                 )
-            }
+            },
+        ) { padding ->
+            ChatContent(
+                state = state,
+                viewModel = viewModel,
+                contentPadding = padding,
+                onOpenProviderSettings = onOpenProviderSettings,
+                onCopied = { scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.chat_notice_copied)) } },
+            )
         }
     }
 
-    if (showSearchDialog) {
-        SearchHistoryDialog(
-            state = state,
-            onQueryChanged = viewModel::onSearchQueryChanged,
-            onRunSearch = viewModel::runSearch,
-            onClearSearch = viewModel::clearSearch,
-            onOpenResult = { result ->
-                viewModel.openSearchResult(result)
-                showSearchDialog = false
-            },
-            onDismiss = { showSearchDialog = false },
-        )
-    }
+    when (val current = dialog) {
+        is ChatDialog.Rename ->
+            RenameSessionDialog(
+                initialTitle = current.session.title,
+                onConfirm = { title ->
+                    viewModel.renameSession(current.session.id, title)
+                    dialog = null
+                },
+                onDismiss = { dialog = null },
+            )
 
-    if (showShareDialog) {
-        ShareSessionDialog(
-            state = state,
-            onExport = { format ->
-                showShareDialog = false
-                viewModel.exportCurrentSession(format)
-            },
-            onShareText = {
-                showShareDialog = false
-                viewModel.shareCurrentSessionAsText()
-            },
-            onShareFile = {
-                showShareDialog = false
-                viewModel.shareCurrentSessionAsFile(ChatExportFormat.Markdown)
-            },
-            onDismiss = { showShareDialog = false },
-        )
-    }
+        is ChatDialog.Delete ->
+            ClawConfirmDialog(
+                title = stringResource(R.string.chat_delete_title),
+                text = stringResource(R.string.chat_delete_body, current.session.title),
+                confirmLabel = stringResource(R.string.action_delete),
+                destructive = true,
+                onConfirm = {
+                    viewModel.deleteSession(current.session.id)
+                    dialog = null
+                },
+                onDismiss = { dialog = null },
+            )
 
-    if (showUsageDialog) {
-        UsageDialog(
-            usageSummary = state.sessionUsageSummary,
-            sessionSummary = state.sessionSummary,
-            onDismiss = { showUsageDialog = false },
-        )
-    }
-}
+        ChatDialog.Usage ->
+            UsageDialog(
+                usage = state.sessionUsage,
+                sessionSummary = state.sessionSummary,
+                onDismiss = { dialog = null },
+            )
 
-@Composable
-private fun MessageBubble(
-    message: ChatMessageUi,
-    appearance: MessageAppearance,
-) {
-    ClawCard(containerColor = appearance.containerColor) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.Top,
-        ) {
-            MessageAvatar(appearance = appearance)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = appearance.label,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = appearance.labelColor,
-                    )
-                    Text(
-                        text = message.timeText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ClawInkMuted,
-                    )
-                }
-                ChatRichText(
-                    text = message.text,
-                    style =
-                        MaterialTheme.typography.bodyLarge.copy(
-                            color = appearance.contentColor,
-                        ),
-                )
-            }
-        }
+        ChatDialog.Search ->
+            SearchSheet(
+                state = state,
+                onQueryChanged = viewModel::onSearchQueryChanged,
+                onRunSearch = viewModel::runSearch,
+                onClear = viewModel::clearSearch,
+                onOpenResult = { result ->
+                    viewModel.openSearchResult(result)
+                    dialog = null
+                },
+                onDismiss = { dialog = null },
+            )
+
+        ChatDialog.Share ->
+            ShareSheet(
+                onShareText = {
+                    dialog = null
+                    viewModel.shareCurrentSessionAsText()
+                },
+                onShareFile = {
+                    dialog = null
+                    viewModel.shareCurrentSessionAsFile(ChatExportFormat.Markdown)
+                },
+                onExport = { format ->
+                    dialog = null
+                    viewModel.exportCurrentSession(format)
+                },
+                onDismiss = { dialog = null },
+            )
+
+        null -> Unit
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MessageAvatar(appearance: MessageAppearance) {
-    Box(
-        modifier =
-            Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(appearance.avatarBackground),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = appearance.avatarText,
-            color = appearance.labelColor,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun ComposerIconButton(
-    iconRes: Int,
-    contentDescription: String,
-    enabled: Boolean,
-    selected: Boolean = false,
-    accentColor: Color = ClawInk,
-    accentContentColor: Color = Color.White,
-    disabledContainerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    disabledIconColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    onClick: () -> Unit,
-) {
-    val containerColor =
-        when {
-            !enabled -> disabledContainerColor
-            selected -> MaterialTheme.colorScheme.primaryContainer
-            else -> accentColor
-        }
-    val iconColor =
-        when {
-            !enabled -> disabledIconColor
-            selected -> MaterialTheme.colorScheme.onPrimaryContainer
-            else -> accentContentColor
-        }
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier =
-            Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(containerColor),
-    ) {
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription = contentDescription,
-            tint = iconColor,
-            modifier = Modifier.size(24.dp),
-        )
-    }
-}
-
-@Composable
-private fun MoreFeaturesPanel(
+private fun ChatTopBar(
     state: ChatUiState,
+    onOpenDrawer: () -> Unit,
+    onRename: () -> Unit,
     onSearch: () -> Unit,
     onShare: () -> Unit,
     onUsage: () -> Unit,
     onCompact: () -> Unit,
-    onSlashCommand: (String) -> Unit,
+    onNewSession: () -> Unit,
+    onArchive: () -> Unit,
 ) {
-    ClawCard {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 116.dp)
-                    .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = "More features",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.secondary,
+    var menuOpen by remember { mutableStateOf(false) }
+    val idle = !state.isRunning
+    TopAppBar(
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+        navigationIcon = {
+            ClawIconButton(
+                iconRes = R.drawable.ic_menu,
+                contentDescription = stringResource(R.string.chat_action_open_sessions),
+                onClick = onOpenDrawer,
+                modifier = Modifier.testTag("chatDrawerButton"),
             )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+        },
+        title = {
+            Column(
+                modifier =
+                    Modifier.clickable(
+                        enabled = idle && state.currentSessionId.isNotBlank(),
+                        role = Role.Button,
+                        onClickLabel = stringResource(R.string.chat_action_rename_session),
+                        onClick = onRename,
+                    ),
             ) {
-                AssistChip(
-                    onClick = onSearch,
-                    label = { SingleLineText("Search") },
-                    enabled = !state.isRunning,
+                Text(
+                    text = state.sessionTitle.ifBlank { stringResource(R.string.chat_loading_session) },
+                    modifier =
+                        Modifier
+                            .semantics { heading() }
+                            .testTag("chatHeading"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                AssistChip(
-                    onClick = onShare,
-                    label = { SingleLineText("Share") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-                AssistChip(
-                    onClick = onUsage,
-                    label = { SingleLineText("Usage") },
-                )
-                AssistChip(
-                    onClick = onCompact,
-                    label = { SingleLineText("Compact") },
-                    enabled = state.canCompactCurrentSession && !state.isRunning,
+                Text(
+                    text =
+                        when {
+                            state.isRunning -> state.activeTurnStage?.asString() ?: stringResource(R.string.chat_stage_waiting)
+                            state.isFakeProvider -> stringResource(R.string.chat_subtitle_demo)
+                            state.isMainSession -> stringResource(R.string.chat_subtitle_main)
+                            else -> stringResource(R.string.chat_subtitle_session)
+                        },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (state.slashCommands.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+        },
+        actions = {
+            ClawIconButton(
+                iconRes = R.drawable.ic_search,
+                contentDescription = stringResource(R.string.chat_action_search),
+                onClick = onSearch,
+                enabled = idle,
+            )
+            Box {
+                ClawIconButton(
+                    iconRes = R.drawable.ic_more_vert,
+                    contentDescription = stringResource(R.string.action_more_options),
+                    onClick = { menuOpen = true },
+                    modifier = Modifier.testTag("chatOverflowButton"),
+                )
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    ChatMenuItem(R.string.chat_action_new_session, R.drawable.ic_add, idle) {
+                        menuOpen = false
+                        onNewSession()
+                    }
+                    ChatMenuItem(R.string.chat_action_rename_session, R.drawable.ic_edit, idle) {
+                        menuOpen = false
+                        onRename()
+                    }
+                    ChatMenuItem(R.string.chat_action_share, R.drawable.ic_share, idle && state.hasContent) {
+                        menuOpen = false
+                        onShare()
+                    }
+                    ChatMenuItem(R.string.chat_action_usage, R.drawable.ic_info, true) {
+                        menuOpen = false
+                        onUsage()
+                    }
+                    ChatMenuItem(R.string.chat_action_compact, R.drawable.ic_archive, idle && state.canCompactCurrentSession) {
+                        menuOpen = false
+                        onCompact()
+                    }
+                    if (state.canArchiveCurrentSession) {
+                        ChatMenuItem(R.string.chat_action_archive_session, R.drawable.ic_archive, idle) {
+                            menuOpen = false
+                            onArchive()
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun ChatMenuItem(
+    labelRes: Int,
+    iconRes: Int,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(stringResource(labelRes)) },
+        leadingIcon = { ClawIcon(iconRes = iconRes, contentDescription = null) },
+        enabled = enabled,
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun ChatContent(
+    state: ChatUiState,
+    viewModel: ChatViewModel,
+    contentPadding: PaddingValues,
+    onOpenProviderSettings: () -> Unit,
+    onCopied: () -> Unit,
+) {
+    var demoNoticeDismissed by rememberSaveable { mutableStateOf(false) }
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .imePadding(),
+    ) {
+        if (state.isFakeProvider && !demoNoticeDismissed) {
+            ClawNotice(
+                text = stringResource(R.string.chat_demo_notice),
+                modifier =
+                    Modifier
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .testTag("chatProviderNotice"),
+                tone = NoticeTone.Info,
+                actionLabel = stringResource(R.string.chat_demo_notice_action),
+                onAction = onOpenProviderSettings,
+                onDismiss = { demoNoticeDismissed = true },
+            )
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            ChatTranscript(
+                state = state,
+                viewModel = viewModel,
+                onCopied = onCopied,
+            )
+        }
+        SlashSuggestions(
+            draft = state.draft,
+            commands = state.slashCommands,
+            onPick = { command -> viewModel.onDraftChanged("$command ") },
+        )
+        ChatComposer(
+            draft = state.draft,
+            isRunning = state.isRunning,
+            isCancelling = state.isCancelling,
+            onDraftChanged = viewModel::onDraftChanged,
+            onSend = viewModel::sendCurrentDraft,
+            onStop = viewModel::cancelActiveTurn,
+        )
+    }
+}
+
+@Composable
+private fun ChatTranscript(
+    state: ChatUiState,
+    viewModel: ChatViewModel,
+    onCopied: () -> Unit,
+) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboard.current
+    val haptics = LocalHapticFeedback.current
+    val locale = LocalConfiguration.current.locales[0]
+    val timeFormatter =
+        remember(locale) {
+            DateTimeFormatter
+                .ofLocalizedTime(FormatStyle.SHORT)
+                .withLocale(locale)
+                .withZone(ZoneId.systemDefault())
+        }
+    val showPending = state.isRunning
+    val rows = remember(state.items) { state.items.asReversed() }
+    val newestKey = rows.firstOrNull()?.key
+
+    // Reverse layout keeps the newest row anchored to the bottom. Follow new rows
+    // only when the user was already reading the bottom of the transcript.
+    LaunchedEffect(newestKey, showPending) {
+        if (listState.firstVisibleItemIndex <= 2) {
+            listState.scrollToItem(0)
+        }
+    }
+    LaunchedEffect(state.highlightedMessageId, rows) {
+        val target = state.highlightedMessageId ?: return@LaunchedEffect
+        val index =
+            rows.indexOfFirst { row ->
+                when (row) {
+                    is ChatItemUi.Message -> row.message.id == target
+                    is ChatItemUi.Tool -> target in row.messageIds
+                }
+            }
+        if (index >= 0) {
+            val leading = (if (showPending) 1 else 0) + (if (state.errorMessage != null) 1 else 0)
+            listState.animateScrollToItem(index + leading)
+        }
+    }
+
+    if (!state.hasContent && !state.isRunning) {
+        ClawEmptyState(
+            iconRes = R.drawable.ic_nav_chat,
+            title = stringResource(R.string.chat_empty_title),
+            body =
+                if (state.slashCommands.isEmpty()) {
+                    stringResource(R.string.chat_empty_body)
+                } else {
+                    stringResource(R.string.chat_empty_body_with_commands)
+                },
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .testTag("chatEmptyState"),
+        )
+        return
+    }
+
+    val onLongPress: (ChatMessageUi) -> Unit = { message ->
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", message.text)))
+            onCopied()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .testTag("chatTranscript"),
+            state = listState,
+            reverseLayout = true,
+            contentPadding = PaddingValues(vertical = 8.dp),
+        ) {
+            state.errorMessage?.let { error ->
+                item(key = "turn-error", contentType = "error") {
+                    ClawNotice(
+                        text = error.asString(),
+                        modifier =
+                            Modifier
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .testTag("chatErrorNotice"),
+                        tone = NoticeTone.Error,
+                        actionLabel = if (state.canRetryLastFailedTurn) stringResource(R.string.action_retry) else null,
+                        onAction = if (state.canRetryLastFailedTurn) viewModel::retryLastFailedTurn else null,
+                        onDismiss = viewModel::clearError,
+                    )
+                }
+            }
+            if (showPending) {
+                item(key = "streaming", contentType = "streaming") {
+                    ChatStreamingRow(
+                        text = state.streamingAssistantText,
+                        stage = state.activeTurnStage?.asString(),
+                    )
+                }
+            }
+            items(
+                items = rows,
+                key = { it.key },
+                contentType = { if (it is ChatItemUi.Tool) "tool" else "message" },
+            ) { row ->
+                when (row) {
+                    is ChatItemUi.Message ->
+                        ChatMessageRow(
+                            message = row.message,
+                            highlighted = row.message.id == state.highlightedMessageId,
+                            timeFormatter = timeFormatter,
+                            onLongPress = onLongPress,
+                        )
+
+                    is ChatItemUi.Tool -> ChatToolCard(item = row, running = state.isRunning)
+                }
+            }
+            if (state.earlierMessageCount > 0) {
+                item(key = "load-earlier", contentType = "control") {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        TextButton(
+                            onClick = viewModel::loadEarlierMessages,
+                            modifier = Modifier.testTag("chatLoadEarlier"),
+                        ) {
+                            Text(pluralStringResource(R.plurals.chat_load_earlier, state.earlierMessageCount, state.earlierMessageCount))
+                        }
+                    }
+                }
+            }
+            if (state.compactedHiddenMessageCount > 0) {
+                item(key = "compact-summary", contentType = "control") {
+                    CompactedSummary(
+                        state = state,
+                        onToggle = viewModel::toggleCompactedHistory,
+                    )
+                }
+            }
+        }
+        JumpToBottomButton(
+            listState = listState,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            onClick = { scope.launch { listState.animateScrollToItem(0) } },
+        )
+    }
+}
+
+@Composable
+private fun JumpToBottomButton(
+    listState: LazyListState,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val show by remember { derivedStateOf { listState.firstVisibleItemIndex > 2 } }
+    if (show) {
+        SmallFloatingActionButton(
+            onClick = onClick,
+            modifier = modifier,
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ) {
+            ClawIcon(
+                iconRes = R.drawable.ic_keyboard_down,
+                contentDescription = stringResource(R.string.chat_action_jump_to_latest),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactedSummary(
+    state: ChatUiState,
+    onToggle: () -> Unit,
+) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(stringResource(R.string.chat_compacted_title), style = MaterialTheme.typography.titleSmall)
+            state.sessionSummary?.takeIf { it.isNotBlank() }?.let { summary ->
+                ChatRichText(text = summary, style = MaterialTheme.typography.bodyMedium)
+            }
+            Text(
+                text =
+                    if (state.showCompactedHistory) {
+                        pluralStringResource(R.plurals.chat_compacted_shown, state.compactedHiddenMessageCount, state.compactedHiddenMessageCount)
+                    } else {
+                        pluralStringResource(R.plurals.chat_compacted_hidden, state.compactedHiddenMessageCount, state.compactedHiddenMessageCount)
+                    },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = onToggle, enabled = !state.isRunning) {
+                Text(
+                    stringResource(
+                        if (state.showCompactedHistory) R.string.chat_compacted_hide else R.string.chat_compacted_show,
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SlashSuggestions(
+    draft: String,
+    commands: List<SlashCommandUi>,
+    onPick: (String) -> Unit,
+) {
+    if (!draft.startsWith("/") || draft.any(Char::isWhitespace)) return
+    val matches =
+        remember(draft, commands) {
+            commands.filter { it.command.startsWith(draft, ignoreCase = true) }.take(SLASH_SUGGESTION_LIMIT)
+        }
+    if (matches.isEmpty()) return
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .testTag("chatSlashSuggestions"),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
+    ) {
+        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+            matches.forEach { command ->
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(role = Role.Button) { onPick(command.command) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
-                    items(state.slashCommands, key = { it }) { command ->
-                        AssistChip(
-                            onClick = { onSlashCommand(command) },
-                            label = { CompactChipText(command, maxWidth = ChatChipMaxWidth) },
-                            enabled = !state.isRunning,
+                    Text(command.command, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    if (command.description.isNotBlank()) {
+                        Text(
+                            text = command.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -760,196 +738,65 @@ private fun MoreFeaturesPanel(
 }
 
 @Composable
-private fun SearchHistoryDialog(
-    state: ChatUiState,
-    onQueryChanged: (String) -> Unit,
-    onRunSearch: () -> Unit,
-    onClearSearch: () -> Unit,
-    onOpenResult: (ChatSearchResultUi) -> Unit,
-    onDismiss: () -> Unit,
+private fun ChatComposer(
+    draft: String,
+    isRunning: Boolean,
+    isCancelling: Boolean,
+    onDraftChanged: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Search history") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = state.searchQuery,
-                    onValueChange = onQueryChanged,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { SingleLineText("Search sessions and messages") },
-                    singleLine = true,
-                    enabled = !state.isRunning,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onRunSearch,
-                        enabled = !state.isRunning,
-                    ) {
-                        Text("Search")
-                    }
-                    TextButton(
-                        onClick = onClearSearch,
-                        enabled = !state.isRunning && (state.searchQuery.isNotBlank() || state.searchResults.isNotEmpty()),
-                    ) {
-                        Text("Clear")
-                    }
-                }
-                if (state.searchResults.isEmpty()) {
-                    Text(
-                        text = "No results to show.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 280.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(state.searchResults, key = { "${it.sessionId}:${it.messageId}:${it.preview}" }) { result ->
-                            Button(
-                                onClick = { onOpenResult(result) },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !state.isRunning,
-                            ) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                                ) {
-                                    Text("${result.matchType}: ${result.sessionTitle}")
-                                    Text(
-                                        text = result.preview,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
-            }
-        },
-    )
-}
-
-@Composable
-private fun ShareSessionDialog(
-    state: ChatUiState,
-    onExport: (ChatExportFormat) -> Unit,
-    onShareText: () -> Unit,
-    onShareFile: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Share") },
-        text = {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        TextField(
+            value = draft,
+            onValueChange = onDraftChanged,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .testTag("chatInput"),
+            placeholder = { Text(stringResource(R.string.chat_input_placeholder)) },
+            minLines = 1,
+            maxLines = 6,
+            shape = RoundedCornerShape(24.dp),
+            colors =
+                TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+        )
+        if (isRunning) {
+            FilledIconButton(
+                onClick = onStop,
+                enabled = !isCancelling,
+                modifier = Modifier.testTag("chatStopButton"),
+                colors =
+                    IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
             ) {
-                AssistChip(
-                    onClick = { onExport(ChatExportFormat.Text) },
-                    label = { SingleLineText("Export TXT") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-                AssistChip(
-                    onClick = { onExport(ChatExportFormat.Markdown) },
-                    label = { SingleLineText("Export MD") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-                AssistChip(
-                    onClick = { onExport(ChatExportFormat.Json) },
-                    label = { SingleLineText("Export JSON") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-                AssistChip(
-                    onClick = onShareText,
-                    label = { SingleLineText("Share text") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
-                AssistChip(
-                    onClick = onShareFile,
-                    label = { SingleLineText("Share file") },
-                    enabled = state.currentSessionId.isNotBlank() && !state.isRunning,
-                )
+                ClawIcon(iconRes = R.drawable.ic_stop, contentDescription = stringResource(R.string.chat_action_stop))
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
+        } else {
+            FilledIconButton(
+                onClick = onSend,
+                enabled = draft.isNotBlank(),
+                modifier = Modifier.testTag("chatSendButton"),
+            ) {
+                ClawIcon(iconRes = R.drawable.ic_send, contentDescription = stringResource(R.string.chat_action_send))
             }
-        },
-    )
-}
-
-@Composable
-private fun UsageDialog(
-    usageSummary: String?,
-    sessionSummary: String?,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Usage") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = usageSummary ?: "No token usage recorded for this session yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                sessionSummary?.takeIf { it.isNotBlank() }?.let { summary ->
-                    Text(
-                        text = "Session summary",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
-            }
-        },
-    )
-}
-
-@Composable
-private fun SingleLineText(
-    text: String,
-    maxWidth: Dp? = null,
-) {
-    Text(
-        text = text,
-        modifier = if (maxWidth == null) Modifier else Modifier.widthIn(max = maxWidth),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
-}
-
-@Composable
-private fun CompactChipText(
-    text: String,
-    maxWidth: Dp? = null,
-) {
-    Text(
-        text = text,
-        modifier = if (maxWidth == null) Modifier else Modifier.widthIn(max = maxWidth),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        style = MaterialTheme.typography.labelMedium,
-    )
+        }
+    }
 }
 
 private fun createExportDocumentIntent(payload: ChatExportFileRequest): Intent =
@@ -981,7 +828,7 @@ private fun launchShareText(
             putExtra(Intent.EXTRA_SUBJECT, action.subject)
             putExtra(Intent.EXTRA_TEXT, action.text)
         }
-    context.startActivity(Intent.createChooser(intent, "Share session"))
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.chat_share_chooser)))
 }
 
 private suspend fun writeShareFile(
@@ -1013,83 +860,5 @@ private fun launchShareFile(
             putExtra(Intent.EXTRA_SUBJECT, payload.fileName)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-    context.startActivity(Intent.createChooser(intent, "Share session file"))
-}
-
-private data class MessageAppearance(
-    val label: String,
-    val containerColor: Color,
-    val labelColor: Color,
-    val contentColor: Color,
-    val avatarBackground: Color,
-    val avatarText: String,
-)
-
-@Composable
-private fun messageAppearance(
-    role: String,
-    isHighlighted: Boolean,
-): MessageAppearance {
-    val base =
-        when (role.lowercase()) {
-            "user" ->
-                MessageAppearance(
-                    label = "User",
-                    containerColor = ClawMintSoft,
-                    labelColor = ClawGreen,
-                    contentColor = ClawInk,
-                    avatarBackground = Color(0xFFDDF5E7),
-                    avatarText = "U",
-                )
-            "assistant" ->
-                MessageAppearance(
-                    label = "Assistant",
-                    containerColor = ClawCardBackground,
-                    labelColor = ClawGreen,
-                    contentColor = ClawInk,
-                    avatarBackground = Color(0xFFF0F2F6),
-                    avatarText = "A",
-                )
-            "tool_call" ->
-                MessageAppearance(
-                    label = "Tool call",
-                    containerColor = ClawBlueSoft,
-                    labelColor = Color(0xFF4B55D9),
-                    contentColor = ClawInk,
-                    avatarBackground = Color(0xFFE7EBFF),
-                    avatarText = "T",
-                )
-            "tool_result" ->
-                MessageAppearance(
-                    label = "Tool result",
-                    containerColor = ClawMintSoft,
-                    labelColor = ClawGreen,
-                    contentColor = ClawInk,
-                    avatarBackground = Color(0xFFDDF5E7),
-                    avatarText = "R",
-                )
-            "system" ->
-                MessageAppearance(
-                    label = "System",
-                    containerColor = Color(0xFFFFECEF),
-                    labelColor = Color(0xFF9A1B1F),
-                    contentColor = Color(0xFF6E1114),
-                    avatarBackground = Color(0xFFFAD4DA),
-                    avatarText = "!",
-                )
-            else ->
-                MessageAppearance(
-                    label = role,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                    avatarBackground = MaterialTheme.colorScheme.surfaceVariant,
-                    avatarText = "?",
-                )
-        }
-    return if (isHighlighted) {
-        base.copy(containerColor = ClawBlueSoft)
-    } else {
-        base
-    }
+    context.startActivity(Intent.createChooser(intent, context.getString(R.string.chat_share_chooser)))
 }
