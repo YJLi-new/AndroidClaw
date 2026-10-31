@@ -4,10 +4,10 @@ description: Compact the current session into a durable summary and hide older t
 user-invocable: true
 disable-model-invocation: true
 command-dispatch: tool
-command-tool: sessions.compact
+command-tool: sessions_compact
 metadata:
   android:
-    requiresTools: ["sessions.compact"]
+    requiresTools: ["sessions_compact"]
 ---
 
 Use `/compact` to compact earlier turns into a concise summary. AndroidClaw uses the active provider when available and falls back to a deterministic local summary in offline or fake-provider mode.
