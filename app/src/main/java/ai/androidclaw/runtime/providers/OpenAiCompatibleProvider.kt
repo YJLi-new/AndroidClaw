@@ -11,8 +11,10 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -28,6 +30,12 @@ class OpenAiCompatibleProvider(
     private val providerSecretStore: ProviderSecretStore,
     private val baseHttpClient: OkHttpClient,
     private val json: Json,
+    /**
+     * Endpoints that must use the Responses API. Current official OpenAI models answer HTTP 400
+     * on /v1/chat/completions whenever function tools are sent, so api.openai.com uses
+     * /v1/responses; every other OpenAI-compatible host keeps chat/completions.
+     */
+    private val useResponsesApi: (HttpUrl) -> Boolean = { url -> url.isOfficialOpenAiHost() },
 ) : ModelProvider {
     override val id: String = providerType.providerId
     override val capabilities: ProviderCapabilities =
@@ -39,6 +47,9 @@ class OpenAiCompatibleProvider(
     override suspend fun generate(request: ModelRequest): ModelResponse {
         val boundedRequest = request.toBoundedProviderRequest(providerName = "Provider")
         val config = resolveConfig()
+        if (useResponsesApi(config.url)) {
+            return generateWithResponses(boundedRequest, config)
+        }
         val payload =
             OpenAiChatCompletionsRequest(
                 model = config.endpointSettings.modelId,
@@ -72,9 +83,16 @@ class OpenAiCompatibleProvider(
 
     override fun streamGenerate(request: ModelRequest): Flow<ModelStreamEvent> =
         request.toBoundedProviderRequest(providerName = "Provider").let { boundedRequest ->
+            // Set once the endpoint is resolved; non-null means this stream uses /v1/responses.
+            var responsesFunctionNames: ProviderFunctionNameMap? = null
             streamProviderEvents(
                 buildContext = {
                     val config = resolveConfig()
+                    if (useResponsesApi(config.url)) {
+                        val functionNames = ProviderFunctionNameMap.from(boundedRequest.toolDescriptors)
+                        responsesFunctionNames = functionNames
+                        return@streamProviderEvents buildResponsesStreamContext(boundedRequest, config, functionNames)
+                    }
                     val payload =
                         OpenAiChatCompletionsRequest(
                             model = config.endpointSettings.modelId,
@@ -110,17 +128,146 @@ class OpenAiCompatibleProvider(
                 },
                 mapHttpFailure = ::mapFailure,
                 fallbackForHttpResponse = { statusCode, rawBody ->
-                    if (shouldFallbackFromStreaming(statusCode, rawBody)) {
+                    if (responsesFunctionNames == null && shouldFallbackFromStreaming(statusCode, rawBody)) {
                         generate(boundedRequest)
                     } else {
                         null
                     }
                 },
-                fallbackForNonEventStream = { _, _ ->
-                    generate(boundedRequest)
+                fallbackForNonEventStream = { _, rawBody ->
+                    val functionNames = responsesFunctionNames
+                    if (functionNames != null) {
+                        parseResponsesNonEventStreamResponse(rawBody, json, functionNames, OPENAI_RESPONSES_PROVIDER_NAME)
+                    } else {
+                        generate(boundedRequest)
+                    }
                 },
             )
         }
+
+    private fun generateWithResponses(
+        request: ModelRequest,
+        config: ResolvedRequestConfig,
+    ): ModelResponse {
+        val functionNames = ProviderFunctionNameMap.from(request.toolDescriptors)
+        val httpRequest =
+            buildResponsesHttpRequest(
+                config = config,
+                requestId = request.requestId,
+                payload = buildOpenAiResponsesPayload(request, config.endpointSettings.modelId, functionNames, stream = false),
+                stream = false,
+            )
+        try {
+            config.httpClient.newCall(httpRequest).execute().use { response ->
+                val rawBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw mapFailure(response.code, rawBody)
+                }
+                return parseResponsesNonEventStreamResponse(rawBody, json, functionNames, OPENAI_RESPONSES_PROVIDER_NAME)
+                    ?: throw ModelProviderException(
+                        kind = ModelProviderFailureKind.Response,
+                        userMessage = "OpenAI returned malformed JSON.",
+                        details = rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS),
+                    )
+            }
+        } catch (error: SocketTimeoutException) {
+            throw timeoutFailure(config.endpointSettings, error)
+        } catch (error: InterruptedIOException) {
+            throw timeoutFailure(config.endpointSettings, error)
+        } catch (error: IOException) {
+            throw mapTransportFailure(error)
+        }
+    }
+
+    private fun buildResponsesStreamContext(
+        request: ModelRequest,
+        config: ResolvedRequestConfig,
+        functionNames: ProviderFunctionNameMap,
+    ): ProviderStreamContext {
+        val accumulator = ResponsesAccumulator(json, functionNames, OPENAI_RESPONSES_PROVIDER_NAME)
+        return ProviderStreamContext(
+            endpointSettings = config.endpointSettings,
+            httpClient = config.httpClient,
+            request =
+                buildResponsesHttpRequest(
+                    config = config,
+                    requestId = request.requestId,
+                    payload = buildOpenAiResponsesPayload(request, config.endpointSettings.modelId, functionNames, stream = true),
+                    stream = true,
+                ),
+            streamStarted = accumulator::hasSeenEvent,
+            canCompleteWithoutTerminalSignal = accumulator::canCompleteWithoutTerminalSignal,
+            buildResponse = accumulator::buildResponse,
+            handleDataEvent = { data, onEvent, onCompleted ->
+                handleResponsesSseData(
+                    data = data,
+                    accumulator = accumulator,
+                    onEvent = onEvent,
+                    onCompleted = onCompleted,
+                )
+            },
+        )
+    }
+
+    private fun buildOpenAiResponsesPayload(
+        request: ModelRequest,
+        modelId: String,
+        functionNames: ProviderFunctionNameMap,
+        stream: Boolean,
+    ): JsonObject =
+        buildJsonObject {
+            put("model", modelId)
+            put("stream", stream)
+            put("store", false)
+            request.systemPrompt
+                .takeIf { it.isNotBlank() }
+                ?.let { put("instructions", it) }
+            put("input", buildResponsesInput(request.messageHistory, functionNames, json, includeItemIds = false))
+            if (request.toolDescriptors.isNotEmpty()) {
+                put("tool_choice", "auto")
+                put(
+                    "tools",
+                    buildJsonArray {
+                        request.toolDescriptors.forEach { descriptor ->
+                            add(
+                                buildJsonObject {
+                                    put("type", "function")
+                                    put("name", functionNames.toProviderName(descriptor.name))
+                                    put("description", descriptor.description)
+                                    put("strict", false)
+                                    put("parameters", descriptor.inputSchema)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
+
+    private fun buildResponsesHttpRequest(
+        config: ResolvedRequestConfig,
+        requestId: String?,
+        payload: JsonObject,
+        stream: Boolean,
+    ): Request {
+        val url =
+            config.endpointSettings.baseUrl
+                .toHttpUrlOrNull()
+                ?.newBuilder()
+                ?.addPathSegment("responses")
+                ?.build()
+                ?: throw invalidEndpointFailure(config.endpointSettings.baseUrl)
+        return Request
+            .Builder()
+            .url(url)
+            .header("Authorization", "Bearer ${config.apiKey}")
+            .header("Content-Type", "application/json")
+            .header("Accept", if (stream) "text/event-stream" else "application/json")
+            .apply {
+                requestId?.let { header("X-Request-Id", it) }
+            }.post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(PROVIDER_JSON_MEDIA_TYPE))
+            .build()
+    }
 
     private suspend fun resolveConfig(): ResolvedRequestConfig {
         val settings = settingsDataStore.settings.first()
@@ -360,7 +507,10 @@ class OpenAiCompatibleProvider(
                 ModelProviderException(
                     kind = ModelProviderFailureKind.Server,
                     userMessage =
-                        if (statusCode == 400 && errorMessage.isNotBlank()) {
+                        if (statusCode == 400 && errorMessage.contains("/v1/responses")) {
+                            "This OpenAI model only accepts tools through the Responses API. Use the OpenAI " +
+                                "provider or base URL https://api.openai.com/v1 so AndroidClaw calls /v1/responses."
+                        } else if (statusCode == 400 && errorMessage.isNotBlank()) {
                             "Provider rejected the request: $errorMessage"
                         } else {
                             "Provider request failed with HTTP $statusCode."
@@ -371,10 +521,13 @@ class OpenAiCompatibleProvider(
     }
 
     private companion object {
+        const val OPENAI_RESPONSES_PROVIDER_NAME = "OpenAI"
         val STREAMING_FALLBACK_STATUS_CODES = setOf(404, 405, 501)
         val STREAMING_MAYBE_UNSUPPORTED_STATUS_CODES = setOf(400, 415, 422)
     }
 }
+
+internal fun HttpUrl.isOfficialOpenAiHost(): Boolean = host.equals("api.openai.com", ignoreCase = true)
 
 @Serializable
 private data class OpenAiChatCompletionsRequest(
