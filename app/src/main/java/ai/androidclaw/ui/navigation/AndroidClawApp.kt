@@ -9,6 +9,9 @@ import ai.androidclaw.feature.onboarding.OnboardingDialog
 import ai.androidclaw.feature.onboarding.OnboardingViewModel
 import ai.androidclaw.feature.settings.SettingsScreen
 import ai.androidclaw.feature.settings.SettingsViewModel
+import ai.androidclaw.feature.settings.WorkspaceEditorScreen
+import ai.androidclaw.feature.settings.WorkspaceScreen
+import ai.androidclaw.feature.settings.WorkspaceViewModel
 import ai.androidclaw.feature.skills.SkillDetailScreen
 import ai.androidclaw.feature.skills.SkillsScreen
 import ai.androidclaw.feature.skills.SkillsViewModel
@@ -163,6 +166,36 @@ fun AndroidClawApp(container: AppContainer) {
                                 viewModel = settingsViewModel,
                                 onOpenSetupGuide = onboardingViewModel::showProviderSetup,
                                 onOpenDiagnostics = { navController.navigate(Routes.DIAGNOSTICS) },
+                                onOpenWorkspace = { navController.navigate(Routes.WORKSPACE) },
+                            )
+                        }
+                        composable(Routes.WORKSPACE) { entry ->
+                            val viewModel: WorkspaceViewModel =
+                                navController.graphViewModel(
+                                    entry,
+                                    TopLevelDestination.Settings.route,
+                                    WorkspaceViewModel.factory(container.workspaceDependencies),
+                                )
+                            WorkspaceScreen(
+                                viewModel = viewModel,
+                                onOpenFile = { path -> navController.navigate(Routes.workspaceEditor(path)) },
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+                        composable(
+                            route = Routes.WORKSPACE_EDITOR,
+                            arguments = listOf(navArgument(Routes.ARG_WORKSPACE_PATH) { type = NavType.StringType }),
+                        ) { entry ->
+                            val viewModel: WorkspaceViewModel =
+                                navController.graphViewModel(
+                                    entry,
+                                    TopLevelDestination.Settings.route,
+                                    WorkspaceViewModel.factory(container.workspaceDependencies),
+                                )
+                            WorkspaceEditorScreen(
+                                viewModel = viewModel,
+                                path = entry.arguments?.getString(Routes.ARG_WORKSPACE_PATH).orEmpty(),
+                                onClose = { navController.popBackStack() },
                             )
                         }
                         composable(Routes.DIAGNOSTICS) {

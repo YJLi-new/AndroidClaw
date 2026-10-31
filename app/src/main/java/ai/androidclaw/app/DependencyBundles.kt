@@ -3,6 +3,7 @@ package ai.androidclaw.app
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.WorkspaceStore
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -58,4 +59,8 @@ data class HealthDependencies(
     val eventLogRepository: EventLogRepository,
     val networkStatusProvider: NetworkStatusProvider,
     val crashMarkerStore: CrashMarkerStore,
+)
+
+data class WorkspaceDependencies(
+    val workspaceStore: WorkspaceStore,
 )

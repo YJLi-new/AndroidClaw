@@ -228,6 +228,17 @@ internal fun ChatToolCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            toolErrorHint(errorCode)?.let { hint ->
+                Text(
+                    text = stringResource(hint),
+                    modifier =
+                        Modifier
+                            .padding(start = 40.dp, end = 12.dp, bottom = 8.dp)
+                            .testTag("chatToolHint"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (expanded) {
                 Column(
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
@@ -244,6 +255,15 @@ internal fun ChatToolCard(
         }
     }
 }
+
+/** A short, localized next step for tool failures the user can fix. */
+internal fun toolErrorHint(errorCode: String?): Int? =
+    when (errorCode) {
+        "MEMORY_DISABLED" -> R.string.chat_tool_hint_memory_disabled
+        "FOREGROUND_REQUIRED" -> R.string.chat_tool_hint_foreground_required
+        "PERMISSION_REQUIRED" -> R.string.chat_tool_hint_permission_required
+        else -> null
+    }
 
 @Composable
 private fun ToolDetail(
