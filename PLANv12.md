@@ -125,4 +125,7 @@ Delivery is a `rework/v12` branch pushed to `origin` with a PR; merging into
 
 ## Running ledger
 
-- 2026-10-30 22:55: Plan created from survey. Baseline build running.
+- 2026-10-30 22:55: Plan created from survey. Baseline green: 665/665 unit tests, lint, assembleDebug.
+- 2026-10-31 00:00: rt line done (b44e944): tools 168→36 (34 model-facing), tool JSON/turn 46,158→12,889 B, runtime/tools 29,361→3,406 LOC, 467/467 tests; fixed dotted tool names, dropped tools, payloads not reaching the model, dangling tool calls on cancel.
+- 2026-10-31 00:45: Live probes with the user-provided OpenAI key: chat/completions + tools returns 400 on gpt-6-luna / gpt-6.1-sol; /v1/responses works. Decision: official OpenAI → Responses API, preset default gpt-6-luna (user: "gpt-6-luna就可以"). rt revision 1 started (notes/live_plan.md).
+- 2026-10-31 01:00: ui line done (a65fdc8): 4 tabs, 397 strings + 13 plurals en/zh-rCN, 174→0 hard-coded strings, task editing, 687/687 tests, instrumentation 11/11, journey 13/13. Merged rt+ui into rework/v12 (1b754c3). Batch 2 dispatched: int + doc.
