@@ -56,6 +56,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.format.DateTimeFormatter
 
@@ -68,6 +69,14 @@ fun TasksScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    // Ask for the runtime permission first; if it stays denied, open the notification settings.
+    val requestNotifications =
+        rememberNotificationPermissionRequest { granted ->
+            viewModel.refreshDiagnostics()
+            if (!granted || !NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                runCatching { context.startActivity(buildNotificationSettingsIntent(context)) }
+            }
+        }
     var pendingDelete by remember { mutableStateOf<Task?>(null) }
     val formatter = rememberDateTimeFormatter()
 
@@ -131,7 +140,7 @@ fun TasksScreen(
                         text = stringResource(R.string.tasks_notifications_hint),
                         tone = NoticeTone.Info,
                         actionLabel = stringResource(R.string.tasks_action_notification_settings),
-                        onAction = { context.startActivity(buildNotificationSettingsIntent(context)) },
+                        onAction = requestNotifications,
                     )
                 }
             }

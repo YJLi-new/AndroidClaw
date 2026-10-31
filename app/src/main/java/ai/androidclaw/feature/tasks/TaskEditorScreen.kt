@@ -214,6 +214,12 @@ fun TaskEditorScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val isEdit = taskId != null
+    // First task creation is the moment to ask for notifications (API 33+): run results are posted there.
+    val requestNotificationPermission =
+        rememberNotificationPermissionRequest {
+            viewModel.refreshDiagnostics()
+            onClose()
+        }
 
     LaunchedEffect(taskId) {
         if (taskId != null && !fields.loaded) {
@@ -249,7 +255,7 @@ fun TaskEditorScreen(
                                             precise = !fields.allowApproximate,
                                         ),
                                     existingTaskId = taskId,
-                                    onSaved = onClose,
+                                    onSaved = if (isEdit) onClose else requestNotificationPermission,
                                 )
                             saving = error == null
                         },
