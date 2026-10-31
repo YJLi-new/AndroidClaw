@@ -4,13 +4,13 @@ description: Manage local cross-session memories.
 user-invocable: true
 disable-model-invocation: true
 command-dispatch: tool
-command-tool: memory.command
+command-tool: memory_command
 metadata:
   android:
-    requiresTools: ["memory.command"]
+    requiresTools: ["memory_command"]
 ---
 
-Use `/memory` to inspect local cross-session Memory status.
+Use `/memory` to see whether Memory is on and how many items are stored.
 
 Use `/memory remember <text>` to store an explicit memory.
 
