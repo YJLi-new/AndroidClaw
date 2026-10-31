@@ -65,8 +65,23 @@ providers, scheduler and Room schema were kept.
 - Settings: provider setup and connection test, Memory, theme
   (system/light/dark), app language, Diagnostics, About. First-run
   onboarding offers the offline demo or provider setup.
-- Complete Simplified Chinese translation: 397 strings and 13 plurals in
-  English and `zh-rCN`, parity checked by a unit test. Hard-coded user-visible
+- Tool cards: the result summary is the title, with the tool name and
+  Done / Failed: CODE / Running below; expanded cards pretty-print arguments
+  and results and mask secret-like fields. `MEMORY_DISABLED`,
+  `FOREGROUND_REQUIRED` and `PERMISSION_REQUIRED` show a localized hint.
+  Slash commands that dispatch straight to a tool show only the card.
+- Settings → Assistant workspace: list of persona and note files with sizes,
+  8 KB prompt-budget meter, monospace editor, save, reset to template with
+  confirmation, unsaved-changes guard.
+- Memory toggle explains what is stored and where.
+- On Android 13+ the notification permission is requested when the first task
+  is saved and from the Tasks banner.
+- Isolated task sessions are titled `<task> · 2026-10-31 07:02` instead of a
+  raw ISO timestamp.
+- Skill detail shows one state label (Disabled wins over Ready / Invalid /
+  Missing tool / Desktop only).
+- Complete Simplified Chinese translation: 435 translated strings and 13
+  plurals in English and `zh-rCN`, parity checked by a unit test. Hard-coded user-visible
   strings went from 174 to 0. Per-app language on Android 13+, in-app
   fallback on Android 8 to 12.
 - Edge-to-edge layout and dark-theme-aware components.
@@ -97,13 +112,42 @@ providers, scheduler and Room schema were kept.
 - A re-enabled task kept a stale next-run time in the past.
 - Tasks could not be edited and sessions could not be deleted.
 - Fast typing in the composer dropped characters ("hello" became "hell").
+- The merged build crashed on launch: a FakeProvider regex had unescaped
+  `}` / `]`, which the JVM accepts and Android ICU rejects.
+- Slash direct dispatch stored the full summary plus a debug
+  `Active skills: …` line, which was also sent back to the model.
+- The demo provider's post-tool reply echoed the raw tool result; it now says
+  `Done with <tool>: <summary>`.
+- The rename dialog put the cursor before the old name; it now selects it.
+- "AndroidClaw is ready.", "Turn cancelled." and "Turn failed" notices stayed
+  English in Chinese.
+- Cancelled tool rows had no error code (now `CANCELLED`), and failed cards
+  showed "Done".
+- No runtime notification-permission request existed on Android 13+.
+- Skill detail could show "Disabled" and "Ready" at the same time.
+- `scripts/run_ktlint.sh` linted nothing and exited 0 in Windows-git
+  worktrees; it now falls back to globs and fails when nothing matches.
+- Provider-header tests hard-coded app version 0.1.0.
+- A workspace ViewModel test leaked a coroutine past the Main-dispatcher
+  reset and crashed the next test class.
+
+### Known limitations
+- Demo-provider replies and the tool summaries written for the model (tool
+  card titles such as "Memory is off. …") are English in every app language.
+  A real model answers in the user's language; the UI around them (status,
+  error hints, notices) is localized.
 
 ### Validation
-- Unit tests: 687/687 after the UI merge (665 before the rework; the
-  16,000-line test file for the removed meta tools went with them).
-- Instrumentation on the `AndroidClawApi34` emulator: 11/11; manual journey
-  13/13 steps with no crash lines in logcat.
-- `assembleDebug`, `lintDebug` and ktlint green.
+- Unit tests: 508 passed, 4 skipped (OpenAI live tests without a key), 0
+  failed, 512 total (665 before the rework; the 16,000-line test file for the
+  removed meta tools went with them).
+- Instrumentation on the `AndroidClawApi34` emulator: 11/11 tests in 7
+  classes.
+- Emulator journeys: English 13/13 and Chinese 10/10 steps, 0 crash lines;
+  scheduler once / interval / main / isolated runs observed on device (4/4).
+- `assembleDebug`, `lintDebug` (0 errors), ktlint (0 findings), `assembleQa`,
+  `assembleRelease` and `bundleRelease` green, run with `--offline`.
+- App version 0.2.0 (versionCode 2).
 
 ## v0.1.0
 
