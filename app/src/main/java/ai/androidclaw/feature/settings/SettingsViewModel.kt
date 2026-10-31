@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.R
 import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.MAX_PROVIDER_TIMEOUT_SECONDS
@@ -32,6 +33,8 @@ import ai.androidclaw.runtime.providers.OpenAiCodexDeviceCodePrompt
 import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
+import ai.androidclaw.ui.text.UiText
+import ai.androidclaw.ui.text.toRawUiTextOrNull
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
@@ -51,21 +54,23 @@ data class SettingsUiState(
     val modelId: String = "",
     val timeoutSeconds: String = "",
     val networkSummary: String = "",
-    val connectionHint: String? = null,
+    val networkConnected: Boolean = true,
+    val networkValidated: Boolean = true,
+    val networkMetered: Boolean = false,
+    val connectionHint: UiText? = null,
     val authMode: ProviderAuthMode = ProviderAuthMode.None,
     val apiKeyDraft: String = "",
     val hasStoredApiKey: Boolean = false,
     val hasOAuthCredential: Boolean = false,
     val oAuthProfileLabel: String? = null,
-    val oAuthExpiresAtText: String? = null,
+    val oAuthExpiresAt: Instant? = null,
     val isSigningInWithOpenAiCodex: Boolean = false,
     val deviceCodeUserCode: String? = null,
     val deviceCodeVerificationUrl: String? = null,
     val configured: Boolean = false,
     val isValidatingConnection: Boolean = false,
     val lastValidationSucceeded: Boolean = false,
-    val statusMessage: String? = null,
-    val buildPosture: String = "",
+    val statusMessage: UiText? = null,
     val themePreference: ThemePreference = ThemePreference.System,
     val memoryEnabled: Boolean = false,
     val memoryStoredCount: Int = 0,
@@ -74,8 +79,7 @@ data class SettingsUiState(
 
 internal const val SETTINGS_TIMEOUT_INPUT_MAX_CHARS = 10
 internal const val SETTINGS_STATUS_MESSAGE_MAX_CHARS = 1_000
-internal const val SETTINGS_INPUT_TRUNCATED_NOTICE =
-    "Provider setting text truncated by AndroidClaw to keep settings responsive."
+internal val SETTINGS_INPUT_TRUNCATED_NOTICE: UiText = UiText.res(R.string.settings_notice_input_truncated)
 
 private data class BoundedSettingsInput(
     val value: String,
@@ -91,7 +95,7 @@ private fun String.toBoundedSettingsInput(maxChars: Int): BoundedSettingsInput {
     )
 }
 
-private fun SettingsUiState.nextStatusAfterSettingsInput(wasTruncated: Boolean): String? =
+private fun SettingsUiState.nextStatusAfterSettingsInput(wasTruncated: Boolean): UiText? =
     if (wasTruncated) {
         SETTINGS_INPUT_TRUNCATED_NOTICE
     } else {
@@ -103,10 +107,11 @@ internal fun boundedSettingsStatusMessage(
     fallback: String,
 ): String = (message?.takeIf(String::isNotBlank) ?: fallback).take(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
 
-private fun String?.toBoundedSettingsStatusMessageOrNull(): String? =
-    this
-        ?.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
-        ?.takeIf(String::isNotBlank)
+/** Runtime/provider text shown verbatim (bounded); blank falls back to [fallbackRes]. */
+internal fun boundedSettingsUiText(
+    message: String?,
+    fallbackRes: Int,
+): UiText = message.toRawUiTextOrNull(SETTINGS_STATUS_MESSAGE_MAX_CHARS) ?: UiText.res(fallbackRes)
 
 class SettingsViewModel(
     private val providerRegistry: ProviderRegistry,
@@ -120,7 +125,6 @@ class SettingsViewModel(
         MutableStateFlow(
             SettingsUiState(
                 availableProviders = providerRegistry.descriptors().map { it.type },
-                buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider, API-key providers, native Claude, and OpenAI Codex device OAuth.",
             ),
         )
     val state: StateFlow<SettingsUiState> = mutableState.asStateFlow()
@@ -153,6 +157,9 @@ class SettingsViewModel(
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
                     networkSummary = networkStatus.summary,
+                    networkConnected = networkStatus.isConnected,
+                    networkValidated = networkStatus.isValidated,
+                    networkMetered = networkStatus.isMetered,
                     connectionHint =
                         buildConnectionHint(
                             providerType = providerType,
@@ -163,7 +170,7 @@ class SettingsViewModel(
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                     hasOAuthCredential = oAuthCredential != null,
                     oAuthProfileLabel = oAuthCredential?.displayLabel(),
-                    oAuthExpiresAtText = oAuthCredential?.expiresAtText(),
+                    oAuthExpiresAt = oAuthCredential?.expiresAt(),
                     isSigningInWithOpenAiCodex = false,
                     deviceCodeUserCode = null,
                     deviceCodeVerificationUrl = null,
@@ -202,7 +209,7 @@ class SettingsViewModel(
             mutableState.update {
                 it.copy(
                     themePreference = themePreference,
-                    statusMessage = "Theme preference saved.",
+                    statusMessage = UiText.res(R.string.settings_notice_theme_saved),
                 )
             }
         }
@@ -224,9 +231,9 @@ class SettingsViewModel(
                     memoryStoredCount = memoryCount,
                     statusMessage =
                         if (memorySettings.enabled) {
-                            "Memory enabled."
+                            UiText.res(R.string.settings_notice_memory_enabled)
                         } else {
-                            "Memory disabled."
+                            UiText.res(R.string.settings_notice_memory_disabled)
                         },
                 )
             }
@@ -245,7 +252,7 @@ class SettingsViewModel(
                 it.copy(
                     memoryStoredCount = 0,
                     memoryInstallUserId = memorySettings.installUserId,
-                    statusMessage = "Cleared $deletedCount memory item(s).",
+                    statusMessage = UiText.plural(R.plurals.settings_notice_memory_cleared, deletedCount, deletedCount),
                 )
             }
         }
@@ -349,7 +356,7 @@ class SettingsViewModel(
                             hasOAuthCredential = it.hasOAuthCredential,
                         ),
                     lastValidationSucceeded = false,
-                    statusMessage = "Stored API key cleared.",
+                    statusMessage = UiText.res(R.string.settings_notice_api_key_cleared),
                 )
             }
         }
@@ -366,14 +373,14 @@ class SettingsViewModel(
             return
         }
         snapshot.providerEndpointPolicyError()?.let { issue ->
-            mutateState { it.copy(statusMessage = issue.message) }
+            mutateState { it.copy(statusMessage = UiText.raw(issue.message)) }
             return
         }
         val networkStatus = networkStatusProvider.currentStatus()
         if (!networkStatus.isConnected && !usesLoopbackEndpoint(snapshot.baseUrl)) {
             mutateState {
                 it.copy(
-                    statusMessage = "No active network connection. OpenAI Codex sign-in needs internet access.",
+                    statusMessage = UiText.res(R.string.settings_error_codex_offline),
                 )
             }
             return
@@ -386,7 +393,7 @@ class SettingsViewModel(
                     it.copy(
                         isSigningInWithOpenAiCodex = true,
                         lastValidationSucceeded = false,
-                        statusMessage = "Starting OpenAI Codex sign-in...",
+                        statusMessage = UiText.res(R.string.settings_notice_codex_starting),
                         deviceCodeUserCode = null,
                         deviceCodeVerificationUrl = null,
                     )
@@ -399,7 +406,7 @@ class SettingsViewModel(
                             onProgress = { message ->
                                 mutableState.update {
                                     it.copy(
-                                        statusMessage = boundedSettingsStatusMessage(message, "OpenAI Codex sign-in in progress."),
+                                        statusMessage = boundedSettingsUiText(message, R.string.settings_notice_codex_in_progress),
                                     )
                                 }
                             },
@@ -408,7 +415,7 @@ class SettingsViewModel(
                     if (!isCurrentMutation(mutationVersion)) {
                         return@launch
                     }
-                    refresh(statusMessage = "OpenAI Codex sign-in complete.")
+                    refresh(statusMessage = UiText.res(R.string.settings_notice_codex_complete))
                 } catch (error: ModelProviderException) {
                     if (!isCurrentMutation(mutationVersion)) {
                         return@launch
@@ -426,7 +433,7 @@ class SettingsViewModel(
                     mutableState.update {
                         it.copy(
                             isSigningInWithOpenAiCodex = false,
-                            statusMessage = boundedSettingsStatusMessage(error.message, "OpenAI Codex sign-in failed."),
+                            statusMessage = boundedSettingsUiText(error.message, R.string.settings_error_codex_failed),
                         )
                     }
                 }
@@ -441,7 +448,7 @@ class SettingsViewModel(
                 isSigningInWithOpenAiCodex = false,
                 deviceCodeUserCode = null,
                 deviceCodeVerificationUrl = null,
-                statusMessage = "OpenAI Codex sign-in cancelled.",
+                statusMessage = UiText.res(R.string.settings_notice_codex_cancelled),
             )
         }
     }
@@ -457,7 +464,7 @@ class SettingsViewModel(
                 it.copy(
                     hasOAuthCredential = false,
                     oAuthProfileLabel = null,
-                    oAuthExpiresAtText = null,
+                    oAuthExpiresAt = null,
                     configured =
                         isConfigured(
                             providerType = it.providerType,
@@ -468,7 +475,7 @@ class SettingsViewModel(
                             hasOAuthCredential = false,
                         ),
                     lastValidationSucceeded = false,
-                    statusMessage = "OpenAI Codex sign-in cleared.",
+                    statusMessage = UiText.res(R.string.settings_notice_codex_cleared),
                 )
             }
         }
@@ -486,7 +493,7 @@ class SettingsViewModel(
                 it.copy(
                     configured = false,
                     lastValidationSucceeded = false,
-                    statusMessage = issue.message,
+                    statusMessage = UiText.raw(issue.message),
                 )
             }
             return
@@ -501,7 +508,7 @@ class SettingsViewModel(
             if (!isCurrentMutation(mutationVersion)) {
                 return@launch
             }
-            refresh(statusMessage = "Provider settings saved.")
+            refresh(statusMessage = UiText.res(R.string.settings_notice_saved))
         }
     }
 
@@ -523,7 +530,7 @@ class SettingsViewModel(
                 it.copy(
                     isValidatingConnection = false,
                     lastValidationSucceeded = false,
-                    statusMessage = issue.message,
+                    statusMessage = UiText.raw(issue.message),
                 )
             }
             return
@@ -533,7 +540,7 @@ class SettingsViewModel(
                 it.copy(
                     isValidatingConnection = false,
                     lastValidationSucceeded = true,
-                    statusMessage = "FakeProvider is ready. It works offline.",
+                    statusMessage = UiText.res(R.string.settings_notice_fake_ready),
                 )
             }
             return
@@ -549,7 +556,7 @@ class SettingsViewModel(
                 it.copy(
                     isValidatingConnection = true,
                     lastValidationSucceeded = false,
-                    statusMessage = "Testing connection…",
+                    statusMessage = UiText.res(R.string.settings_notice_testing),
                 )
             }
             try {
@@ -582,7 +589,7 @@ class SettingsViewModel(
                     return@launch
                 }
                 refresh(
-                    statusMessage = "Connection test succeeded.",
+                    statusMessage = UiText.res(R.string.settings_notice_test_succeeded),
                     lastValidationSucceeded = true,
                 )
             } catch (error: ModelProviderException) {
@@ -604,7 +611,7 @@ class SettingsViewModel(
                     it.copy(
                         isValidatingConnection = false,
                         lastValidationSucceeded = false,
-                        statusMessage = boundedSettingsStatusMessage(error.message, "Connection test failed."),
+                        statusMessage = boundedSettingsUiText(error.message, R.string.settings_error_test_failed),
                     )
                 }
             }
@@ -621,7 +628,7 @@ class SettingsViewModel(
     }
 
     private fun refresh(
-        statusMessage: String? = null,
+        statusMessage: UiText? = null,
         lastValidationSucceeded: Boolean = false,
     ) {
         viewModelScope.launch {
@@ -648,6 +655,9 @@ class SettingsViewModel(
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
                     networkSummary = networkStatus.summary,
+                    networkConnected = networkStatus.isConnected,
+                    networkValidated = networkStatus.isValidated,
+                    networkMetered = networkStatus.isMetered,
                     connectionHint =
                         buildConnectionHint(
                             providerType = providerType,
@@ -658,7 +668,7 @@ class SettingsViewModel(
                     hasStoredApiKey = !storedApiKey.isNullOrBlank(),
                     hasOAuthCredential = oAuthCredential != null,
                     oAuthProfileLabel = oAuthCredential?.displayLabel(),
-                    oAuthExpiresAtText = oAuthCredential?.expiresAtText(),
+                    oAuthExpiresAt = oAuthCredential?.expiresAt(),
                     isSigningInWithOpenAiCodex = false,
                     deviceCodeUserCode = null,
                     deviceCodeVerificationUrl = null,
@@ -681,7 +691,6 @@ class SettingsViewModel(
                             recoveredApiKey = recoveredApiKey,
                             networkConnected = networkStatus.isConnected,
                         ),
-                    buildPosture = "Single-app-module, manual DI, Compose navigation shell, FakeProvider, API-key providers, native Claude, and OpenAI Codex device OAuth.",
                     themePreference = themePreference,
                     memoryEnabled = memorySettings.enabled,
                     memoryStoredCount = memoryCount,
@@ -696,6 +705,9 @@ class SettingsViewModel(
                 mutableState.update { state ->
                     state.copy(
                         networkSummary = networkStatus.summary,
+                        networkConnected = networkStatus.isConnected,
+                        networkValidated = networkStatus.isValidated,
+                        networkMetered = networkStatus.isMetered,
                         connectionHint =
                             buildConnectionHint(
                                 providerType = state.providerType,
@@ -778,22 +790,22 @@ class SettingsViewModel(
     }
 
     private fun resolveStatusMessage(
-        explicit: String?,
+        explicit: UiText?,
         providerType: ProviderType,
         baseUrl: String,
         recoveredApiKey: Boolean,
         networkConnected: Boolean,
-    ): String? {
-        val endpointStatusMessage = providerEndpointStatusMessage(providerType, baseUrl)
-        return when {
-            !explicit.isNullOrBlank() -> explicit
-            !endpointStatusMessage.isNullOrBlank() -> endpointStatusMessage
-            providerType.requiresApiKey && recoveredApiKey -> "Stored API key could not be restored on this device. Please enter it again."
-            providerType.requiresRemoteSettings && !networkConnected ->
-                "No active network connection. Remote providers may fail until connectivity returns."
-            else -> null
-        }.toBoundedSettingsStatusMessageOrNull()
-    }
+    ): UiText? =
+        when {
+            explicit != null -> explicit
+            else ->
+                providerEndpointStatusMessage(providerType, baseUrl)
+                    ?: when {
+                        providerType.requiresApiKey && recoveredApiKey -> UiText.res(R.string.settings_error_key_not_restored)
+                        providerType.requiresRemoteSettings && !networkConnected -> UiText.res(R.string.settings_hint_offline_remote)
+                        else -> null
+                    }
+        }
 
     private fun SettingsUiState.providerEndpointPolicyError(): ProviderEndpointPolicyIssue? =
         ProviderEndpointSettings(
@@ -805,7 +817,7 @@ class SettingsViewModel(
     private fun providerEndpointStatusMessage(
         providerType: ProviderType,
         baseUrl: String,
-    ): String? {
+    ): UiText? {
         val issue =
             ProviderEndpointSettings(
                 baseUrl = baseUrl,
@@ -814,73 +826,64 @@ class SettingsViewModel(
             ).providerEndpointPolicyIssues(providerType)
                 .firstOrNull()
                 ?: return null
-        val prefix =
-            when (issue.severity) {
-                ProviderEndpointPolicySeverity.Error -> "Base URL issue"
-                ProviderEndpointPolicySeverity.Warning -> "Base URL warning"
-            }
-        return "$prefix: ${issue.message}"
+        val details = issue.message.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
+        return when (issue.severity) {
+            ProviderEndpointPolicySeverity.Error -> UiText.res(R.string.settings_error_base_url, details)
+            ProviderEndpointPolicySeverity.Warning -> UiText.res(R.string.settings_warning_base_url, details)
+        }
     }
 
-    private fun validationFailureMessage(error: ModelProviderException): String =
-        boundedSettingsStatusMessage(
-            message =
-                when (error.kind) {
-                    ModelProviderFailureKind.Configuration -> error.userMessage
-                    ModelProviderFailureKind.InvalidEndpoint -> "Provider base URL is invalid. Check the endpoint format."
-                    ModelProviderFailureKind.Offline -> error.userMessage
-                    ModelProviderFailureKind.Authentication -> error.userMessage.ifBlank { "Authentication failed. Check credentials." }
-                    ModelProviderFailureKind.Network ->
-                        error.userMessage
-                    ModelProviderFailureKind.Timeout ->
-                        "Connection test timed out. Check the endpoint and timeout."
-                    ModelProviderFailureKind.Server ->
-                        error.userMessage.ifBlank { "Provider rejected the request." }
-                    ModelProviderFailureKind.StreamInterrupted ->
-                        "Provider streaming was interrupted before completion. Retry when the connection is stable."
-                    ModelProviderFailureKind.Response ->
-                        error.userMessage.ifBlank { "Provider returned an unexpected response." }
-                },
-            fallback = "Connection test failed.",
-        )
+    private fun validationFailureMessage(error: ModelProviderException): UiText {
+        val providerMessage = error.userMessage.takeIf(String::isNotBlank)?.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
+        return when (error.kind) {
+            ModelProviderFailureKind.InvalidEndpoint -> UiText.res(R.string.settings_error_invalid_endpoint)
+            ModelProviderFailureKind.Timeout -> UiText.res(R.string.settings_error_test_timeout)
+            ModelProviderFailureKind.StreamInterrupted -> UiText.res(R.string.settings_error_stream_interrupted)
+            ModelProviderFailureKind.Authentication ->
+                providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_auth)
+            ModelProviderFailureKind.Server ->
+                providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_server)
+            ModelProviderFailureKind.Response ->
+                providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_response)
+            ModelProviderFailureKind.Configuration,
+            ModelProviderFailureKind.Offline,
+            ModelProviderFailureKind.Network,
+            -> providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_test_failed)
+        }
+    }
 
-    private fun openAiCodexSignInFailureMessage(error: ModelProviderException): String =
-        boundedSettingsStatusMessage(
-            message =
-                when (error.kind) {
-                    ModelProviderFailureKind.Timeout ->
-                        error.userMessage.ifBlank { "OpenAI Codex sign-in timed out." }
-                    else -> validationFailureMessage(error)
-                },
-            fallback = "OpenAI Codex sign-in failed.",
-        )
+    private fun openAiCodexSignInFailureMessage(error: ModelProviderException): UiText =
+        when (error.kind) {
+            ModelProviderFailureKind.Timeout ->
+                boundedSettingsUiText(error.userMessage, R.string.settings_error_codex_timeout)
+            else -> validationFailureMessage(error)
+        }
 
     private fun buildConnectionHint(
         providerType: ProviderType,
         networkStatus: NetworkStatusSnapshot,
-    ): String? =
+    ): UiText =
         when {
-            !providerType.requiresRemoteSettings -> "FakeProvider is active. It works fully offline."
-            !networkStatus.isConnected ->
-                "Remote provider calls will fail until network connectivity returns."
-            !networkStatus.isValidated ->
-                "Network is connected, but Android has not validated internet access yet."
-            networkStatus.isMetered ->
-                "Remote provider calls are using a metered network."
-            else -> "Use Test connection to verify credentials, endpoint, and model."
+            !providerType.requiresRemoteSettings -> UiText.res(R.string.settings_hint_fake)
+            !networkStatus.isConnected -> UiText.res(R.string.settings_hint_offline)
+            !networkStatus.isValidated -> UiText.res(R.string.settings_hint_unvalidated)
+            networkStatus.isMetered -> UiText.res(R.string.settings_hint_metered)
+            else -> UiText.res(R.string.settings_hint_test)
         }
 
     private suspend fun showOpenAiCodexDeviceCode(prompt: OpenAiCodexDeviceCodePrompt) {
+        val minutes = (prompt.expiresInMillis / 60_000).coerceAtLeast(1).toInt()
         mutableState.update {
             it.copy(
                 deviceCodeUserCode = prompt.userCode,
                 deviceCodeVerificationUrl = prompt.verificationUrl,
                 statusMessage =
-                    boundedSettingsStatusMessage(
-                        message =
-                            "Enter code ${prompt.userCode} at ${prompt.verificationUrl}. Code expires in " +
-                                "${(prompt.expiresInMillis / 60_000).coerceAtLeast(1)} minutes.",
-                        fallback = "OpenAI Codex device code is ready.",
+                    UiText.plural(
+                        R.plurals.settings_notice_codex_device_code,
+                        minutes,
+                        prompt.userCode.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS),
+                        prompt.verificationUrl.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS),
+                        minutes,
                     ),
             )
         }
@@ -906,11 +909,8 @@ private fun SettingsUiState.validatedTimeoutSeconds(): Int? =
         .toIntOrNull()
         ?.takeIf { it in MIN_PROVIDER_TIMEOUT_SECONDS..MAX_PROVIDER_TIMEOUT_SECONDS }
 
-private fun providerTimeoutValidationMessage(): String = "Timeout must be an integer between $MIN_PROVIDER_TIMEOUT_SECONDS and $MAX_PROVIDER_TIMEOUT_SECONDS seconds."
+private fun providerTimeoutValidationMessage(): UiText = UiText.res(R.string.settings_error_timeout, MIN_PROVIDER_TIMEOUT_SECONDS, MAX_PROVIDER_TIMEOUT_SECONDS)
 
-private fun ProviderOAuthCredential.displayLabel(): String =
-    email
-        ?: profileName
-        ?: "OpenAI Codex account"
+private fun ProviderOAuthCredential.displayLabel(): String? = email ?: profileName
 
-private fun ProviderOAuthCredential.expiresAtText(): String = "Expires ${Instant.ofEpochMilli(expiresAtEpochMillis)}"
+private fun ProviderOAuthCredential.expiresAt(): Instant = Instant.ofEpochMilli(expiresAtEpochMillis)
