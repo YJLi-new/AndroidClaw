@@ -111,6 +111,26 @@ data class ToolExecutionResult(
 }
 
 internal const val TOOL_RESULT_SUMMARY_MAX_CHARS = 4_000
+internal const val TOOL_RESULT_MODEL_CONTENT_MAX_CHARS = 24_000
+
+/**
+ * The text a model (and the persisted transcript row) receives for a tool result:
+ * the readable summary followed by the structured payload as compact JSON.
+ */
+internal fun ToolExecutionResult.toModelContent(): String {
+    val content =
+        if (payload.isEmpty()) {
+            summary
+        } else {
+            "$summary\n$payload"
+        }
+    if (content.length <= TOOL_RESULT_MODEL_CONTENT_MAX_CHARS) {
+        return content
+    }
+    val suffix = "… [tool result truncated]"
+    return content.take(TOOL_RESULT_MODEL_CONTENT_MAX_CHARS - suffix.length) + suffix
+}
+
 internal const val TOOL_REGISTRY_NAME_MAX_CHARS = 256
 internal const val TOOL_REGISTRY_ARGUMENT_NAME_MAX_CHARS = 256
 internal const val TOOL_REGISTRY_ARGUMENT_LIST_MAX_ITEMS = 50
@@ -202,8 +222,12 @@ class ToolRegistry(
                 descriptor.isAllowedForOrigin(
                     origin = origin,
                     runMode = runMode,
-                )
+                ) &&
+                    !(runMode == ModelRunMode.Scheduled && descriptor.foregroundRequired)
             }
+
+    /** Resolves an alias (for example a legacy dotted name) to the canonical tool name. */
+    fun canonicalName(name: String): String? = entriesByName[name]?.descriptor?.name
 
     fun redactArguments(
         toolName: String,
@@ -249,6 +273,18 @@ class ToolRegistry(
             }
         val descriptor = entry.resolvedDescriptor()
         val resolvedContext = context.copy(canonicalName = descriptor.name)
+        foregroundPolicyFailure(
+            descriptor = descriptor,
+            context = resolvedContext,
+        )?.let { result ->
+            logToolEvent(
+                level = EventLevel.Warn,
+                message = "Tool ${descriptor.name} needs the app in the foreground.",
+                context = resolvedContext,
+                result = result,
+            )
+            return result
+        }
         originPolicyFailure(
             descriptor = descriptor,
             context = resolvedContext,
@@ -310,6 +346,25 @@ class ToolRegistry(
                 }
         } catch (error: CancellationException) {
             throw error
+        } catch (error: IllegalArgumentException) {
+            val failureMessage = error.message.toBoundedToolResultSummary(fallback = "Invalid arguments for ${descriptor.name}.")
+            ToolExecutionResult
+                .failure(
+                    summary = failureMessage,
+                    errorCode = "INVALID_ARGUMENTS",
+                    payload =
+                        buildJsonObject {
+                            put("errorCode", "INVALID_ARGUMENTS")
+                            put("toolName", descriptor.name)
+                        },
+                ).also { result ->
+                    logToolEvent(
+                        level = EventLevel.Warn,
+                        message = "Tool ${descriptor.name} rejected its arguments.",
+                        context = resolvedContext,
+                        result = result,
+                    )
+                }
         } catch (error: Exception) {
             val failureMessage = error.message.toBoundedToolResultSummary(fallback = "Tool ${descriptor.name} failed.")
             ToolExecutionResult
@@ -419,6 +474,25 @@ class ToolRegistry(
                     put("toolName", descriptor.name.toBoundedToolRegistryName())
                     put("availabilityStatus", availability.status.name)
                     put("requiredPermissions", descriptor.requiredPermissions.toPermissionJsonArray())
+                },
+        )
+    }
+
+    private fun foregroundPolicyFailure(
+        descriptor: ToolDescriptor,
+        context: ToolExecutionContext,
+    ): ToolExecutionResult? {
+        if (!descriptor.foregroundRequired || context.runMode != ModelRunMode.Scheduled) {
+            return null
+        }
+        return ToolExecutionResult.failure(
+            summary = "Tool ${descriptor.name} needs AndroidClaw open on screen, so it cannot run from a scheduled task.",
+            errorCode = "FOREGROUND_REQUIRED",
+            payload =
+                buildJsonObject {
+                    put("errorCode", "FOREGROUND_REQUIRED")
+                    put("toolName", descriptor.name.toBoundedToolRegistryName())
+                    put("runMode", context.runMode.name)
                 },
         )
     }
@@ -784,7 +858,10 @@ private fun ToolDescriptor.isAllowedForOrigin(
         return false
     }
     return when (runMode) {
-        ModelRunMode.Scheduled -> riskTier == ToolRiskTier.ReadOnly || origin == ToolInvocationOrigin.Internal
+        ModelRunMode.Scheduled ->
+            riskTier == ToolRiskTier.ReadOnly ||
+                origin == ToolInvocationOrigin.Internal ||
+                ToolInvocationOrigin.ScheduledModel in allowedOrigins
         ModelRunMode.Interactive, null -> true
     }
 }
@@ -818,14 +895,15 @@ private fun defaultAllowedOriginsForRisk(riskTier: ToolRiskTier): Set<ToolInvoca
     }
 
 private fun inferToolRiskTier(name: String): ToolRiskTier {
-    val normalized = name.lowercase()
-    if (normalized == "notifications.post") {
+    // Accept both legacy dotted names and snake_case names (`tasks.delete` / `tasks_delete`).
+    val normalized = name.lowercase().replace('_', '.')
+    if (normalized == "notifications.post" || normalized == "notify") {
         return ToolRiskTier.ExternalSideEffect
     }
     if (
         normalized == "providers.auth.clear" ||
         normalized == "providers.reset" ||
-        normalized == "tasks.run_now" ||
+        normalized == "tasks.run.now" ||
         normalized.endsWith(".delete") ||
         normalized.endsWith(".clear") ||
         normalized.endsWith(".import") ||

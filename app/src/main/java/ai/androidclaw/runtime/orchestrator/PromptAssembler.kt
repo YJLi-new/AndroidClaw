@@ -11,6 +11,10 @@ import ai.androidclaw.runtime.tools.ToolAvailabilityStatus
 import ai.androidclaw.runtime.tools.ToolDescriptor
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import java.time.Clock
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 data class PromptAssembly(
     val systemPrompt: String,
@@ -22,7 +26,15 @@ data class PromptAssembly(
 
 class PromptAssembler(
     private val contextWindowManager: ContextWindowManager = ContextWindowManager(),
+    private val clock: Clock = Clock.systemDefaultZone(),
 ) {
+    /**
+     * Builds the system prompt and provider history.
+     *
+     * With [nativeToolCalling] (every built-in provider) tool schemas travel in the provider's
+     * `tools` field, so the prompt carries only a one-line capability note instead of repeating
+     * the tool list. [workspaceContext] is the pre-bounded persona block from the workspace store.
+     */
     fun assemble(
         persistedMessages: List<ChatMessage>,
         selectedSkills: List<SkillSnapshot>,
@@ -31,24 +43,33 @@ class PromptAssembler(
         sessionSummary: String? = null,
         forceSessionSummary: Boolean = false,
         crossSessionMemories: List<String> = emptyList(),
+        workspaceContext: String? = null,
+        nativeToolCalling: Boolean = true,
     ): PromptAssembly {
-        val systemPrompt = buildSystemPrompt(selectedSkills, toolDescriptors, runMode)
+        val systemPrompt =
+            buildSystemPrompt(
+                selectedSkills = selectedSkills,
+                toolDescriptors = toolDescriptors,
+                runMode = runMode,
+                workspaceContext = workspaceContext,
+                nativeToolCalling = nativeToolCalling,
+                now = ZonedDateTime.now(clock),
+            )
         val contextSelection =
             contextWindowManager.select(
                 systemPrompt = systemPrompt,
-                persistedHistory = persistedMessages.mapNotNull(ChatMessage::toModelMessage),
+                persistedHistory =
+                    persistedMessages
+                        .filterNot(ChatMessage::isRuntimeNotice)
+                        .mapNotNull(ChatMessage::toModelMessage),
                 summaryText = sessionSummary,
                 forceSummary = forceSessionSummary,
             )
         val memoryMessage = crossSessionMemories.toMemoryContextMessage()
+        val history = contextSelection.messageHistory.withPairedToolMessages()
         return PromptAssembly(
             systemPrompt = systemPrompt,
-            messageHistory =
-                if (memoryMessage == null) {
-                    contextSelection.messageHistory
-                } else {
-                    listOf(memoryMessage) + contextSelection.messageHistory
-                },
+            messageHistory = if (memoryMessage == null) history else listOf(memoryMessage) + history,
             truncated = contextSelection.truncated,
             summaryInserted = contextSelection.summaryInserted,
             diagnostics = contextSelection.diagnostics,
@@ -61,23 +82,54 @@ internal const val MAX_PROMPT_SKILLS = 20
 internal const val MAX_PROMPT_SKILL_NAME_CHARS = 160
 internal const val MAX_PROMPT_SKILL_DESCRIPTION_CHARS = 1_000
 internal const val MAX_PROMPT_SKILL_INSTRUCTIONS_CHARS = 4_000
-internal const val MAX_PROMPT_TOOLS = 100
+internal const val MAX_PROMPT_TOOLS = 64
 internal const val MAX_PROMPT_TOOL_NAME_CHARS = 120
-internal const val MAX_PROMPT_TOOL_DESCRIPTION_CHARS = 500
+internal const val MAX_PROMPT_TOOL_DESCRIPTION_CHARS = 300
 internal const val MAX_PROMPT_TOOL_ALIASES = 10
 internal const val MAX_PROMPT_TOOL_ALIAS_CHARS = 80
 internal const val MAX_MEMORY_CONTEXT_ITEMS = 5
 internal const val MAX_MEMORY_CONTEXT_ITEM_CHARS = 500
 
+/** Persisted app notices that are shown in the chat but are not conversation content. */
+private val RUNTIME_NOTICE_PREFIXES = listOf("Turn failed:", "Turn cancelled.", "AndroidClaw is ready.")
+
+private val PROMPT_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm EEEE", Locale.ENGLISH)
+
 private fun buildSystemPrompt(
     selectedSkills: List<SkillSnapshot>,
     toolDescriptors: List<ToolDescriptor>,
     runMode: ModelRunMode,
+    workspaceContext: String?,
+    nativeToolCalling: Boolean,
+    now: ZonedDateTime,
 ): String =
     buildString {
         appendLine("You are AndroidClaw, a lightweight Android-native assistant host.")
         appendLine("Use concise, direct responses unless the user asks for depth.")
         appendLine("Run mode: ${runMode.name.lowercase()}.")
+        append("Current local time: ")
+            .append(now.format(PROMPT_TIME_FORMAT))
+            .append(" (")
+            .append(now.zone.id)
+            .appendLine(").")
+        if (runMode == ModelRunMode.Scheduled) {
+            appendLine("This is a scheduled task run: nobody is watching the screen, so do not open apps or ask questions.")
+        }
+        if (toolDescriptors.isNotEmpty()) {
+            if (nativeToolCalling) {
+                appendLine(
+                    "You can call ${toolDescriptors.size} native tools. Call one when it helps; " +
+                        "never claim a tool ran unless you called it.",
+                )
+            } else {
+                appendToolList(toolDescriptors)
+            }
+        }
+        if (!workspaceContext.isNullOrBlank()) {
+            appendLine()
+            appendLine("# Workspace files (edit with workspace_edit / workspace_write)")
+            appendLine(workspaceContext.trim())
+        }
         if (selectedSkills.isNotEmpty()) {
             appendLine()
             appendLine("Enabled skills:")
@@ -98,40 +150,42 @@ private fun buildSystemPrompt(
                 appendLine("Additional enabled skills omitted: ${selectedSkills.size - MAX_PROMPT_SKILLS}.")
             }
         }
-        if (toolDescriptors.isNotEmpty()) {
-            appendLine()
-            appendLine("Available tools:")
-            toolDescriptors.take(MAX_PROMPT_TOOLS).forEach { tool ->
-                append("- ${tool.name.toPromptText(MAX_PROMPT_TOOL_NAME_CHARS)}: ")
-                append(tool.description.toPromptText(MAX_PROMPT_TOOL_DESCRIPTION_CHARS))
-                if (tool.aliases.isNotEmpty()) {
-                    val aliases =
-                        tool.aliases
-                            .take(MAX_PROMPT_TOOL_ALIASES)
-                            .joinToString { alias -> alias.toPromptText(MAX_PROMPT_TOOL_ALIAS_CHARS) }
-                    append(" [aliases: $aliases")
-                    if (tool.aliases.size > MAX_PROMPT_TOOL_ALIASES) {
-                        append(", …")
-                    }
-                    append("]")
-                }
-                if (tool.foregroundRequired) {
-                    append(" (foreground required)")
-                }
-                when (tool.availability.status) {
-                    ToolAvailabilityStatus.Available -> Unit
-                    ToolAvailabilityStatus.Unavailable -> append(" (currently unavailable)")
-                    ToolAvailabilityStatus.PermissionRequired -> append(" (permission required)")
-                    ToolAvailabilityStatus.ForegroundRequired -> append(" (open app to use)")
-                    ToolAvailabilityStatus.DisabledByConfig -> append(" (disabled by config)")
-                }
-                appendLine()
-            }
-            if (toolDescriptors.size > MAX_PROMPT_TOOLS) {
-                appendLine("Additional tools omitted: ${toolDescriptors.size - MAX_PROMPT_TOOLS}.")
-            }
-        }
     }.trim()
+
+/** Text tool list for providers without native tool calling. No built-in provider needs it today. */
+private fun StringBuilder.appendToolList(toolDescriptors: List<ToolDescriptor>) {
+    appendLine()
+    appendLine("Available tools:")
+    toolDescriptors.take(MAX_PROMPT_TOOLS).forEach { tool ->
+        append("- ${tool.name.toPromptText(MAX_PROMPT_TOOL_NAME_CHARS)}: ")
+        append(tool.description.toPromptText(MAX_PROMPT_TOOL_DESCRIPTION_CHARS))
+        if (tool.aliases.isNotEmpty()) {
+            val aliases =
+                tool.aliases
+                    .take(MAX_PROMPT_TOOL_ALIASES)
+                    .joinToString { alias -> alias.toPromptText(MAX_PROMPT_TOOL_ALIAS_CHARS) }
+            append(" [aliases: $aliases")
+            if (tool.aliases.size > MAX_PROMPT_TOOL_ALIASES) {
+                append(", …")
+            }
+            append("]")
+        }
+        if (tool.foregroundRequired) {
+            append(" (foreground required)")
+        }
+        when (tool.availability.status) {
+            ToolAvailabilityStatus.Available -> Unit
+            ToolAvailabilityStatus.Unavailable -> append(" (currently unavailable)")
+            ToolAvailabilityStatus.PermissionRequired -> append(" (permission required)")
+            ToolAvailabilityStatus.ForegroundRequired -> append(" (open app to use)")
+            ToolAvailabilityStatus.DisabledByConfig -> append(" (disabled by config)")
+        }
+        appendLine()
+    }
+    if (toolDescriptors.size > MAX_PROMPT_TOOLS) {
+        appendLine("Additional tools omitted: ${toolDescriptors.size - MAX_PROMPT_TOOLS}.")
+    }
+}
 
 private fun List<String>.toMemoryContextMessage(): ModelMessage? {
     val memories =
@@ -156,6 +210,43 @@ private fun List<String>.toMemoryContextMessage(): ModelMessage? {
             }.trim(),
     )
 }
+
+/**
+ * Providers reject an assistant tool call without its result (and a result without its call).
+ * Turns cancelled mid-tool, or a context window that cut between the two, leave such orphans:
+ * drop them, keep only the first result per call id, and restore tool names on results.
+ */
+internal fun List<ModelMessage>.withPairedToolMessages(): List<ModelMessage> {
+    val resultIds = filter { it.role == ModelMessageRole.Tool }.mapNotNull { it.toolCallId }.toSet()
+    val callNames = mutableMapOf<String, String>()
+    val seenResults = mutableSetOf<String>()
+    return mapNotNull { message ->
+        when {
+            message.role == ModelMessageRole.Assistant && message.toolCalls.isNotEmpty() -> {
+                val kept = message.toolCalls.filter { call -> call.id in resultIds && call.id !in callNames }
+                kept.forEach { call -> callNames[call.id] = call.name }
+                when {
+                    kept.isNotEmpty() -> message.copy(toolCalls = kept)
+                    message.content.isNotBlank() -> message.copy(toolCalls = emptyList())
+                    else -> null
+                }
+            }
+
+            message.role == ModelMessageRole.Tool -> {
+                val id = message.toolCallId
+                if (id == null || id !in callNames || !seenResults.add(id)) {
+                    null
+                } else {
+                    message.copy(toolName = message.toolName ?: callNames[id])
+                }
+            }
+
+            else -> message
+        }
+    }
+}
+
+private fun ChatMessage.isRuntimeNotice(): Boolean = role == MessageRole.System && RUNTIME_NOTICE_PREFIXES.any { prefix -> content.trimStart().startsWith(prefix) }
 
 private fun String.toPromptText(maxChars: Int): String = take(maxChars)
 
@@ -187,25 +278,23 @@ private fun ChatMessage.toModelMessage(): ModelMessage? =
             }
     }
 
-private fun ChatMessage.toPersistedToolCallMessage(): ModelMessage {
+private fun ChatMessage.toPersistedToolCallMessage(): ModelMessage? {
     val parsedToolCall =
         parsePersistedToolCallContent(
             content = content,
             toolCallId = toolCallId,
-        )
-    return if (parsedToolCall != null) {
-        ModelMessage(
-            role = ModelMessageRole.Assistant,
-            content = "",
-            toolCalls = listOf(parsedToolCall),
-        )
-    } else {
-        ModelMessage(
-            role = ModelMessageRole.Assistant,
-            content = content,
-        )
-    }
+        ) ?: return null
+    return ModelMessage(
+        role = ModelMessageRole.Assistant,
+        content = "",
+        toolCalls = listOf(parsedToolCall),
+    )
 }
+
+private val PROVIDER_UNSAFE_TOOL_NAME_CHARS = Regex("[^A-Za-z0-9_-]")
+
+/** Legacy transcripts stored dotted names; providers only accept `[A-Za-z0-9_-]`. */
+internal fun String.toProviderSafeToolName(): String = replace(PROVIDER_UNSAFE_TOOL_NAME_CHARS, "_")
 
 private fun parsePersistedToolCallContent(
     content: String,
@@ -230,7 +319,7 @@ private fun parsePersistedToolCallContent(
         }
     return ProviderToolCall(
         id = persistedToolCallId,
-        name = toolName,
+        name = toolName.toProviderSafeToolName(),
         argumentsJson = arguments,
     )
 }
