@@ -31,9 +31,12 @@ object Routes {
     const val SKILL_DETAIL = "skills/detail/{skillId}"
     const val SETTINGS_HOME = "settings/home"
     const val DIAGNOSTICS = "settings/diagnostics"
+    const val WORKSPACE = "settings/workspace"
+    const val WORKSPACE_EDITOR = "settings/workspace/edit/{path}"
 
     const val ARG_TASK_ID = "taskId"
     const val ARG_SKILL_ID = "skillId"
+    const val ARG_WORKSPACE_PATH = "path"
 
     /** Routes that show the bottom navigation bar. */
     val topLevelRoutes = setOf(CHAT_HOME, TASKS_HOME, SKILLS_HOME, SETTINGS_HOME)
@@ -41,4 +44,6 @@ object Routes {
     fun taskEditor(taskId: String?): String = if (taskId == null) "tasks/edit" else "tasks/edit?taskId=${Uri.encode(taskId)}"
 
     fun skillDetail(skillId: String): String = "skills/detail/${Uri.encode(skillId)}"
+
+    fun workspaceEditor(path: String): String = "settings/workspace/edit/${Uri.encode(path)}"
 }

@@ -270,7 +270,7 @@ class AgentRunner(
                         )
                     return persistAssistantResponse(
                         sessionId = sessionId,
-                        assistantText = toolResult.summary,
+                        assistantText = toolResult.toDirectDispatchReply(),
                         selectedSkills = listOf(slashSkill),
                         directToolResult = toolResult,
                         taskRunId = taskRunId,
@@ -771,7 +771,7 @@ class AgentRunner(
                     messageRepository.addMessage(
                         sessionId = sessionId,
                         role = MessageRole.ToolResult,
-                        content = "Tool result: Cancelled before the tool finished.",
+                        content = "Tool result: Cancelled before the tool finished.\n{\"errorCode\":\"CANCELLED\"}",
                         toolCallId = toolCallId,
                         taskRunId = taskRunId,
                     )
@@ -795,11 +795,7 @@ class AgentRunner(
         sourceUserMessage: String? = null,
         sourceMessageIds: List<String> = emptyList(),
     ): AgentTurnResult {
-        val boundedAssistantText = assistantText.toBoundedAgentAssistantText()
-        val persistedText =
-            boundedAssistantText
-                .withActiveSkills(selectedSkills)
-                .toBoundedAgentAssistantText()
+        val persistedText = assistantText.toBoundedAgentAssistantText()
         val providerMeta =
             providerId?.let { resolvedProviderId ->
                 ProviderMessageMeta(
@@ -825,7 +821,7 @@ class AgentRunner(
                 memoryCoordinator?.captureTurn(
                     sessionId = sessionId,
                     userMessage = sourceUserMessage,
-                    assistantMessage = boundedAssistantText,
+                    assistantMessage = persistedText,
                     sourceMessageIds = (sourceMessageIds + assistantMessage.id).distinct(),
                 )
             }
@@ -916,9 +912,8 @@ private fun ChatMessage.isCompactControlMessage(): Boolean {
             trimmedContent.startsWith("Tool request: $LEGACY_SESSIONS_COMPACT_TOOL_NAME") ||
                 trimmedContent.startsWith("Tool request: $SESSIONS_COMPACT_TOOL_NAME")
         MessageRole.ToolResult -> trimmedContent.startsWith("Tool result: Compacted this session")
-        MessageRole.Assistant ->
-            trimmedContent.startsWith("Compacted this session") &&
-                trimmedContent.contains("Active skills: compact")
+        // Older builds appended "Active skills: compact"; the reply prefix alone identifies it.
+        MessageRole.Assistant -> trimmedContent.startsWith("Compacted this session")
 
         MessageRole.System -> false
     }
@@ -1017,27 +1012,25 @@ internal fun List<SkillSnapshot>.toBoundedModelSkillMetadata(): List<ModelSkillM
         )
     }
 
-internal fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String {
-    if (selectedSkills.isEmpty()) {
-        return this
-    }
-    val displayedSkillNames =
-        selectedSkills
-            .take(MAX_PROMPT_SKILLS)
-            .map { skill -> skill.displayName.trim().toAgentSkillText(MAX_PROMPT_SKILL_NAME_CHARS) }
-            .filter(String::isNotBlank)
-    if (displayedSkillNames.isEmpty()) {
-        return this
-    }
-    return buildString {
-        append(this@withActiveSkills)
-        append("\n\nActive skills: ")
-        append(displayedSkillNames.joinToString())
-        if (selectedSkills.size > MAX_PROMPT_SKILLS) {
-            append(", +").append(selectedSkills.size - MAX_PROMPT_SKILLS).append(" more")
-        }
+/**
+ * The assistant line persisted after a slash command dispatched straight to a tool: the tool
+ * card already shows the full result, so the reply is only the first summary line, bounded.
+ */
+internal fun ToolExecutionResult.toDirectDispatchReply(): String {
+    val firstLine =
+        summary
+            .lineSequence()
+            .map(String::trim)
+            .firstOrNull(String::isNotEmpty)
+            .orEmpty()
+    return if (firstLine.length <= DIRECT_DISPATCH_REPLY_MAX_CHARS) {
+        firstLine
+    } else {
+        firstLine.take(DIRECT_DISPATCH_REPLY_MAX_CHARS - 1).trimEnd() + "…"
     }
 }
+
+internal const val DIRECT_DISPATCH_REPLY_MAX_CHARS = 200
 
 private fun String.toAgentSkillText(maxChars: Int): String = take(maxChars)
 

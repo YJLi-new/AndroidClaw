@@ -22,15 +22,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -39,22 +45,28 @@ internal fun RenameSessionDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var title by rememberSaveable { mutableStateOf(initialTitle) }
+    // The current name starts selected and focused, so typing replaces it.
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(initialTitle, selection = TextRange(0, initialTitle.length)))
+    }
+    val title = field.text
+    val focusRequester = remember { FocusRequester() }
     var truncated by rememberSaveable { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.chat_rename_title)) },
         text = {
             OutlinedTextField(
-                value = title,
+                value = field,
                 onValueChange = { value ->
-                    val bounded = boundChatRenameInput(value)
-                    title = bounded.value
+                    val bounded = boundChatRenameInput(value.text)
+                    field = if (bounded.value == value.text) value else TextFieldValue(bounded.value, TextRange(bounded.value.length))
                     truncated = bounded.wasTruncated
                 },
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .focusRequester(focusRequester)
                         .testTag("chatRenameField"),
                 label = { Text(stringResource(R.string.chat_rename_label)) },
                 singleLine = true,
@@ -67,6 +79,8 @@ internal fun RenameSessionDialog(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { if (title.isNotBlank()) onConfirm(title) }),
             )
+            // Inside the dialog content so the field is attached before focus is requested.
+            LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
         },
         confirmButton = {
             TextButton(

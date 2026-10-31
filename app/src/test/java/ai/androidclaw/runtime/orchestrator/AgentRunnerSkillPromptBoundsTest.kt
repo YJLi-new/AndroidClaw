@@ -6,6 +6,7 @@ import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillFrontmatter
 import ai.androidclaw.runtime.skills.SkillSnapshot
 import ai.androidclaw.runtime.skills.SkillSourceType
+import ai.androidclaw.runtime.tools.ToolExecutionResult
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
@@ -45,26 +46,20 @@ class AgentRunnerSkillPromptBoundsTest {
     }
 
     @Test
-    fun `active skill suffix caps names and reports omitted skills`() {
-        val longName = "n".repeat(MAX_PROMPT_SKILL_NAME_CHARS) + "NAME_TAIL"
-        val text =
-            "Assistant reply".withActiveSkills(
-                (1..(MAX_PROMPT_SKILLS + 2)).map { index ->
-                    sampleSkill(
-                        id = "skill-$index",
-                        name = if (index == 1) longName else "skill_$index",
-                    )
-                },
+    fun `direct dispatch reply is the first summary line without debug text`() {
+        val multiLine =
+            ToolExecutionResult.success(
+                summary = "\n  Found 2 tasks.  \n- Morning brief\n- Water plants",
+                payload = buildJsonObject {},
             )
+        assertEquals("Found 2 tasks.", multiLine.toDirectDispatchReply())
 
-        assertTrue(text.startsWith("Assistant reply"))
-        assertTrue(text.contains("Active skills:"))
-        assertTrue(text.contains(longName.take(MAX_PROMPT_SKILL_NAME_CHARS)))
-        assertTrue(text.contains("skill_$MAX_PROMPT_SKILLS"))
-        assertTrue(text.contains("+2 more"))
-        assertTrue(!text.contains("NAME_TAIL"))
-        assertTrue(!text.contains("skill_${MAX_PROMPT_SKILLS + 1}"))
-        assertTrue(!text.contains("skill_${MAX_PROMPT_SKILLS + 2}"))
+        val long =
+            ToolExecutionResult.success(summary = "x".repeat(DIRECT_DISPATCH_REPLY_MAX_CHARS + 50), payload = buildJsonObject {})
+        val reply = long.toDirectDispatchReply()
+        assertEquals(DIRECT_DISPATCH_REPLY_MAX_CHARS, reply.length)
+        assertTrue(reply.endsWith("…"))
+        assertTrue(!reply.contains("Active skills"))
     }
 }
 

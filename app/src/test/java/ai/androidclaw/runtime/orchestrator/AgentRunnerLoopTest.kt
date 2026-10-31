@@ -182,7 +182,7 @@ class AgentRunnerLoopTest {
             val call = stored.single { it.role == MessageRole.ToolCall }
             val result = stored.single { it.role == MessageRole.ToolResult }
             assertEquals(call.toolCallId, result.toolCallId)
-            assertEquals("Tool result: Cancelled before the tool finished.", result.content)
+            assertEquals("Tool result: Cancelled before the tool finished.\n{\"errorCode\":\"CANCELLED\"}", result.content)
         }
 
     @Test

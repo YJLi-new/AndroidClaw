@@ -310,6 +310,9 @@ class AppContainer(
                 crashMarkerStore = crashMarkerStore,
             )
 
+    val workspaceDependencies: WorkspaceDependencies
+        get() = WorkspaceDependencies(workspaceStore = workspaceStore)
+
     suspend fun ensureMainSession() {
         suspend fun ensureReadyMessage(sessionId: String) {
             if (messageRepository.getRecentMessages(sessionId, limit = 1).isNotEmpty()) {

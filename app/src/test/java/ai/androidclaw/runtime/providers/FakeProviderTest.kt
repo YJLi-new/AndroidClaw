@@ -84,7 +84,7 @@ class FakeProviderTest {
                 )
 
             assertEquals("stop", response.finishReason)
-            assertTrue(response.text.contains("Tool result: Tool result: Health okay"))
+            assertEquals("Done with health.status: Tool result: Health okay", response.text)
         }
 
     @Test

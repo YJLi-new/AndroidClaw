@@ -1029,6 +1029,16 @@ internal fun groupChatItems(messages: List<ChatMessageUi>): List<ChatItemUi> {
                 }
             }
 
+            ChatRole.Assistant -> {
+                val text = message.text.withoutLegacyActiveSkillsSuffix()
+                val previousTool = items.lastOrNull() as? ChatItemUi.Tool
+                // A slash command dispatched to a tool persists the card summary as the reply;
+                // the card already shows it, so the duplicate line is not rendered.
+                if (previousTool?.result == null || text.trim() != parseToolResultView(previousTool.result).headline) {
+                    items += ChatItemUi.Message(if (text == message.text) message else message.copy(text = text))
+                }
+            }
+
             else -> items += ChatItemUi.Message(message)
         }
     }
@@ -1211,9 +1221,7 @@ private fun ChatMessageUi.isCompactControlMessage(): Boolean {
         ChatRole.User -> trimmedText.startsWith("/compact")
         ChatRole.ToolCall -> trimmedText.startsWith("Tool request: sessions.compact")
         ChatRole.ToolResult -> trimmedText.startsWith("Tool result: Compacted this session")
-        ChatRole.Assistant ->
-            trimmedText.startsWith("Compacted this session") &&
-                trimmedText.contains("Active skills: compact")
+        ChatRole.Assistant -> trimmedText.startsWith("Compacted this session")
         ChatRole.System -> false
     }
 }

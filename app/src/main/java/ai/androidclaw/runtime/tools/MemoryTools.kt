@@ -112,7 +112,7 @@ internal fun memoryToolEntries(
 internal fun memoryDisabled(): ToolExecutionResult =
     toolFailure(
         errorCode = "MEMORY_DISABLED",
-        summary = "Memory is turned off in Settings. Keep notes in the workspace file MEMORY.md instead.",
+        summary = "Memory is off. Turn it on in Settings > Memory, or keep notes in the workspace file MEMORY.md.",
     )
 
 internal fun List<MemoryItem>.toMemorySummary(emptySummary: String): String =

@@ -57,6 +57,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onOpenSetupGuide: (() -> Unit)? = null,
     onOpenDiagnostics: () -> Unit = {},
+    onOpenWorkspace: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var confirmClearMemory by remember { mutableStateOf(false) }
@@ -88,6 +89,14 @@ fun SettingsScreen(
                 state = state,
                 onSetEnabled = viewModel::setMemoryEnabled,
                 onClear = { confirmClearMemory = true },
+            )
+            ClawListItem(
+                title = stringResource(R.string.settings_workspace),
+                supporting = stringResource(R.string.settings_workspace_summary),
+                leadingIcon = R.drawable.ic_edit,
+                onClick = onOpenWorkspace,
+                modifier = Modifier.testTag("settingsWorkspaceItem"),
+                trailing = { ClawIcon(iconRes = R.drawable.ic_chevron_right, contentDescription = null) },
             )
 
             ClawSectionHeader(stringResource(R.string.settings_section_appearance))

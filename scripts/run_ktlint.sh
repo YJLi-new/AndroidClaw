@@ -33,12 +33,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${#pattern_args[@]}" -eq 0 ]]; then
-  mapfile -t pattern_args < <(cd "$repo_root" && git ls-files '*.kt' '*.kts')
+  # `git ls-files` fails when WSL git reads a worktree created by Windows git;
+  # fall back to the repository's Kotlin globs instead of silently linting nothing.
+  if tracked_files="$(cd "$repo_root" && git ls-files '*.kt' '*.kts' 2>/dev/null)" && [[ -n "$tracked_files" ]]; then
+    mapfile -t pattern_args <<<"$tracked_files"
+  else
+    echo "git ls-files unavailable; linting default globs." >&2
+    pattern_args=("app/src/**/*.kt" "baselineprofile/src/**/*.kt" "*.kts" "*/*.kts")
+  fi
 fi
 
 if [[ "${#pattern_args[@]}" -eq 0 ]]; then
   echo "No Kotlin files found to lint." >&2
-  exit 0
+  exit 1
 fi
 
 cd "$repo_root"

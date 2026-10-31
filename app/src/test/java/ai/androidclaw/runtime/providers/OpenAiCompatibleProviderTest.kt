@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.providers
 
+import ai.androidclaw.BuildConfig
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -119,8 +120,8 @@ class OpenAiCompatibleProviderTest {
             assertEquals("/v1/chat/completions", recordedRequest.path)
             assertEquals("Bearer sk-test", recordedRequest.getHeader("Authorization"))
             assertEquals("req-123", recordedRequest.getHeader("X-Request-Id"))
-            assertEquals("0.1.0", recordedRequest.getHeader("X-AndroidClaw-Version"))
-            assertEquals("AndroidClaw/0.1.0 (ai.androidclaw.app)", recordedRequest.getHeader("User-Agent"))
+            assertEquals(BuildConfig.VERSION_NAME, recordedRequest.getHeader("X-AndroidClaw-Version"))
+            assertEquals("AndroidClaw/${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})", recordedRequest.getHeader("User-Agent"))
             assertEquals("gpt-test", payload.getValue("model").jsonPrimitive.content)
             assertEquals(
                 "system",

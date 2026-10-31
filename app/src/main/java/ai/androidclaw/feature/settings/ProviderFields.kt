@@ -35,10 +35,10 @@ import androidx.compose.ui.unit.dp
 /** Localized provider name; brand names stay as they are. */
 @Composable
 fun providerLabel(providerType: ProviderType): String =
-    if (providerType == ProviderType.Fake) {
-        stringResource(R.string.settings_provider_fake)
-    } else {
-        providerType.displayName
+    when (providerType) {
+        ProviderType.Fake -> stringResource(R.string.settings_provider_fake)
+        ProviderType.OpenAiCompatible -> stringResource(R.string.settings_provider_openai_compatible)
+        else -> providerType.displayName
     }
 
 data class ProviderFieldCallbacks(
