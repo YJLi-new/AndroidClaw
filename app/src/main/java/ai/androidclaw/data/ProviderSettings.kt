@@ -45,6 +45,16 @@ enum class ProviderType(
         defaultModelId = "",
         defaultTimeoutSeconds = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
     ),
+    OpenAi(
+        storageValue = "openai-api",
+        providerId = "openai",
+        displayName = "OpenAI",
+        protocolFamily = ProviderProtocolFamily.OpenAiCompatible,
+        authMode = ProviderAuthMode.ApiKey,
+        defaultBaseUrl = OPENAI_DEFAULT_BASE_URL,
+        defaultModelId = OPENAI_DEFAULT_MODEL_ID,
+        defaultTimeoutSeconds = DEFAULT_PROVIDER_TIMEOUT_SECONDS,
+    ),
     OpenAiCodex(
         storageValue = "openai-codex",
         providerId = "openai-codex",
@@ -208,6 +218,7 @@ const val DEFAULT_PROVIDER_TIMEOUT_SECONDS: Int = 60
 const val MIN_PROVIDER_TIMEOUT_SECONDS: Int = 1
 const val MAX_PROVIDER_TIMEOUT_SECONDS: Int = 600
 const val OPENAI_DEFAULT_BASE_URL: String = "https://api.openai.com/v1"
+const val OPENAI_DEFAULT_MODEL_ID: String = "gpt-6-luna"
 const val OPENAI_CODEX_DEFAULT_BASE_URL: String = "https://chatgpt.com/backend-api/codex"
 const val OPENAI_CODEX_LEGACY_DEFAULT_MODEL_ID: String = "gpt-5.3-codex-spark"
 const val OPENAI_CODEX_DEFAULT_MODEL_ID: String = "gpt-5.4"
