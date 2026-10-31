@@ -346,8 +346,8 @@
           <article class="screen-row">
             <div class="screen-frame">
               <img
-                src="assets/screens/en/drawer.png"
-                alt="AndroidClaw chat with the session drawer open"
+                src="assets/screens/en/chat.png"
+                alt="AndroidClaw chat with a scheduled run posted into the main session"
                 width="540"
                 height="1200"
                 loading="eager"
@@ -369,6 +369,30 @@
           <article class="screen-row">
             <div class="screen-frame">
               <img
+                src="assets/screens/en/tool_card.png"
+                alt="Expanded device_status tool card with arguments and result"
+                width="540"
+                height="1200"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">TOOL CARDS &nbsp;·&nbsp; 02</span>
+              <h3>Every tool call, in the transcript</h3>
+              <p>
+                The result summary is the card title, with the tool name and
+                Done, Failed or Running below. Expand for pretty-printed
+                arguments and results; secret-like fields are masked, and
+                error codes such as <code>MEMORY_DISABLED</code> come with a
+                hint.
+              </p>
+              <p class="screen-spec">SUMMARY · STATUS · ARGUMENTS · RESULT</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
                 src="assets/screens/en/task_editor.png"
                 alt="AndroidClaw task editor with interval presets"
                 width="540"
@@ -377,7 +401,7 @@
               />
             </div>
             <div class="screen-text">
-              <span class="screen-tag">TASKS &nbsp;·&nbsp; 02</span>
+              <span class="screen-tag">TASKS &nbsp;·&nbsp; 03</span>
               <h3>Schedules people can read</h3>
               <p>
                 Pick a local date and time, an interval preset, or a cron
@@ -399,7 +423,7 @@
               />
             </div>
             <div class="screen-text">
-              <span class="screen-tag">SKILLS &nbsp;·&nbsp; 03</span>
+              <span class="screen-tag">SKILLS &nbsp;·&nbsp; 04</span>
               <h3><code>SKILL.md</code> inventory</h3>
               <p>
                 Toggle skills, open their instructions, and import new ones
@@ -422,14 +446,38 @@
               />
             </div>
             <div class="screen-text">
-              <span class="screen-tag">SETTINGS &nbsp;·&nbsp; 04</span>
+              <span class="screen-tag">SETTINGS &nbsp;·&nbsp; 05</span>
               <h3>Provider, memory, language</h3>
               <p>
                 Choose and test a provider, turn on local Memory, pick a theme
-                and the app language. Diagnostics shows provider, network,
-                scheduler and notification state and exports a report.
+                and the app language. On Android 13+ the notification
+                permission is asked when you save your first task. Diagnostics
+                shows provider, network, scheduler and notification state and
+                exports a report.
               </p>
               <p class="screen-spec">PROVIDERS · MEMORY · THEME · DIAGNOSTICS</p>
+            </div>
+          </article>
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screens/en/workspace.png"
+                alt="Assistant workspace with persona files and the prompt budget"
+                width="540"
+                height="1200"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">WORKSPACE &nbsp;·&nbsp; 06</span>
+              <h3>Persona files you can edit</h3>
+              <p>
+                <code>AGENTS.md</code>, <code>SOUL.md</code>, <code>USER.md</code>
+                and <code>MEMORY.md</code> go into every prompt within 8 KB.
+                Edit them in Settings → Assistant workspace, or let the
+                assistant use the <code>workspace_*</code> tools.
+              </p>
+              <p class="screen-spec">PERSONA · 8 KB BUDGET · EDITOR · RESET</p>
             </div>
           </article>
         </div>
@@ -445,10 +493,14 @@
         </header>
 
         <ul class="gallery">
-          <li><img src="assets/screens/zh/settings.png" alt="设置页面" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/chat.png" alt="聊天：定时任务结果发到主会话" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/tool_card.png" alt="工具卡片与记忆提示" width="540" height="1200" loading="lazy" /></li>
           <li><img src="assets/screens/zh/tasks.png" alt="任务列表" width="540" height="1200" loading="lazy" /></li>
-          <li><img src="assets/screens/zh/task_editor.png" alt="新建任务" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/task_editor.png" alt="新建任务：Cron 与下次运行预览" width="540" height="1200" loading="lazy" /></li>
           <li><img src="assets/screens/zh/skills.png" alt="技能列表" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/settings.png" alt="设置" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/workspace.png" alt="助手工作区" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/diagnostics.png" alt="诊断" width="540" height="1200" loading="lazy" /></li>
         </ul>
       </section>
 

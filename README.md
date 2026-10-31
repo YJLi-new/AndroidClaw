@@ -33,9 +33,13 @@ remote companion for a desktop gateway.
 
 ## Screenshots
 
-| Onboarding | Sessions drawer | Tasks | Task editor | Skills | Settings |
-|:-:|:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/en/onboarding.png" width="150" alt="First-run onboarding over the chat screen" /> | <img src="site/assets/screens/en/drawer.png" width="150" alt="Session drawer with main session and archive" /> | <img src="site/assets/screens/en/tasks.png" width="150" alt="Task list with run-now and next run" /> | <img src="site/assets/screens/en/task_editor.png" width="150" alt="Task editor with interval presets" /> | <img src="site/assets/screens/en/skills.png" width="150" alt="Skills list with toggles" /> | <img src="site/assets/screens/en/settings.png" width="150" alt="Settings with provider, memory, theme and language" /> |
+| Chat | Tool card | Sessions drawer | Tasks | Task editor |
+|:-:|:-:|:-:|:-:|:-:|
+| <img src="site/assets/screens/en/chat.png" width="150" alt="Chat with a scheduled run posted into the main session" /> | <img src="site/assets/screens/en/tool_card.png" width="150" alt="Expanded device_status tool card with arguments and result" /> | <img src="site/assets/screens/en/drawer.png" width="150" alt="Session drawer with sessions and archive" /> | <img src="site/assets/screens/en/tasks.png" width="150" alt="Task list with run history" /> | <img src="site/assets/screens/en/task_editor.png" width="150" alt="Task editor with date and time pickers" /> |
+
+| Skills | Settings | Assistant workspace | Diagnostics | Onboarding |
+|:-:|:-:|:-:|:-:|:-:|
+| <img src="site/assets/screens/en/skills.png" width="150" alt="Skills list with toggles" /> | <img src="site/assets/screens/en/settings.png" width="150" alt="Settings with provider, memory and workspace" /> | <img src="site/assets/screens/en/workspace.png" width="150" alt="Assistant workspace with persona files and prompt budget" /> | <img src="site/assets/screens/en/diagnostics.png" width="150" alt="Diagnostics with provider, scheduler and tools" /> | <img src="site/assets/screens/en/onboarding.png" width="150" alt="First-run onboarding" /> |
 
 ## Features
 
@@ -44,8 +48,12 @@ remote companion for a desktop gateway.
   drawer for sessions (new, switch, rename, archive, restore, delete).
 - Markdown rendering with code blocks and copy buttons; streaming replies
   with a Stop button.
-- Tool calls appear as collapsible cards in the transcript (summary line
-  collapsed, full JSON result expanded).
+- Tool calls appear as cards in the transcript: the result summary is the
+  title, with the tool name and Done / Failed: CODE / Running below. Expanded
+  cards show pretty-printed arguments and result (secret-like fields masked).
+  Error codes such as `MEMORY_DISABLED`, `FOREGROUND_REQUIRED` and
+  `PERMISSION_REQUIRED` come with a localized hint. Slash commands that
+  dispatch straight to a tool show only the card.
 - Slash-command suggestions while typing `/`; overflow menu for search,
   share/export, token usage and `/compact` history compaction.
 - The main session always exists; scheduled tasks can post into it.
@@ -80,7 +88,10 @@ unit-tested to stay under 24 KB).
 OpenClaw-style `AGENTS.md`, `SOUL.md`, `USER.md` and `MEMORY.md` live in
 app-private storage, are created from templates on first use, and are
 injected into the system prompt within an 8 KB budget (truncation is marked).
-The assistant can read and edit them with the `workspace_*` tools.
+The assistant can read and edit them with the `workspace_*` tools, and you can
+edit them in Settings → Assistant workspace (file list with sizes, prompt
+budget meter, monospace editor, reset to template with confirmation,
+unsaved-changes guard).
 
 ### Skills
 - Bundled, local and workspace `SKILL.md` skills with frontmatter parsing,
@@ -96,15 +107,21 @@ The assistant can read and edit them with the `workspace_*` tools.
 - Post into a chat session or run in a fresh isolated session.
 - Edit existing tasks, enable/disable, run now, run history, exact-alarm
   hints when Android denies precise alarms.
+- On Android 13+ the notification permission is requested when you save your
+  first task (and from the Tasks banner).
+- Isolated runs get their own session titled `<task> · <date> <time>`.
 
 ### Settings and diagnostics
-- Provider setup with a connection test, optional local Memory, theme
+- Provider setup with a connection test, optional local Memory (with an
+  explanation of what it stores), Assistant workspace editor, theme
   (system/light/dark) and app language (system/English/简体中文).
 - Diagnostics screen: provider, network, scheduler, notifications, recent
   automation results, exportable report.
-- Full English and Simplified Chinese UI (397 strings and 13 plurals in each
-  locale, parity enforced by a unit test). Per-app language on Android 13+,
-  in-app fallback on Android 8 to 12.
+- Full English and Simplified Chinese UI (435 translated strings and 13
+  plurals in each locale, parity enforced by a unit test). Per-app language on Android 13+,
+  in-app fallback on Android 8 to 12. Demo-provider replies and the tool
+  summaries written for the model stay English in every language (a real
+  model answers in yours).
 
 ### Providers
 | Provider | Transport |
@@ -139,14 +156,20 @@ export JAVA_HOME=/path/to/jdk17
 ```
 
 Notes:
-- Later runs can add `--offline` once the cache holds every artifact. If
-  offline resolution fails with a missing plugin marker, run once online.
+- After one online run, `--offline` works (the v0.2.0 full suite and
+  packaging ran offline).
 - If Gradle cannot reach Google Maven but `curl` can, seed the project-local
   fallback repo with `./scripts/seed_android_build_local_maven.sh`.
-- In a git worktree, pass globs to ktlint:
-  `./scripts/run_ktlint.sh "app/src/**/*.kt" "*.kts" "app/*.kts"`.
+- `./scripts/run_ktlint.sh` falls back to globs when `git ls-files` fails
+  (for example WSL git in a Windows-git worktree) and exits non-zero when it
+  finds problems or matches no files.
 - Debug builds start with the offline demo provider. To see a tool card
   without a key, send `What is my battery? [tool:device_status]`.
+
+Last full run (v0.2.0): unit tests 508 passed, 4 skipped (the OpenAI live
+tests without a key), 0 failed; instrumentation 11/11 tests in 7 classes on
+the `AndroidClawApi34` emulator; lint 0 errors; ktlint 0 findings; `qa`,
+`release` APK and bundle build.
 
 ### Live provider tests (optional)
 `OpenAiLiveTest` calls the real OpenAI API and is skipped unless
@@ -212,16 +235,20 @@ AndroidClaw 是一个只有一个 APK 的安卓 AI 助手宿主，整个运行�
 
 ### 截图
 
-| 设置 | 任务 | 任务编辑 | 技能 |
+| 聊天 | 工具卡片 | 任务 | 任务编辑（Cron） |
 |:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/zh/settings.png" width="150" alt="设置：模型服务、记忆、主题、语言" /> | <img src="site/assets/screens/zh/tasks.png" width="150" alt="任务列表" /> | <img src="site/assets/screens/zh/task_editor.png" width="150" alt="新建任务：日期和时间选择" /> | <img src="site/assets/screens/zh/skills.png" width="150" alt="技能列表" /> |
+| <img src="site/assets/screens/zh/chat.png" width="150" alt="定时任务结果发到主会话" /> | <img src="site/assets/screens/zh/tool_card.png" width="150" alt="工具卡片与记忆提示" /> | <img src="site/assets/screens/zh/tasks.png" width="150" alt="任务列表" /> | <img src="site/assets/screens/zh/task_editor.png" width="150" alt="新建任务：Cron 与下次运行预览" /> |
+
+| 技能 | 设置 | 助手工作区 | 诊断 |
+|:-:|:-:|:-:|:-:|
+| <img src="site/assets/screens/zh/skills.png" width="150" alt="技能列表" /> | <img src="site/assets/screens/zh/settings.png" width="150" alt="设置：模型服务、记忆、工作区" /> | <img src="site/assets/screens/zh/workspace.png" width="150" alt="助手工作区：人设文件与提示词预算" /> | <img src="site/assets/screens/zh/diagnostics.png" width="150" alt="诊断：模型服务、调度器、工具" /> |
 
 ### 功能
 
 **聊天**
 - 以对话记录为主的聊天界面：顶栏显示会话标题，侧边抽屉管理会话（新建、切换、重命名、归档、恢复、删除）。
 - 支持 Markdown 和代码块（可一键复制）；流式输出，可随时停止。
-- 工具调用以可折叠卡片显示在对话中：折叠时显示一行摘要，展开后显示完整 JSON 结果。
+- 工具调用以卡片显示在对话中：标题是结果摘要，下方是工具名和“完成 / 失败：错误码 / 运行中”；展开后显示格式化的参数和结果（疑似密钥的字段会被遮盖）。`MEMORY_DISABLED`、`FOREGROUND_REQUIRED`、`PERMISSION_REQUIRED` 等错误码附带本地化提示。直接调用工具的斜杠命令只显示卡片。
 - 输入 `/` 时提示斜杠命令；右上角菜单提供搜索、分享/导出、用量统计和 `/compact` 压缩历史。
 - 主会话始终存在，定时任务可以把结果发到主会话。
 
@@ -246,7 +273,7 @@ AndroidClaw 是一个只有一个 APK 的安卓 AI 助手宿主，整个运行�
 
 **工作区人设文件**
 
-参照 OpenClaw，`AGENTS.md`、`SOUL.md`、`USER.md`、`MEMORY.md` 保存在应用私有目录中，首次使用时按模板创建，并在 8 KB 预算内注入系统提示词（被截断时会标明）。助手可以用 `workspace_*` 工具读取和修改它们。
+参照 OpenClaw，`AGENTS.md`、`SOUL.md`、`USER.md`、`MEMORY.md` 保存在应用私有目录中，首次使用时按模板创建，并在 8 KB 预算内注入系统提示词（被截断时会标明）。助手可以用 `workspace_*` 工具读取和修改它们；你也可以在 设置 → 助手工作区 中编辑（文件列表与大小、提示词预算、等宽编辑器、确认后重置为模板、未保存提醒）。
 
 **技能**
 - 支持内置、本地和工作区三层 `SKILL.md` 技能：解析 frontmatter、按优先级覆盖、启用/停用（有风险的技能需要确认）、详情页、从文件导入。
@@ -256,11 +283,13 @@ AndroidClaw 是一个只有一个 APK 的安卓 AI 助手宿主，整个运行�
 - 支持一次性、按间隔（预设最短 15 分钟）和五段式 cron 计划；使用本地日期、时间选择器，cron 会预览下一次运行时间。
 - 结果可以发到某个聊天会话，也可以在新的独立会话中运行。
 - 可以编辑已有任务、启用/停用、立即运行、查看运行记录；系统拒绝精确闹钟时会给出提示。
+- Android 13 及以上在保存第一个任务时（以及在任务页提示条中）申请通知权限。
+- 独立会话运行时会新建标题为 `<任务名> · <日期> <时间>` 的会话。
 
 **设置与诊断**
-- 模型服务配置与连接测试、可选的本地记忆、主题（跟随系统/浅色/深色）、应用语言（跟随系统/English/简体中文）。
+- 模型服务配置与连接测试、可选的本地记忆（附说明）、助手工作区编辑器、主题（跟随系统/浅色/深色）、应用语言（跟随系统/English/简体中文）。
 - 诊断页：模型服务、网络、调度器、通知权限、最近的自动化结果，可导出报告。
-- 界面完整支持英文和简体中文（两种语言各 397 条字符串和 13 条复数字符串，由单元测试保证一致）。Android 13 及以上使用系统的按应用语言设置，Android 8 到 12 使用应用内切换。
+- 界面完整支持英文和简体中文（两种语言各 435 条翻译字符串和 13 条复数字符串，由单元测试保证一致）。Android 13 及以上使用系统的按应用语言设置，Android 8 到 12 使用应用内切换。离线演示的回复和写给模型的工具摘要在任何语言下都是英文（真实模型会用你的语言回答）。
 
 **模型服务**
 
@@ -293,10 +322,12 @@ export JAVA_HOME=/path/to/jdk17
 ```
 
 说明：
-- 依赖缓存齐全后可以加 `--offline`。如果离线解析报缺少插件标记（plugin marker），先联网跑一次。
+- 联网跑过一次之后可以加 `--offline`（v0.2.0 的完整测试和打包都是离线跑的）。
 - 如果 Gradle 访问不了 Google Maven 但 `curl` 可以，用 `./scripts/seed_android_build_local_maven.sh` 填充项目内的备用仓库。
-- 在 git worktree 里运行 ktlint 时要传入文件通配：`./scripts/run_ktlint.sh "app/src/**/*.kt" "*.kts" "app/*.kts"`。
+- `./scripts/run_ktlint.sh` 在 `git ls-files` 不可用时（例如在 Windows git 创建的 worktree 中使用 WSL git）会改用文件通配；发现问题或没有匹配到文件时返回非零退出码。
 - Debug 版本默认使用离线演示服务。不需要密钥也能看到工具卡片：发送 `What is my battery? [tool:device_status]`。
+
+最近一次完整运行（v0.2.0）：单元测试 508 个通过、4 个跳过（未提供密钥的 OpenAI 真实服务测试）、0 个失败；仪器测试在 `AndroidClawApi34` 模拟器上 7 个类 11/11 通过；lint 0 错误；ktlint 0 问题；`qa`、`release` APK 和 bundle 均构建成功。
 
 **真实服务测试（可选）**：`OpenAiLiveTest` 会调用真实的 OpenAI API，只有设置了环境变量 `ANDROIDCLAW_LIVE_OPENAI_KEY` 才会运行；`ANDROIDCLAW_LIVE_OPENAI_MODEL` 可以指定模型（默认 `gpt-6-luna`）。运行时从文件读取密钥到环境变量，不要把密钥提交到仓库。
 
