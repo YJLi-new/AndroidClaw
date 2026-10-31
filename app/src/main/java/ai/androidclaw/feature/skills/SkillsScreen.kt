@@ -230,15 +230,24 @@ internal fun SkillStatusBadge(skill: SkillSnapshot) {
 }
 
 @Composable
-internal fun eligibilityLabel(status: SkillEligibilityStatus): String =
-    stringResource(
-        when (status) {
-            SkillEligibilityStatus.Eligible -> R.string.skills_eligibility_ready
-            SkillEligibilityStatus.Invalid -> R.string.skills_eligibility_invalid
-            SkillEligibilityStatus.MissingTool -> R.string.skills_eligibility_missing_tool
-            SkillEligibilityStatus.BridgeOnly -> R.string.skills_eligibility_bridge_only
-        },
-    )
+internal fun eligibilityLabel(status: SkillEligibilityStatus): String = stringResource(eligibilityLabelRes(status))
+
+internal fun eligibilityLabelRes(status: SkillEligibilityStatus): Int =
+    when (status) {
+        SkillEligibilityStatus.Eligible -> R.string.skills_eligibility_ready
+        SkillEligibilityStatus.Invalid -> R.string.skills_eligibility_invalid
+        SkillEligibilityStatus.MissingTool -> R.string.skills_eligibility_missing_tool
+        SkillEligibilityStatus.BridgeOnly -> R.string.skills_eligibility_bridge_only
+    }
+
+/**
+ * The single state shown on the skill detail screen: a disabled skill reads "Disabled" whatever
+ * its eligibility; an enabled one shows its eligibility (Ready, Invalid, Missing tool, Desktop only).
+ */
+internal fun skillStateLabelRes(
+    enabled: Boolean,
+    status: SkillEligibilityStatus,
+): Int = if (enabled) eligibilityLabelRes(status) else R.string.skills_state_disabled
 
 /** Dialogs shared by the list and the detail screen. */
 @Composable
