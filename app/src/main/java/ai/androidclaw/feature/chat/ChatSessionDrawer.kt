@@ -83,7 +83,7 @@ internal fun ChatSessionDrawer(
                 item(key = "main-${main.id}") {
                     SessionDrawerItem(
                         session = main,
-                        label = main.title,
+                        label = sessionDisplayTitle(main.title, isMain = true),
                         badge = stringResource(R.string.chat_session_main_badge),
                         enabled = enabled,
                         actions = actions,
@@ -177,7 +177,7 @@ private fun SessionDrawerItem(
                 Box {
                     ClawIconButton(
                         iconRes = R.drawable.ic_more_vert,
-                        contentDescription = stringResource(R.string.chat_session_actions, session.title),
+                        contentDescription = stringResource(R.string.chat_session_actions, sessionDisplayTitle(session.title, session.isMain)),
                         onClick = { menuOpen = true },
                         enabled = enabled,
                     )
@@ -245,3 +245,17 @@ private fun SessionMenuItem(
         onClick = onClick,
     )
 }
+
+/** The runtime stores the main session as "Main session"; show that default in the app language. */
+@Composable
+internal fun sessionDisplayTitle(
+    title: String,
+    isMain: Boolean,
+): String =
+    if (isMain && (title.isBlank() || title.equals(DEFAULT_MAIN_SESSION_TITLE, ignoreCase = true))) {
+        stringResource(R.string.chat_subtitle_main)
+    } else {
+        title
+    }
+
+private const val DEFAULT_MAIN_SESSION_TITLE = "Main session"

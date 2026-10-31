@@ -549,8 +549,10 @@ private fun DeliverySection(
         val mainSession = sessions.firstOrNull { it.isMain }
         val otherSessions = sessions.filterNot { it.isMain }
         val selected = fields.targetSessionId?.let { id -> otherSessions.firstOrNull { it.id == id } }
+        // The stored default title is "Main session"; show the localized label instead of repeating it.
+        val customMainTitle = mainSession?.title?.takeIf { it.isNotBlank() && !it.equals(DEFAULT_MAIN_SESSION_TITLE, ignoreCase = true) }
         val mainLabel =
-            mainSession?.let { stringResource(R.string.tasks_target_main_named, it.title) }
+            customMainTitle?.let { stringResource(R.string.tasks_target_main_named, it) }
                 ?: stringResource(R.string.tasks_target_main)
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -767,3 +769,5 @@ private fun OnceTimePickerDialog(
         },
     )
 }
+
+private const val DEFAULT_MAIN_SESSION_TITLE = "Main session"

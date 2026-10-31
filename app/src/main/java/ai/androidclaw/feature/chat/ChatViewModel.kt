@@ -22,6 +22,9 @@ import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
 import ai.androidclaw.runtime.providers.parseProviderMessageMeta
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.ui.text.UiText
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -175,6 +178,14 @@ class ChatViewModel(
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val draft = MutableStateFlow("")
+
+    /**
+     * Composer text as snapshot state so the TextField reads its own edits
+     * synchronously; routing it through the combined state flow dropped
+     * characters during fast typing.
+     */
+    var composerText by mutableStateOf("")
+        private set
     private val isRunning = MutableStateFlow(false)
     private val isCancelling = MutableStateFlow(false)
     private val errorMessage = MutableStateFlow<UiText?>(null)
@@ -284,6 +295,7 @@ class ChatViewModel(
     fun onDraftChanged(value: String) {
         val boundedValue = value.take(CHAT_DRAFT_MAX_CHARS)
         draft.value = boundedValue
+        composerText = boundedValue
         errorMessage.value = null
         noticeMessage.value =
             if (value.length > boundedValue.length) {
@@ -728,6 +740,7 @@ class ChatViewModel(
         cancelRequested = false
         if (clearDraft) {
             draft.value = ""
+            composerText = ""
         }
         isRunning.value = true
         isCancelling.value = false

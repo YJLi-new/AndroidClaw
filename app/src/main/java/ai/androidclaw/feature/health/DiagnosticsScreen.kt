@@ -170,7 +170,7 @@ fun DiagnosticsScreen(
                 ClawSectionHeader(stringResource(R.string.diag_section_provider))
                 DiagnosticsCard {
                     ClawFactRow(stringResource(R.string.diag_active_provider), state.providerId)
-                    ClawFactRow(stringResource(R.string.diag_network), state.networkSummary)
+                    ClawFactRow(stringResource(R.string.diag_network), networkLabel(state))
                     ClawFactRow(stringResource(R.string.diag_status), providerStatusLabel(state.providerStatusKind))
                     state.lastProviderIssue?.let { ClawFactRow(stringResource(R.string.diag_last_issue), it) }
                 }
@@ -386,4 +386,17 @@ private fun launchDiagnosticsShareFile(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     context.startActivity(Intent.createChooser(intent, context.getString(R.string.diag_share_chooser)))
+}
+
+/** Localized network state; falls back to the runtime summary before the first snapshot. */
+@Composable
+private fun networkLabel(state: HealthUiState): String {
+    val network = state.network ?: return state.networkSummary
+    return when {
+        !network.isConnected -> stringResource(R.string.settings_network_offline)
+        !network.isValidated -> stringResource(R.string.settings_network_unvalidated)
+        network.isMetered ->
+            stringResource(R.string.settings_network_online) + " · " + stringResource(R.string.settings_network_metered)
+        else -> stringResource(R.string.settings_network_online)
+    }
 }

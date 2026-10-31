@@ -3,6 +3,7 @@ package ai.androidclaw.feature.tasks
 import ai.androidclaw.R
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.model.TaskRun
+import ai.androidclaw.feature.chat.sessionDisplayTitle
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedulingPath
 import ai.androidclaw.runtime.scheduler.schedulingDecision
@@ -308,7 +309,7 @@ private fun TaskMeta(
                 val target =
                     task.targetSessionId?.let { id -> state.sessions.firstOrNull { it.id == id } }
                         ?: state.sessions.firstOrNull { it.isMain }
-                target?.let { add(it.title) }
+                target?.let { add(sessionDisplayTitle(it.title, it.isMain)) }
             }
             add(
                 when {

@@ -330,19 +330,17 @@ private fun ChatTopBar(
         title = {
             Column(
                 modifier =
-                    Modifier.clickable(
-                        enabled = idle && state.currentSessionId.isNotBlank(),
-                        role = Role.Button,
-                        onClickLabel = stringResource(R.string.chat_action_rename_session),
-                        onClick = onRename,
-                    ),
+                    Modifier
+                        .clickable(
+                            enabled = idle && state.currentSessionId.isNotBlank(),
+                            role = Role.Button,
+                            onClickLabel = stringResource(R.string.chat_action_rename_session),
+                            onClick = onRename,
+                        ).semantics { heading() }
+                        .testTag("chatHeading"),
             ) {
                 Text(
-                    text = state.sessionTitle.ifBlank { stringResource(R.string.chat_loading_session) },
-                    modifier =
-                        Modifier
-                            .semantics { heading() }
-                            .testTag("chatHeading"),
+                    text = state.sessionTitle.ifBlank { stringResource(R.string.chat_loading_session) }.let { sessionDisplayTitle(it, state.isMainSession) },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -460,12 +458,12 @@ private fun ChatContent(
             )
         }
         SlashSuggestions(
-            draft = state.draft,
+            draft = viewModel.composerText,
             commands = state.slashCommands,
             onPick = { command -> viewModel.onDraftChanged("$command ") },
         )
         ChatComposer(
-            draft = state.draft,
+            draft = viewModel.composerText,
             isRunning = state.isRunning,
             isCancelling = state.isCancelling,
             onDraftChanged = viewModel::onDraftChanged,

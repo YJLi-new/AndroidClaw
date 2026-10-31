@@ -216,7 +216,7 @@
     <string name="tasks_pick_time">Pick a time</string>
     <string name="tasks_interval_custom">Custom</string>
     <string name="tasks_field_interval_minutes">Repeat every (minutes)</string>
-    <string name="tasks_interval_help">Android runs repeating tasks at most every %1$d minutes.</string>
+    <string name="tasks_interval_help">The shortest repeat interval Android allows is %1$d minutes.</string>
     <string name="tasks_field_cron">Cron expression</string>
     <string name="tasks_cron_help" tools:ignore="TypographyDashes">Fields: minute, hour, day of month, month, weekday. Example: 0 9 * * 1-5</string>
     <string name="tasks_cron_next_runs">Next runs</string>

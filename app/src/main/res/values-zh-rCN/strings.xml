@@ -207,7 +207,7 @@
     <string name="tasks_pick_time">选择时间</string>
     <string name="tasks_interval_custom">自定义</string>
     <string name="tasks_field_interval_minutes">重复间隔（分钟）</string>
-    <string name="tasks_interval_help">Android 最短每 %1$d 分钟运行一次重复任务。</string>
+    <string name="tasks_interval_help">Android 允许的最短重复间隔为 %1$d 分钟。</string>
     <string name="tasks_field_cron">Cron 表达式</string>
     <string name="tasks_cron_help" tools:ignore="TypographyDashes">分 时 日 月 星期，例如 0 9 * * 1-5</string>
     <string name="tasks_cron_next_runs">接下来的运行时间</string>

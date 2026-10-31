@@ -27,6 +27,7 @@ import java.time.Instant
 data class HealthUiState(
     val providerId: String = "",
     val networkSummary: String = "",
+    val network: ai.androidclaw.runtime.providers.NetworkStatusSnapshot? = null,
     val providerStatus: String = "",
     val providerStatusKind: ProviderStatusKind = ProviderStatusKind.Fake,
     val lastProviderIssue: String? = null,
@@ -78,6 +79,7 @@ class HealthViewModel(
             HealthUiState(
                 providerId = providerRegistry.require(settings.providerType).id.toBoundedHealthUiField(),
                 networkSummary = networkStatus.summary.toBoundedHealthUiField(),
+                network = networkStatus,
                 providerStatus =
                     buildProviderStatus(
                         providerType = providerType,

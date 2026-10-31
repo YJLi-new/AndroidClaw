@@ -1,5 +1,6 @@
 package ai.androidclaw.app
 
+import ai.androidclaw.data.model.MessageRole
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -14,8 +15,11 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -76,19 +80,29 @@ class MainActivitySmokeTest {
     }
 
     @Test
-    fun chatSendShowsUserAndAssistantRows() {
+    fun chatSendStoresUserTurnAndShowsAssistantRow() {
         resetApplicationState(application = application, onboardingCompleted = true)
         ActivityScenario.launch(MainActivity::class.java).use {
             waitForTag("chatScreen")
             composeRule.onNodeWithTag("chatInput").performTextInput("hello from smoke test")
             composeRule.onNodeWithTag("chatSendButton").performClick()
 
+            // A long reply can push the user row out of the lazy viewport, so the
+            // user turn is checked in storage and the newest row on screen.
             composeRule.waitUntil(timeoutMillis = 15_000) {
-                composeRule.onAllNodesWithTag("chatMessage-user", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() &&
-                    composeRule.onAllNodesWithTag("chatMessage-assistant", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithTag("chatMessage-assistant", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() &&
                     composeRule.onAllNodesWithTag("chatStopButton").fetchSemanticsNodes().isEmpty()
             }
             composeRule.onNodeWithTag("chatSendButton").fetchSemanticsNode()
+            val stored =
+                runBlocking {
+                    val mainSession = application.container.sessionRepository.getOrCreateMainSession()
+                    application.container.messageRepository
+                        .observeMessages(mainSession.id)
+                        .first()
+                }
+            assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello from smoke test" })
+            assertTrue(stored.any { it.role == MessageRole.Assistant && it.content.isNotBlank() })
         }
     }
 

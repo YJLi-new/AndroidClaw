@@ -164,6 +164,7 @@ class ChatViewModelTest {
                     }
 
                 assertEquals(CHAT_DRAFT_MAX_CHARS, bounded.draft.length)
+                assertEquals(bounded.draft, viewModel.composerText)
                 assertEquals(CHAT_DRAFT_TRUNCATED_NOTICE, bounded.noticeMessage)
                 cancelAndIgnoreRemainingEvents()
             }
