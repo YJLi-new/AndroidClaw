@@ -6,11 +6,11 @@
     <title>AndroidClaw | Android-native assistant host</title>
     <meta
       name="description"
-      content="AndroidClaw is a lightweight Android-native AI assistant host with durable sessions, typed tools, SKILL.md skills, provider streaming, and scheduled automations."
+      content="AndroidClaw is a small Android-native AI assistant host: durable chat sessions, 34 typed tools with native tool calling, SKILL.md skills, workspace persona files, and scheduled automations, in English and Simplified Chinese."
     />
     <meta
       name="keywords"
-      content="Android AI assistant, Kotlin Android app, local AI host, OpenAI compatible Android, Anthropic Android, WorkManager automation, SKILL.md"
+      content="Android AI assistant, Kotlin Android app, local AI host, OpenAI Responses Android, Anthropic Android, WorkManager automation, SKILL.md, OpenClaw"
     />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <meta name="googlebot" content="index,follow,max-image-preview:large" />
@@ -22,7 +22,7 @@
     <meta property="og:title" content="AndroidClaw" />
     <meta
       property="og:description"
-      content="A single-APK Android assistant runtime for sessions, tools, skills, providers, and scheduled automations."
+      content="A single-APK Android assistant host for sessions, typed tools, skills, providers, and scheduled automations."
     />
     <meta property="og:url" content="https://androidclaw.top/" />
     <meta
@@ -33,7 +33,7 @@
     <meta name="twitter:title" content="AndroidClaw" />
     <meta
       name="twitter:description"
-      content="A lightweight Android-native assistant host with durable sessions, typed tools, skills, provider streaming, and scheduled automations."
+      content="A small Android-native assistant host with durable sessions, 34 typed tools, SKILL.md skills, and scheduled automations."
     />
     <meta
       name="twitter:image"
@@ -63,8 +63,8 @@
         "programmingLanguage": "Kotlin",
         "runtimePlatform": "Android",
         "applicationCategory": "DeveloperApplication",
-        "description": "Android-native local AI assistant host with durable sessions, typed tools, SKILL.md skills, provider streaming, and scheduled automations.",
-        "dateModified": "2026-04-29"
+        "description": "Android-native AI assistant host with durable sessions, typed tools, SKILL.md skills, workspace persona files, and scheduled automations.",
+        "dateModified": "2026-10-31"
       }
     </script>
   </head>
@@ -76,10 +76,11 @@
         <a class="brand" href="/" aria-label="AndroidClaw home">
           <img src="assets/androidclaw-logo.svg" alt="" width="32" height="32" />
           <span class="brand-name">AndroidClaw</span>
-          <span class="brand-tag" aria-hidden="true">v0 · BETA</span>
+          <span class="brand-tag" aria-hidden="true">v0.2 · BETA</span>
         </a>
         <nav aria-label="Project navigation">
           <a href="#contracts">Contracts</a>
+          <a href="#tools">Tools</a>
           <a href="#screens">Screens</a>
           <a class="nav-out" href="https://github.com/YJLi-new/AndroidClaw">GitHub <span aria-hidden="true">↗</span></a>
         </nav>
@@ -91,22 +92,22 @@
         <div class="hero-copy">
           <div class="hero-meta">
             <span class="pulse" aria-hidden="true"></span>
-            <span>01 &nbsp;—&nbsp; Public beta · refreshed Apr 29, 2026</span>
+            <span>01 &nbsp;—&nbsp; v0.2.0 rework · Oct 31, 2026</span>
           </div>
 
           <h1 class="masthead" id="page-title">Android<em>Claw</em></h1>
 
           <div class="hero-lead">
             <p class="lede">
-              A lightweight Android-native assistant host for durable chat
-              sessions, typed tools, <code>SKILL.md</code> skills, provider
-              streaming, and scheduled automations.
+              A small Android-native assistant host: durable chat sessions,
+              34 typed tools with native tool calling, <code>SKILL.md</code>
+              skills, workspace persona files, and scheduled automations.
             </p>
             <p class="hero-note">
-              AndroidClaw keeps the phone as the v0 host. It avoids desktop
-              runtimes, browser automation, and remote-first companion modes in
-              favor of a small Kotlin app that can be built, inspected, and
-              installed directly.
+              The phone is the host. No Node.js, Docker, browser engine or
+              shell inside: one Kotlin app you can build, read and install.
+              Try it offline with the built-in demo provider, then connect
+              OpenAI, Claude or another provider. English and 简体中文.
             </p>
             <div class="actions">
               <a
@@ -118,7 +119,7 @@
                 <span class="btn-arrow" aria-hidden="true">→</span>
               </a>
               <a class="btn" href="https://github.com/YJLi-new/AndroidClaw">Repository</a>
-              <a class="btn" href="https://github.com/YJLi-new/AndroidClaw/releases/latest">Previous Versions</a>
+              <a class="btn" href="https://github.com/YJLi-new/AndroidClaw/blob/main/CHANGELOG.md">Changelog</a>
             </div>
           </div>
         </div>
@@ -131,7 +132,7 @@
 
           <div class="spec-id">
             <p class="spec-name">AndroidClaw</p>
-            <p class="spec-meta">Pocket mission control · v0 beta</p>
+            <p class="spec-meta">Pocket mission control · v0.2 beta</p>
           </div>
 
           <hr class="spec-rule" aria-hidden="true" />
@@ -143,7 +144,11 @@
             </div>
             <div class="fact">
               <dt>Stack</dt>
-              <dd>Kotlin · Compose · Room · WorkManager</dd>
+              <dd>Kotlin · Compose · Room · WorkManager · OkHttp</dd>
+            </div>
+            <div class="fact">
+              <dt>Tools</dt>
+              <dd>34 model-facing · ~12.9 KB per turn</dd>
             </div>
           </dl>
 
@@ -152,9 +157,10 @@
           <div class="spec-providers">
             <p class="spec-providers-label">
               <span>Providers</span>
-              <span class="spec-providers-count" aria-hidden="true">08</span>
+              <span class="spec-providers-count" aria-hidden="true">09</span>
             </p>
             <ul class="provider-tags">
+              <li>OpenAI</li>
               <li>Claude</li>
               <li>OpenAI-compatible</li>
               <li>Codex OAuth</li>
@@ -171,6 +177,8 @@
       <section class="ticker" aria-hidden="true">
         <div class="ticker-track">
           <div class="ticker-sequence">
+            <span>OpenAI Responses</span>
+            <span class="dot">·</span>
             <span>Anthropic</span>
             <span class="dot">·</span>
             <span>OpenAI Codex</span>
@@ -189,6 +197,8 @@
             <span class="dot">·</span>
           </div>
           <div class="ticker-sequence" aria-hidden="true">
+            <span>OpenAI Responses</span>
+            <span class="dot">·</span>
             <span>Anthropic</span>
             <span class="dot">·</span>
             <span>OpenAI Codex</span>
@@ -213,7 +223,7 @@
         <header class="section-head">
           <span class="section-num">02</span>
           <h2 class="section-title">Four core <em>contracts</em></h2>
-          <p class="section-blurb">The runtime promises that hold the app together — every shipped feature lives under one of these.</p>
+          <p class="section-blurb">The runtime promises that hold the app together. Every feature lives under one of these.</p>
         </header>
 
         <div class="contract-grid">
@@ -221,9 +231,10 @@
             <span class="card-tag">Session</span>
             <h3>Persistent assistant history</h3>
             <p>
-              Main and normal sessions keep durable Room-backed messages,
-              streamed output, retry/cancel paths, summaries, search, export,
-              and prompt budgeting.
+              A main session plus any number of named sessions, stored in
+              Room. Streaming with Stop, search, share/export, usage, and
+              <code>/compact</code> summaries; switch and manage sessions from
+              a drawer.
             </p>
             <span class="crop tl" aria-hidden="true"></span>
             <span class="crop tr" aria-hidden="true"></span>
@@ -233,11 +244,11 @@
 
           <article class="contract-card" style="--mark: var(--cyan);">
             <span class="card-tag">Tool</span>
-            <h3>Typed local capabilities</h3>
+            <h3>Typed, native tool calls</h3>
             <p>
-              Tool calls and tool results are persisted as transcript records,
-              with clear descriptors and deterministic built-in task/session
-              utilities.
+              34 snake_case tools sent through the provider's native tool
+              field, never repeated in the prompt. Calls and results are
+              transcript records shown as collapsible cards.
             </p>
             <span class="crop tl" aria-hidden="true"></span>
             <span class="crop tr" aria-hidden="true"></span>
@@ -249,9 +260,9 @@
             <span class="card-tag">Skill</span>
             <h3><code>SKILL.md</code> workflows</h3>
             <p>
-              Bundled, local, and workspace skills support frontmatter parsing,
-              precedence, enable/disable state, config, secrets, eligibility,
-              and slash command dispatch.
+              Bundled, local and workspace skills with frontmatter parsing,
+              precedence, enable/disable, import, a detail view, and slash
+              commands that can dispatch straight to a tool.
             </p>
             <span class="crop tl" aria-hidden="true"></span>
             <span class="crop tr" aria-hidden="true"></span>
@@ -263,9 +274,9 @@
             <span class="card-tag">Automation</span>
             <h3>Scheduled runtime turns</h3>
             <p>
-              Once, interval, and cron tasks run through WorkManager with
-              exact-alarm-aware routing, task history, diagnostics, and main or
-              isolated session execution modes.
+              Once, interval and cron tasks with local date and time pickers,
+              cron next-run preview, editing, run now and history. Results go
+              to a chat session or a fresh isolated session.
             </p>
             <span class="crop tl" aria-hidden="true"></span>
             <span class="crop tr" aria-hidden="true"></span>
@@ -275,42 +286,49 @@
         </div>
       </section>
 
-      <section class="features shell" data-num="03">
+      <section id="tools" class="features shell" data-num="03">
         <header class="section-head">
           <span class="section-num">03</span>
-          <h2 class="section-title">What the app does <em>today</em></h2>
+          <h2 class="section-title">34 tools, <em>grouped</em></h2>
           <p class="section-blurb">
-            The current AndroidClaw beta is already a usable local-first
-            runtime — configure providers, stream responses, preserve
-            conversations, run typed tools, import skills, schedule automations,
-            and produce installable QA / release artifacts.
+            What the model can call. Intent tools need the app in the
+            foreground; scheduled runs get 18 read-only or opt-in tools.
+            <code>/compact</code> and <code>/memory</code> are slash-only.
           </p>
         </header>
 
         <dl class="ledger">
           <div class="ledger-row">
-            <dt>Native Anthropic Messages</dt>
-            <dd>Claude support, no shim</dd>
+            <dt>Sessions</dt>
+            <dd><code>sessions_list</code> · <code>sessions_history</code> · <code>sessions_create</code> · <code>sessions_rename</code> · <code>sessions_send</code></dd>
           </div>
           <div class="ledger-row">
-            <dt>OpenAI-compatible presets</dt>
-            <dd>MiniMax · GLM · Kimi · Gemini · DeepSeek</dd>
+            <dt>Memory</dt>
+            <dd><code>memory_search</code> · <code>memory_get</code> · <code>memory_remember</code> · <code>memory_forget</code></dd>
           </div>
           <div class="ledger-row">
-            <dt>OpenAI Codex provider</dt>
-            <dd>Device-code OAuth · Responses streaming</dd>
+            <dt>Tasks</dt>
+            <dd><code>tasks_list</code> · <code>tasks_create</code> · <code>tasks_update</code> · <code>tasks_delete</code> · <code>tasks_run_now</code> · <code>tasks_runs</code></dd>
           </div>
           <div class="ledger-row">
-            <dt>First-run onboarding</dt>
-            <dd>Provider configuration · validation</dd>
+            <dt>Skills</dt>
+            <dd><code>skills_list</code> · <code>skills_get</code> · <code>skills_set_enabled</code></dd>
           </div>
           <div class="ledger-row">
-            <dt>Task automation surface</dt>
-            <dd>Notifications · run history · exact-alarm fallback · diagnostics export</dd>
+            <dt>Workspace files</dt>
+            <dd><code>workspace_list</code> · <code>workspace_read</code> · <code>workspace_write</code> · <code>workspace_edit</code> on <code>AGENTS.md</code>, <code>SOUL.md</code>, <code>USER.md</code>, <code>MEMORY.md</code> and notes</dd>
           </div>
           <div class="ledger-row">
-            <dt>Public project page</dt>
-            <dd>Screenshots · release links · GitHub Pages</dd>
+            <dt>Web</dt>
+            <dd><code>web_fetch</code>: public pages as text, private networks blocked</dd>
+          </div>
+          <div class="ledger-row">
+            <dt>Device and intents</dt>
+            <dd><code>device_status</code> · <code>open_url</code> · <code>open_app</code> · <code>open_settings</code> · <code>set_alarm</code> · <code>set_timer</code> · <code>calendar_add_event</code> · <code>clipboard_get</code> · <code>clipboard_set</code></dd>
+          </div>
+          <div class="ledger-row">
+            <dt>Notify and health</dt>
+            <dd><code>notify</code> · <code>health_status</code></dd>
           </div>
         </dl>
       </section>
@@ -318,9 +336,9 @@
       <section id="screens" class="screens shell" data-num="04">
         <header class="section-head">
           <span class="section-num">04</span>
-          <h2 class="section-title">Runtime <em>surface</em> area</h2>
+          <h2 class="section-title">Four tabs, <em>phone first</em></h2>
           <p class="section-blurb">
-            The four working surfaces a user touches every day.
+            Chat, Tasks, Skills and Settings. Diagnostics lives under Settings.
           </p>
         </header>
 
@@ -328,48 +346,55 @@
           <article class="screen-row">
             <div class="screen-frame">
               <img
-                src="assets/screenshots/chat.png"
-                alt="AndroidClaw chat screen showing an assistant conversation"
+                src="assets/screens/en/drawer.png"
+                alt="AndroidClaw chat with the session drawer open"
+                width="540"
+                height="1200"
                 loading="eager"
               />
             </div>
             <div class="screen-text">
               <span class="screen-tag">CHAT &nbsp;·&nbsp; 01</span>
-              <h3>Durable conversations</h3>
+              <h3>Transcript first</h3>
               <p>
-                Streamed provider turns, summaries, export, compact, and an
-                expandable composer with a typed actions row. Tool calls and
-                results are part of the transcript, not a side panel.
+                The session title sits in the top bar; sessions live in a
+                drawer with rename, archive, restore and delete. Markdown,
+                code copy, streaming with Stop, slash-command suggestions and
+                collapsible tool cards.
               </p>
-              <p class="screen-spec">STREAMING · CANCEL · RETRY · SUMMARIZE</p>
+              <p class="screen-spec">DRAWER · STREAMING · TOOL CARDS · /COMMANDS</p>
             </div>
           </article>
 
           <article class="screen-row">
             <div class="screen-frame">
               <img
-                src="assets/screenshots/tasks.png"
-                alt="AndroidClaw tasks screen showing scheduler diagnostics and task creation"
+                src="assets/screens/en/task_editor.png"
+                alt="AndroidClaw task editor with interval presets"
+                width="540"
+                height="1200"
                 loading="lazy"
               />
             </div>
             <div class="screen-text">
               <span class="screen-tag">TASKS &nbsp;·&nbsp; 02</span>
-              <h3>Scheduled runtime turns</h3>
+              <h3>Schedules people can read</h3>
               <p>
-                Create once, interval, and cron tasks. Inspect recent runs,
-                follow exact-alarm guidance, and route scheduled work through
-                main or isolated sessions.
+                Pick a local date and time, an interval preset, or a cron
+                expression with a next-run preview. Edit any task, run it now,
+                and read its history.
               </p>
-              <p class="screen-spec">ONCE · INTERVAL · CRON · DIAGNOSTICS</p>
+              <p class="screen-spec">ONCE · INTERVAL · CRON · RUN NOW</p>
             </div>
           </article>
 
           <article class="screen-row">
             <div class="screen-frame">
               <img
-                src="assets/screenshots/skills.png"
-                alt="AndroidClaw skills screen showing skill inventory and import controls"
+                src="assets/screens/en/skills.png"
+                alt="AndroidClaw skills list with enable toggles"
+                width="540"
+                height="1200"
                 loading="lazy"
               />
             </div>
@@ -377,39 +402,59 @@
               <span class="screen-tag">SKILLS &nbsp;·&nbsp; 03</span>
               <h3><code>SKILL.md</code> inventory</h3>
               <p>
-                Bundled, local, and workspace workflows side by side, with
-                source, eligibility state, slash-command dispatch, and clear
-                precedence between layers.
+                Toggle skills, open their instructions, and import new ones
+                from a file. Bundled: <code>/compact</code>,
+                <code>/list_tasks</code>, <code>/memory</code>,
+                <code>/summarize_session</code>, <code>/task_helper</code>.
               </p>
-              <p class="screen-spec">BUNDLED · LOCAL · WORKSPACE · SLASH</p>
+              <p class="screen-spec">BUNDLED · LOCAL · WORKSPACE · IMPORT</p>
             </div>
           </article>
 
           <article class="screen-row">
             <div class="screen-frame">
               <img
-                src="assets/screenshots/health.png"
-                alt="AndroidClaw health screen showing provider, scheduler, and tool diagnostics"
+                src="assets/screens/en/settings.png"
+                alt="AndroidClaw settings with provider, memory, theme and language"
+                width="540"
+                height="1200"
                 loading="lazy"
               />
             </div>
             <div class="screen-text">
-              <span class="screen-tag">HEALTH &nbsp;·&nbsp; 04</span>
-              <h3>Diagnostics, on-device</h3>
+              <span class="screen-tag">SETTINGS &nbsp;·&nbsp; 04</span>
+              <h3>Provider, memory, language</h3>
               <p>
-                Provider and network state, scheduler diagnostics, crash
-                markers, and exportable reports — everything you need to triage
-                without leaving the phone.
+                Choose and test a provider, turn on local Memory, pick a theme
+                and the app language. Diagnostics shows provider, network,
+                scheduler and notification state and exports a report.
               </p>
-              <p class="screen-spec">PROVIDERS · SCHEDULER · NETWORK · EXPORT</p>
+              <p class="screen-spec">PROVIDERS · MEMORY · THEME · DIAGNOSTICS</p>
             </div>
           </article>
         </div>
       </section>
 
-      <section class="links shell" data-num="05" aria-label="Project index">
+      <section class="gallery-section shell" data-num="05" lang="zh-CN" aria-labelledby="zh-title">
         <header class="section-head">
           <span class="section-num">05</span>
+          <h2 class="section-title" id="zh-title">简体中文 <em>界面</em></h2>
+          <p class="section-blurb">
+            全部界面文字都有简体中文翻译，可在设置中切换语言。
+          </p>
+        </header>
+
+        <ul class="gallery">
+          <li><img src="assets/screens/zh/settings.png" alt="设置页面" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/tasks.png" alt="任务列表" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/task_editor.png" alt="新建任务" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/skills.png" alt="技能列表" width="540" height="1200" loading="lazy" /></li>
+        </ul>
+      </section>
+
+      <section class="links shell" data-num="06" aria-label="Project index">
+        <header class="section-head">
+          <span class="section-num">06</span>
           <h2 class="section-title">Project <em>index</em></h2>
           <p class="section-blurb">Where to look next.</p>
         </header>
@@ -427,11 +472,16 @@
           </li>
           <li class="toc-row">
             <span class="toc-num" aria-hidden="true">III</span>
-            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.md">README</a>
+            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.md">README (English · 中文)</a>
             <span class="toc-arrow" aria-hidden="true">→</span>
           </li>
           <li class="toc-row">
             <span class="toc-num" aria-hidden="true">IV</span>
+            <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/blob/main/CHANGELOG.md">Changelog</a>
+            <span class="toc-arrow" aria-hidden="true">→</span>
+          </li>
+          <li class="toc-row">
+            <span class="toc-num" aria-hidden="true">V</span>
             <a class="toc-link" href="https://github.com/YJLi-new/AndroidClaw/actions">GitHub Actions</a>
             <span class="toc-arrow" aria-hidden="true">→</span>
           </li>
@@ -442,7 +492,7 @@
     <footer class="page-foot">
       <div class="shell page-foot-inner">
         <span>Apache-2.0 &nbsp;·&nbsp; YJLi-new/AndroidClaw</span>
-        <span class="page-foot-mark">Pocket mission control · v0 beta</span>
+        <span class="page-foot-mark">Pocket mission control · v0.2 beta</span>
       </div>
     </footer>
   </body>
