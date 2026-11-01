@@ -1,6 +1,6 @@
 # PLANv12 - Rework: lean runtime, phone-first UI, verified end to end
 
-Status: complete — merged into `main` through PR #1 after green CI (2026-11-01)
+Status: complete — merged into `main` through PR #1 after green CI (2026-11-01); superseded by PLANv13.md
 Owner: main session (planning, merges, pushes) + Opus subagents (execution)
 Started: 2026-10-30
 Supersedes: `docs/past_plans/PLANv11.md`
