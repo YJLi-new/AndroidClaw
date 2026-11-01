@@ -195,7 +195,8 @@ transcription and TTS) for devices without system speech engines.
   is recorded under Decisions first.
 - Startup: no new work before the first frame (TTS, attachments and workers
   are lazy); `am start -W` TotalTime within +10% of the v0.2.0 baseline on the
-  AVD.
+  AVD, measured as a fresh-install pair on a warm emulator (v0.2.0 QA: 722 ms
+  median, 683–750).
 - Memory: importing a 12 MP photo never allocates a full-resolution bitmap
   (unit test on the sampling math, device check of peak Java heap ≤ +32 MB
   during import).
@@ -234,7 +235,8 @@ transcription and TTS) for devices without system speech engines.
    tool type and response shape for `search`) and hands the numbers back
    before building on them.
 2. **Main merges into `rework/v13`; parallel:** `gen` (M3, then the M5 gate)
-   and `voice` (M4). Emulator: `voice`, then `gen`.
+   and `voice` (M4). Emulator: `voice`; `gen` is JVM-only and its device
+   checks move to `int`.
 3. **`int`** (journey, live tests, bug fixes), then **`doc`**; main runs the
    full gate, pushes `rework/v13`, opens the PR; merge on the user's approval.
 
@@ -292,3 +294,12 @@ transcription and TTS) for devices without system speech engines.
   this line: QA/release builds, instrumentation.
 - Open bug for `int` (found by `search`, outside its area): the Claude stream
   drops whitespace-only text deltas, which can glue words together.
+- 2026-11-01: `media` line done (d43a74f, merged at 42958d2; 6 append-only
+  conflicts with `search`, both sides kept). Probe 4 (TrueType `AC13 安卓`,
+  default detail): HTTP 200, 1824 ms, Latin and Chinese text read → `detail`
+  stays default. 12 MP import: 4000×3000 → 1176×1568, 176,931 B, 92 ms, Java
+  heap +0.8 MB (native +18.5 MB). Migration 5 → 6 pass; live vision 3740 ms
+  pass; unit 510/514 → 532/537; instrumentation 13/13; debug/QA/release/AAB,
+  lint 0 errors, ktlint green; paid calls 5/6. Startup, fresh-install pair:
+  v0.2.0 722 ms (683–750) vs M1 726 ms (696–771), +0.6%; the earlier 2428 ms
+  was a cold emulator. Device: attach, send, viewer, Save, Share, no crashes.
