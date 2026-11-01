@@ -273,6 +273,11 @@ transcription and TTS) for devices without system speech engines.
 - 2026-11-01: No new runtime libraries (no Coil, no Media3): platform decoding
   with sampling and the system video player.
 - 2026-11-01: Version 0.3.0 (versionCode 3).
+- 2026-11-01: `detail` stays at the provider default for user images (probe 4
+  read Latin and Chinese text at the default).
+- 2026-11-01: Image model tie at version 2.5 (`flare`, `sunburst`) broken by
+  the newest `created` timestamp → `gpt-image-2.5-sunburst`. It is a Settings
+  field, so the user can switch.
 
 ## Running ledger
 
@@ -309,3 +314,14 @@ transcription and TTS) for devices without system speech engines.
   81c984e: ktlint 0, assembleDebug + unit + lint green; unit 565 passed of 571,
   6 skipped (live), 0 failed; lint 0 errors, 28 warnings. Batch 2 dispatched
   from 81c984e (`gen`, `voice`).
+- 2026-11-01: `gen` line done (9436e8d, merged at 809971b). `/v1/models`:
+  gpt-image-1, -1-mini, -1.5, -2, -2.5-flare, -2.5-sunburst (+ dated ids), no
+  dall-e; sora-2, sora-2-pro → M5 go. Default image model
+  `gpt-image-2.5-sunburst`. Probes (1024², low): generation 200, 9599 ms, PNG
+  746,855 B; edit 200, 10,137 ms, PNG 971,144 B. Live image test pass 7806 ms.
+  Contracts: generations 5/5, edits 2/2, video 10/10. Tool payload 13,343 →
+  14,587 B, model-facing tools 35 → 37. Unit 565/571 → 594/601 (skips live);
+  debug/QA/release/AAB, lint, ktlint green; paid calls 3/4. Not run:
+  instrumentation (emulator owned by `voice`), live video (needs the user's
+  cost approval). For `int` on device: generated image tile, Save/Share,
+  Image and video settings, video tile.
