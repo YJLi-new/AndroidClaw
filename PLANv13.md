@@ -336,3 +336,18 @@ transcription and TTS) for devices without system speech engines.
   assembleDebug + unit + lint green; unit 610 passed of 617, 7 skipped (live),
   0 failed; lint 0 errors, 28 warnings. Batch 3 lines are named `int13` and
   `doc13` (the v12 `int`/`doc` notes stay as history).
+- 2026-11-01: `int13` done (2db3305): version 0.3.0 (3); Claude
+  whitespace-delta fix; FakeProvider `[search:<query>]` marker;
+  `VideoAttachmentDeviceTest` (7 KB mp4 fixture). Journey EN 23/23, zh 17/17;
+  v13 device checks 10/10; crash lines 0; live suite 7 passed (9/10 paid
+  calls, no video); APK release 3,081,351 → 3,227,511 B (+4.7%); unit 612/619
+  (7 live skipped); instrumentation 17/17; ExactAlarm granted 1/1, denied 1/1;
+  lint 0 errors, 27 warnings. Bugs fixed: Claude whitespace deltas; zh Web
+  search settings used 提供方 instead of 服务商.
+- 2026-11-01: Startup gate met: quiet pair +2.9% (1092 vs 1062 ms), both pairs
+  +6.1% (1070 vs 1008 ms); a pair run under load (+12.4%) is excluded. The
+  gate stays relative to a base measured alongside: absolute emulator times
+  drift (base 935–1062 ms that day vs 722 ms earlier).
+- 2026-11-01: `VideoJobWorker` texts were English-only. They are
+  user-visible, so M6 applies → `int13` Revision 1 localizes them. `doc13`
+  dispatched in parallel from 2db3305.
