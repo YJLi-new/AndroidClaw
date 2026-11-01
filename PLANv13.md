@@ -303,3 +303,9 @@ transcription and TTS) for devices without system speech engines.
   lint 0 errors, ktlint green; paid calls 5/6. Startup, fresh-install pair:
   v0.2.0 722 ms (683–750) vs M1 726 ms (696–771), +0.6%; the earlier 2428 ms
   was a cold emulator. Device: attach, send, viewer, Save, Share, no crashes.
+- 2026-11-01: Merge gate on `rework/v13`: run 1 hit a Turbine race in
+  `TasksViewModelTest` (toggle emits an action message after the awaited
+  state; tasks code untouched by v13), fixed test-only in c28b219. Run 2 on
+  81c984e: ktlint 0, assembleDebug + unit + lint green; unit 565 passed of 571,
+  6 skipped (live), 0 failed; lint 0 errors, 28 warnings. Batch 2 dispatched
+  from 81c984e (`gen`, `voice`).
