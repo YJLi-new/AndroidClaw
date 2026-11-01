@@ -689,7 +689,7 @@ private class AnthropicStreamAccumulator(
 
                     "text_delta" -> {
                         val textPart = envelope.delta.text.orEmpty()
-                        if (textPart.isBlank()) {
+                        if (textPart.isEmpty()) {
                             emptyList()
                         } else {
                             val boundedTextPart = assistantText.appendBoundedProviderAssistantText(textPart)

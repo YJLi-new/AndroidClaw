@@ -493,10 +493,10 @@
     <string name="settings_section_web_search">联网搜索</string>
     <string name="settings_web_search_automatic">自动</string>
     <string name="settings_web_search_off">关闭</string>
-    <string name="settings_web_search_mode_typed">正在使用 Brave Search（web_search 工具），适用于所有提供方和定时任务。</string>
+    <string name="settings_web_search_mode_typed">正在使用 Brave Search（web_search 工具），适用于所有服务商和定时任务。</string>
     <string name="settings_web_search_mode_hosted">正在使用 %1$s 自带的联网搜索，只需模型密钥。</string>
     <string name="settings_web_search_mode_off_disabled">联网搜索已关闭。</string>
-    <string name="settings_web_search_mode_off_no_hosted">%1$s 在此没有自带的联网搜索。保存 Brave Search API 密钥后，任何提供方都能搜索。</string>
+    <string name="settings_web_search_mode_off_no_hosted">%1$s 在此没有自带的联网搜索。保存 Brave Search API 密钥后，任何服务商都能搜索。</string>
     <string name="settings_web_search_brave_key">Brave Search API 密钥</string>
     <string name="settings_web_search_brave_help">可选。加密保存在本机。</string>
     <string name="settings_web_search_key_stored_placeholder">已保存密钥。输入新密钥可替换。</string>
@@ -545,6 +545,18 @@
     <string name="chat_video_no_player">此设备上没有能播放视频的应用。</string>
     <string name="video_notification_ready">视频已生成</string>
     <string name="video_notification_failed">视频生成失败</string>
+    <!-- PLANv13 int13: video job transcript messages -->
+    <string name="video_job_ready">视频已生成</string>
+    <string name="video_job_ready_details">视频已生成（%1$s）</string>
+    <string name="video_job_seconds">%1$s 秒</string>
+    <string name="video_job_detail_separator">，</string>
+    <string name="video_job_with_prompt">%1$s：%2$s</string>
+    <string name="video_job_gave_up">视频任务 %1$s 已放弃：30 分钟内没有生成完成。</string>
+    <string name="video_job_key_removed">视频任务 %1$s 已停止：OpenAI API 密钥已被移除。</string>
+    <string name="video_job_failed">视频任务 %1$s 失败：%2$s</string>
+    <string name="video_job_generation_failed">视频生成失败：%1$s。</string>
+    <string name="video_job_no_reason">未说明原因</string>
+    <string name="video_job_not_saved">视频任务 %1$s 无法保存：%2$s</string>
     <!-- PLANv13 voice -->
     <string name="chat_action_voice_input">语音输入</string>
     <string name="chat_voice_unavailable">此设备没有可用的语音识别服务。</string>

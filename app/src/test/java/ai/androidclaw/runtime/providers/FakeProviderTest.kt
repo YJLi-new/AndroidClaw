@@ -116,6 +116,28 @@ class FakeProviderTest {
                 )
 
             assertEquals("Reply: hello", response.text)
+            assertTrue(response.webSearchQueries.isEmpty())
+            assertTrue(response.webSources.isEmpty())
+        }
+
+    @Test
+    fun `search marker returns hosted style query and sources`() =
+        runTest {
+            val response =
+                provider.generate(
+                    request(
+                        messageHistory =
+                            listOf(ModelMessage(role = ModelMessageRole.User, content = "News? [search:Android 17 release]")),
+                    ),
+                )
+
+            assertEquals("stop", response.finishReason)
+            assertEquals(listOf("Android 17 release"), response.webSearchQueries)
+            assertEquals(
+                listOf("https://example.com/android-17-release", "https://example.org/android-17-release"),
+                response.webSources.map { it.url },
+            )
+            assertEquals("Example result for Android 17 release", response.webSources.first().title)
         }
 
     @Test

@@ -13,7 +13,10 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import ai.androidclaw.testutil.InMemoryProviderSecretStore
+import ai.androidclaw.ui.locale.AppLocaleController
 import android.content.Context
+import android.content.res.Resources
+import android.os.LocaleList
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.Configuration
@@ -41,6 +44,7 @@ import java.nio.file.Files
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.Locale
 
 /** VideoJobWorker contracts: in progress → retry, completed → download + VIDEO message, failed, timeout. */
 @RunWith(AndroidJUnit4::class)
@@ -137,6 +141,40 @@ class VideoJobWorkerTest {
         }
 
     @Test
+    fun `messages follow the app language and keep API detail as received`() =
+        runBlocking {
+            val zh = resourcesFor("zh-CN")
+            val mp4 = ByteArray(1_024) { it.toByte() }
+            server.enqueue(MockResponse().setBody(videoJson("video_1", "completed")))
+            server.enqueue(MockResponse().setBody(Buffer().write(mp4)).setHeader("Content-Type", "video/mp4"))
+            assertEquals(ListenableWorker.Result.success(), worker(startedAt = now.minusSeconds(120), resources = zh).doWork())
+            server.enqueue(MockResponse().setBody(videoJson("video_1", "failed", ""","error":{"message":"blocked by moderation"}""")))
+            assertEquals(ListenableWorker.Result.failure(), worker(startedAt = now.minusSeconds(60), resources = zh).doWork())
+
+            assertEquals(
+                listOf("视频已生成（4 秒，720×1280）：a cat surfing", "视频生成失败：blocked by moderation。"),
+                messages.getMessages(sessionId).map { it.content },
+            )
+        }
+
+    @Test
+    fun `video texts cover every message in both languages`() {
+        val en = VideoJobTexts(resourcesFor("en"))
+        val zh = VideoJobTexts(resourcesFor("zh-CN"))
+
+        assertEquals("Video ready", en.ready(null, null, ""))
+        assertEquals("Video ready (8 s): fox", en.ready("8", null, "fox"))
+        assertEquals("视频已生成", zh.ready(null, null, " "))
+        assertEquals("Video job v1 gave up after 30 minutes without a finished video.", en.gaveUp("v1"))
+        assertEquals("视频任务 v1 已放弃：30 分钟内没有生成完成。", zh.gaveUp("v1"))
+        assertEquals("视频任务 v1 已停止：OpenAI API 密钥已被移除。", zh.keyRemoved("v1"))
+        assertEquals("视频任务 v1 失败：HTTP 404: Not Found", zh.jobFailed("v1", "HTTP 404: Not Found"))
+        assertEquals("Video generation failed: no reason given.", en.generationFailed(null))
+        assertEquals("视频生成失败：未说明原因。", zh.generationFailed(null))
+        assertEquals("视频任务 v1 无法保存：TOO_LARGE 60 MB", zh.notSaved("v1", "TOO_LARGE 60 MB"))
+    }
+
+    @Test
     fun `job older than 30 minutes gives up without a network call`() =
         runBlocking {
             val result = worker(startedAt = now.minusSeconds(31 * 60)).doWork()
@@ -179,7 +217,18 @@ class VideoJobWorkerTest {
         assertEquals(NetworkType.CONNECTED, infos.single().constraints.requiredNetworkType)
     }
 
-    private fun worker(startedAt: Instant): VideoJobWorker {
+    private fun resourcesFor(tag: String): Resources {
+        val configuration =
+            android.content.res.Configuration(application.resources.configuration).apply {
+                setLocales(LocaleList(Locale.forLanguageTag(tag)))
+            }
+        return application.createConfigurationContext(configuration).resources
+    }
+
+    private fun worker(
+        startedAt: Instant,
+        resources: Resources? = null,
+    ): VideoJobWorker {
         val clock = Clock.fixed(now, ZoneOffset.UTC)
         val factory =
             object : WorkerFactory() {
@@ -204,6 +253,8 @@ class VideoJobWorkerTest {
                         sessionLaneCoordinator = SessionLaneCoordinator(),
                         notifier = { jobId, ready, _ -> notifications += jobId to ready },
                         clock = clock,
+                        // null keeps the production lookup (app language, System here).
+                        resources = { resources ?: AppLocaleController.localizedResources(appContext) },
                     )
             }
         return TestListenableWorkerBuilder<VideoJobWorker>(application)

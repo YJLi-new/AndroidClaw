@@ -216,6 +216,53 @@ class AnthropicProviderTest {
         }
 
     @Test
+    fun `streaming keeps whitespace-only text deltas between words`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setHeader("Content-Type", "text/event-stream")
+                    .setBody(
+                        """
+                        event: message_start
+                        data: {"type":"message_start","message":{"id":"msg_ws","model":"claude-sonnet-4-5","usage":{"input_tokens":3,"output_tokens":1}}}
+
+                        event: content_block_start
+                        data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+                        event: content_block_delta
+                        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+
+                        event: content_block_delta
+                        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" "}}
+
+                        event: content_block_delta
+                        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world"}}
+
+                        event: content_block_delta
+                        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"\n\n"}}
+
+                        event: content_block_delta
+                        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Bye"}}
+
+                        event: message_delta
+                        data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}
+
+                        event: message_stop
+                        data: {"type":"message_stop"}
+
+                        """.trimIndent(),
+                    ),
+            )
+
+            val events = buildProvider().streamGenerate(buildRequest()).toList()
+
+            val streamed = events.filterIsInstance<ModelStreamEvent.TextDelta>().joinToString("") { it.text }
+            assertEquals("Hello world\n\nBye", streamed)
+            val completed = events.last() as ModelStreamEvent.Completed
+            assertEquals("Hello world\n\nBye", completed.response.text)
+        }
+
+    @Test
     fun `streamed oversized tool arguments fail before accumulation`() =
         runTest {
             val oversizedArguments = "a".repeat(MAX_PROVIDER_TOOL_ARGUMENT_CHARS + 1)
