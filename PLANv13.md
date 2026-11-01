@@ -325,3 +325,14 @@ transcription and TTS) for devices without system speech engines.
   instrumentation (emulator owned by `voice`), live video (needs the user's
   cost approval). For `int` on device: generated image tile, Save/Share,
   Image and video settings, video tile.
+- 2026-11-01: `voice` line done (e660401, merged at 4ae6290; 5 append-type
+  conflicts with `gen` resolved by the main session). AVD: recognizer and TTS
+  `com.google.android.tts`, en-US and zh-CN available; mic launches the
+  recognizer; read aloud EN and zh done. Startup QA 742 ms (710–789) vs 722 ms
+  (+2.8%; base measured alongside 733 ms). Unit 587/587 + 6 skipped;
+  instrumentation 16/16; lint 0 errors; crash lines 0. One test-JVM crash
+  (exit 10) in `TasksViewModelTest` under load, green on rerun.
+- 2026-11-01: Merge gate on 4ae6290 (M1–M5 together): ktlint 0;
+  assembleDebug + unit + lint green; unit 610 passed of 617, 7 skipped (live),
+  0 failed; lint 0 errors, 28 warnings. Batch 3 lines are named `int13` and
+  `doc13` (the v12 `int`/`doc` notes stay as history).
