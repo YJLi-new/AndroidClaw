@@ -278,6 +278,9 @@ transcription and TTS) for devices without system speech engines.
 - 2026-11-01: Image model tie at version 2.5 (`flare`, `sunburst`) broken by
   the newest `created` timestamp → `gpt-image-2.5-sunburst`. It is a Settings
   field, so the user can switch.
+- 2026-11-01 (after merge): no live video generation, per the user ("不测生成视频，只测图片").
+  `video_generate` stays contract-tested only. Images get one more live check
+  on merged `main`: vision, generation and edit, at most 4 paid calls.
 
 ## Running ledger
 
