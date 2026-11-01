@@ -374,3 +374,11 @@ transcription and TTS) for devices without system speech engines.
   41312788258 on 69edd17 green: fast 6m50s, security-hardening 8m25s,
   packaging 9m01s. Merged into `main` per the user ("通过后合并"): merge
   commit 4f7d1ef. Live video generation is still contract-tested only.
+- 2026-11-01: Live image check on merged `main` (gen Revision 2, branch
+  `rework/img-live` 84676d4, test-only: a live edit case and opt-in PNG output
+  via `ANDROIDCLAW_LIVE_IMAGE_OUT`). Vision: `gpt-6-luna` answered "Red", 3.8 s.
+  Generation (`gpt-image-2.5-sunburst`): HTTP 200, 7.7 s, 745,832 B,
+  1024×1024. Edit of a locally drawn gradient grid with "Add a small yellow
+  circle in the centre": HTTP 200, 13.9 s, 880,507 B, 1024×1024; the grid was
+  kept and the circle added. Unit 614/622, 8 live skipped; ktlint clean. Paid
+  calls 3/4. No video call.
