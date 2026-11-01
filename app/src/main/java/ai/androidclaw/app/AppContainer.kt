@@ -3,12 +3,17 @@ package ai.androidclaw.app
 import ai.androidclaw.data.AndroidProviderSecretStore
 import ai.androidclaw.data.AndroidSkillConfigStore
 import ai.androidclaw.data.AndroidSkillSecretStore
+import ai.androidclaw.data.AndroidWebSearchKeyStore
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.WorkspaceStore
+import ai.androidclaw.data.attachments.AndroidImageImporter
+import ai.androidclaw.data.attachments.AttachmentImporter
+import ai.androidclaw.data.attachments.AttachmentStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -16,6 +21,13 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.device.AppForegroundState
+import ai.androidclaw.runtime.media.AndroidVideoNotifier
+import ai.androidclaw.runtime.media.FakeImageBackend
+import ai.androidclaw.runtime.media.GeneratedMediaStore
+import ai.androidclaw.runtime.media.MediaGenerationPolicy
+import ai.androidclaw.runtime.media.OpenAiImageBackend
+import ai.androidclaw.runtime.media.OpenAiMediaClient
+import ai.androidclaw.runtime.media.WorkManagerVideoJobScheduler
 import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
@@ -40,8 +52,16 @@ import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSourceScanner
 import ai.androidclaw.runtime.skills.SkillStorage
+import ai.androidclaw.runtime.tools.BraveSearchClient
+import ai.androidclaw.runtime.tools.MediaToolDependencies
+import ai.androidclaw.runtime.tools.WebSearchPolicy
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
+import ai.androidclaw.runtime.voice.SpeechInput
+import ai.androidclaw.runtime.voice.SpeechOutput
+import ai.androidclaw.runtime.voice.SystemSpeechInput
+import ai.androidclaw.runtime.voice.SystemSpeechOutput
 import android.app.Application
+import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -73,9 +93,19 @@ class AppContainer(
     val providerSecretStore = AndroidProviderSecretStore(application)
     val skillConfigStore = AndroidSkillConfigStore(application)
     val skillSecretStore = AndroidSkillSecretStore(application)
+    val webSearchKeyStore = AndroidWebSearchKeyStore(application)
+    val braveSearchClient = BraveSearchClient(providerHttpClient)
+    val webSearchPolicy = WebSearchPolicy(settingsDataStore, webSearchKeyStore)
     val networkStatusProvider: NetworkStatusProvider = AndroidNetworkStatusProvider(application)
-    val sessionRepository = SessionRepository(database.sessionDao())
-    val messageRepository = MessageRepository(database.messageDao())
+    val attachmentRepository =
+        AttachmentRepository(
+            dao = database.messageAttachmentDao(),
+            store = AttachmentStore(File(application.filesDir, AttachmentStore.DIRECTORY_NAME)),
+            clock = clock,
+        )
+    val attachmentImporter: AttachmentImporter = AndroidImageImporter(application.contentResolver, attachmentRepository.store)
+    val sessionRepository = SessionRepository(database.sessionDao(), attachmentRepository)
+    val messageRepository = MessageRepository(database.messageDao(), attachmentRepository)
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
     val skillRepository = SkillRepository(database.skillRecordDao())
     val eventLogRepository = EventLogRepository(database.eventLogDao())
@@ -98,6 +128,23 @@ class AppContainer(
             eventLogRepository = eventLogRepository,
         )
     val taskNotifier = AndroidTaskNotifier(application)
+
+    // PLANv13 gen: image and video generation (OpenAI key; debug fake image backend).
+    val mediaGenerationPolicy = MediaGenerationPolicy(settingsDataStore, providerSecretStore)
+    val openAiMediaClient = OpenAiMediaClient(providerHttpClient)
+    val generatedMediaStore = GeneratedMediaStore(attachmentRepository.store)
+    val videoNotifier = AndroidVideoNotifier(application)
+    private val mediaToolDependencies =
+        MediaToolDependencies(
+            policy = mediaGenerationPolicy,
+            attachmentRepository = attachmentRepository,
+            mediaStore = generatedMediaStore,
+            openAiImageBackend = OpenAiImageBackend(openAiMediaClient, mediaGenerationPolicy),
+            fakeImageBackend = FakeImageBackend(),
+            client = openAiMediaClient,
+            videoJobScheduler = WorkManagerVideoJobScheduler { WorkManager.getInstance(application) },
+            clock = clock,
+        )
 
     /** App-private persona/workspace files (AGENTS.md, SOUL.md, USER.md, MEMORY.md, notes). */
     val workspaceStore = WorkspaceStore(File(application.filesDir, WorkspaceStore.DIRECTORY_NAME))
@@ -125,6 +172,9 @@ class AppContainer(
             networkStatusProvider = networkStatusProvider,
             isAppInForeground = AppForegroundState::isInForeground,
             clock = clock,
+            braveSearchClient = braveSearchClient,
+            braveApiKey = webSearchKeyStore::readBraveApiKey,
+            mediaTools = mediaToolDependencies,
         )
 
     private val bundledSkillLoader =
@@ -232,6 +282,9 @@ class AppContainer(
             loadSessionCompactionBoundary = { sessionId -> sessionRepository.getSession(sessionId)?.compactedUntilMessageId },
             networkStatusProvider = networkStatusProvider,
             workspaceContextProvider = { workspaceStore.promptContext() },
+            webSearchPolicy = webSearchPolicy,
+            attachmentRepository = attachmentRepository,
+            mediaGenerationPolicy = mediaGenerationPolicy,
         )
 
     val taskRuntimeExecutor =
@@ -254,6 +307,10 @@ class AppContainer(
         )
     val workerFactory = AppWorkerFactory { this }
 
+    // Voice adapters; instrumentation tests swap in fakes before launching the activity.
+    var speechInput: SpeechInput = SystemSpeechInput(application)
+    var speechOutputFactory: () -> SpeechOutput = { SystemSpeechOutput(application) }
+
     val chatDependencies: ChatDependencies
         get() =
             ChatDependencies(
@@ -263,6 +320,10 @@ class AppContainer(
                 agentRunner = agentRunner,
                 skillManager = skillManager,
                 settingsDataStore = settingsDataStore,
+                attachmentRepository = attachmentRepository,
+                attachmentImporter = attachmentImporter,
+                speechInput = speechInput,
+                speechOutputFactory = speechOutputFactory,
             )
 
     val tasksDependencies: TasksDependencies
@@ -289,6 +350,8 @@ class AppContainer(
                 openAiCodexOAuthClient = openAiCodexOAuthClient,
                 networkStatusProvider = networkStatusProvider,
                 memoryRepository = memoryRepository,
+                webSearchKeyStore = webSearchKeyStore,
+                braveSearchClient = braveSearchClient,
             )
 
     val onboardingDependencies: OnboardingDependencies

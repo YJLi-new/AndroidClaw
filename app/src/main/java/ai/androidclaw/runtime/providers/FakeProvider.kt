@@ -15,6 +15,10 @@ import java.time.Clock
  * e.g. `What is my battery? [tool:device_status]`. Optional JSON arguments may follow the name:
  * `[tool:set_timer {"seconds":60}]`. Without JSON the call receives `{"command": <message>}`.
  * After the tool result arrives the provider answers with the first line of that result.
+ * `[tool:image_generate]` without JSON uses the rest of the message as the image prompt.
+ *
+ * Search trigger: `[search:<query>]` answers like a hosted web search, with the query and two
+ * fixed sources on reserved example domains, so the Sources row can be shown offline.
  */
 class FakeProvider(
     private val clock: Clock,
@@ -29,6 +33,12 @@ class FakeProvider(
                 ?.content
                 ?.trim()
                 .orEmpty()
+        val lastUserImages =
+            request.messageHistory
+                .getOrNull(lastUserIndex)
+                ?.attachments
+                .orEmpty()
+                .filter { it.file != null }
         val marker = TOOL_MARKER.find(lastUserMessage)
         val requestedTool =
             marker
@@ -58,12 +68,22 @@ class FakeProvider(
                             name = requestedTool,
                             argumentsJson =
                                 marker.groupValues.getOrNull(2)?.toJsonObjectOrNull()
-                                    ?: buildJsonObject { put("command", lastUserMessage) },
+                                    ?: scriptedArguments(requestedTool, lastUserMessage, marker.value),
                         ),
                     ),
             )
         }
+        val searchQuery =
+            SEARCH_MARKER
+                .find(lastUserMessage)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.take(MAX_SEARCH_QUERY_CHARS)
         return ModelResponse(
+            webSearchQueries = listOfNotNull(searchQuery),
+            webSources = searchQuery?.let(::scriptedSources).orEmpty(),
             text =
                 buildString {
                     if (latestToolResult != null) {
@@ -77,15 +97,50 @@ class FakeProvider(
                                 .orEmpty()
                                 .take(MAX_TOOL_ECHO_CHARS),
                         )
-                    } else if (lastUserMessage.isBlank()) {
+                    } else if (lastUserMessage.isBlank() && lastUserImages.isEmpty()) {
                         append("Hello from the offline fake provider.")
                     } else {
                         append("Reply: ").append(lastUserMessage.take(MAX_ECHO_CHARS))
+                    }
+                    if (latestToolResult == null && lastUserImages.isNotEmpty()) {
+                        // Deterministic image reply: count and pixel sizes of the images sent.
+                        if (lastUserMessage.isNotBlank()) append('\n')
+                        append("Images: ").append(lastUserImages.size).append(" (")
+                        append(lastUserImages.joinToString { "${it.width}×${it.height}" })
+                        append(")")
                     }
                     if (request.runMode == ModelRunMode.Scheduled) {
                         append("\nRun mode: scheduled.")
                     }
                 },
+        )
+    }
+
+    /**
+     * Scripted image path: `Draw a red fox [tool:image_generate]` calls image_generate with the
+     * message (marker removed) as the prompt; the debug fake image backend answers offline.
+     */
+    private fun scriptedArguments(
+        toolName: String,
+        message: String,
+        marker: String,
+    ): JsonObject =
+        if (toolName == "image_generate") {
+            buildJsonObject { put("prompt", message.replace(marker, "").trim().ifEmpty { "A test image" }) }
+        } else {
+            buildJsonObject { put("command", message) }
+        }
+
+    private fun scriptedSources(query: String): List<WebSource> {
+        val slug =
+            query
+                .lowercase()
+                .replace(NON_SLUG_CHARS, "-")
+                .trim('-')
+                .ifEmpty { "search" }
+        return listOf(
+            WebSource(url = "https://example.com/$slug", title = "Example result for $query"),
+            WebSource(url = "https://example.org/$slug", title = "Second example result"),
         )
     }
 
@@ -97,8 +152,11 @@ class FakeProvider(
     companion object {
         // Android's ICU regex engine rejects unescaped `}` and `]` that the JVM accepts.
         private val TOOL_MARKER = Regex("""\[tool:([A-Za-z0-9._-]+)(?:\s+(\{.*?\}))?\]""")
+        private val SEARCH_MARKER = Regex("""\[search:([^\]]+)\]""")
+        private val NON_SLUG_CHARS = Regex("[^a-z0-9]+")
         private val FAKE_JSON = Json { ignoreUnknownKeys = true }
         private const val MAX_ECHO_CHARS = 500
         private const val MAX_TOOL_ECHO_CHARS = 300
+        private const val MAX_SEARCH_QUERY_CHARS = 120
     }
 }

@@ -404,6 +404,7 @@ private fun ModelProviderFailureKind.isRetryable(): Boolean =
         ModelProviderFailureKind.Authentication,
         ModelProviderFailureKind.Server,
         ModelProviderFailureKind.Response,
+        ModelProviderFailureKind.ImagesUnsupported,
         -> false
     }
 
@@ -418,4 +419,5 @@ private fun ModelProviderFailureKind.toTaskErrorCode(): String =
         ModelProviderFailureKind.Server -> "PROVIDER_REQUEST_FAILED"
         ModelProviderFailureKind.StreamInterrupted -> "PROVIDER_STREAM_INTERRUPTED"
         ModelProviderFailureKind.Response -> "PROVIDER_RESPONSE_INVALID"
+        ModelProviderFailureKind.ImagesUnsupported -> "IMAGES_UNSUPPORTED"
     }

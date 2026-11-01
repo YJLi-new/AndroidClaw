@@ -33,6 +33,7 @@ class OpenAiCodexResponsesProvider(
         ProviderCapabilities(
             supportsStreamingText = true,
             supportsStreamingToolCalls = true,
+            supportsImages = true,
         )
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
@@ -253,6 +254,9 @@ class OpenAiCodexResponsesProvider(
         rawBody: String,
     ): ModelProviderException {
         val errorMessage = json.extractProviderErrorMessage(rawBody)
+        if (isProviderImageRejection(statusCode, errorMessage)) {
+            return imagesUnsupportedFailure(errorMessage)
+        }
 
         return when (statusCode) {
             401, 403 ->

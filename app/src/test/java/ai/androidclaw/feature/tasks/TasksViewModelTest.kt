@@ -114,6 +114,8 @@ class TasksViewModelTest {
                 viewModel.toggleEnabled(created.tasks.single().id)
                 val toggled = awaitState { state -> state.tasks.size == 1 && !state.tasks.single().enabled }
                 assertFalse(toggled.tasks.single().enabled)
+                // toggleEnabled also posts an action message; it may arrive after the awaited state.
+                cancelAndIgnoreRemainingEvents()
             }
         }
 

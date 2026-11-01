@@ -84,6 +84,12 @@ fun SettingsScreen(
             ClawSectionHeader(stringResource(R.string.settings_section_provider))
             ProviderSection(state = state, viewModel = viewModel, onOpenSetupGuide = onOpenSetupGuide)
 
+            ClawSectionHeader(stringResource(R.string.settings_section_web_search))
+            WebSearchSection(model = viewModel.webSearch)
+
+            SettingsImageVideoSection(model = viewModel.imageVideo)
+            VoiceSection(model = viewModel.voice)
+
             ClawSectionHeader(stringResource(R.string.settings_section_memory))
             MemorySection(
                 state = state,
@@ -213,6 +219,7 @@ private fun ProviderSection(
                             onCancelCodexSignIn = viewModel::cancelOpenAiCodexDeviceCodeSignIn,
                             onClearCodexSignIn = viewModel::clearOpenAiCodexSignIn,
                             onOpenVerificationUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                            onAcceptsImagesChanged = viewModel::onAcceptsImagesChanged,
                         ),
                     fieldTagPrefix = "provider",
                     codexTagPrefix = "",

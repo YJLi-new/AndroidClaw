@@ -11,8 +11,12 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
@@ -35,6 +39,7 @@ class AnthropicProvider(
         ProviderCapabilities(
             supportsStreamingText = true,
             supportsStreamingToolCalls = true,
+            supportsImages = true,
         )
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
@@ -138,15 +143,20 @@ class AnthropicProvider(
             system = request.systemPrompt.takeIf { it.isNotBlank() },
             messages = buildMessages(request.messageHistory),
             tools =
-                request.toolDescriptors
-                    .takeIf { it.isNotEmpty() }
-                    ?.map { descriptor ->
-                        AnthropicToolDefinition(
-                            name = descriptor.name,
-                            description = descriptor.description,
-                            inputSchema = descriptor.inputSchema,
+                buildList {
+                    request.toolDescriptors.forEach { descriptor ->
+                        add(
+                            AnthropicToolDefinition(
+                                name = descriptor.name,
+                                description = descriptor.description,
+                                inputSchema = descriptor.inputSchema,
+                            ),
                         )
-                    },
+                    }
+                    if (request.hostedWebSearch) {
+                        add(anthropicHostedWebSearchTool())
+                    }
+                }.takeIf { it.isNotEmpty() },
             stream = stream,
             maxTokens = DEFAULT_ANTHROPIC_MAX_OUTPUT_TOKENS,
         )
@@ -169,13 +179,7 @@ class AnthropicProvider(
                 ModelMessageRole.User ->
                     AnthropicMessage(
                         role = "user",
-                        content =
-                            listOf(
-                                AnthropicRequestContentBlock(
-                                    type = "text",
-                                    text = message.content,
-                                ),
-                            ),
+                        content = message.toAnthropicUserContent(),
                     )
 
                 ModelMessageRole.Assistant ->
@@ -297,6 +301,14 @@ class AnthropicProvider(
                 details = rawBody.take(MAX_PROVIDER_ERROR_BODY_CHARS),
             )
         }
+        val webSearch = AnthropicWebSearchCollector()
+        parsed.content.forEach { block ->
+            when (block.type) {
+                "server_tool_use" -> webSearch.addServerToolInput(block.name, block.input)
+                "web_search_tool_result" -> webSearch.addSearchResults(block.content)
+                "text" -> block.citations.orEmpty().forEach(webSearch::addCitation)
+            }
+        }
 
         return ModelResponse(
             text = assistantText,
@@ -310,6 +322,8 @@ class AnthropicProvider(
             toolCalls = toolCalls,
             modelId = parsed.model,
             usage = parsed.usage?.toProviderUsage(),
+            webSearchQueries = webSearch.queries(),
+            webSources = webSearch.sources(),
         )
     }
 
@@ -318,6 +332,9 @@ class AnthropicProvider(
         rawBody: String,
     ): ModelProviderException {
         val parsedMessage = json.extractProviderErrorMessage(rawBody)
+        if (isProviderImageRejection(statusCode, parsedMessage)) {
+            return imagesUnsupportedFailure(parsedMessage)
+        }
 
         return when (statusCode) {
             401, 403 ->
@@ -374,15 +391,120 @@ private data class AnthropicRequestContentBlock(
     @SerialName("tool_use_id")
     val toolUseId: String? = null,
     val content: String? = null,
+    val source: AnthropicImageSource? = null,
 )
+
+/** Function tools carry description and schema; server tools (web search) carry type and max_uses. */
+@Serializable
+private data class AnthropicImageSource(
+    val type: String,
+    @SerialName("media_type")
+    val mediaType: String,
+    val data: String,
+)
+
+/** Text block, then a marker text block before each image block; omitted images keep only the marker. */
+private fun ModelMessage.toAnthropicUserContent(): List<AnthropicRequestContentBlock> {
+    if (!hasInlineImages()) {
+        return listOf(AnthropicRequestContentBlock(type = "text", text = contentWithAttachmentMarkers()))
+    }
+    return buildList {
+        if (content.isNotBlank()) {
+            add(AnthropicRequestContentBlock(type = "text", text = content))
+        }
+        attachments.forEach { attachment ->
+            add(AnthropicRequestContentBlock(type = "text", text = attachment.marker()))
+            attachment.base64DataOrNull()?.let { data ->
+                add(
+                    AnthropicRequestContentBlock(
+                        type = "image",
+                        source = AnthropicImageSource(type = "base64", mediaType = attachment.mimeType, data = data),
+                    ),
+                )
+            }
+        }
+    }
+}
 
 @Serializable
 private data class AnthropicToolDefinition(
     val name: String,
-    val description: String,
+    val description: String? = null,
     @SerialName("input_schema")
-    val inputSchema: JsonObject,
+    val inputSchema: JsonObject? = null,
+    val type: String? = null,
+    @SerialName("max_uses")
+    val maxUses: Int? = null,
 )
+
+private const val ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20250305"
+private const val ANTHROPIC_WEB_SEARCH_MAX_USES = 5
+private const val MAX_SERVER_TOOL_BLOCKS = 16
+private const val MAX_SERVER_TOOL_INPUT_CHARS = 2_000
+
+private fun anthropicHostedWebSearchTool(): AnthropicToolDefinition =
+    AnthropicToolDefinition(
+        name = "web_search",
+        type = ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
+        maxUses = ANTHROPIC_WEB_SEARCH_MAX_USES,
+    )
+
+@Serializable
+private data class AnthropicCitation(
+    val type: String? = null,
+    val url: String? = null,
+    val title: String? = null,
+)
+
+/**
+ * Hosted web search output: `server_tool_use` queries, cited URLs (first), then the URLs of
+ * `web_search_tool_result` blocks until the bounded list is full.
+ */
+private class AnthropicWebSearchCollector {
+    private val collector = WebSearchCollector()
+    private val results = mutableListOf<WebSource>()
+
+    fun addServerToolInput(
+        name: String?,
+        input: JsonObject?,
+    ) {
+        if (name != "web_search") return
+        collector.addQuery((input?.get("query") as? JsonPrimitive)?.contentOrNull)
+    }
+
+    fun addServerToolInputJson(
+        name: String?,
+        rawInput: String,
+    ) {
+        val input = runCatching { Json.parseToJsonElement(rawInput) as? JsonObject }.getOrNull()
+        addServerToolInput(name, input)
+    }
+
+    fun addCitation(citation: AnthropicCitation) {
+        if (citation.type == "web_search_result_location") {
+            collector.addSource(citation.url, citation.title)
+        }
+    }
+
+    fun addSearchResults(content: JsonElement?) {
+        (content as? JsonArray).orEmpty().forEach { element ->
+            val result = element as? JsonObject ?: return@forEach
+            if ((result["type"] as? JsonPrimitive)?.contentOrNull != "web_search_result") return@forEach
+            val url = (result["url"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
+            if (results.size < WEB_SOURCES_MAX * 2) {
+                results += WebSource(url = url, title = (result["title"] as? JsonPrimitive)?.contentOrNull)
+            }
+        }
+    }
+
+    fun queries(): List<String> = collector.queries()
+
+    fun sources(): List<WebSource> {
+        results.forEach { collector.addSource(it.url, it.title) }
+        results.clear()
+        return collector.sources()
+    }
+}
 
 @Serializable
 private data class AnthropicMessagesResponse(
@@ -401,6 +523,9 @@ private data class AnthropicOutputContentBlock(
     val id: String? = null,
     val name: String? = null,
     val input: JsonObject? = null,
+    val citations: List<AnthropicCitation>? = null,
+    /** `web_search_tool_result`: a result array, or an error object. */
+    val content: JsonElement? = null,
 )
 
 @Serializable
@@ -437,6 +562,7 @@ private data class AnthropicStreamContentBlock(
     val text: String? = null,
     val id: String? = null,
     val name: String? = null,
+    val content: JsonElement? = null,
 )
 
 @Serializable
@@ -447,6 +573,7 @@ private data class AnthropicStreamDelta(
     val partialJson: String? = null,
     @SerialName("stop_reason")
     val stopReason: String? = null,
+    val citation: AnthropicCitation? = null,
 )
 
 @Serializable
@@ -468,6 +595,10 @@ private class AnthropicStreamAccumulator(
     private var usage: ProviderUsage? = null
     private var sawEvent = false
     private var sawMessageStop = false
+    private val webSearch = AnthropicWebSearchCollector()
+
+    /** Hosted `server_tool_use` blocks by index: their input streams like tool input but is not a tool call. */
+    private val serverToolInputs = linkedMapOf<Int, Pair<String?, StringBuilder>>()
 
     fun applyEnvelope(rawEnvelope: String): List<ModelStreamEvent> {
         val envelope =
@@ -522,15 +653,43 @@ private class AnthropicStreamAccumulator(
                         }
                     }
 
+                    "server_tool_use" -> {
+                        if (serverToolInputs.size < MAX_SERVER_TOOL_BLOCKS) {
+                            serverToolInputs[envelope.index ?: 0] = envelope.contentBlock.name to StringBuilder()
+                        }
+                        emptyList()
+                    }
+
+                    "web_search_tool_result" -> {
+                        webSearch.addSearchResults(envelope.contentBlock.content)
+                        emptyList()
+                    }
+
                     else -> emptyList()
                 }
             }
 
             "content_block_delta" -> {
+                val serverToolInput = serverToolInputs[envelope.index ?: 0]?.second
+                if (envelope.delta?.type == "input_json_delta" && serverToolInput != null) {
+                    if (serverToolInput.length < MAX_SERVER_TOOL_INPUT_CHARS) {
+                        serverToolInput.append(
+                            envelope.delta.partialJson
+                                .orEmpty()
+                                .take(MAX_SERVER_TOOL_INPUT_CHARS),
+                        )
+                    }
+                    return emptyList()
+                }
                 when (envelope.delta?.type) {
+                    "citations_delta" -> {
+                        envelope.delta.citation?.let(webSearch::addCitation)
+                        emptyList()
+                    }
+
                     "text_delta" -> {
                         val textPart = envelope.delta.text.orEmpty()
-                        if (textPart.isBlank()) {
+                        if (textPart.isEmpty()) {
                             emptyList()
                         } else {
                             val boundedTextPart = assistantText.appendBoundedProviderAssistantText(textPart)
@@ -627,6 +786,13 @@ private class AnthropicStreamAccumulator(
             toolCalls = resolvedToolCalls,
             modelId = modelId,
             usage = usage,
+            webSearchQueries =
+                webSearch.run {
+                    serverToolInputs.values.forEach { (name, input) -> addServerToolInputJson(name, input.toString()) }
+                    serverToolInputs.clear()
+                    queries()
+                },
+            webSources = webSearch.sources(),
         )
     }
 

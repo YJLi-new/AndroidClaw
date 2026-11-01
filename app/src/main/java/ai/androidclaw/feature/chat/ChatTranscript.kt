@@ -51,6 +51,9 @@ internal fun ChatMessageRow(
     highlighted: Boolean,
     timeFormatter: DateTimeFormatter,
     onLongPress: (ChatMessageUi) -> Unit,
+    onOpenAttachment: (ChatAttachmentUi) -> Unit = {},
+    speaking: Boolean = false,
+    onReadAloud: ((ChatMessageUi) -> Unit)? = null,
 ) {
     val copyLabel = stringResource(R.string.chat_action_copy_message)
     val pressModifier =
@@ -71,17 +74,24 @@ internal fun ChatMessageRow(
                         .testTag("chatMessage-user"),
                 horizontalAlignment = Alignment.End,
             ) {
-                Surface(
-                    modifier = pressModifier,
-                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    ChatRichText(
-                        text = message.text,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onPrimaryContainer),
-                    )
+                ChatAttachmentGrid(
+                    attachments = message.attachments,
+                    onOpen = onOpenAttachment,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                if (message.text.isNotBlank() || message.attachments.isEmpty()) {
+                    Surface(
+                        modifier = pressModifier,
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        ChatRichText(
+                            text = message.text,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onPrimaryContainer),
+                        )
+                    }
                 }
                 MessageTime(message.createdAt, timeFormatter)
             }
@@ -100,7 +110,17 @@ internal fun ChatMessageRow(
                     text = message.text,
                     style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 )
-                MessageTime(message.createdAt, timeFormatter)
+                message.webSearch?.let { ChatSources(it) }
+                // Generated media on an assistant reply (a finished video_generate job).
+                ChatAttachmentGrid(attachments = message.attachments, onOpen = onOpenAttachment, alignEnd = false)
+                if (onReadAloud != null && message.text.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MessageTime(message.createdAt, timeFormatter)
+                        ReadAloudButton(speaking = speaking, onClick = { onReadAloud(message) })
+                    }
+                } else {
+                    MessageTime(message.createdAt, timeFormatter)
+                }
             }
 
         ChatRole.System, ChatRole.ToolCall, ChatRole.ToolResult ->

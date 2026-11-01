@@ -3,6 +3,7 @@ package ai.androidclaw.feature.settings
 import ai.androidclaw.R
 import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.app.viewModelFactory
+import ai.androidclaw.data.InMemoryWebSearchKeyStore
 import ai.androidclaw.data.MAX_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.MIN_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
@@ -17,6 +18,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.data.WebSearchKeyStore
 import ai.androidclaw.data.firstProviderEndpointPolicyError
 import ai.androidclaw.data.isLoopbackProviderHost
 import ai.androidclaw.data.providerEndpointPolicyIssues
@@ -33,6 +35,7 @@ import ai.androidclaw.runtime.providers.OpenAiCodexDeviceCodePrompt
 import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
+import ai.androidclaw.runtime.tools.BraveSearchClient
 import ai.androidclaw.ui.text.UiText
 import ai.androidclaw.ui.text.toRawUiTextOrNull
 import androidx.lifecycle.ViewModel
@@ -53,6 +56,7 @@ data class SettingsUiState(
     val baseUrl: String = "",
     val modelId: String = "",
     val timeoutSeconds: String = "",
+    val acceptsImages: Boolean = false,
     val networkSummary: String = "",
     val networkConnected: Boolean = true,
     val networkValidated: Boolean = true,
@@ -120,7 +124,16 @@ class SettingsViewModel(
     private val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     private val networkStatusProvider: NetworkStatusProvider,
     private val memoryRepository: MemoryRepository,
+    webSearchKeyStore: WebSearchKeyStore = InMemoryWebSearchKeyStore(),
+    braveSearchClient: BraveSearchClient = BraveSearchClient(),
 ) : ViewModel() {
+    /** Settings → Web search section (its own state; see WebSearchSettings.kt). */
+    val webSearch = WebSearchSettingsModel(viewModelScope, settingsDataStore, webSearchKeyStore, braveSearchClient)
+    val voice = VoiceSettingsModel(viewModelScope, settingsDataStore)
+
+    /** Settings → Image and video section (SettingsImageVideoSection.kt). */
+    val imageVideo = ImageVideoSettingsModel(viewModelScope, settingsDataStore, providerSecretStore)
+
     private val mutableState =
         MutableStateFlow(
             SettingsUiState(
@@ -156,6 +169,7 @@ class SettingsViewModel(
                     baseUrl = endpointSettings.baseUrl,
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    acceptsImages = endpointSettings.acceptsImages,
                     networkSummary = networkStatus.summary,
                     networkConnected = networkStatus.isConnected,
                     networkValidated = networkStatus.isValidated,
@@ -298,6 +312,10 @@ class SettingsViewModel(
                 statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
             )
         }
+    }
+
+    fun onAcceptsImagesChanged(value: Boolean) {
+        mutateState { it.copy(acceptsImages = value) }
     }
 
     fun onTimeoutChanged(value: String) {
@@ -654,6 +672,7 @@ class SettingsViewModel(
                     baseUrl = endpointSettings.baseUrl,
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    acceptsImages = endpointSettings.acceptsImages,
                     networkSummary = networkStatus.summary,
                     networkConnected = networkStatus.isConnected,
                     networkValidated = networkStatus.isValidated,
@@ -775,6 +794,7 @@ class SettingsViewModel(
                             baseUrl = snapshot.baseUrl,
                             modelId = snapshot.modelId,
                             timeoutSeconds = normalizedTimeoutSeconds,
+                            acceptsImages = snapshot.acceptsImages,
                         ),
                     ).copy(providerType = snapshot.providerType)
             } else {
@@ -845,6 +865,7 @@ class SettingsViewModel(
                 providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_server)
             ModelProviderFailureKind.Response ->
                 providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_response)
+            ModelProviderFailureKind.ImagesUnsupported -> UiText.res(R.string.chat_error_images_unsupported)
             ModelProviderFailureKind.Configuration,
             ModelProviderFailureKind.Offline,
             ModelProviderFailureKind.Network,
@@ -899,6 +920,8 @@ class SettingsViewModel(
                     openAiCodexOAuthClient = dependencies.openAiCodexOAuthClient,
                     networkStatusProvider = dependencies.networkStatusProvider,
                     memoryRepository = dependencies.memoryRepository,
+                    webSearchKeyStore = dependencies.webSearchKeyStore,
+                    braveSearchClient = dependencies.braveSearchClient,
                 )
             }
     }

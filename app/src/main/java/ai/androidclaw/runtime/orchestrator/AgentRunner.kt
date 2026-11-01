@@ -2,10 +2,15 @@ package ai.androidclaw.runtime.orchestrator
 
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.attachments.StagedAttachment
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.runtime.media.MediaBackendMode
+import ai.androidclaw.runtime.media.MediaGenerationPolicy
+import ai.androidclaw.runtime.media.offersTool
 import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
@@ -20,9 +25,11 @@ import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.ProviderMessageMeta
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.ProviderToolCall
+import ai.androidclaw.runtime.providers.WebSearchCollector
 import ai.androidclaw.runtime.providers.offlineFailure
 import ai.androidclaw.runtime.providers.toPayload
 import ai.androidclaw.runtime.providers.toStorageString
+import ai.androidclaw.runtime.providers.withImageRequestBound
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillManager
@@ -33,6 +40,10 @@ import ai.androidclaw.runtime.tools.ToolExecutionContext
 import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
+import ai.androidclaw.runtime.tools.WEB_SEARCH_TOOL_NAME
+import ai.androidclaw.runtime.tools.WebSearchMode
+import ai.androidclaw.runtime.tools.WebSearchPolicy
+import ai.androidclaw.runtime.tools.addTypedWebSearchResult
 import ai.androidclaw.runtime.tools.toModelContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +63,7 @@ data class AgentTurnRequest(
     val userMessage: String,
     val taskRunId: String? = null,
     val persistUserMessage: Boolean = true,
+    val attachments: List<StagedAttachment> = emptyList(),
 )
 
 enum class AgentTurnExitReason {
@@ -88,6 +100,9 @@ class AgentRunner(
     private val loadSessionCompactionBoundary: suspend (String) -> String? = { null },
     private val networkStatusProvider: NetworkStatusProvider? = null,
     private val workspaceContextProvider: (suspend () -> String?)? = null,
+    private val webSearchPolicy: WebSearchPolicy? = null,
+    private val attachmentRepository: AttachmentRepository? = null,
+    private val mediaGenerationPolicy: MediaGenerationPolicy? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
         runTurn(
@@ -96,6 +111,7 @@ class AgentRunner(
             runMode = ModelRunMode.Interactive,
             taskRunId = request.taskRunId,
             persistUserMessage = request.persistUserMessage,
+            attachments = request.attachments,
         )
 
     fun runInteractiveTurnStream(request: AgentTurnRequest): Flow<AgentTurnEvent> =
@@ -107,6 +123,7 @@ class AgentRunner(
                         userMessage = request.userMessage,
                         taskRunId = request.taskRunId,
                         persistUserMessage = request.persistUserMessage,
+                        attachments = request.attachments,
                         emitEvent = { event -> send(event) },
                     )
                 send(AgentTurnEvent.TurnCompleted(result))
@@ -141,6 +158,7 @@ class AgentRunner(
         runMode: ModelRunMode,
         taskRunId: String?,
         persistUserMessage: Boolean = true,
+        attachments: List<StagedAttachment> = emptyList(),
     ): AgentTurnResult =
         sessionLaneCoordinator.withLane(sessionId) {
             executeTurn(
@@ -149,6 +167,7 @@ class AgentRunner(
                 runMode = runMode,
                 taskRunId = taskRunId,
                 persistUserMessage = persistUserMessage,
+                attachments = attachments,
             )
         }
 
@@ -157,6 +176,7 @@ class AgentRunner(
         userMessage: String,
         taskRunId: String?,
         persistUserMessage: Boolean,
+        attachments: List<StagedAttachment>,
         emitEvent: suspend (AgentTurnEvent) -> Unit,
     ): AgentTurnResult =
         sessionLaneCoordinator.withLane(sessionId) {
@@ -166,6 +186,7 @@ class AgentRunner(
                 runMode = ModelRunMode.Interactive,
                 taskRunId = taskRunId,
                 persistUserMessage = persistUserMessage,
+                attachments = attachments,
                 emitEvent = emitEvent,
                 useStreamingProvider = true,
             )
@@ -179,6 +200,7 @@ class AgentRunner(
         persistUserMessage: Boolean = true,
         emitEvent: suspend (AgentTurnEvent) -> Unit = {},
         useStreamingProvider: Boolean = false,
+        attachments: List<StagedAttachment> = emptyList(),
     ): AgentTurnResult {
         val normalizedUserMessage = userMessage.trim()
         val availableSkills = skillManager.refreshSkillInventory(sessionId = sessionId)
@@ -196,12 +218,15 @@ class AgentRunner(
             }
         val persistedUserMessage =
             if (persistUserMessage) {
-                messageRepository.addMessage(
-                    sessionId = sessionId,
-                    role = MessageRole.User,
-                    content = normalizedUserMessage,
-                    taskRunId = taskRunId,
-                )
+                messageRepository
+                    .addMessage(
+                        sessionId = sessionId,
+                        role = MessageRole.User,
+                        content = normalizedUserMessage,
+                        taskRunId = taskRunId,
+                    ).also { message ->
+                        attachmentRepository?.attachToMessage(message.id, sessionId, attachments)
+                    }
             } else {
                 null
             }
@@ -291,11 +316,6 @@ class AgentRunner(
                     skillManager.selectModelSkills(availableSkills)
                 }
             val toolOrigin = runMode.toModelToolInvocationOrigin()
-            val toolDescriptors =
-                toolRegistry.descriptorsFor(
-                    origin = toolOrigin,
-                    runMode = runMode,
-                )
             val providerSettings = settingsDataStore.settings.first()
             if (
                 providerSettings.providerType.requiresRemoteSettings &&
@@ -303,6 +323,18 @@ class AgentRunner(
             ) {
                 throw offlineFailure()
             }
+            // One rule picks the search path: typed web_search tool, provider-hosted search, or none.
+            val webSearchMode = webSearchPolicy?.resolve(providerSettings)?.mode ?: WebSearchMode.Off
+            // image_generate / video_generate: offered only with an OpenAI key (or the debug fake backend).
+            val mediaMode = mediaGenerationPolicy?.resolve(providerSettings.providerType) ?: MediaBackendMode.Off
+            val toolDescriptors =
+                toolRegistry
+                    .descriptorsFor(
+                        origin = toolOrigin,
+                        runMode = runMode,
+                    ).filter { webSearchMode == WebSearchMode.Typed || it.name != WEB_SEARCH_TOOL_NAME }
+                    .filter { mediaMode.offersTool(it.name) }
+            val webSearch = WebSearchCollector()
             val provider = providerRegistry.require(providerSettings.providerType)
             val persistedMessages =
                 messageRepository
@@ -337,7 +369,11 @@ class AgentRunner(
                     crossSessionMemories = crossSessionMemories,
                     workspaceContext = workspaceContext,
                 )
-            var messageHistory = promptAssembly.messageHistory
+            var messageHistory =
+                promptAssembly.messageHistory.withImageRequestBound(
+                    imagesEnabled = providerSettings.imagesEnabled(),
+                    resolveFile = { attachment -> attachmentRepository?.file(attachment.relativePath) },
+                )
             var providerRequestId: String? = null
 
             repeat(MAX_TOOL_ROUNDS) { round ->
@@ -349,6 +385,7 @@ class AgentRunner(
                         selectedSkills = selectedSkills,
                         toolDescriptors = toolDescriptors,
                         runMode = runMode,
+                        hostedWebSearch = webSearchMode == WebSearchMode.Hosted,
                     )
                 val response =
                     if (useStreamingProvider) {
@@ -368,6 +405,7 @@ class AgentRunner(
                     }
                 val boundedResponseText = response.text.toBoundedAgentAssistantText()
                 providerRequestId = response.providerRequestId
+                webSearch.addAll(response.webSearchQueries, response.webSources)
                 if (response.finishReason != TOOL_USE_FINISH_REASON) {
                     return persistAssistantResponse(
                         sessionId = sessionId,
@@ -380,6 +418,7 @@ class AgentRunner(
                         taskRunId = taskRunId,
                         sourceUserMessage = normalizedUserMessage,
                         sourceMessageIds = listOfNotNull(persistedUserMessage?.id),
+                        webSearch = webSearch,
                     )
                 }
 
@@ -406,6 +445,7 @@ class AgentRunner(
                         taskRunId = taskRunId,
                         onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
                         onToolFinished = { name, result ->
+                            webSearch.addTypedWebSearchResult(name, result)
                             emitEvent(
                                 AgentTurnEvent.ToolFinished(
                                     name = name,
@@ -464,6 +504,7 @@ class AgentRunner(
         selectedSkills: List<SkillSnapshot>,
         toolDescriptors: List<ai.androidclaw.runtime.tools.ToolDescriptor>,
         runMode: ModelRunMode,
+        hostedWebSearch: Boolean = false,
     ): ModelRequest =
         ModelRequest(
             sessionId = sessionId,
@@ -473,6 +514,7 @@ class AgentRunner(
             enabledSkills = selectedSkills.toBoundedModelSkillMetadata(),
             toolDescriptors = toolDescriptors.toBoundedModelToolDescriptors(),
             runMode = runMode,
+            hostedWebSearch = hostedWebSearch,
         )
 
     private suspend fun collectStreamedResponse(
@@ -594,13 +636,14 @@ class AgentRunner(
                     arguments = executionArguments,
                 )
             }
-        messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.ToolResult,
-            content = "Tool result: ${toolResult.toModelContent()}",
-            toolCallId = toolCallId,
-            taskRunId = taskRunId,
-        )
+        messageRepository
+            .addMessage(
+                sessionId = sessionId,
+                role = MessageRole.ToolResult,
+                content = "Tool result: ${toolResult.toModelContent()}",
+                toolCallId = toolCallId,
+                taskRunId = taskRunId,
+            ).also { message -> attachToolResultFiles(message.id, sessionId, toolResult) }
         onToolFinished(toolName, toolResult)
         return toolResult
     }
@@ -734,13 +777,14 @@ class AgentRunner(
                         )
                     }
                 val modelContent = toolResult.toModelContent()
-                messageRepository.addMessage(
-                    sessionId = sessionId,
-                    role = MessageRole.ToolResult,
-                    content = "Tool result: $modelContent",
-                    toolCallId = toolCall.id,
-                    taskRunId = taskRunId,
-                )
+                messageRepository
+                    .addMessage(
+                        sessionId = sessionId,
+                        role = MessageRole.ToolResult,
+                        content = "Tool result: $modelContent",
+                        toolCallId = toolCall.id,
+                        taskRunId = taskRunId,
+                    ).also { message -> attachToolResultFiles(message.id, sessionId, toolResult) }
                 onToolFinished(toolCall.name, toolResult)
                 add(
                     ModelMessage(
@@ -752,6 +796,18 @@ class AgentRunner(
                 )
             }
         }
+
+    /** Links files a tool wrote (e.g. a generated image) to its persisted result row. */
+    private suspend fun attachToolResultFiles(
+        messageId: String,
+        sessionId: String,
+        toolResult: ToolExecutionResult,
+    ) {
+        val repository = attachmentRepository ?: return
+        toolResult.attachments.groupBy { it.kind }.forEach { (kind, files) ->
+            repository.attachToMessage(messageId, sessionId, files.map { it.staged }, kind)
+        }
+    }
 
     /**
      * Runs one tool call. If the turn is cancelled while the tool runs, a result row is still
@@ -794,6 +850,7 @@ class AgentRunner(
         triggerSummaryRefresh: Boolean = true,
         sourceUserMessage: String? = null,
         sourceMessageIds: List<String> = emptyList(),
+        webSearch: WebSearchCollector? = null,
     ): AgentTurnResult {
         val persistedText = assistantText.toBoundedAgentAssistantText()
         val providerMeta =
@@ -803,6 +860,8 @@ class AgentRunner(
                     requestId = providerRequestId,
                     modelId = providerModelId,
                     usage = providerUsage?.toPayload(),
+                    webSearchQueries = webSearch?.queries().orEmpty(),
+                    sources = webSearch?.sources().orEmpty(),
                 ).toStorageString()
             }
         val assistantMessage =
@@ -1138,6 +1197,7 @@ private fun Throwable.toFailureKind(): AgentTurnFailureKind =
                 ModelProviderFailureKind.Server -> AgentTurnFailureKind.Server
                 ModelProviderFailureKind.StreamInterrupted -> AgentTurnFailureKind.StreamInterrupted
                 ModelProviderFailureKind.Response -> AgentTurnFailureKind.Response
+                ModelProviderFailureKind.ImagesUnsupported -> AgentTurnFailureKind.ImagesUnsupported
             }
 
         else -> AgentTurnFailureKind.Runtime

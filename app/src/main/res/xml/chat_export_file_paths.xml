@@ -3,4 +3,7 @@
     <cache-path
         name="chat_exports"
         path="chat-exports/" />
+    <files-path
+        name="attachments"
+        path="attachments/" />
 </paths>

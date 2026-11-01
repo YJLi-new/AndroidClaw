@@ -32,6 +32,7 @@ class SettingsDataStore(
     private val themePreferenceKey = stringPreferencesKey("theme_preference")
     private val memoryEnabledKey = booleanPreferencesKey("memory_enabled")
     private val memoryInstallUserIdKey = stringPreferencesKey("memory_install_user_id")
+    private val webSearchEnabledKey = booleanPreferencesKey("web_search_enabled")
     private val legacyOpenAiBaseUrlKey = stringPreferencesKey("openai_base_url")
     private val legacyOpenAiModelIdKey = stringPreferencesKey("openai_model_id")
     private val legacyOpenAiTimeoutSecondsKey = intPreferencesKey("openai_timeout_seconds")
@@ -53,6 +54,7 @@ class SettingsDataStore(
                                 baseUrl = readBaseUrl(preferences, providerType),
                                 modelId = readModelId(preferences, providerType),
                                 timeoutSeconds = readTimeoutSeconds(preferences, providerType),
+                                acceptsImages = preferences[acceptsImagesKey(providerType)] ?: false,
                             )
                         },
                 )
@@ -85,6 +87,23 @@ class SettingsDataStore(
                 )
             }
 
+    /** Settings → Web search: Automatic (true, default) or Off. */
+    val webSearchEnabled: Flow<Boolean> =
+        context.settingsDataStore.data
+            .catch { error ->
+                if (error is IOException) {
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }.map { preferences -> preferences[webSearchEnabledKey] ?: true }
+
+    suspend fun setWebSearchEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[webSearchEnabledKey] = enabled
+        }
+    }
+
     suspend fun saveProviderSettings(settings: ProviderSettingsSnapshot) {
         context.settingsDataStore.edit { preferences ->
             preferences[providerTypeKey] = settings.providerType.storageValue
@@ -100,6 +119,7 @@ class SettingsDataStore(
                 preferences[baseUrlKey(providerType)] = baseUrl
                 preferences[modelIdKey(providerType)] = modelId
                 preferences[timeoutSecondsKey(providerType)] = timeoutSeconds
+                preferences[acceptsImagesKey(providerType)] = providerSettings.acceptsImages
                 if (providerType == ProviderType.OpenAiCompatible) {
                     preferences[legacyOpenAiBaseUrlKey] = baseUrl
                     preferences[legacyOpenAiModelIdKey] = modelId
@@ -225,7 +245,80 @@ class SettingsDataStore(
     private fun modelIdKey(providerType: ProviderType) = stringPreferencesKey("provider_${providerType.storageValue}_model_id")
 
     private fun timeoutSecondsKey(providerType: ProviderType) = intPreferencesKey("provider_${providerType.storageValue}_timeout_seconds")
+
+    private fun acceptsImagesKey(providerType: ProviderType) = booleanPreferencesKey("provider_${providerType.storageValue}_accepts_images")
+
+    // PLANv13 gen: Settings → Image and video.
+    private val imageModelIdKey = stringPreferencesKey("media_image_model_id")
+    private val videoModelIdKey = stringPreferencesKey("media_video_model_id")
+
+    /** OpenAI Images model for `image_generate`; the default comes from the 2026-11-01 model listing. */
+    val imageModelId: Flow<String> =
+        context.settingsDataStore.data
+            .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+            .map { preferences -> normalizeMediaModelId(preferences[imageModelIdKey], IMAGE_GENERATION_DEFAULT_MODEL_ID) }
+
+    /** OpenAI Videos model for `video_generate`. */
+    val videoModelId: Flow<String> =
+        context.settingsDataStore.data
+            .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+            .map { preferences -> normalizeMediaModelId(preferences[videoModelIdKey], VIDEO_GENERATION_DEFAULT_MODEL_ID) }
+
+    suspend fun setImageModelId(modelId: String) {
+        context.settingsDataStore.edit { it[imageModelIdKey] = normalizeMediaModelId(modelId, IMAGE_GENERATION_DEFAULT_MODEL_ID) }
+    }
+
+    suspend fun setVideoModelId(modelId: String) {
+        context.settingsDataStore.edit { it[videoModelIdKey] = normalizeMediaModelId(modelId, VIDEO_GENERATION_DEFAULT_MODEL_ID) }
+    }
+
+    // PLANv13 voice
+    private val voiceSendRightAwayKey = booleanPreferencesKey("voice_send_right_away")
+    private val voiceRepliesKey = booleanPreferencesKey("voice_replies")
+
+    /** Settings → Voice and the chat menu's "Voice replies"; both default off. */
+    val voiceSettings: Flow<VoiceSettings> =
+        context.settingsDataStore.data
+            .catch { error ->
+                if (error is IOException) {
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }.map { preferences ->
+                VoiceSettings(
+                    sendRightAway = preferences[voiceSendRightAwayKey] ?: false,
+                    voiceReplies = preferences[voiceRepliesKey] ?: false,
+                )
+            }
+
+    suspend fun setVoiceSendRightAway(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences -> preferences[voiceSendRightAwayKey] = enabled }
+    }
+
+    suspend fun setVoiceReplies(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences -> preferences[voiceRepliesKey] = enabled }
+    }
 }
+
+/** Newest `gpt-image-*` listed by `/v1/models` on 2026-11-01 (tie-break: newest `created`). */
+const val IMAGE_GENERATION_DEFAULT_MODEL_ID: String = "gpt-image-2.5-sunburst"
+const val VIDEO_GENERATION_DEFAULT_MODEL_ID: String = "sora-2"
+
+internal fun normalizeMediaModelId(
+    rawValue: String?,
+    fallback: String,
+): String =
+    rawValue
+        ?.trim()
+        ?.take(PROVIDER_MODEL_ID_MAX_CHARS)
+        ?.takeIf(String::isNotBlank)
+        ?: fallback
+
+data class VoiceSettings(
+    val sendRightAway: Boolean = false,
+    val voiceReplies: Boolean = false,
+)
 
 private fun normalizeProviderBaseUrl(
     providerType: ProviderType,

@@ -24,6 +24,7 @@ data class ModelMessage(
     val toolCallId: String? = null,
     val toolName: String? = null,
     val toolCalls: List<ProviderToolCall> = emptyList(),
+    val attachments: List<ModelAttachment> = emptyList(),
 )
 
 data class ProviderToolCall(
@@ -53,6 +54,8 @@ data class ModelRequest(
     val enabledSkills: List<ModelSkillMetadata>,
     val toolDescriptors: List<ToolDescriptor>,
     val runMode: ModelRunMode,
+    /** Ask the provider to add its hosted web search tool (decided by WebSearchPolicy). */
+    val hostedWebSearch: Boolean = false,
 )
 
 data class ModelResponse(
@@ -62,6 +65,9 @@ data class ModelResponse(
     val toolCalls: List<ProviderToolCall> = emptyList(),
     val modelId: String? = null,
     val usage: ProviderUsage? = null,
+    /** Hosted web search activity in this response: queries run and cited sources (bounded). */
+    val webSearchQueries: List<String> = emptyList(),
+    val webSources: List<WebSource> = emptyList(),
 )
 
 sealed interface ModelStreamEvent {
@@ -144,6 +150,7 @@ enum class ModelProviderFailureKind {
     Server,
     StreamInterrupted,
     Response,
+    ImagesUnsupported,
 }
 
 class ModelProviderException(
