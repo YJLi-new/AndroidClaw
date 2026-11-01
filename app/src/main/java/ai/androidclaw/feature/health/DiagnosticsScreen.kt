@@ -227,6 +227,10 @@ fun DiagnosticsScreen(
                     )
                 }
             }
+            item(key = "voice") {
+                ClawSectionHeader(stringResource(R.string.diag_section_voice))
+                DiagnosticsCard { VoiceDiagnosticsRows() }
+            }
             item(key = "tools") {
                 ClawSectionHeader(stringResource(R.string.diag_section_tools, state.tools.size))
                 DiagnosticsCard {

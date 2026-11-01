@@ -58,6 +58,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -116,6 +117,9 @@ fun ChatScreen(
     onOpenProviderSettings: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val voiceState by viewModel.voice.state.collectAsStateWithLifecycle()
+    val appLocale = LocalConfiguration.current.locales[0]
+    SideEffect { viewModel.voice.appLocale = appLocale }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -228,11 +232,14 @@ fun ChatScreen(
                     onCompact = viewModel::compactCurrentSession,
                     onNewSession = { viewModel.createNewSession(defaultNewSessionTitle) },
                     onArchive = viewModel::archiveCurrentSession,
+                    voice = voiceState,
+                    onToggleVoiceReplies = { viewModel.voice.setVoiceReplies(!voiceState.voiceReplies) },
                 )
             },
         ) { padding ->
             ChatContent(
                 state = state,
+                voice = voiceState,
                 viewModel = viewModel,
                 contentPadding = padding,
                 onOpenProviderSettings = onOpenProviderSettings,
@@ -323,6 +330,8 @@ private fun ChatTopBar(
     onCompact: () -> Unit,
     onNewSession: () -> Unit,
     onArchive: () -> Unit,
+    voice: ChatVoiceUiState,
+    onToggleVoiceReplies: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val idle = !state.isRunning
@@ -409,6 +418,12 @@ private fun ChatTopBar(
                             onArchive()
                         }
                     }
+                    if (voice.inputAvailable) {
+                        VoiceRepliesMenuItem(checked = voice.voiceReplies) {
+                            menuOpen = false
+                            onToggleVoiceReplies()
+                        }
+                    }
                 }
             }
         },
@@ -433,6 +448,7 @@ private fun ChatMenuItem(
 @Composable
 private fun ChatContent(
     state: ChatUiState,
+    voice: ChatVoiceUiState,
     viewModel: ChatViewModel,
     contentPadding: PaddingValues,
     onOpenProviderSettings: () -> Unit,
@@ -445,6 +461,7 @@ private fun ChatContent(
         rememberLauncherForActivityResult(
             ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS_PER_MESSAGE),
         ) { uris -> viewModel.onImagesPicked(uris) }
+    val listen = rememberLauncherForActivityResult(viewModel.voice.contract) { text -> viewModel.onVoiceTranscript(text) }
     Column(
         modifier =
             Modifier
@@ -468,6 +485,7 @@ private fun ChatContent(
         Box(modifier = Modifier.weight(1f)) {
             ChatTranscript(
                 state = state,
+                voice = voice,
                 viewModel = viewModel,
                 onCopied = onCopied,
                 onOpenAttachment = onOpenAttachment,
@@ -478,6 +496,9 @@ private fun ChatContent(
             commands = state.slashCommands,
             onPick = { command -> viewModel.onDraftChanged("$command ") },
         )
+        if (voice.speakingMessageId != null) {
+            ReadAloudBar(onStop = viewModel.voice::stopSpeaking)
+        }
         ComposerAttachmentChips(
             attachments = state.stagedAttachments,
             importing = state.isImportingAttachments,
@@ -496,6 +517,12 @@ private fun ChatContent(
                     pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }
             },
+            showMic = voice.inputAvailable,
+            onMic = {
+                viewModel.voice.beforeListening()
+                runCatching { listen.launch(viewModel.voice.languageTag()) }
+                    .onFailure { viewModel.voice.onListenFailed() }
+            },
             onSend = viewModel::sendCurrentDraft,
             onStop = viewModel::cancelActiveTurn,
         )
@@ -505,6 +532,7 @@ private fun ChatContent(
 @Composable
 private fun ChatTranscript(
     state: ChatUiState,
+    voice: ChatVoiceUiState,
     viewModel: ChatViewModel,
     onCopied: () -> Unit,
     onOpenAttachment: (ChatAttachmentUi) -> Unit,
@@ -619,6 +647,8 @@ private fun ChatTranscript(
                             timeFormatter = timeFormatter,
                             onLongPress = onLongPress,
                             onOpenAttachment = onOpenAttachment,
+                            speaking = row.message.id == voice.speakingMessageId,
+                            onReadAloud = { message -> viewModel.voice.toggleReadAloud(message.id, message.text) },
                         )
 
                     is ChatItemUi.Tool -> ChatToolItem(item = row, running = state.isRunning, onOpenAttachment = onOpenAttachment)
@@ -774,6 +804,8 @@ private fun ChatComposer(
     hasAttachments: Boolean,
     onDraftChanged: (String) -> Unit,
     onAttach: () -> Unit,
+    showMic: Boolean,
+    onMic: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -812,6 +844,9 @@ private fun ChatComposer(
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ),
         )
+        if (showMic && draft.isEmpty() && !hasAttachments && !isRunning) {
+            ComposerMicButton(onClick = onMic)
+        }
         if (isRunning) {
             FilledIconButton(
                 onClick = onStop,

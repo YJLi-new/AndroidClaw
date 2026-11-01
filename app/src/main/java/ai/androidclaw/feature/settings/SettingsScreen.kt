@@ -88,6 +88,7 @@ fun SettingsScreen(
             WebSearchSection(model = viewModel.webSearch)
 
             SettingsImageVideoSection(model = viewModel.imageVideo)
+            VoiceSection(model = viewModel.voice)
 
             ClawSectionHeader(stringResource(R.string.settings_section_memory))
             MemorySection(

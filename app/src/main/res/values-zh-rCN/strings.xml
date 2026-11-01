@@ -545,4 +545,25 @@
     <string name="chat_video_no_player">此设备上没有能播放视频的应用。</string>
     <string name="video_notification_ready">视频已生成</string>
     <string name="video_notification_failed">视频生成失败</string>
+    <!-- PLANv13 voice -->
+    <string name="chat_action_voice_input">语音输入</string>
+    <string name="chat_voice_unavailable">此设备没有可用的语音识别服务。</string>
+    <string name="chat_action_read_aloud">朗读</string>
+    <string name="chat_action_stop_reading">停止朗读</string>
+    <string name="chat_reading_aloud">正在朗读…</string>
+    <string name="chat_action_voice_replies">语音回复</string>
+    <string name="voice_code_block_omitted">此处省略代码块。</string>
+    <string name="voice_tts_unavailable">此设备无法使用文字转语音。</string>
+    <string name="voice_tts_language_unsupported">文字转语音不支持这种语言。请在系统设置中安装该语言的语音数据。</string>
+    <string name="voice_tts_failed">无法朗读这条消息。</string>
+    <string name="settings_section_voice">语音</string>
+    <string name="settings_voice_send_right_away">语音输入后立即发送</string>
+    <string name="settings_voice_send_right_away_hint">关闭时，识别出的文字会放进输入框，方便你修改后再发送。</string>
+    <string name="settings_voice_replies_hint">在聊天菜单中打开“语音回复”，即可听到对语音消息的回复。</string>
+    <string name="settings_voice_no_recognizer">此设备上没有语音识别服务，因此不显示麦克风按钮。</string>
+    <string name="diag_section_voice">语音</string>
+    <string name="diag_voice_recognizer">语音识别</string>
+    <string name="diag_voice_tts">文字转语音</string>
+    <string name="diag_voice_tts_language">TTS 支持 %1$s</string>
+    <string name="diag_voice_checking">正在检查…</string>
 </resources>

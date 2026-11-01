@@ -20,6 +20,8 @@ import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.tools.BraveSearchClient
 import ai.androidclaw.runtime.tools.ToolRegistry
+import ai.androidclaw.runtime.voice.SpeechInput
+import ai.androidclaw.runtime.voice.SpeechOutput
 
 data class ChatDependencies(
     val sessionRepository: SessionRepository,
@@ -30,6 +32,8 @@ data class ChatDependencies(
     val settingsDataStore: SettingsDataStore,
     val attachmentRepository: AttachmentRepository? = null,
     val attachmentImporter: AttachmentImporter? = null,
+    val speechInput: SpeechInput? = null,
+    val speechOutputFactory: (() -> SpeechOutput)? = null,
 )
 
 data class TasksDependencies(

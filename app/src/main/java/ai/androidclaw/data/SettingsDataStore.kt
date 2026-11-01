@@ -271,6 +271,34 @@ class SettingsDataStore(
     suspend fun setVideoModelId(modelId: String) {
         context.settingsDataStore.edit { it[videoModelIdKey] = normalizeMediaModelId(modelId, VIDEO_GENERATION_DEFAULT_MODEL_ID) }
     }
+
+    // PLANv13 voice
+    private val voiceSendRightAwayKey = booleanPreferencesKey("voice_send_right_away")
+    private val voiceRepliesKey = booleanPreferencesKey("voice_replies")
+
+    /** Settings → Voice and the chat menu's "Voice replies"; both default off. */
+    val voiceSettings: Flow<VoiceSettings> =
+        context.settingsDataStore.data
+            .catch { error ->
+                if (error is IOException) {
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }.map { preferences ->
+                VoiceSettings(
+                    sendRightAway = preferences[voiceSendRightAwayKey] ?: false,
+                    voiceReplies = preferences[voiceRepliesKey] ?: false,
+                )
+            }
+
+    suspend fun setVoiceSendRightAway(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences -> preferences[voiceSendRightAwayKey] = enabled }
+    }
+
+    suspend fun setVoiceReplies(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences -> preferences[voiceRepliesKey] = enabled }
+    }
 }
 
 /** Newest `gpt-image-*` listed by `/v1/models` on 2026-11-01 (tie-break: newest `created`). */
@@ -286,6 +314,11 @@ internal fun normalizeMediaModelId(
         ?.take(PROVIDER_MODEL_ID_MAX_CHARS)
         ?.takeIf(String::isNotBlank)
         ?: fallback
+
+data class VoiceSettings(
+    val sendRightAway: Boolean = false,
+    val voiceReplies: Boolean = false,
+)
 
 private fun normalizeProviderBaseUrl(
     providerType: ProviderType,

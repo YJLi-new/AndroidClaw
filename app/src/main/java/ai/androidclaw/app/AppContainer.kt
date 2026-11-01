@@ -56,6 +56,10 @@ import ai.androidclaw.runtime.tools.BraveSearchClient
 import ai.androidclaw.runtime.tools.MediaToolDependencies
 import ai.androidclaw.runtime.tools.WebSearchPolicy
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
+import ai.androidclaw.runtime.voice.SpeechInput
+import ai.androidclaw.runtime.voice.SpeechOutput
+import ai.androidclaw.runtime.voice.SystemSpeechInput
+import ai.androidclaw.runtime.voice.SystemSpeechOutput
 import android.app.Application
 import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
@@ -303,6 +307,10 @@ class AppContainer(
         )
     val workerFactory = AppWorkerFactory { this }
 
+    // Voice adapters; instrumentation tests swap in fakes before launching the activity.
+    var speechInput: SpeechInput = SystemSpeechInput(application)
+    var speechOutputFactory: () -> SpeechOutput = { SystemSpeechOutput(application) }
+
     val chatDependencies: ChatDependencies
         get() =
             ChatDependencies(
@@ -314,6 +322,8 @@ class AppContainer(
                 settingsDataStore = settingsDataStore,
                 attachmentRepository = attachmentRepository,
                 attachmentImporter = attachmentImporter,
+                speechInput = speechInput,
+                speechOutputFactory = speechOutputFactory,
             )
 
     val tasksDependencies: TasksDependencies

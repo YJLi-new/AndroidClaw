@@ -129,6 +129,7 @@ class SettingsViewModel(
 ) : ViewModel() {
     /** Settings → Web search section (its own state; see WebSearchSettings.kt). */
     val webSearch = WebSearchSettingsModel(viewModelScope, settingsDataStore, webSearchKeyStore, braveSearchClient)
+    val voice = VoiceSettingsModel(viewModelScope, settingsDataStore)
 
     /** Settings → Image and video section (SettingsImageVideoSection.kt). */
     val imageVideo = ImageVideoSettingsModel(viewModelScope, settingsDataStore, providerSecretStore)
