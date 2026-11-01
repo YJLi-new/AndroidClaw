@@ -93,6 +93,8 @@ No new runtime dependency; `versionCode` 3.
 ### Fixed
 - Claude streaming dropped whitespace-only text deltas (" ", "\n\n"), which
   glued words together.
+- The video job's "Video ready" and failure messages are now stored in the
+  app language (English or 简体中文) instead of always English.
 - Chinese: the Web search settings said 提供方 while the rest of Settings uses
   服务商.
 - `TasksViewModelTest`: a Turbine race in the toggle test (an action message
@@ -100,7 +102,7 @@ No new runtime dependency; `versionCode` 3.
   (c28b219).
 
 ### Verification
-- Unit tests 612 passed of 619, 7 skipped (live tests without a key),
+- Unit tests 614 passed of 621, 7 skipped (live tests without a key),
   0 failed (v0.2.0: 510 of 514). Instrumentation 17/17 on `AndroidClawApi34`.
   Lint 0 errors; ktlint 0 findings; debug, QA, release APK and bundle build.
 - Live OpenAI tests with a key: 7/7 (vision, streaming, non-streaming, tool
@@ -108,8 +110,12 @@ No new runtime dependency; `versionCode` 3.
   Video generation was not run live.
 - Emulator journey with the offline demo provider: English 23/23, Chinese
   17/17, 0 crashes.
-- Startup (QA, paired fresh installs on the same emulator): +6.1% against
-  v0.2.0. QA APK 3,093,639 → 3,239,799 bytes (+4.7%).
+- ExactAlarm regression 1/1 with the appop granted and 1/1 denied. Lint
+  27 warnings.
+- Startup (QA, ABBA fresh-install pairs, base measured alongside on the same
+  emulator): +2.9% in the quiet pair, +6.1% over both pairs.
+- Size: QA APK 3,093,639 → 3,244,963 bytes (+151,324, +4.9%); release APK
+  3,081,351 → 3,232,675 bytes (+4.9%); AAB 6,560,548 bytes.
 
 ## v0.2.0 - 2026-10-31 (rework)
 

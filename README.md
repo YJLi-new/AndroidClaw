@@ -193,7 +193,7 @@ unsaved-changes guard).
   (system/English/简体中文).
 - Diagnostics screen: provider, network, scheduler, notifications, voice,
   recent automation results, exportable report.
-- Full English and Simplified Chinese UI (over 500 translated strings and 13
+- Full English and Simplified Chinese UI (519 translated strings and 13
   plurals in each locale, parity enforced by a unit test). Per-app language on
   Android 13+, in-app fallback on Android 8 to 12. Demo-provider replies and
   the tool summaries written for the model stay English in every language (a
@@ -256,10 +256,10 @@ deterministic, and markers in your message script its behavior:
 | `Latest Android news [search:Android 17 release]` | Replies like a hosted search: a "Searched the web" card and two example sources |
 | A photo from the attach button | Replies with the image count and sizes, e.g. `Images: 1 (1568×1176)` |
 
-Last full run (v0.3.0): unit tests 612 passed of 619, 7 skipped (the live
+Last full run (v0.3.0): unit tests 614 passed of 621, 7 skipped (the live
 tests without a key), 0 failed; instrumentation 17/17 on the
 `AndroidClawApi34` emulator; lint 0 errors; ktlint 0 findings; `qa`,
-`release` APK and bundle build. The QA APK is about 3.2 MB.
+`release` APK and bundle build. The QA APK is 3,244,963 bytes (about 3.2 MB).
 
 ### Live provider tests (optional)
 `OpenAiLiveTest` (chat, streaming, tool round trip, vision, hosted web search)
@@ -426,7 +426,7 @@ AndroidClaw 是一个只有一个 APK 的安卓 AI 助手宿主，整个运行�
 **设置与诊断**
 - 模型服务配置与连接测试、联网搜索、图片与视频、语音、可选的本地记忆（附说明）、助手工作区编辑器、主题（跟随系统/浅色/深色）、应用语言（跟随系统/English/简体中文）。
 - 诊断页：模型服务、网络、调度器、通知权限、语音、最近的自动化结果，可导出报告。
-- 界面完整支持英文和简体中文（两种语言各有 500 多条翻译字符串和 13 条复数字符串，由单元测试保证一致）。Android 13 及以上使用系统的按应用语言设置，Android 8 到 12 使用应用内切换。离线演示的回复和写给模型的工具摘要在任何语言下都是英文（真实模型会用你的语言回答）。系统照片选择器和语音识别器跟随系统语言。
+- 界面完整支持英文和简体中文（两种语言各有 519 条翻译字符串和 13 条复数字符串，由单元测试保证一致）。Android 13 及以上使用系统的按应用语言设置，Android 8 到 12 使用应用内切换。离线演示的回复和写给模型的工具摘要在任何语言下都是英文（真实模型会用你的语言回答）。系统照片选择器和语音识别器跟随系统语言。
 
 **模型服务**
 
@@ -476,7 +476,7 @@ export JAVA_HOME=/path/to/jdk17
 | `Latest Android news [search:Android 17 release]` | 模拟内置搜索：显示“已联网搜索”卡片和两个示例来源 |
 | 用附件按钮发送一张照片 | 回复图片数量和尺寸，例如 `Images: 1 (1568×1176)` |
 
-最近一次完整运行（v0.3.0）：单元测试 619 个中 612 个通过、7 个跳过（未提供密钥的真实服务测试）、0 个失败；仪器测试在 `AndroidClawApi34` 模拟器上 17/17 通过；lint 0 错误；ktlint 0 问题；`qa`、`release` APK 和 bundle 均构建成功。QA 版 APK 约 3.2 MB。
+最近一次完整运行（v0.3.0）：单元测试 621 个中 614 个通过、7 个跳过（未提供密钥的真实服务测试）、0 个失败；仪器测试在 `AndroidClawApi34` 模拟器上 17/17 通过；lint 0 错误；ktlint 0 问题；`qa`、`release` APK 和 bundle 均构建成功。QA 版 APK 为 3,244,963 字节（约 3.2 MB）。
 
 **真实服务测试（可选）**：`OpenAiLiveTest`（对话、流式、工具往返、图片理解、内置联网搜索）和 `ImageGenerateLiveTest` 会调用真实的 OpenAI API，只有设置了环境变量 `ANDROIDCLAW_LIVE_OPENAI_KEY` 才会运行；`ANDROIDCLAW_LIVE_OPENAI_MODEL` 指定聊天模型（默认 `gpt-6-luna`），`ANDROIDCLAW_LIVE_IMAGE_MODEL` 指定图片模型。每次运行都会产生真实调用费用。运行时从文件读取密钥到环境变量，不要把密钥提交到仓库。
 
