@@ -6,7 +6,7 @@
     <title>AndroidClaw | Android-native assistant host</title>
     <meta
       name="description"
-      content="AndroidClaw is a small Android-native AI assistant host: durable chat sessions, 34 typed tools with native tool calling, SKILL.md skills, workspace persona files, and scheduled automations, in English and Simplified Chinese."
+      content="AndroidClaw is a small Android-native AI assistant host: durable chat sessions, 37 typed tools with native tool calling, photos in chat, web search, image and video generation, tap-to-talk voice and read aloud, SKILL.md skills, and scheduled automations, in English and Simplified Chinese."
     />
     <meta
       name="keywords"
@@ -22,7 +22,7 @@
     <meta property="og:title" content="AndroidClaw" />
     <meta
       property="og:description"
-      content="A single-APK Android assistant host for sessions, typed tools, skills, providers, and scheduled automations."
+      content="A single-APK Android assistant host for sessions, typed tools, skills, photos, web search, image and video generation, voice, and scheduled automations."
     />
     <meta property="og:url" content="https://androidclaw.top/" />
     <meta
@@ -33,7 +33,7 @@
     <meta name="twitter:title" content="AndroidClaw" />
     <meta
       name="twitter:description"
-      content="A small Android-native assistant host with durable sessions, 34 typed tools, SKILL.md skills, and scheduled automations."
+      content="A small Android-native assistant host with durable sessions, 37 typed tools, web search, image generation, voice, SKILL.md skills, and scheduled automations."
     />
     <meta
       name="twitter:image"
@@ -63,8 +63,8 @@
         "programmingLanguage": "Kotlin",
         "runtimePlatform": "Android",
         "applicationCategory": "DeveloperApplication",
-        "description": "Android-native AI assistant host with durable sessions, typed tools, SKILL.md skills, workspace persona files, and scheduled automations.",
-        "dateModified": "2026-10-31"
+        "description": "Android-native AI assistant host with durable sessions, typed tools, photos, web search, image and video generation, voice, SKILL.md skills, and scheduled automations.",
+        "dateModified": "2026-11-01"
       }
     </script>
   </head>
@@ -76,7 +76,7 @@
         <a class="brand" href="/" aria-label="AndroidClaw home">
           <img src="assets/androidclaw-logo.svg" alt="" width="32" height="32" />
           <span class="brand-name">AndroidClaw</span>
-          <span class="brand-tag" aria-hidden="true">v0.2 · BETA</span>
+          <span class="brand-tag" aria-hidden="true">v0.3 · BETA</span>
         </a>
         <nav aria-label="Project navigation">
           <a href="#contracts">Contracts</a>
@@ -92,7 +92,7 @@
         <div class="hero-copy">
           <div class="hero-meta">
             <span class="pulse" aria-hidden="true"></span>
-            <span>01 &nbsp;—&nbsp; v0.2.0 rework · Oct 31, 2026</span>
+            <span>01 &nbsp;—&nbsp; v0.3.0 · Nov 1, 2026</span>
           </div>
 
           <h1 class="masthead" id="page-title">Android<em>Claw</em></h1>
@@ -100,8 +100,10 @@
           <div class="hero-lead">
             <p class="lede">
               A small Android-native assistant host: durable chat sessions,
-              34 typed tools with native tool calling, <code>SKILL.md</code>
+              37 typed tools with native tool calling, <code>SKILL.md</code>
               skills, workspace persona files, and scheduled automations.
+              New in 0.3: photos in chat, web search, image and video
+              generation, tap-to-talk voice and read aloud.
             </p>
             <p class="hero-note">
               The phone is the host. No Node.js, Docker, browser engine or
@@ -132,7 +134,7 @@
 
           <div class="spec-id">
             <p class="spec-name">AndroidClaw</p>
-            <p class="spec-meta">Pocket mission control · v0.2 beta</p>
+            <p class="spec-meta">Pocket mission control · v0.3 beta</p>
           </div>
 
           <hr class="spec-rule" aria-hidden="true" />
@@ -148,7 +150,7 @@
             </div>
             <div class="fact">
               <dt>Tools</dt>
-              <dd>34 model-facing · ~12.9 KB per turn</dd>
+              <dd>37 model-facing · ~14.6 KB per turn</dd>
             </div>
           </dl>
 
@@ -246,7 +248,7 @@
             <span class="card-tag">Tool</span>
             <h3>Typed, native tool calls</h3>
             <p>
-              34 snake_case tools sent through the provider's native tool
+              37 snake_case tools sent through the provider's native tool
               field, never repeated in the prompt. Calls and results are
               transcript records shown as collapsible cards.
             </p>
@@ -289,10 +291,10 @@
       <section id="tools" class="features shell" data-num="03">
         <header class="section-head">
           <span class="section-num">03</span>
-          <h2 class="section-title">34 tools, <em>grouped</em></h2>
+          <h2 class="section-title">37 tools, <em>grouped</em></h2>
           <p class="section-blurb">
             What the model can call. Intent tools need the app in the
-            foreground; scheduled runs get 18 read-only or opt-in tools.
+            foreground; scheduled runs get 19 read-only or opt-in tools and never the paid media tools.
             <code>/compact</code> and <code>/memory</code> are slash-only.
           </p>
         </header>
@@ -320,7 +322,11 @@
           </div>
           <div class="ledger-row">
             <dt>Web</dt>
-            <dd><code>web_fetch</code>: public pages as text, private networks blocked</dd>
+            <dd><code>web_fetch</code>: public pages as text, private networks blocked · <code>web_search</code>: Brave Search, sent when a Brave key is saved</dd>
+          </div>
+          <div class="ledger-row">
+            <dt>Media</dt>
+            <dd><code>image_generate</code> · <code>video_generate</code>: OpenAI images and videos, sent when an OpenAI key is saved, never in scheduled runs</dd>
           </div>
           <div class="ledger-row">
             <dt>Device and intents</dt>
@@ -346,11 +352,107 @@
           <article class="screen-row">
             <div class="screen-frame">
               <img
+                src="assets/screens/en/photo_reply.png"
+                alt="A photo sent from the system picker, shown as a thumbnail with the demo reply"
+                width="540"
+                height="1200"
+                loading="eager"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">PHOTOS &nbsp;·&nbsp; NEW</span>
+              <h3>Show the model a photo</h3>
+              <p>
+                Attach up to 4 images from the system photo picker, no storage
+                permission. Photos are downsampled on import, shown as a
+                thumbnail grid, and open in a viewer with Save and Share.
+                OpenAI, Codex, Claude and Gemini see them by default; other
+                presets have a "Model accepts images" switch.
+              </p>
+              <p class="screen-spec">PICKER · ≤ 1568 PX · VIEWER · SAVE · SHARE</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screens/en/web_sources.png"
+                alt="Searched the web card and Sources chips under a reply"
+                width="540"
+                height="1200"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">WEB SEARCH &nbsp;·&nbsp; NEW</span>
+              <h3>Search with sources</h3>
+              <p>
+                One rule: a saved Brave Search key gives every provider the
+                <code>web_search</code> tool, scheduled runs included; without
+                it, OpenAI and Claude use their built-in search with the model
+                key alone; otherwise search is off and Settings says why.
+                Replies list their sources.
+              </p>
+              <p class="screen-spec">BRAVE · HOSTED · OFF · SOURCES</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screens/en/generated_image.png"
+                alt="Generated image tile from the image_generate tool"
+                width="540"
+                height="1200"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">IMAGE AND VIDEO &nbsp;·&nbsp; NEW</span>
+              <h3>Make images and videos</h3>
+              <p>
+                <code>image_generate</code> creates or edits images through
+                the OpenAI Images API with your saved OpenAI key, under any
+                chat provider. <code>video_generate</code> starts a video job;
+                a background worker downloads the mp4 and posts it with a
+                notification. Videos play in the system player.
+              </p>
+              <p class="screen-spec">GENERATE · EDIT · VIDEO JOBS · NO SCHEDULED SPEND</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
+                src="assets/screens/en/read_aloud.png"
+                alt="A reply being read aloud with the Stop reading bar"
+                width="540"
+                height="1200"
+                loading="lazy"
+              />
+            </div>
+            <div class="screen-text">
+              <span class="screen-tag">VOICE &nbsp;·&nbsp; NEW</span>
+              <h3>Tap to talk, listen back</h3>
+              <p>
+                The mic opens the system speech recognizer, so the app needs
+                no microphone permission. Any reply can be read aloud with the
+                platform TextToSpeech engine, and Voice replies reads answers
+                to dictated messages automatically. The mic never reopens by
+                itself.
+              </p>
+              <p class="screen-spec">SYSTEM RECOGNIZER · READ ALOUD · VOICE REPLIES</p>
+            </div>
+          </article>
+
+          <article class="screen-row">
+            <div class="screen-frame">
+              <img
                 src="assets/screens/en/chat.png"
                 alt="AndroidClaw chat with a scheduled run posted into the main session"
                 width="540"
                 height="1200"
-                loading="eager"
+                loading="lazy"
               />
             </div>
             <div class="screen-text">
@@ -438,8 +540,8 @@
           <article class="screen-row">
             <div class="screen-frame">
               <img
-                src="assets/screens/en/settings.png"
-                alt="AndroidClaw settings with provider, memory, theme and language"
+                src="assets/screens/en/settings_media_voice.png"
+                alt="AndroidClaw settings: image and video models and the Voice section"
                 width="540"
                 height="1200"
                 loading="lazy"
@@ -447,15 +549,16 @@
             </div>
             <div class="screen-text">
               <span class="screen-tag">SETTINGS &nbsp;·&nbsp; 05</span>
-              <h3>Provider, memory, language</h3>
+              <h3>Provider, search, media, voice</h3>
               <p>
-                Choose and test a provider, turn on local Memory, pick a theme
-                and the app language. On Android 13+ the notification
-                permission is asked when you save your first task. Diagnostics
-                shows provider, network, scheduler and notification state and
-                exports a report.
+                Choose and test a provider, set Web search to Automatic or Off
+                and save a Brave key, pick the image and video models, decide
+                whether dictation sends at once, turn on local Memory, and pick
+                a theme and the app language. Diagnostics shows provider,
+                network, scheduler, notification and voice state and exports a
+                report.
               </p>
-              <p class="screen-spec">PROVIDERS · MEMORY · THEME · DIAGNOSTICS</p>
+              <p class="screen-spec">PROVIDERS · WEB SEARCH · IMAGE AND VIDEO · VOICE · DIAGNOSTICS</p>
             </div>
           </article>
           <article class="screen-row">
@@ -493,6 +596,13 @@
         </header>
 
         <ul class="gallery">
+          <li><img src="assets/screens/zh/photo_reply.png" alt="发送照片：缩略图与演示回复" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/web_sources.png" alt="已联网搜索与来源" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/generated_image.png" alt="生成的图片" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/video_tile.png" alt="视频：封面帧与播放标记" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/read_aloud.png" alt="朗读回复" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/settings_web_search.png" alt="设置：联网搜索" width="540" height="1200" loading="lazy" /></li>
+          <li><img src="assets/screens/zh/settings_media_voice.png" alt="设置：图片与视频、语音" width="540" height="1200" loading="lazy" /></li>
           <li><img src="assets/screens/zh/chat.png" alt="聊天：定时任务结果发到主会话" width="540" height="1200" loading="lazy" /></li>
           <li><img src="assets/screens/zh/tool_card.png" alt="工具卡片与记忆提示" width="540" height="1200" loading="lazy" /></li>
           <li><img src="assets/screens/zh/tasks.png" alt="任务列表" width="540" height="1200" loading="lazy" /></li>
@@ -544,7 +654,7 @@
     <footer class="page-foot">
       <div class="shell page-foot-inner">
         <span>Apache-2.0 &nbsp;·&nbsp; YJLi-new/AndroidClaw</span>
-        <span class="page-foot-mark">Pocket mission control · v0.2 beta</span>
+        <span class="page-foot-mark">Pocket mission control · v0.3 beta</span>
       </div>
     </footer>
   </body>

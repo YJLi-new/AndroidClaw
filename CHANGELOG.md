@@ -2,6 +2,115 @@
 
 All notable changes to AndroidClaw.
 
+## v0.3.0 - 2026-11-01 (media, web search, voice)
+
+Adds the assistant features that were missing next to common chat assistants:
+photos in chat, web search, image generation and editing, video generation,
+and voice. X/Twitter integration and an xAI/Grok provider are out of scope.
+No new runtime dependency; `versionCode` 3.
+
+### Photos in chat
+- Attach button in the composer opens the system photo picker (no storage
+  permission). Up to 4 images per message as removable chips; image-only
+  messages are allowed.
+- Import with a sampled decode (a 12 MP photo never becomes a full-resolution
+  bitmap: 4000×3000 → 1176×1568, 177 KB, 92 ms, Java heap +0.8 MB on the
+  emulator), EXIF orientation applied, metadata dropped, long side ≤ 1568 px,
+  JPEG ≤ 1.5 MB, 256 px thumbnail, 8 MB in-memory thumbnail cache.
+- Room schema 5 → 6: new `message_attachments` table (cascade delete with the
+  message). Files live under `filesDir/attachments/<sessionId>/` and are
+  deleted with their message or session.
+- Transcript thumbnail grid, full-screen viewer with Save (MediaStore
+  Pictures/AndroidClaw on Android 10+, "Save as" on 8–9) and Share. Chat
+  export lists attachments.
+- Encoding per provider: OpenAI Responses `input_image`, Claude `image`
+  blocks, chat/completions `image_url` parts. Each image is preceded by a
+  `[attachment <id>: <name> <w>×<h>]` marker. Only the 2 latest image turns
+  are resent (≤ 4 images, ≤ 8 MB encoded).
+- Vision on by default for OpenAI, Codex, Claude and Gemini; a "Model accepts
+  images" switch for DeepSeek, GLM, Kimi, MiniMax and custom endpoints. An
+  image-related 4xx maps to `IMAGES_UNSUPPORTED` with a localized hint.
+
+### Web search
+- One rule, shown in Settings → Web search (Automatic / Off): a saved Brave
+  Search key → typed `web_search` tool for every provider and in scheduled
+  runs; otherwise the provider's hosted search (OpenAI Responses `web_search`,
+  Claude `web_search` server tool with `max_uses` 5); otherwise off, with the
+  reason shown. Codex stays off (its endpoint was not verified).
+- `web_search(query, count ≤ 10, freshness?)` calls Brave `res/v1/web/search`
+  and returns title, URL and snippet, at most 8 KB.
+- Hosted results are parsed (OpenAI `web_search_call` and `url_citation`;
+  Claude `server_tool_use`, `web_search_tool_result` and citations) into up to
+  8 deduplicated sources. Replies show a "Searched the web" card and a Sources
+  row; history replay sends text only.
+- The Brave key is stored encrypted, with Save, Test and Remove.
+
+### Image and video generation
+- `image_generate(prompt, size?, quality?, input_attachment_ids?)` on the
+  OpenAI Images API: generations, or edits of attached photos. The image is
+  saved as a `GENERATED_IMAGE` attachment; the model sees only
+  `Generated image <id>, <w>×<h>`. 180 s timeout; Stop cancels the call.
+- `video_generate(prompt, seconds?, size?)` starts an OpenAI video job. A
+  unique one-shot `VideoJobWorker` (WorkManager, backoff, gives up after
+  30 minutes) downloads the mp4 (≤ 50 MB), adds a message with a poster frame
+  and posts a notification. Tap plays it in the system video player.
+- Both use the saved OpenAI API key under any chat provider, are offered only
+  when that key exists, and are never offered to scheduled runs. Settings →
+  Image and video holds the model ids.
+- Debug builds with the offline demo provider use a fake image backend that
+  draws a test PNG, so image generation works without a key.
+
+### Voice
+- Composer mic (shown when the box is empty and a recognizer exists) opens the
+  system speech recognizer in the app language. The text goes into the
+  composer; "Send voice input right away" (Settings → Voice) defaults to off.
+- Read aloud on every assistant reply with platform TextToSpeech (created on
+  first use, shut down with the chat screen). Markdown stripped, code blocks
+  replaced by a short phrase, Stop always available.
+- "Voice replies" in the chat menu reads replies to dictated messages aloud.
+  The mic never reopens by itself.
+- Diagnostics → Voice: recognizer, TTS engines, TTS support for the app
+  language.
+
+### Tools and FakeProvider
+- Model-facing tools 34 → 37 (`web_search`, `image_generate`,
+  `video_generate`); registered 36 → 39. Tool JSON per turn 12,889 →
+  14,587 bytes (cap 24 KB). Scheduled runs 18 → 19 tools (`web_search`).
+- FakeProvider: replies to photos with `Images: N (w×h, …)`; `[search:<query>]`
+  returns a hosted-search-style reply with two example sources;
+  `Draw a fox [tool:image_generate]` calls the tool with the prompt.
+
+### Behavior decisions
+- Image `detail` stays at the provider default: a probe read Latin and
+  Chinese text in a photo at the default setting.
+- Default image model `gpt-image-2.5-sunburst`: the newest `gpt-image-*` id
+  listed by `/v1/models`; the 2.5 tie with `flare` was broken by the newer
+  `created` timestamp. Default video model `sora-2`. Both are Settings fields.
+- Voice uses the system recognizer, so the app does not request
+  `RECORD_AUDIO`. The manifest only adds `<queries>` for
+  `RECOGNIZE_SPEECH` and `TTS_SERVICE`.
+
+### Fixed
+- Claude streaming dropped whitespace-only text deltas (" ", "\n\n"), which
+  glued words together.
+- Chinese: the Web search settings said 提供方 while the rest of Settings uses
+  服务商.
+- `TasksViewModelTest`: a Turbine race in the toggle test (an action message
+  emitted after the awaited state) made the suite flaky; fixed in the test
+  (c28b219).
+
+### Verification
+- Unit tests 612 passed of 619, 7 skipped (live tests without a key),
+  0 failed (v0.2.0: 510 of 514). Instrumentation 17/17 on `AndroidClawApi34`.
+  Lint 0 errors; ktlint 0 findings; debug, QA, release APK and bundle build.
+- Live OpenAI tests with a key: 7/7 (vision, streaming, non-streaming, tool
+  round trip, hosted search with 1 citation, agent turn, image generation).
+  Video generation was not run live.
+- Emulator journey with the offline demo provider: English 23/23, Chinese
+  17/17, 0 crashes.
+- Startup (QA, paired fresh installs on the same emulator): +6.1% against
+  v0.2.0. QA APK 3,093,639 → 3,239,799 bytes (+4.7%).
+
 ## v0.2.0 - 2026-10-31 (rework)
 
 A rework of the runtime tool layer and the whole UI. The data layer,
