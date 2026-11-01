@@ -166,7 +166,7 @@ Notes:
 - Debug builds start with the offline demo provider. To see a tool card
   without a key, send `What is my battery? [tool:device_status]`.
 
-Last full run (v0.2.0): unit tests 508 passed, 4 skipped (the OpenAI live
+Last full run (v0.2.0): unit tests 510 passed, 4 skipped (the OpenAI live
 tests without a key), 0 failed; instrumentation 11/11 tests in 7 classes on
 the `AndroidClawApi34` emulator; lint 0 errors; ktlint 0 findings; `qa`,
 `release` APK and bundle build.
@@ -327,7 +327,7 @@ export JAVA_HOME=/path/to/jdk17
 - `./scripts/run_ktlint.sh` 在 `git ls-files` 不可用时（例如在 Windows git 创建的 worktree 中使用 WSL git）会改用文件通配；发现问题或没有匹配到文件时返回非零退出码。
 - Debug 版本默认使用离线演示服务。不需要密钥也能看到工具卡片：发送 `What is my battery? [tool:device_status]`。
 
-最近一次完整运行（v0.2.0）：单元测试 508 个通过、4 个跳过（未提供密钥的 OpenAI 真实服务测试）、0 个失败；仪器测试在 `AndroidClawApi34` 模拟器上 7 个类 11/11 通过；lint 0 错误；ktlint 0 问题；`qa`、`release` APK 和 bundle 均构建成功。
+最近一次完整运行（v0.2.0）：单元测试 510 个通过、4 个跳过（未提供密钥的 OpenAI 真实服务测试）、0 个失败；仪器测试在 `AndroidClawApi34` 模拟器上 7 个类 11/11 通过；lint 0 错误；ktlint 0 问题；`qa`、`release` APK 和 bundle 均构建成功。
 
 **真实服务测试（可选）**：`OpenAiLiveTest` 会调用真实的 OpenAI API，只有设置了环境变量 `ANDROIDCLAW_LIVE_OPENAI_KEY` 才会运行；`ANDROIDCLAW_LIVE_OPENAI_MODEL` 可以指定模型（默认 `gpt-6-luna`）。运行时从文件读取密钥到环境变量，不要把密钥提交到仓库。
 

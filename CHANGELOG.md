@@ -138,8 +138,8 @@ providers, scheduler and Room schema were kept.
   error hints, notices) is localized.
 
 ### Validation
-- Unit tests: 508 passed, 4 skipped (OpenAI live tests without a key), 0
-  failed, 512 total (665 before the rework; the 16,000-line test file for the
+- Unit tests: 510 passed, 4 skipped (OpenAI live tests without a key), 0
+  failed, 514 total (665 before the rework; the 16,000-line test file for the
   removed meta tools went with them).
 - Instrumentation on the `AndroidClawApi34` emulator: 11/11 tests in 7
   classes.
