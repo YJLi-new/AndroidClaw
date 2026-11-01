@@ -26,6 +26,8 @@ import ai.androidclaw.runtime.orchestrator.AgentTurnFailureKind
 import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
 import ai.androidclaw.runtime.providers.parseProviderMessageMeta
 import ai.androidclaw.runtime.skills.SkillManager
+import ai.androidclaw.runtime.voice.SpeechInput
+import ai.androidclaw.runtime.voice.SpeechOutput
 import ai.androidclaw.ui.text.UiText
 import android.net.Uri
 import androidx.compose.runtime.getValue
@@ -189,6 +191,8 @@ class ChatViewModel(
     private val settingsDataStore: SettingsDataStore,
     private val attachmentRepository: AttachmentRepository? = null,
     private val attachmentImporter: AttachmentImporter? = null,
+    speechInput: SpeechInput? = null,
+    speechOutputFactory: (() -> SpeechOutput)? = null,
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val draft = MutableStateFlow("")
@@ -221,6 +225,15 @@ class ChatViewModel(
     private val importingAttachmentCount = MutableStateFlow(0)
     val currentSessionId: StateFlow<String> = mutableCurrentSessionId.asStateFlow()
     val actions = externalActions.asSharedFlow()
+    val voice =
+        ChatVoiceController(
+            scope = viewModelScope,
+            voiceSettings = settingsDataStore.voiceSettings,
+            saveVoiceReplies = settingsDataStore::setVoiceReplies,
+            speechInput = speechInput,
+            speechOutputFactory = speechOutputFactory,
+            onNotice = { noticeMessage.value = it },
+        )
 
     private var activeTurnJob: Job? = null
     private var cancelRequested: Boolean = false
@@ -325,6 +338,7 @@ class ChatViewModel(
         val boundedValue = value.take(CHAT_DRAFT_MAX_CHARS)
         draft.value = boundedValue
         composerText = boundedValue
+        voice.onDraftEdited(boundedValue)
         errorMessage.value = null
         noticeMessage.value =
             if (value.length > boundedValue.length) {
@@ -339,6 +353,7 @@ class ChatViewModel(
         val draftValue = draft.value.trim()
         if (sessionId.isBlank() || (draftValue.isBlank() && stagedAttachments.value.isEmpty()) || isRunning.value) return
 
+        voice.onTurnStarted()
         startTurn(
             sessionId = sessionId,
             userMessage = draftValue,
@@ -347,6 +362,13 @@ class ChatViewModel(
             isRetry = false,
             attachments = stagedAttachments.value,
         )
+    }
+
+    /** Recognizer result: into the composer, and sent at once when "Send voice input right away" is on. */
+    fun onVoiceTranscript(text: String?) {
+        val transcript = voice.onTranscript(text) ?: return
+        onDraftChanged(transcript)
+        viewModelScope.launch { if (voice.sendRightAway()) sendCurrentDraft() }
     }
 
     /** Imports picked photos into the session folder and shows them as chips (at most 4). */
@@ -431,6 +453,7 @@ class ChatViewModel(
     override fun onCleared() {
         // Chips never sent: remove their files (small, local deletes).
         stagedAttachments.value.forEach { staged -> attachmentRepository?.store?.delete(staged.relativePath) }
+        voice.release()
         super.onCleared()
     }
 
@@ -903,6 +926,7 @@ class ChatViewModel(
                     isCancelling.value = false
                     cancelRequested = false
                     activeTurnJob = null
+                    voice.onTurnEnded()
                 }
             }
     }
@@ -942,6 +966,7 @@ class ChatViewModel(
                 lastFailedSessionId = null
                 canRetryLastFailedTurn.value = false
                 refreshSkillCommands(sessionId)
+                voice.onTurnCompleted(event.result.assistantMessageId, event.result.assistantMessage)
             }
 
             is AgentTurnEvent.TurnFailed -> {
@@ -1093,6 +1118,8 @@ class ChatViewModel(
                     settingsDataStore = dependencies.settingsDataStore,
                     attachmentRepository = dependencies.attachmentRepository,
                     attachmentImporter = dependencies.attachmentImporter,
+                    speechInput = dependencies.speechInput,
+                    speechOutputFactory = dependencies.speechOutputFactory,
                 )
             }
     }

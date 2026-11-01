@@ -247,7 +247,40 @@ class SettingsDataStore(
     private fun timeoutSecondsKey(providerType: ProviderType) = intPreferencesKey("provider_${providerType.storageValue}_timeout_seconds")
 
     private fun acceptsImagesKey(providerType: ProviderType) = booleanPreferencesKey("provider_${providerType.storageValue}_accepts_images")
+
+    // PLANv13 voice
+    private val voiceSendRightAwayKey = booleanPreferencesKey("voice_send_right_away")
+    private val voiceRepliesKey = booleanPreferencesKey("voice_replies")
+
+    /** Settings → Voice and the chat menu's "Voice replies"; both default off. */
+    val voiceSettings: Flow<VoiceSettings> =
+        context.settingsDataStore.data
+            .catch { error ->
+                if (error is IOException) {
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }.map { preferences ->
+                VoiceSettings(
+                    sendRightAway = preferences[voiceSendRightAwayKey] ?: false,
+                    voiceReplies = preferences[voiceRepliesKey] ?: false,
+                )
+            }
+
+    suspend fun setVoiceSendRightAway(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences -> preferences[voiceSendRightAwayKey] = enabled }
+    }
+
+    suspend fun setVoiceReplies(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences -> preferences[voiceRepliesKey] = enabled }
+    }
 }
+
+data class VoiceSettings(
+    val sendRightAway: Boolean = false,
+    val voiceReplies: Boolean = false,
+)
 
 private fun normalizeProviderBaseUrl(
     providerType: ProviderType,

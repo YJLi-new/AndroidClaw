@@ -52,6 +52,8 @@ internal fun ChatMessageRow(
     timeFormatter: DateTimeFormatter,
     onLongPress: (ChatMessageUi) -> Unit,
     onOpenAttachment: (ChatAttachmentUi) -> Unit = {},
+    speaking: Boolean = false,
+    onReadAloud: ((ChatMessageUi) -> Unit)? = null,
 ) {
     val copyLabel = stringResource(R.string.chat_action_copy_message)
     val pressModifier =
@@ -109,7 +111,14 @@ internal fun ChatMessageRow(
                     style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 )
                 message.webSearch?.let { ChatSources(it) }
-                MessageTime(message.createdAt, timeFormatter)
+                if (onReadAloud != null && message.text.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MessageTime(message.createdAt, timeFormatter)
+                        ReadAloudButton(speaking = speaking, onClick = { onReadAloud(message) })
+                    }
+                } else {
+                    MessageTime(message.createdAt, timeFormatter)
+                }
             }
 
         ChatRole.System, ChatRole.ToolCall, ChatRole.ToolResult ->

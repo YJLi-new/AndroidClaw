@@ -546,4 +546,25 @@
     <string name="chat_error_images_unsupported">The model rejected the image. Pick a vision model, or turn off \"Model accepts images\" in provider settings.</string>
     <string name="settings_field_accepts_images">Model accepts images</string>
     <string name="settings_field_accepts_images_hint">Turn on only if this model supports image input (vision).</string>
+    <!-- PLANv13 voice -->
+    <string name="chat_action_voice_input">Voice input</string>
+    <string name="chat_voice_unavailable">No speech recognizer is available on this device.</string>
+    <string name="chat_action_read_aloud">Read aloud</string>
+    <string name="chat_action_stop_reading">Stop reading</string>
+    <string name="chat_reading_aloud">Reading aloud…</string>
+    <string name="chat_action_voice_replies">Voice replies</string>
+    <string name="voice_code_block_omitted">Code block omitted.</string>
+    <string name="voice_tts_unavailable">Text-to-speech isn\'t available on this device.</string>
+    <string name="voice_tts_language_unsupported">Text-to-speech doesn\'t support this language. Install its voice data in system settings.</string>
+    <string name="voice_tts_failed">Couldn\'t read the message aloud.</string>
+    <string name="settings_section_voice">Voice</string>
+    <string name="settings_voice_send_right_away">Send voice input right away</string>
+    <string name="settings_voice_send_right_away_hint">When off, your words go into the message box so you can edit them before sending.</string>
+    <string name="settings_voice_replies_hint">Turn on \"Voice replies\" in the chat menu to hear replies to voice messages.</string>
+    <string name="settings_voice_no_recognizer">No speech recognizer found on this device, so the mic button is hidden.</string>
+    <string name="diag_section_voice">Voice</string>
+    <string name="diag_voice_recognizer">Speech recognizer</string>
+    <string name="diag_voice_tts">Text-to-speech</string>
+    <string name="diag_voice_tts_language">TTS supports %1$s</string>
+    <string name="diag_voice_checking">Checking…</string>
 </resources>
