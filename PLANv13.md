@@ -1,6 +1,6 @@
 # PLANv13 - Media, web search and voice
 
-Status: active — batch 1 running (2026-11-01)
+Status: active — final gate green, PR open; merge into `main` waits for the user (2026-11-01)
 Owner: main session (planning, merges, pushes) + Opus subagents (execution)
 Started: 2026-11-01
 Supersedes: `PLANv12.md` (kept at the root, marked superseded)
@@ -351,3 +351,19 @@ transcription and TTS) for devices without system speech engines.
 - 2026-11-01: `VideoJobWorker` texts were English-only. They are
   user-visible, so M6 applies → `int13` Revision 1 localizes them. `doc13`
   dispatched in parallel from 2db3305.
+- 2026-11-01: `int13` Revision 1 (18be64d, merged at afab03f): video job
+  transcript and notification texts in en/zh; unit 614/621. `doc13` done
+  (3c69c2a + Revision 1 391a476, merged at bcae11c): README EN/中文, CHANGELOG
+  0.3.0, site with 16 screenshots, 0 unknown tool names, 519 strings + 13
+  plurals per locale; local docs refreshed, `BETA_HANDOFF.md` archived.
+- 2026-11-01: Final gate on bcae11c. Run 1 reported instrumentation OK (15)
+  while androidTest has 17 `@Test`: a cached `dexBuilderDebugAndroidTest`
+  output lacked `migrate5To6_addsMessageAttachmentsWithCascade`. Run 2 with
+  `clean` and `--no-build-cache` (as CI): ktlint 0; assembleDebug,
+  testDebugUnitTest, lintDebug, assembleQa, assembleRelease, bundleRelease,
+  assembleDebugAndroidTest BUILD SUCCESSFUL; unit 614 passed of 621, 7 skipped
+  (live), 0 failed; lint 0 errors, 28 warnings; instrumentation 16/16 +
+  ExactAlarm granted 1/1 and denied 1/1 (appop restored `allow`); launch smoke
+  0 FATAL lines; QA 3,244,963 B, release 3,232,675 B. Key scan of the v13
+  history and tree: 0. `rework/v13` pushed with a PR; merging into `main`
+  waits for the user. Live video generation not run (user has not decided).
