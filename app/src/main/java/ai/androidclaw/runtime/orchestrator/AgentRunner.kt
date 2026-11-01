@@ -27,10 +27,13 @@ import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillSnapshot
+import ai.androidclaw.runtime.tools.LEGACY_SESSIONS_COMPACT_TOOL_NAME
+import ai.androidclaw.runtime.tools.SESSIONS_COMPACT_TOOL_NAME
 import ai.androidclaw.runtime.tools.ToolExecutionContext
 import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
+import ai.androidclaw.runtime.tools.toModelContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -84,6 +87,7 @@ class AgentRunner(
     private val loadSessionSummary: suspend (String) -> String? = { null },
     private val loadSessionCompactionBoundary: suspend (String) -> String? = { null },
     private val networkStatusProvider: NetworkStatusProvider? = null,
+    private val workspaceContextProvider: (suspend () -> String?)? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
         runTurn(
@@ -232,11 +236,12 @@ class AgentRunner(
                     frontmatter.commandDispatch == SkillCommandDispatch.Tool &&
                     frontmatter.commandTool != null
                 ) {
+                    val commandTool = toolRegistry.canonicalName(frontmatter.commandTool) ?: frontmatter.commandTool
                     val compactSummary =
                         buildCompactSummaryIfNeeded(
                             sessionId = sessionId,
                             slashCommand = slashCommand,
-                            toolName = frontmatter.commandTool,
+                            toolName = commandTool,
                             compactBoundaryMessageId = compactBoundaryMessageId,
                         )
                     val toolResult =
@@ -244,7 +249,7 @@ class AgentRunner(
                             sessionId = sessionId,
                             slashCommand = slashCommand,
                             slashSkill = slashSkill,
-                            toolName = frontmatter.commandTool,
+                            toolName = commandTool,
                             runMode = runMode,
                             taskRunId = taskRunId,
                             extraArguments =
@@ -265,12 +270,12 @@ class AgentRunner(
                         )
                     return persistAssistantResponse(
                         sessionId = sessionId,
-                        assistantText = toolResult.summary,
+                        assistantText = toolResult.toDirectDispatchReply(),
                         selectedSkills = listOf(slashSkill),
                         directToolResult = toolResult,
                         taskRunId = taskRunId,
                         exitReason = AgentTurnExitReason.DirectToolDispatch,
-                        triggerSummaryRefresh = frontmatter.commandTool != COMPACT_TOOL_NAME,
+                        triggerSummaryRefresh = commandTool != COMPACT_TOOL_NAME,
                     )
                 }
             }
@@ -311,6 +316,16 @@ class AgentRunner(
                 memoryCoordinator
                     ?.loadRelevantMemoryTexts(normalizedUserMessage)
                     .orEmpty()
+            val workspaceContext =
+                workspaceContextProvider?.let { provider ->
+                    try {
+                        provider()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
             val promptAssembly =
                 promptAssembler.assemble(
                     persistedMessages = persistedMessages.afterBoundary(compactionBoundary).withoutCompactControlMessages(),
@@ -320,6 +335,7 @@ class AgentRunner(
                     sessionSummary = sessionSummary,
                     forceSessionSummary = !sessionSummary.isNullOrBlank() && compactionBoundary != null,
                     crossSessionMemories = crossSessionMemories,
+                    workspaceContext = workspaceContext,
                 )
             var messageHistory = promptAssembly.messageHistory
             var providerRequestId: String? = null
@@ -546,7 +562,8 @@ class AgentRunner(
                 role = MessageRole.ToolCall,
                 content =
                     if (isCompactDirectDispatch) {
-                        "Tool request: $toolName {summary stored in session summary}"
+                        // Legacy marker kept stable: the chat UI hides compact control rows by this prefix.
+                        "Tool request: $COMPACT_CONTROL_TOOL_LABEL {summary stored in session summary}"
                     } else {
                         "Tool request: $toolName $redactedToolArguments"
                     },
@@ -561,24 +578,26 @@ class AgentRunner(
             }
         onToolStarted(toolName)
         val toolResult =
-            toolRegistry.execute(
-                context =
-                    ToolExecutionContext(
-                        sessionId = sessionId,
-                        taskRunId = taskRunId,
-                        origin = ToolInvocationOrigin.SlashCommand,
-                        runMode = runMode,
-                        requestedName = toolName,
-                        canonicalName = toolName,
-                        requestId = toolCallId,
-                        activeSkillId = slashSkill.id,
-                    ),
-                arguments = executionArguments,
-            )
+            executeToolPersistingCancellation(sessionId, toolCallId, taskRunId) {
+                toolRegistry.execute(
+                    context =
+                        ToolExecutionContext(
+                            sessionId = sessionId,
+                            taskRunId = taskRunId,
+                            origin = ToolInvocationOrigin.SlashCommand,
+                            runMode = runMode,
+                            requestedName = toolName,
+                            canonicalName = toolName,
+                            requestId = toolCallId,
+                            activeSkillId = slashSkill.id,
+                        ),
+                    arguments = executionArguments,
+                )
+            }
         messageRepository.addMessage(
             sessionId = sessionId,
             role = MessageRole.ToolResult,
-            content = "Tool result: ${toolResult.summary}",
+            content = "Tool result: ${toolResult.toModelContent()}",
             toolCallId = toolCallId,
             taskRunId = taskRunId,
         )
@@ -694,28 +713,31 @@ class AgentRunner(
                 )
                 onToolStarted(toolCall.name)
                 val toolResult =
-                    toolRegistry.execute(
-                        context =
-                            ToolExecutionContext(
-                                sessionId = sessionId,
-                                taskRunId = taskRunId,
-                                origin =
-                                    if (runMode == ModelRunMode.Scheduled) {
-                                        ToolInvocationOrigin.ScheduledModel
-                                    } else {
-                                        ToolInvocationOrigin.Model
-                                    },
-                                runMode = runMode,
-                                requestedName = toolCall.name,
-                                canonicalName = toolCall.name,
-                                requestId = requestId ?: toolCall.id,
-                            ),
-                        arguments = toolCall.argumentsJson,
-                    )
+                    executeToolPersistingCancellation(sessionId, toolCall.id, taskRunId) {
+                        toolRegistry.execute(
+                            context =
+                                ToolExecutionContext(
+                                    sessionId = sessionId,
+                                    taskRunId = taskRunId,
+                                    origin =
+                                        if (runMode == ModelRunMode.Scheduled) {
+                                            ToolInvocationOrigin.ScheduledModel
+                                        } else {
+                                            ToolInvocationOrigin.Model
+                                        },
+                                    runMode = runMode,
+                                    requestedName = toolCall.name,
+                                    canonicalName = toolCall.name,
+                                    requestId = requestId ?: toolCall.id,
+                                ),
+                            arguments = toolCall.argumentsJson,
+                        )
+                    }
+                val modelContent = toolResult.toModelContent()
                 messageRepository.addMessage(
                     sessionId = sessionId,
                     role = MessageRole.ToolResult,
-                    content = "Tool result: ${toolResult.summary}",
+                    content = "Tool result: $modelContent",
                     toolCallId = toolCall.id,
                     taskRunId = taskRunId,
                 )
@@ -723,12 +745,39 @@ class AgentRunner(
                 add(
                     ModelMessage(
                         role = ModelMessageRole.Tool,
-                        content = toolResult.summary,
+                        content = modelContent,
                         toolCallId = toolCall.id,
                         toolName = toolCall.name,
                     ),
                 )
             }
+        }
+
+    /**
+     * Runs one tool call. If the turn is cancelled while the tool runs, a result row is still
+     * persisted so the transcript never holds a tool call without its result.
+     */
+    private suspend fun executeToolPersistingCancellation(
+        sessionId: String,
+        toolCallId: String,
+        taskRunId: String?,
+        block: suspend () -> ToolExecutionResult,
+    ): ToolExecutionResult =
+        try {
+            block()
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                runCatching {
+                    messageRepository.addMessage(
+                        sessionId = sessionId,
+                        role = MessageRole.ToolResult,
+                        content = "Tool result: Cancelled before the tool finished.\n{\"errorCode\":\"CANCELLED\"}",
+                        toolCallId = toolCallId,
+                        taskRunId = taskRunId,
+                    )
+                }
+            }
+            throw error
         }
 
     private suspend fun persistAssistantResponse(
@@ -746,11 +795,7 @@ class AgentRunner(
         sourceUserMessage: String? = null,
         sourceMessageIds: List<String> = emptyList(),
     ): AgentTurnResult {
-        val boundedAssistantText = assistantText.toBoundedAgentAssistantText()
-        val persistedText =
-            boundedAssistantText
-                .withActiveSkills(selectedSkills)
-                .toBoundedAgentAssistantText()
+        val persistedText = assistantText.toBoundedAgentAssistantText()
         val providerMeta =
             providerId?.let { resolvedProviderId ->
                 ProviderMessageMeta(
@@ -776,7 +821,7 @@ class AgentRunner(
                 memoryCoordinator?.captureTurn(
                     sessionId = sessionId,
                     userMessage = sourceUserMessage,
-                    assistantMessage = boundedAssistantText,
+                    assistantMessage = persistedText,
                     sourceMessageIds = (sourceMessageIds + assistantMessage.id).distinct(),
                 )
             }
@@ -830,11 +875,12 @@ class AgentRunner(
     }
 
     companion object {
-        private const val MAX_TOOL_ROUNDS = 6
+        internal const val MAX_TOOL_ROUNDS = 8
         private const val MESSAGE_CONTEXT_FETCH_LIMIT = 256
         private const val TOOL_USE_FINISH_REASON = "tool_use"
         private const val COMPACT_COMMAND_NAME = "compact"
-        private const val COMPACT_TOOL_NAME = "sessions.compact"
+        private const val COMPACT_TOOL_NAME = SESSIONS_COMPACT_TOOL_NAME
+        private const val COMPACT_CONTROL_TOOL_LABEL = LEGACY_SESSIONS_COMPACT_TOOL_NAME
         private val COMPACT_SYSTEM_PROMPT =
             """
             You compact AndroidClaw chat sessions.
@@ -862,11 +908,12 @@ private fun ChatMessage.isCompactControlMessage(): Boolean {
     val trimmedContent = content.trim()
     return when (role) {
         MessageRole.User -> trimmedContent.startsWith("/compact")
-        MessageRole.ToolCall -> trimmedContent.startsWith("Tool request: sessions.compact")
+        MessageRole.ToolCall ->
+            trimmedContent.startsWith("Tool request: $LEGACY_SESSIONS_COMPACT_TOOL_NAME") ||
+                trimmedContent.startsWith("Tool request: $SESSIONS_COMPACT_TOOL_NAME")
         MessageRole.ToolResult -> trimmedContent.startsWith("Tool result: Compacted this session")
-        MessageRole.Assistant ->
-            trimmedContent.startsWith("Compacted this session") &&
-                trimmedContent.contains("Active skills: compact")
+        // Older builds appended "Active skills: compact"; the reply prefix alone identifies it.
+        MessageRole.Assistant -> trimmedContent.startsWith("Compacted this session")
 
         MessageRole.System -> false
     }
@@ -965,27 +1012,25 @@ internal fun List<SkillSnapshot>.toBoundedModelSkillMetadata(): List<ModelSkillM
         )
     }
 
-internal fun String.withActiveSkills(selectedSkills: List<SkillSnapshot>): String {
-    if (selectedSkills.isEmpty()) {
-        return this
-    }
-    val displayedSkillNames =
-        selectedSkills
-            .take(MAX_PROMPT_SKILLS)
-            .map { skill -> skill.displayName.trim().toAgentSkillText(MAX_PROMPT_SKILL_NAME_CHARS) }
-            .filter(String::isNotBlank)
-    if (displayedSkillNames.isEmpty()) {
-        return this
-    }
-    return buildString {
-        append(this@withActiveSkills)
-        append("\n\nActive skills: ")
-        append(displayedSkillNames.joinToString())
-        if (selectedSkills.size > MAX_PROMPT_SKILLS) {
-            append(", +").append(selectedSkills.size - MAX_PROMPT_SKILLS).append(" more")
-        }
+/**
+ * The assistant line persisted after a slash command dispatched straight to a tool: the tool
+ * card already shows the full result, so the reply is only the first summary line, bounded.
+ */
+internal fun ToolExecutionResult.toDirectDispatchReply(): String {
+    val firstLine =
+        summary
+            .lineSequence()
+            .map(String::trim)
+            .firstOrNull(String::isNotEmpty)
+            .orEmpty()
+    return if (firstLine.length <= DIRECT_DISPATCH_REPLY_MAX_CHARS) {
+        firstLine
+    } else {
+        firstLine.take(DIRECT_DISPATCH_REPLY_MAX_CHARS - 1).trimEnd() + "…"
     }
 }
+
+internal const val DIRECT_DISPATCH_REPLY_MAX_CHARS = 200
 
 private fun String.toAgentSkillText(maxChars: Int): String = take(maxChars)
 
@@ -1004,7 +1049,15 @@ internal fun List<ProviderToolCall>.validateProviderToolCallsForAgent(): List<Pr
             details = "toolCalls=$size max=$AGENT_PROVIDER_TOOL_CALL_MAX_COUNT",
         )
     }
+    // Some OpenAI-compatible servers repeat ids within one response; keep ids unique so each
+    // call gets exactly one result row.
+    val seenIds = mutableMapOf<String, Int>()
     return map { toolCall -> toolCall.validateForAgent() }
+        .map { toolCall ->
+            val occurrence = (seenIds[toolCall.id] ?: 0) + 1
+            seenIds[toolCall.id] = occurrence
+            if (occurrence == 1) toolCall else toolCall.copy(id = "${toolCall.id}-$occurrence")
+        }
 }
 
 private fun ProviderToolCall.validateForAgent(): ProviderToolCall {

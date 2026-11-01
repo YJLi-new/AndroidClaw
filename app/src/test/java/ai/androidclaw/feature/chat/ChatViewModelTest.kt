@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.chat
 
+import ai.androidclaw.R
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.db.AndroidClawDatabase
@@ -26,6 +27,8 @@ import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
+import ai.androidclaw.testutil.textOrNull
+import ai.androidclaw.ui.text.UiText
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.ReceiveTurbine
@@ -37,6 +40,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -127,14 +131,14 @@ class ChatViewModelTest {
                 awaitState { state ->
                     state.isRunning &&
                         state.streamingAssistantText == "Reply: " &&
-                        state.activeTurnStage == "Generating response"
+                        state.activeTurnStage.textOrNull() == "Generating response"
                 }
 
                 val completed =
                     awaitState { state ->
                         !state.isRunning &&
                             state.streamingAssistantText.isEmpty() &&
-                            state.messages.any { it.role == "assistant" && it.text.contains("Reply: hello") }
+                            state.messages.any { it.role == ChatRole.Assistant && it.text.contains("Reply: hello") }
                     }
 
                 val stored = messageRepository.observeMessages(ready.currentSessionId).first()
@@ -161,6 +165,7 @@ class ChatViewModelTest {
                     }
 
                 assertEquals(CHAT_DRAFT_MAX_CHARS, bounded.draft.length)
+                assertEquals(bounded.draft, viewModel.composerText)
                 assertEquals(CHAT_DRAFT_TRUNCATED_NOTICE, bounded.noticeMessage)
                 cancelAndIgnoreRemainingEvents()
             }
@@ -197,23 +202,24 @@ class ChatViewModelTest {
             viewModel.state.test {
                 awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
 
-                viewModel.onExternalActionCompleted(oversizedNotice)
-                val noticed = awaitState { it.noticeMessage?.length == CHAT_UI_MESSAGE_MAX_CHARS }
-                assertEquals(oversizedNotice.take(CHAT_UI_MESSAGE_MAX_CHARS), noticed.noticeMessage)
+                viewModel.onExternalActionCompleted(UiText.raw(oversizedNotice))
+                val noticed = awaitState { it.noticeMessage.textOrNull()?.length == CHAT_UI_MESSAGE_MAX_CHARS }
+                assertEquals(oversizedNotice.take(CHAT_UI_MESSAGE_MAX_CHARS), noticed.noticeMessage.textOrNull())
 
-                viewModel.onExternalActionFailed(oversizedError)
-                val failed = awaitState { it.errorMessage?.length == CHAT_UI_MESSAGE_MAX_CHARS }
-                assertEquals(oversizedError.take(CHAT_UI_MESSAGE_MAX_CHARS), failed.errorMessage)
+                viewModel.onExternalActionFailed(UiText.raw(oversizedError))
+                val failed = awaitState { it.errorMessage.textOrNull()?.length == CHAT_UI_MESSAGE_MAX_CHARS }
+                assertEquals(oversizedError.take(CHAT_UI_MESSAGE_MAX_CHARS), failed.errorMessage.textOrNull())
                 cancelAndIgnoreRemainingEvents()
             }
         }
 
     @Test
-    fun `chat ui messages fall back when blank`() {
-        val oversizedFallback = "f".repeat(CHAT_UI_MESSAGE_MAX_CHARS + 20)
+    fun `chat ui messages fall back when blank and stay bounded`() {
+        val oversizedMessage = "f".repeat(CHAT_UI_MESSAGE_MAX_CHARS + 20)
 
-        assertEquals("Fallback", boundedChatUiMessage("", fallback = "Fallback"))
-        assertEquals(oversizedFallback.take(CHAT_UI_MESSAGE_MAX_CHARS), boundedChatUiMessage(null, oversizedFallback))
+        assertEquals(UiText.res(R.string.chat_error_turn_failed), boundedChatUiText("", fallback = R.string.chat_error_turn_failed))
+        assertEquals(UiText.res(R.string.chat_error_turn_failed), boundedChatUiText(null, R.string.chat_error_turn_failed))
+        assertEquals(UiText.raw(oversizedMessage.take(CHAT_UI_MESSAGE_MAX_CHARS)), boundedChatUiText(oversizedMessage, R.string.chat_error_turn_failed))
     }
 
     @Test
@@ -250,9 +256,9 @@ class ChatViewModelTest {
 
                 awaitState { state ->
                     !state.isRunning &&
-                        state.errorMessage == "Provider unavailable" &&
+                        state.errorMessage.textOrNull() == "Provider unavailable" &&
                         state.canRetryLastFailedTurn &&
-                        state.messages.any { it.role == "system" && it.text.contains("Turn failed") }
+                        state.messages.any { it.role == ChatRole.System && it.text.contains("Turn failed") }
                 }
 
                 viewModel.retryLastFailedTurn()
@@ -261,7 +267,7 @@ class ChatViewModelTest {
                     awaitState { state ->
                         !state.isRunning &&
                             !state.canRetryLastFailedTurn &&
-                            state.messages.any { it.role == "assistant" && it.text.contains("Recovered reply") }
+                            state.messages.any { it.role == ChatRole.Assistant && it.text.contains("Recovered reply") }
                     }
 
                 val stored = messageRepository.observeMessages(ready.currentSessionId).first()
@@ -270,7 +276,7 @@ class ChatViewModelTest {
                 val providerFailureEvent = events.first { it.category == EventCategory.Provider && it.message == "Provider unavailable" }
 
                 assertEquals(1, userMessages.size)
-                assertTrue(retried.messages.any { it.role == "assistant" && it.text.contains("Recovered reply") })
+                assertTrue(retried.messages.any { it.role == ChatRole.Assistant && it.text.contains("Recovered reply") })
                 assertTrue(providerFailureEvent.details.orEmpty().contains("kind=Network"))
                 assertTrue(providerFailureEvent.details.orEmpty().contains("retryable=true"))
                 assertTrue(events.any { it.category == EventCategory.Provider && it.message == "Retrying failed turn." })
@@ -315,13 +321,13 @@ class ChatViewModelTest {
                 val cancelled =
                     awaitState { state ->
                         !state.isRunning &&
-                            state.noticeMessage == "Turn cancelled." &&
+                            state.noticeMessage.textOrNull() == "Turn cancelled." &&
                             state.streamingAssistantText.isEmpty() &&
-                            state.messages.any { it.role == "system" && it.text == "Turn cancelled." }
+                            state.messages.any { it.role == ChatRole.System && it.text == "Turn cancelled." }
                     }
 
                 val stored = messageRepository.observeMessages(ready.currentSessionId).first()
-                assertTrue(cancelled.noticeMessage == "Turn cancelled.")
+                assertEquals("Turn cancelled.", cancelled.noticeMessage.textOrNull())
                 assertTrue(stored.any { it.role == MessageRole.User && it.content == "hello" })
                 assertTrue(stored.none { it.role == MessageRole.Assistant && it.content.contains("partial") })
             }
@@ -443,10 +449,10 @@ class ChatViewModelTest {
                 val state =
                     awaitState {
                         it.currentSessionId == mainSession.id &&
-                            it.sessionUsageSummary?.contains("2 tracked replies") == true
+                            it.sessionUsage?.trackedReplies == 2
                     }
 
-                assertEquals("2 tracked replies · 16 input · 7 output · 23 total tokens", state.sessionUsageSummary)
+                assertEquals(ChatUsageUi(trackedReplies = 2, inputTokens = 16, outputTokens = 7, totalTokens = 23), state.sessionUsage)
             }
         }
 
@@ -465,6 +471,68 @@ class ChatViewModelTest {
 
                 assertEquals("Project Y", created.sessionTitle)
                 assertTrue(created.currentSessionId.isNotBlank())
+            }
+        }
+
+    @Test
+    fun `rename archive restore and delete keep the session list consistent`() =
+        runTest {
+            viewModel.state.test {
+                val ready = awaitState { it.currentSessionId.isNotBlank() && it.sessions.isNotEmpty() }
+                val mainId = ready.currentSessionId
+                viewModel.setShowArchivedSessions(true)
+
+                viewModel.createNewSession("Draft notes")
+                val created = awaitState { state -> state.sessions.any { it.title == "Draft notes" && it.isSelected } }
+                val sessionId = created.currentSessionId
+
+                viewModel.renameSession(sessionId, "Trip plan")
+                awaitState { state -> state.sessions.any { it.id == sessionId && it.title == "Trip plan" } }
+
+                viewModel.archiveSession(sessionId)
+                val archived =
+                    awaitState { state ->
+                        state.sessions.none { it.id == sessionId } &&
+                            state.archivedSessions.any { it.id == sessionId } &&
+                            state.currentSessionId == mainId &&
+                            state.noticeMessage.textOrNull() == "Archived “Trip plan”."
+                    }
+                assertEquals("Archived “Trip plan”.", archived.noticeMessage.textOrNull())
+
+                viewModel.restoreSession(sessionId)
+                awaitState { state ->
+                    state.sessions.any { it.id == sessionId } && state.archivedSessions.none { it.id == sessionId }
+                }
+
+                viewModel.deleteSession(sessionId)
+                val deleted =
+                    awaitState { state ->
+                        state.sessions.none { it.id == sessionId } &&
+                            state.archivedSessions.none { it.id == sessionId } &&
+                            state.noticeMessage.textOrNull() == "Deleted “Trip plan”."
+                    }
+                assertEquals(null, sessionRepository.getSession(sessionId))
+                assertTrue(deleted.sessions.any { it.id == mainId })
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `main session cannot be archived or deleted`() =
+        runTest {
+            viewModel.state.test {
+                val ready = awaitState { state -> state.sessions.any { it.isMain } }
+                val mainId = ready.sessions.first { it.isMain }.id
+
+                viewModel.deleteSession(mainId)
+                val refusedDelete = awaitState { it.errorMessage != null }
+                assertEquals("The main session cannot be deleted.", refusedDelete.errorMessage.textOrNull())
+
+                viewModel.archiveSession(mainId)
+                val refusedArchive = awaitState { it.errorMessage.textOrNull() == "The main session cannot be archived." }
+                assertTrue(refusedArchive.sessions.any { it.id == mainId })
+                assertTrue(sessionRepository.getSession(mainId) != null)
+                cancelAndIgnoreRemainingEvents()
             }
         }
 
@@ -675,12 +743,15 @@ class ChatViewModelTest {
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
-                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+                // Subscribe before triggering: actions is a hot SharedFlow without replay, so an emission
+                // that lands before a lazily started collector would be dropped and await() would hang.
+                val actionDeferred =
+                    backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) { viewModel.actions.first() }
 
                 viewModel.exportCurrentSession(ChatExportFormat.Markdown)
 
                 val action = actionDeferred.await()
-                val exported = awaitState { it.noticeMessage?.contains("Ready to save") == true }
+                val exported = viewModel.state.value
                 val payload = (action as ChatExternalAction.ExportDocument).payload
                 val written = StringBuilder()
                 val result = viewModel.writeExportFile(payload, written)
@@ -690,6 +761,7 @@ class ChatViewModelTest {
                 assertTrue(written.toString().contains("## Transcript"))
                 assertEquals(1, result.messageCount)
                 assertEquals(mainSession.id, exported.currentSessionId)
+                assertEquals(null, exported.errorMessage)
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -708,7 +780,10 @@ class ChatViewModelTest {
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
-                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+                // Subscribe before triggering: actions is a hot SharedFlow without replay, so an emission
+                // that lands before a lazily started collector would be dropped and await() would hang.
+                val actionDeferred =
+                    backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) { viewModel.actions.first() }
 
                 viewModel.shareCurrentSessionAsFile(ChatExportFormat.Json)
 
@@ -740,15 +815,19 @@ class ChatViewModelTest {
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
-                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+                // Subscribe before triggering: actions is a hot SharedFlow without replay, so an emission
+                // that lands before a lazily started collector would be dropped and await() would hang.
+                val actionDeferred =
+                    backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) { viewModel.actions.first() }
 
                 viewModel.shareCurrentSessionAsText()
 
                 val action = actionDeferred.await()
                 val shared = action as ChatExternalAction.ShareText
-                val sharing = awaitState { it.noticeMessage == "Opening share sheet." }
+                val sharing = viewModel.state.value
 
                 assertEquals(mainSession.id, sharing.currentSessionId)
+                assertEquals(null, sharing.errorMessage)
                 assertTrue(shared.text.length <= CHAT_SHARE_TEXT_MAX_CHARS)
                 assertTrue(shared.text.endsWith(CHAT_SHARE_TEXT_TRUNCATED_NOTICE))
                 cancelAndIgnoreRemainingEvents()

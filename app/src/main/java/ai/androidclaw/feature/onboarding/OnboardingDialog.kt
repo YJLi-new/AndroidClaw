@@ -1,27 +1,36 @@
 package ai.androidclaw.feature.onboarding
 
-import ai.androidclaw.data.ProviderAuthMode
+import ai.androidclaw.R
 import ai.androidclaw.data.ProviderType
+import ai.androidclaw.feature.settings.ProviderFieldCallbacks
+import ai.androidclaw.feature.settings.ProviderFields
 import ai.androidclaw.feature.settings.SettingsUiState
+import ai.androidclaw.feature.settings.providerLabel
+import ai.androidclaw.ui.components.ClawNotice
+import ai.androidclaw.ui.components.NoticeTone
+import ai.androidclaw.ui.text.asString
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingDialog(
     onboardingState: OnboardingUiState,
@@ -42,26 +51,57 @@ fun OnboardingDialog(
     onFinish: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
-
     AlertDialog(
         modifier = Modifier.testTag("onboardingDialog"),
         onDismissRequest = {},
         title = {
             Text(
-                if (onboardingState.isWelcomeStep) {
-                    "Welcome to AndroidClaw"
-                } else {
-                    "Set up a real provider"
-                },
+                stringResource(
+                    if (onboardingState.isWelcomeStep) R.string.onboarding_welcome_title else R.string.onboarding_setup_title,
+                ),
             )
         },
         text = {
             if (onboardingState.isWelcomeStep) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.onboarding_welcome_body))
                     Text(
-                        "AndroidClaw is a local-first Android assistant host with chat sessions, tools, skills, and scheduled automations.",
+                        text = stringResource(R.string.onboarding_welcome_choice),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text("You can stay fully offline with FakeProvider, or configure a real model provider now.")
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = onUseFakeMode,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("onboardingUseFakeButton"),
+                        ) {
+                            Text(stringResource(R.string.onboarding_use_demo))
+                        }
+                        OutlinedButton(
+                            onClick = onConfigureRealProvider,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("onboardingConfigureRealProviderButton"),
+                        ) {
+                            Text(stringResource(R.string.onboarding_configure_provider))
+                        }
+                        TextButton(
+                            onClick = onCompleteLater,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .testTag("onboardingCompleteLaterButton"),
+                        ) {
+                            Text(stringResource(R.string.onboarding_later))
+                        }
+                    }
                 }
             } else {
                 Column(
@@ -69,12 +109,12 @@ fun OnboardingDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        "Choose a provider, enter its settings, then run a connection test before finishing setup.",
+                        text = stringResource(R.string.onboarding_setup_body),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         settingsState.availableProviders
                             .filter { it.requiresRemoteSettings }
@@ -83,181 +123,66 @@ fun OnboardingDialog(
                                     modifier = Modifier.testTag("onboardingProviderChip-${providerType.storageValue}"),
                                     selected = settingsState.providerType == providerType,
                                     onClick = { onSelectProvider(providerType) },
-                                    label = { Text(providerType.displayName) },
+                                    label = { Text(providerLabel(providerType)) },
                                 )
                             }
                     }
-                    Text("Network: ${settingsState.networkSummary}")
-                    OutlinedTextField(
-                        value = settingsState.baseUrl,
-                        onValueChange = onBaseUrlChanged,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("onboardingBaseUrlField"),
-                        label = { Text("Base URL") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = settingsState.modelId,
-                        onValueChange = onModelIdChanged,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("onboardingModelIdField"),
-                        label = { Text("Model ID") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = settingsState.timeoutSeconds,
-                        onValueChange = onTimeoutChanged,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .testTag("onboardingTimeoutField"),
-                        label = { Text("Timeout seconds") },
-                        singleLine = true,
-                    )
-                    when (settingsState.authMode) {
-                        ProviderAuthMode.None -> Unit
-                        ProviderAuthMode.ApiKey ->
-                            OutlinedTextField(
-                                value = settingsState.apiKeyDraft,
-                                onValueChange = onApiKeyChanged,
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .testTag("onboardingApiKeyField"),
-                                label = {
-                                    Text(
-                                        if (settingsState.hasStoredApiKey) {
-                                            "API key (leave blank to keep stored key)"
-                                        } else {
-                                            "API key"
-                                        },
-                                    )
-                                },
-                                singleLine = true,
-                            )
-
-                        ProviderAuthMode.OpenAiCodexDeviceCode -> {
-                            Text(
-                                if (settingsState.hasOAuthCredential) {
-                                    "Signed in: ${settingsState.oAuthProfileLabel.orEmpty()}"
-                                } else {
-                                    "OpenAI Codex requires device-code sign-in."
-                                },
-                            )
-                            settingsState.deviceCodeUserCode?.let { code ->
-                                Text(
-                                    text = "Code: $code",
-                                    modifier = Modifier.testTag("onboardingOpenAiCodexDeviceCode"),
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            }
-                            settingsState.deviceCodeVerificationUrl?.let { url ->
-                                Button(
-                                    onClick = { uriHandler.openUri(url) },
-                                    modifier = Modifier.testTag("onboardingOpenAiCodexOpenVerificationButton"),
-                                ) {
-                                    Text("Open verification page")
-                                }
-                            }
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Button(
-                                    onClick = onStartOpenAiCodexSignIn,
-                                    enabled = !settingsState.isSigningInWithOpenAiCodex,
-                                    modifier = Modifier.testTag("onboardingOpenAiCodexSignInButton"),
-                                ) {
-                                    Text(
-                                        if (settingsState.isSigningInWithOpenAiCodex) {
-                                            "Signing in..."
-                                        } else {
-                                            "Sign in"
-                                        },
-                                    )
-                                }
-                                if (settingsState.isSigningInWithOpenAiCodex) {
-                                    Button(onClick = onCancelOpenAiCodexSignIn) {
-                                        Text("Cancel")
-                                    }
-                                }
-                                if (settingsState.hasOAuthCredential) {
-                                    Button(onClick = onClearOpenAiCodexSignIn) {
-                                        Text("Clear sign-in")
-                                    }
-                                }
-                            }
-                        }
+                    if (settingsState.providerType.requiresRemoteSettings) {
+                        ProviderFields(
+                            state = settingsState,
+                            callbacks =
+                                ProviderFieldCallbacks(
+                                    onBaseUrlChanged = onBaseUrlChanged,
+                                    onModelIdChanged = onModelIdChanged,
+                                    onTimeoutChanged = onTimeoutChanged,
+                                    onApiKeyChanged = onApiKeyChanged,
+                                    onClearApiKey = null,
+                                    onStartCodexSignIn = onStartOpenAiCodexSignIn,
+                                    onCancelCodexSignIn = onCancelOpenAiCodexSignIn,
+                                    onClearCodexSignIn = onClearOpenAiCodexSignIn,
+                                    onOpenVerificationUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                                ),
+                            fieldTagPrefix = "onboarding",
+                            codexTagPrefix = "onboarding",
+                        )
                     }
                     settingsState.statusMessage?.let { message ->
-                        Text(
-                            message,
+                        ClawNotice(
+                            text = message.asString(),
                             modifier = Modifier.testTag("onboardingStatusMessage"),
-                            style = MaterialTheme.typography.bodyMedium,
+                            tone = if (settingsState.lastValidationSucceeded) NoticeTone.Success else NoticeTone.Info,
                         )
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            modifier = Modifier.testTag("onboardingTestConnectionButton"),
+                            onClick = onValidateConnection,
+                            enabled = !settingsState.isValidatingConnection,
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (settingsState.isValidatingConnection) R.string.settings_testing else R.string.settings_test,
+                                ),
+                            )
+                        }
+                        TextButton(
+                            onClick = onBackToWelcome,
+                            modifier = Modifier.testTag("onboardingBackButton"),
+                        ) {
+                            Text(stringResource(R.string.action_back))
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            if (onboardingState.isWelcomeStep) {
-                Button(
-                    onClick = onUseFakeMode,
-                    modifier = Modifier.testTag("onboardingUseFakeButton"),
-                ) {
-                    Text("Use Fake (offline)")
-                }
-            } else {
+            if (!onboardingState.isWelcomeStep) {
                 Button(
                     modifier = Modifier.testTag("onboardingFinishButton"),
                     onClick = onFinish,
                     enabled = settingsState.lastValidationSucceeded,
                 ) {
-                    Text("Finish")
-                }
-            }
-        },
-        dismissButton = {
-            if (onboardingState.isWelcomeStep) {
-                Column(
-                    modifier = Modifier.padding(end = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Button(
-                        onClick = onConfigureRealProvider,
-                        modifier = Modifier.testTag("onboardingConfigureRealProviderButton"),
-                    ) {
-                        Text("Configure real provider")
-                    }
-                    Button(
-                        onClick = onCompleteLater,
-                        modifier = Modifier.testTag("onboardingCompleteLaterButton"),
-                    ) {
-                        Text("Complete setup later")
-                    }
-                }
-            } else {
-                Column(
-                    modifier = Modifier.padding(end = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Button(
-                        modifier = Modifier.testTag("onboardingTestConnectionButton"),
-                        onClick = onValidateConnection,
-                        enabled = !settingsState.isValidatingConnection,
-                    ) {
-                        Text(if (settingsState.isValidatingConnection) "Testing…" else "Test connection")
-                    }
-                    Button(
-                        onClick = onBackToWelcome,
-                        modifier = Modifier.testTag("onboardingBackButton"),
-                    ) {
-                        Text("Back")
-                    }
+                    Text(stringResource(R.string.onboarding_finish))
                 }
             }
         },

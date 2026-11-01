@@ -7,16 +7,21 @@ import ai.androidclaw.runtime.providers.ProviderMessageMeta
 import ai.androidclaw.runtime.providers.ProviderUsagePayload
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
+import ai.androidclaw.testutil.text
+import ai.androidclaw.testutil.textOrNull
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 import java.time.Instant
 
+@RunWith(AndroidJUnit4::class)
 class TasksScreenFormattingTest {
     @Test
     fun `retry state reports no runs when task has never executed`() {
         assertEquals(
             "No runs yet",
-            retryStateText(testTask(failureCount = 0, nextRunAt = null), latestRun = null),
+            retryStateText(testTask(failureCount = 0, nextRunAt = null), latestRun = null, formatInstant = Instant::toString).text(),
         )
     }
 
@@ -27,7 +32,8 @@ class TasksScreenFormattingTest {
             retryStateText(
                 task = testTask(failureCount = 0, nextRunAt = Instant.parse("2026-03-19T00:00:00Z")),
                 latestRun = testRun(TaskRunStatus.Success),
-            ),
+                formatInstant = Instant::toString,
+            ).text(),
         )
     }
 
@@ -38,7 +44,8 @@ class TasksScreenFormattingTest {
             retryStateText(
                 task = testTask(failureCount = 1, nextRunAt = Instant.parse("2026-03-19T01:00:00Z")),
                 latestRun = testRun(TaskRunStatus.Failure),
-            ),
+                formatInstant = Instant::toString,
+            ).text(),
         )
     }
 
@@ -57,7 +64,7 @@ class TasksScreenFormattingTest {
                             totalTokens = 321,
                         ),
                 ),
-            ),
+            ).textOrNull(),
         )
     }
 
@@ -75,7 +82,7 @@ class TasksScreenFormattingTest {
                             totalTokens = null,
                         ),
                 ),
-            ),
+            ).textOrNull(),
         )
     }
 }

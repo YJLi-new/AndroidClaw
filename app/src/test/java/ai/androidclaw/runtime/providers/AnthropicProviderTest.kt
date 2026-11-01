@@ -1,5 +1,6 @@
 package ai.androidclaw.runtime.providers
 
+import ai.androidclaw.BuildConfig
 import ai.androidclaw.data.ProviderEndpointSettings
 import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
@@ -123,8 +124,8 @@ class AnthropicProviderTest {
             assertEquals("/v1/messages", recordedRequest.path)
             assertEquals("anth-test", recordedRequest.getHeader("x-api-key"))
             assertEquals("2023-06-01", recordedRequest.getHeader("anthropic-version"))
-            assertEquals("0.1.0", recordedRequest.getHeader("X-AndroidClaw-Version"))
-            assertEquals("AndroidClaw/0.1.0 (ai.androidclaw.app)", recordedRequest.getHeader("User-Agent"))
+            assertEquals(BuildConfig.VERSION_NAME, recordedRequest.getHeader("X-AndroidClaw-Version"))
+            assertEquals("AndroidClaw/${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})", recordedRequest.getHeader("User-Agent"))
             assertEquals("claude-sonnet-4-5", payload.getValue("model").jsonPrimitive.content)
             assertTrue(messages.isNotEmpty())
         }

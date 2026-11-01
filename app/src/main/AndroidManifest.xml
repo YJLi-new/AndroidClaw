@@ -7,6 +7,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Normal permission required by AlarmClock.ACTION_SET_ALARM / ACTION_SET_TIMER (set_alarm, set_timer tools). -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <!-- open_app resolves launchable apps by label; Android 11+ needs this visibility declaration. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".app.AndroidClawApplication"
@@ -15,9 +25,11 @@
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AndroidClaw">
+        android:theme="@style/Theme.AndroidClaw"
+        tools:targetApi="33">
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -45,6 +57,7 @@
             android:name="ai.androidclaw.app.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.AndroidClaw"
+            android:windowSoftInputMode="adjustResize"
             tools:ignore="Instantiatable">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

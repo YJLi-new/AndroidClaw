@@ -18,41 +18,131 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneId
 
 class PromptAssemblerTest {
     private val assembler = PromptAssembler()
 
+    private val healthTool =
+        ToolDescriptor(
+            name = "health.status",
+            description = "Report health state",
+            aliases = listOf("health"),
+            arguments =
+                listOf(
+                    ToolArgumentSpec(
+                        name = "scope",
+                        required = true,
+                        description = "Requested scope",
+                    ),
+                ),
+        )
+
     @Test
-    fun `assemble includes run mode selected skills and tools in system prompt`() {
+    fun `native tool calling keeps the tool list out of the system prompt`() {
         val assembly =
             assembler.assemble(
                 persistedMessages = emptyList(),
                 selectedSkills = listOf(sampleSkill()),
-                toolDescriptors =
-                    listOf(
-                        ToolDescriptor(
-                            name = "health.status",
-                            description = "Report health state",
-                            aliases = listOf("health"),
-                            arguments =
-                                listOf(
-                                    ToolArgumentSpec(
-                                        name = "scope",
-                                        required = true,
-                                        description = "Requested scope",
-                                    ),
-                                ),
-                        ),
-                    ),
+                toolDescriptors = listOf(healthTool),
                 runMode = ModelRunMode.Scheduled,
             )
 
         assertTrue(assembly.systemPrompt.contains("Run mode: scheduled."))
         assertTrue(assembly.systemPrompt.contains("demo_skill"))
         assertTrue(assembly.systemPrompt.contains("Follow the demo instructions."))
+        assertTrue(assembly.systemPrompt.contains("You can call 1 native tools."))
+        assertTrue(!assembly.systemPrompt.contains("Report health state"))
+        assertTrue(!assembly.systemPrompt.contains("Available tools:"))
+    }
+
+    @Test
+    fun `text tool list is rendered only without native tool calling`() {
+        val assembly =
+            assembler.assemble(
+                persistedMessages = emptyList(),
+                selectedSkills = listOf(sampleSkill()),
+                toolDescriptors = listOf(healthTool),
+                runMode = ModelRunMode.Scheduled,
+                nativeToolCalling = false,
+            )
+
         assertTrue(assembly.systemPrompt.contains("health.status: Report health state"))
         assertTrue(assembly.systemPrompt.contains("[aliases: health]"))
+    }
+
+    @Test
+    fun `system prompt carries local time and bounded workspace context`() {
+        val fixedAssembler =
+            PromptAssembler(
+                clock = Clock.fixed(Instant.parse("2026-03-09T01:30:00Z"), ZoneId.of("Asia/Shanghai")),
+            )
+        val assembly =
+            fixedAssembler.assemble(
+                persistedMessages = emptyList(),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+                workspaceContext = "## SOUL.md\nBe kind.",
+            )
+
+        assertTrue(assembly.systemPrompt.contains("Current local time: 2026-03-09 09:30 Monday (Asia/Shanghai)."))
+        assertTrue(assembly.systemPrompt.contains("# Workspace files"))
+        assertTrue(assembly.systemPrompt.contains("## SOUL.md\nBe kind."))
+    }
+
+    @Test
+    fun `runtime notices are not sent to the model`() {
+        val assembly =
+            assembler.assemble(
+                persistedMessages =
+                    listOf(
+                        message(role = MessageRole.System, content = "AndroidClaw is ready."),
+                        message(role = MessageRole.User, content = "hello"),
+                        message(role = MessageRole.System, content = "Turn failed: Provider API key is required."),
+                        message(role = MessageRole.System, content = "Turn cancelled."),
+                        message(role = MessageRole.User, content = "again"),
+                    ),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+            )
+
+        assertEquals(listOf("hello", "again"), assembly.messageHistory.map { it.content })
+    }
+
+    @Test
+    fun `orphan tool calls and results are dropped from provider history`() {
+        val assembly =
+            assembler.assemble(
+                persistedMessages =
+                    listOf(
+                        message(role = MessageRole.User, content = "first"),
+                        message(
+                            role = MessageRole.ToolCall,
+                            content = """Tool request: device_status {}""",
+                            toolCallId = "cancelled-call",
+                        ),
+                        message(role = MessageRole.ToolResult, content = "Tool result: stray", toolCallId = "unknown-call"),
+                        message(role = MessageRole.ToolCall, content = """Tool request: tasks_list {}""", toolCallId = "ok-call"),
+                        message(role = MessageRole.ToolResult, content = "Tool result: No tasks", toolCallId = "ok-call"),
+                        message(role = MessageRole.ToolResult, content = "Tool result: duplicate", toolCallId = "ok-call"),
+                    ),
+                selectedSkills = emptyList(),
+                toolDescriptors = emptyList(),
+                runMode = ModelRunMode.Interactive,
+            )
+
+        val history = assembly.messageHistory
+        assertEquals(
+            listOf(ModelMessageRole.User, ModelMessageRole.Assistant, ModelMessageRole.Tool),
+            history.map { it.role },
+        )
+        assertEquals("ok-call", history[1].toolCalls.single().id)
+        assertEquals("No tasks", history[2].content)
+        assertEquals("tasks_list", history[2].toolName)
     }
 
     @Test
@@ -93,7 +183,8 @@ class PromptAssemblerTest {
             history.map { it.role },
         )
         assertEquals("", history[3].content)
-        assertEquals("health.status", history[3].toolCalls.single().name)
+        // Legacy dotted names are rewritten to provider-safe names (OpenAI/Anthropic reject dots).
+        assertEquals("health_status", history[3].toolCalls.single().name)
         assertEquals(
             "summary",
             history[3]
@@ -108,7 +199,7 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `tool call messages that are not parseable json fall back to assistant text`() {
+    fun `tool call messages that are not parseable json are dropped`() {
         val assembly =
             assembler.assemble(
                 persistedMessages =
@@ -124,15 +215,9 @@ class PromptAssemblerTest {
                 runMode = ModelRunMode.Interactive,
             )
 
-        assertEquals(1, assembly.messageHistory.size)
-        assertEquals(ModelMessageRole.Assistant, assembly.messageHistory.single().role)
-        assertEquals("Tool request: tasks.list pending", assembly.messageHistory.single().content)
-        assertTrue(
-            assembly.messageHistory
-                .single()
-                .toolCalls
-                .isEmpty(),
-        )
+        // A raw "Tool request:" echo is not conversation content and would teach the model to
+        // fake tool calls in text, so unparseable rows are left out of provider history.
+        assertTrue(assembly.messageHistory.isEmpty())
     }
 
     @Test
@@ -218,6 +303,7 @@ class PromptAssemblerTest {
                         )
                     },
                 runMode = ModelRunMode.Interactive,
+                nativeToolCalling = false,
             )
 
         assertTrue(assembly.systemPrompt.contains("skill_$MAX_PROMPT_SKILLS"))

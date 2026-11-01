@@ -1,44 +1,55 @@
 package ai.androidclaw.runtime.providers
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import java.time.Clock
-import java.time.format.DateTimeFormatter
 
+/**
+ * Offline provider for first launch, debug builds and tests. Replies are short, readable and
+ * deterministic.
+ *
+ * Tool trigger: a user message containing `[tool:<name>]` makes the provider call that tool once,
+ * e.g. `What is my battery? [tool:device_status]`. Optional JSON arguments may follow the name:
+ * `[tool:set_timer {"seconds":60}]`. Without JSON the call receives `{"command": <message>}`.
+ * After the tool result arrives the provider answers with the first line of that result.
+ */
 class FakeProvider(
     private val clock: Clock,
 ) : ModelProvider {
     override val id: String = "fake"
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
-        val timestamp = DateTimeFormatter.ISO_INSTANT.format(clock.instant())
-        val skills = request.enabledSkills.takeIf { it.isNotEmpty() }?.joinToString { it.name } ?: "none"
-        val tools = request.toolDescriptors.joinToString { it.name }
+        val lastUserIndex = request.messageHistory.indexOfLast { it.role == ModelMessageRole.User }
         val lastUserMessage =
             request.messageHistory
-                .lastOrNull { it.role == ModelMessageRole.User }
+                .getOrNull(lastUserIndex)
                 ?.content
                 ?.trim()
                 .orEmpty()
+        val marker = TOOL_MARKER.find(lastUserMessage)
         val requestedTool =
-            TOOL_MARKER
-                .find(lastUserMessage)
+            marker
                 ?.groupValues
                 ?.getOrNull(1)
                 ?.trim()
-                ?.takeIf { it.isNotBlank() }
+                ?.takeIf(String::isNotBlank)
         val latestToolResult =
             requestedTool?.let { toolName ->
-                request.messageHistory.lastOrNull { message ->
-                    message.role == ModelMessageRole.Tool &&
-                        message.toolName == toolName &&
-                        message.toolCallId != null &&
-                        message.toolCalls.isEmpty()
-                }
+                request.messageHistory
+                    .drop(lastUserIndex + 1)
+                    .lastOrNull { message ->
+                        message.role == ModelMessageRole.Tool &&
+                            message.toolName == toolName &&
+                            message.toolCallId != null &&
+                            message.toolCalls.isEmpty()
+                    }
             }
-        if (requestedTool != null && latestToolResult == null) {
+        if (marker != null && requestedTool != null && latestToolResult == null) {
             return ModelResponse(
-                text = "FakeProvider requested tool $requestedTool.",
+                text = "Calling $requestedTool.",
                 finishReason = "tool_use",
                 toolCalls =
                     listOf(
@@ -46,9 +57,8 @@ class FakeProvider(
                             id = "fake-${request.requestId ?: clock.instant().toEpochMilli()}-$requestedTool",
                             name = requestedTool,
                             argumentsJson =
-                                buildJsonObject {
-                                    put("command", lastUserMessage)
-                                },
+                                marker.groupValues.getOrNull(2)?.toJsonObjectOrNull()
+                                    ?: buildJsonObject { put("command", lastUserMessage) },
                         ),
                     ),
             )
@@ -56,21 +66,39 @@ class FakeProvider(
         return ModelResponse(
             text =
                 buildString {
-                    appendLine("FakeProvider [$timestamp]")
-                    appendLine("Session: ${request.sessionId}")
-                    appendLine("Request: ${request.requestId ?: "none"}")
-                    appendLine("Run mode: ${request.runMode.name.lowercase()}")
-                    appendLine("Skills: $skills")
-                    appendLine("Tools: $tools")
-                    latestToolResult?.let { toolResult ->
-                        appendLine("Tool result: ${toolResult.content}")
+                    if (latestToolResult != null) {
+                        // After a tool round trip the demo reply is one readable line about the
+                        // result; the tool card already shows the details.
+                        append("Done with ").append(requestedTool).append(": ")
+                        append(
+                            latestToolResult.content
+                                .lineSequence()
+                                .firstOrNull()
+                                .orEmpty()
+                                .take(MAX_TOOL_ECHO_CHARS),
+                        )
+                    } else if (lastUserMessage.isBlank()) {
+                        append("Hello from the offline fake provider.")
+                    } else {
+                        append("Reply: ").append(lastUserMessage.take(MAX_ECHO_CHARS))
                     }
-                    append("Reply: $lastUserMessage")
+                    if (request.runMode == ModelRunMode.Scheduled) {
+                        append("\nRun mode: scheduled.")
+                    }
                 },
         )
     }
 
+    private fun String.toJsonObjectOrNull(): JsonObject? =
+        takeIf(String::isNotBlank)?.let { raw ->
+            runCatching { FAKE_JSON.parseToJsonElement(raw).jsonObject }.getOrNull()
+        }
+
     companion object {
-        private val TOOL_MARKER = Regex("""\[tool:([A-Za-z0-9._-]+)]""")
+        // Android's ICU regex engine rejects unescaped `}` and `]` that the JVM accepts.
+        private val TOOL_MARKER = Regex("""\[tool:([A-Za-z0-9._-]+)(?:\s+(\{.*?\}))?\]""")
+        private val FAKE_JSON = Json { ignoreUnknownKeys = true }
+        private const val MAX_ECHO_CHARS = 500
+        private const val MAX_TOOL_ECHO_CHARS = 300
     }
 }

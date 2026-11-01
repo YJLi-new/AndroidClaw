@@ -1,41 +1,54 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.BuildConfig
 import ai.androidclaw.R
-import ai.androidclaw.data.ProviderAuthMode
-import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.ThemePreference
-import ai.androidclaw.ui.components.ClawActionPill
 import ai.androidclaw.ui.components.ClawCard
-import ai.androidclaw.ui.components.ClawChoicePill
-import ai.androidclaw.ui.components.ClawGreen
-import ai.androidclaw.ui.components.ClawGreenMuted
-import ai.androidclaw.ui.components.ClawIconBadge
-import ai.androidclaw.ui.components.ClawInk
-import ai.androidclaw.ui.components.ClawInkMuted
-import ai.androidclaw.ui.components.ClawPage
-import ai.androidclaw.ui.components.ClawPrimaryButton
-import ai.androidclaw.ui.components.ClawScreenHeader
+import ai.androidclaw.ui.components.ClawConfirmDialog
+import ai.androidclaw.ui.components.ClawIcon
+import ai.androidclaw.ui.components.ClawListItem
+import ai.androidclaw.ui.components.ClawNotice
+import ai.androidclaw.ui.components.ClawSectionHeader
+import ai.androidclaw.ui.components.ClawStatusBadge
+import ai.androidclaw.ui.components.ClawTopBar
+import ai.androidclaw.ui.components.NoticeTone
+import ai.androidclaw.ui.locale.AppLanguage
+import ai.androidclaw.ui.locale.AppLocaleController
+import ai.androidclaw.ui.text.asString
+import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -43,503 +56,342 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onOpenSetupGuide: (() -> Unit)? = null,
+    onOpenDiagnostics: () -> Unit = {},
+    onOpenWorkspace: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val uriHandler = LocalUriHandler.current
+    var confirmClearMemory by remember { mutableStateOf(false) }
 
-    ClawPage(modifier = Modifier.fillMaxSize()) {
+    Scaffold(
+        modifier = Modifier.testTag("settingsScreen"),
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
+            ClawTopBar(
+                title = stringResource(R.string.settings_title),
+                titleTestTag = "settingsHeading",
+            )
+        },
+    ) { padding ->
         Column(
             modifier =
                 Modifier
                     .fillMaxSize()
+                    .padding(padding)
+                    .imePadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .padding(bottom = 24.dp),
         ) {
-            ClawScreenHeader(
-                iconRes = R.drawable.ic_nav_settings,
-                title = "Settings",
-                subtitle = "Choose providers, theme preferences, and connection defaults for AndroidClaw.",
-                titleTestTag = "settingsHeading",
-                iconBackground = ClawGreenMuted,
-            )
-            AppearanceCard(
-                themePreference = state.themePreference,
-                onSelectTheme = viewModel::selectThemePreference,
-            )
-            MemoryCard(
-                enabled = state.memoryEnabled,
-                memoryCount = state.memoryStoredCount,
-                installUserId = state.memoryInstallUserId,
-                onSetEnabled = viewModel::setMemoryEnabled,
-                onClearMemory = viewModel::clearMemory,
-            )
-            ProviderCard(
+            ClawSectionHeader(stringResource(R.string.settings_section_provider))
+            ProviderSection(state = state, viewModel = viewModel, onOpenSetupGuide = onOpenSetupGuide)
+
+            ClawSectionHeader(stringResource(R.string.settings_section_memory))
+            MemorySection(
                 state = state,
-                onOpenSetupGuide = onOpenSetupGuide,
-                onSelectProvider = viewModel::selectProviderType,
-                onBaseUrlChanged = viewModel::onBaseUrlChanged,
-                onModelIdChanged = viewModel::onModelIdChanged,
-                onTimeoutChanged = viewModel::onTimeoutChanged,
-                onApiKeyChanged = viewModel::onApiKeyChanged,
-                onClearApiKey = viewModel::clearStoredApiKey,
-                onStartCodexSignIn = viewModel::startOpenAiCodexDeviceCodeSignIn,
-                onCancelCodexSignIn = viewModel::cancelOpenAiCodexDeviceCodeSignIn,
-                onClearCodexSignIn = viewModel::clearOpenAiCodexSignIn,
-                onOpenVerificationUrl = { uriHandler.openUri(it) },
-                onSave = viewModel::save,
-                onTestConnection = viewModel::validateConnection,
+                onSetEnabled = viewModel::setMemoryEnabled,
+                onClear = { confirmClearMemory = true },
             )
-            ClawCard {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    SettingsSectionHeader(
-                        iconRes = R.drawable.ic_nav_health,
-                        title = "Build posture",
-                    )
-                    Text(
-                        text = state.buildPosture,
-                        color = ClawInkMuted,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-    }
-}
+            ClawListItem(
+                title = stringResource(R.string.settings_workspace),
+                supporting = stringResource(R.string.settings_workspace_summary),
+                leadingIcon = R.drawable.ic_edit,
+                onClick = onOpenWorkspace,
+                modifier = Modifier.testTag("settingsWorkspaceItem"),
+                trailing = { ClawIcon(iconRes = R.drawable.ic_chevron_right, contentDescription = null) },
+            )
 
-@Composable
-private fun AppearanceCard(
-    themePreference: ThemePreference,
-    onSelectTheme: (ThemePreference) -> Unit,
-) {
-    ClawCard {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            SettingsSectionHeader(
-                iconRes = R.drawable.ic_nav_settings,
-                title = "Appearance",
+            ClawSectionHeader(stringResource(R.string.settings_section_appearance))
+            ThemeSelector(selected = state.themePreference, onSelect = viewModel::selectThemePreference)
+
+            ClawSectionHeader(stringResource(R.string.settings_section_language))
+            LanguageSelector()
+
+            ClawSectionHeader(stringResource(R.string.settings_section_advanced))
+            ClawListItem(
+                title = stringResource(R.string.settings_diagnostics),
+                supporting = stringResource(R.string.settings_diagnostics_summary),
+                leadingIcon = R.drawable.ic_bug,
+                onClick = onOpenDiagnostics,
+                modifier = Modifier.testTag("settingsDiagnosticsItem"),
+                trailing = { ClawIcon(iconRes = R.drawable.ic_chevron_right, contentDescription = null) },
             )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ThemePreference.entries.forEach { preference ->
-                    ClawActionPill(
-                        text = preference.displayName,
-                        selected = themePreference == preference,
-                        onClick = { onSelectTheme(preference) },
-                        modifier = Modifier.widthIn(min = 94.dp),
-                    )
-                }
-            }
+
+            ClawSectionHeader(stringResource(R.string.settings_section_about))
+            ClawListItem(
+                title = stringResource(R.string.app_name),
+                supporting = stringResource(R.string.settings_about_version, BuildConfig.VERSION_NAME, BuildConfig.BUILD_TYPE),
+                leadingIcon = R.drawable.ic_info,
+                modifier = Modifier.testTag("settingsAboutItem"),
+            )
             Text(
-                text = "Current theme: ${themePreference.displayName}",
-                color = ClawInkMuted,
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.settings_about_body),
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    if (confirmClearMemory) {
+        ClawConfirmDialog(
+            title = stringResource(R.string.settings_memory_clear_title),
+            text = pluralStringResource(R.plurals.settings_memory_clear_body, state.memoryStoredCount, state.memoryStoredCount),
+            confirmLabel = stringResource(R.string.settings_memory_clear),
+            destructive = true,
+            onConfirm = {
+                confirmClearMemory = false
+                viewModel.clearMemory()
+            },
+            onDismiss = { confirmClearMemory = false },
+        )
     }
 }
 
 @Composable
-private fun MemoryCard(
-    enabled: Boolean,
-    memoryCount: Int,
-    installUserId: String,
-    onSetEnabled: (Boolean) -> Unit,
-    onClearMemory: () -> Unit,
-) {
-    ClawCard {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            SettingsSectionHeader(
-                iconRes = R.drawable.ic_nav_skills,
-                title = "Memory",
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ClawActionPill(
-                    text = "On",
-                    selected = enabled,
-                    onClick = { onSetEnabled(true) },
-                    modifier = Modifier.testTag("memoryEnableButton"),
-                )
-                ClawActionPill(
-                    text = "Off",
-                    selected = !enabled,
-                    onClick = { onSetEnabled(false) },
-                    modifier = Modifier.testTag("memoryDisableButton"),
-                )
-                ClawChoicePill(
-                    text = "Clear memory",
-                    selected = false,
-                    onClick = onClearMemory,
-                    enabled = memoryCount > 0,
-                    modifier = Modifier.testTag("memoryClearButton"),
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsStatusLine(
-                    label = "Status",
-                    value = if (enabled) "Enabled" else "Disabled",
-                    valueIsGood = enabled,
-                    modifier = Modifier.testTag("memoryStatusText"),
-                )
-                SettingsStatusLine(
-                    label = "Stored",
-                    value = memoryCount.toString(),
-                    valueIsGood = memoryCount > 0,
-                    modifier = Modifier.testTag("memoryCountText"),
-                )
-                SettingsStatusLine(
-                    label = "Scope",
-                    value = if (installUserId.isBlank()) "Pending" else "Local device only",
-                    valueIsGood = installUserId.isNotBlank(),
-                    modifier = Modifier.testTag("memoryInstallUserIdText"),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProviderCard(
+private fun ProviderSection(
     state: SettingsUiState,
+    viewModel: SettingsViewModel,
     onOpenSetupGuide: (() -> Unit)?,
-    onSelectProvider: (ProviderType) -> Unit,
-    onBaseUrlChanged: (String) -> Unit,
-    onModelIdChanged: (String) -> Unit,
-    onTimeoutChanged: (String) -> Unit,
-    onApiKeyChanged: (String) -> Unit,
-    onClearApiKey: () -> Unit,
-    onStartCodexSignIn: () -> Unit,
-    onCancelCodexSignIn: () -> Unit,
-    onClearCodexSignIn: () -> Unit,
-    onOpenVerificationUrl: (String) -> Unit,
-    onSave: () -> Unit,
-    onTestConnection: () -> Unit,
 ) {
-    ClawCard {
+    val uriHandler = LocalUriHandler.current
+    ClawCard(modifier = Modifier.padding(horizontal = 16.dp)) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            ProviderPicker(
+                providers = state.availableProviders,
+                selected = state.providerType,
+                onSelect = viewModel::selectProviderType,
+            )
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SettingsSectionHeader(
-                    iconRes = R.drawable.ic_nav_settings,
-                    title = "Provider",
-                    modifier = Modifier.weight(1f),
+                ClawStatusBadge(
+                    text =
+                        stringResource(
+                            if (state.configured) R.string.settings_status_configured else R.string.settings_status_not_configured,
+                        ),
+                    tone = if (state.configured) NoticeTone.Success else NoticeTone.Warning,
+                    modifier = Modifier.testTag("providerConfiguredBadge"),
                 )
-                onOpenSetupGuide?.let { openSetupGuide ->
-                    ClawPrimaryButton(
-                        text = "Run setup guide",
-                        onClick = openSetupGuide,
-                        iconRes = R.drawable.ic_send_enter,
-                        modifier = Modifier.widthIn(max = 190.dp),
+                if (state.providerType.requiresRemoteSettings) {
+                    ClawStatusBadge(
+                        text = networkLabel(state),
+                        tone = if (state.networkConnected) NoticeTone.Info else NoticeTone.Error,
                     )
                 }
+                Text(
+                    text = state.activeProviderId,
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .testTag("activeProviderText"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                state.availableProviders.forEach { providerType ->
-                    ClawChoicePill(
-                        text = providerType.displayName,
-                        selected = state.providerType == providerType,
-                        onClick = { onSelectProvider(providerType) },
-                        modifier =
-                            Modifier
-                                .widthIn(min = 112.dp)
-                                .testTag("providerChip-${providerType.storageValue}"),
-                    )
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsStatusLine(
-                    label = "Active provider",
-                    value = state.activeProviderId,
-                    valueIsGood = true,
-                    modifier = Modifier.testTag("activeProviderText"),
-                )
-                SettingsStatusLine(
-                    label = "Network",
-                    value = state.networkSummary,
-                    valueIsGood = state.networkSummary.contains("connected", ignoreCase = true),
-                )
-                state.connectionHint?.let { hint ->
-                    Text(
-                        text = hint,
-                        color = ClawInkMuted,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-                SettingsStatusLine(
-                    label = "Configured",
-                    value = state.configured.toString(),
-                    valueIsGood = state.configured,
+            state.connectionHint?.let { hint ->
+                Text(
+                    text = hint.asString(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (state.providerType.requiresRemoteSettings) {
                 ProviderFields(
                     state = state,
-                    onBaseUrlChanged = onBaseUrlChanged,
-                    onModelIdChanged = onModelIdChanged,
-                    onTimeoutChanged = onTimeoutChanged,
-                    onApiKeyChanged = onApiKeyChanged,
-                    onClearApiKey = onClearApiKey,
-                    onStartCodexSignIn = onStartCodexSignIn,
-                    onCancelCodexSignIn = onCancelCodexSignIn,
-                    onClearCodexSignIn = onClearCodexSignIn,
-                    onOpenVerificationUrl = onOpenVerificationUrl,
+                    callbacks =
+                        ProviderFieldCallbacks(
+                            onBaseUrlChanged = viewModel::onBaseUrlChanged,
+                            onModelIdChanged = viewModel::onModelIdChanged,
+                            onTimeoutChanged = viewModel::onTimeoutChanged,
+                            onApiKeyChanged = viewModel::onApiKeyChanged,
+                            onClearApiKey = viewModel::clearStoredApiKey,
+                            onStartCodexSignIn = viewModel::startOpenAiCodexDeviceCodeSignIn,
+                            onCancelCodexSignIn = viewModel::cancelOpenAiCodexDeviceCodeSignIn,
+                            onClearCodexSignIn = viewModel::clearOpenAiCodexSignIn,
+                            onOpenVerificationUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                        ),
+                    fieldTagPrefix = "provider",
+                    codexTagPrefix = "",
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ClawPrimaryButton(
-                    text = "Save",
-                    onClick = onSave,
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = viewModel::save,
                     enabled = !state.isValidatingConnection,
                     modifier =
                         Modifier
                             .weight(1f)
                             .testTag("saveProviderSettingsButton"),
-                )
-                ClawChoicePill(
-                    text = if (state.isValidatingConnection) "Testing..." else "Test connection",
-                    selected = false,
-                    onClick = onTestConnection,
+                ) {
+                    Text(stringResource(R.string.action_save))
+                }
+                OutlinedButton(
+                    onClick = viewModel::validateConnection,
                     enabled = !state.isValidatingConnection,
                     modifier =
                         Modifier
                             .weight(1f)
                             .testTag("testProviderConnectionButton"),
-                )
+                ) {
+                    if (state.isValidatingConnection) {
+                        CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp).padding(2.dp), strokeWidth = 2.dp)
+                    }
+                    Text(stringResource(if (state.isValidatingConnection) R.string.settings_testing else R.string.settings_test))
+                }
             }
             state.statusMessage?.let { message ->
-                Text(
-                    text = message,
+                ClawNotice(
+                    text = message.asString(),
                     modifier = Modifier.testTag("settingsStatusMessage"),
-                    color = if (state.lastValidationSucceeded) ClawGreen else ClawInkMuted,
-                    style = MaterialTheme.typography.bodyMedium,
+                    tone = if (state.lastValidationSucceeded) NoticeTone.Success else NoticeTone.Info,
                 )
             }
         }
     }
+    onOpenSetupGuide?.let { openGuide ->
+        ClawListItem(
+            title = stringResource(R.string.settings_setup_guide),
+            supporting = stringResource(R.string.settings_setup_guide_summary),
+            leadingIcon = R.drawable.ic_cloud,
+            onClick = openGuide,
+            modifier = Modifier.testTag("settingsSetupGuideItem"),
+        )
+    }
 }
 
 @Composable
-private fun ProviderFields(
+private fun networkLabel(state: SettingsUiState): String =
+    stringResource(
+        when {
+            !state.networkConnected -> R.string.settings_network_offline
+            !state.networkValidated -> R.string.settings_network_unvalidated
+            state.networkMetered -> R.string.settings_network_metered
+            else -> R.string.settings_network_online
+        },
+    )
+
+@Composable
+private fun MemorySection(
     state: SettingsUiState,
-    onBaseUrlChanged: (String) -> Unit,
-    onModelIdChanged: (String) -> Unit,
-    onTimeoutChanged: (String) -> Unit,
-    onApiKeyChanged: (String) -> Unit,
-    onClearApiKey: () -> Unit,
-    onStartCodexSignIn: () -> Unit,
-    onCancelCodexSignIn: () -> Unit,
-    onClearCodexSignIn: () -> Unit,
-    onOpenVerificationUrl: (String) -> Unit,
+    onSetEnabled: (Boolean) -> Unit,
+    onClear: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(
-            value = state.baseUrl,
-            onValueChange = onBaseUrlChanged,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .testTag("providerBaseUrlField"),
-            label = { Text("Base URL") },
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = state.modelId,
-            onValueChange = onModelIdChanged,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .testTag("providerModelIdField"),
-            label = { Text("Model ID") },
-            placeholder = { Text("e.g., codex-1, codex-1-mini") },
-            singleLine = true,
-        )
-        OutlinedTextField(
-            value = state.timeoutSeconds,
-            onValueChange = onTimeoutChanged,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .testTag("providerTimeoutField"),
-            label = { Text("Timeout seconds") },
-            singleLine = true,
-        )
-        when (state.authMode) {
-            ProviderAuthMode.None -> Unit
-            ProviderAuthMode.ApiKey -> {
-                OutlinedTextField(
-                    value = state.apiKeyDraft,
-                    onValueChange = onApiKeyChanged,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .testTag("providerApiKeyField"),
-                    label = {
-                        Text(
-                            if (state.hasStoredApiKey) {
-                                "API key (leave blank to keep stored key)"
-                            } else {
-                                "API key"
-                            },
-                        )
-                    },
-                    singleLine = true,
-                )
-                if (state.hasStoredApiKey) {
-                    ClawChoicePill(
-                        text = "Clear stored API key",
-                        selected = false,
-                        onClick = onClearApiKey,
-                        modifier = Modifier.testTag("clearStoredApiKeyButton"),
-                    )
-                }
-            }
-
-            ProviderAuthMode.OpenAiCodexDeviceCode -> {
-                Text(
-                    text =
-                        if (state.hasOAuthCredential) {
-                            "Signed in: ${state.oAuthProfileLabel.orEmpty()}"
-                        } else {
-                            "OpenAI Codex requires device-code sign-in."
-                        },
-                    modifier = Modifier.testTag("openAiCodexAuthStatus"),
-                    color = ClawInkMuted,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                state.oAuthExpiresAtText?.let { expires ->
-                    Text(expires, color = ClawInkMuted, style = MaterialTheme.typography.bodyMedium)
-                }
-                state.deviceCodeUserCode?.let { code ->
-                    Text(
-                        text = "Code: $code",
-                        modifier = Modifier.testTag("openAiCodexDeviceCode"),
-                        color = ClawInk,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                state.deviceCodeVerificationUrl?.let { url ->
-                    Text(
-                        text = url,
-                        modifier = Modifier.testTag("openAiCodexVerificationUrl"),
-                        color = ClawInkMuted,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    ClawPrimaryButton(
-                        text = if (state.isSigningInWithOpenAiCodex) "Signing in..." else "Sign in with OpenAI",
-                        onClick = onStartCodexSignIn,
-                        enabled = !state.isSigningInWithOpenAiCodex,
-                        modifier = Modifier.testTag("openAiCodexSignInButton"),
-                    )
-                    state.deviceCodeVerificationUrl?.let { url ->
-                        ClawChoicePill(
-                            text = "Open verification page",
-                            selected = false,
-                            onClick = { onOpenVerificationUrl(url) },
-                            modifier = Modifier.testTag("openAiCodexOpenVerificationButton"),
-                        )
-                    }
-                    if (state.isSigningInWithOpenAiCodex) {
-                        ClawChoicePill(
-                            text = "Cancel",
-                            selected = false,
-                            onClick = onCancelCodexSignIn,
-                            modifier = Modifier.testTag("openAiCodexCancelSignInButton"),
-                        )
-                    }
-                    if (state.hasOAuthCredential) {
-                        ClawChoicePill(
-                            text = "Clear sign-in",
-                            selected = false,
-                            onClick = onClearCodexSignIn,
-                            modifier = Modifier.testTag("clearOpenAiCodexSignInButton"),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsSectionHeader(
-    iconRes: Int,
-    title: String,
-    modifier: Modifier = Modifier,
-) {
+    ClawListItem(
+        title = stringResource(R.string.settings_memory_toggle),
+        supporting = stringResource(R.string.settings_memory_help),
+        leadingIcon = R.drawable.ic_lightbulb,
+        onClick = { onSetEnabled(!state.memoryEnabled) },
+        modifier = Modifier.testTag("memoryToggleItem"),
+        trailing = {
+            Switch(
+                checked = state.memoryEnabled,
+                onCheckedChange = onSetEnabled,
+                modifier = Modifier.testTag("memoryEnabledSwitch"),
+            )
+        },
+    )
     Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ClawIconBadge(iconRes = iconRes)
         Text(
-            text = title,
-            color = ClawInk,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
+            text = pluralStringResource(R.plurals.settings_memory_count, state.memoryStoredCount, state.memoryStoredCount),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .testTag("memoryCountText"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        OutlinedButton(
+            onClick = onClear,
+            enabled = state.memoryStoredCount > 0,
+            modifier = Modifier.testTag("memoryClearButton"),
+        ) {
+            Text(stringResource(R.string.settings_memory_clear))
+        }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsStatusLine(
-    label: String,
-    value: String,
-    valueIsGood: Boolean,
-    modifier: Modifier = Modifier,
+private fun ThemeSelector(
+    selected: ThemePreference,
+    onSelect: (ThemePreference) -> Unit,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top,
+    val options = ThemePreference.entries
+    SingleChoiceSegmentedButtonRow(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
     ) {
-        Text(
-            text = label,
-            color = ClawInkMuted,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.widthIn(min = 112.dp),
-        )
-        Text(
-            text = value,
-            color = if (valueIsGood) ClawGreen else ClawInk,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        options.forEachIndexed { index, preference ->
+            SegmentedButton(
+                selected = selected == preference,
+                onClick = { onSelect(preference) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                modifier = Modifier.testTag("themeOption-${preference.storageValue}"),
+            ) {
+                Text(
+                    stringResource(
+                        when (preference) {
+                            ThemePreference.System -> R.string.settings_theme_system
+                            ThemePreference.Light -> R.string.settings_theme_light
+                            ThemePreference.Dark -> R.string.settings_theme_dark
+                        },
+                    ),
+                )
+            }
+        }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguageSelector() {
+    val context = LocalContext.current
+    val current = remember(context) { AppLocaleController.current(context) }
+    val options = AppLanguage.entries
+    SingleChoiceSegmentedButtonRow(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+    ) {
+        options.forEachIndexed { index, language ->
+            SegmentedButton(
+                selected = current == language,
+                onClick = {
+                    (context as? Activity)?.let { activity -> AppLocaleController.apply(activity, language) }
+                },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                modifier = Modifier.testTag("languageOption-${language.name}"),
+            ) {
+                Text(
+                    stringResource(
+                        when (language) {
+                            AppLanguage.System -> R.string.settings_language_system
+                            AppLanguage.English -> R.string.settings_language_english
+                            AppLanguage.SimplifiedChinese -> R.string.settings_language_chinese
+                        },
+                    ),
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+    Text(
+        text = stringResource(R.string.settings_language_help),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

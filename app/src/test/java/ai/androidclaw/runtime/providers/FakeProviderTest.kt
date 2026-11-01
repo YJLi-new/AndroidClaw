@@ -84,7 +84,7 @@ class FakeProviderTest {
                 )
 
             assertEquals("stop", response.finishReason)
-            assertTrue(response.text.contains("Tool result: Tool result: Health okay"))
+            assertEquals("Done with health.status: Tool result: Health okay", response.text)
         }
 
     @Test
@@ -105,6 +105,62 @@ class FakeProviderTest {
 
             assertEquals("stop", response.finishReason)
             assertTrue(response.toolCalls.isEmpty())
+        }
+
+    @Test
+    fun `plain replies are short and carry no internal ids`() =
+        runTest {
+            val response =
+                provider.generate(
+                    request(messageHistory = listOf(ModelMessage(role = ModelMessageRole.User, content = "hello"))),
+                )
+
+            assertEquals("Reply: hello", response.text)
+        }
+
+    @Test
+    fun `tool marker accepts json arguments`() =
+        runTest {
+            val response =
+                provider.generate(
+                    request(
+                        messageHistory =
+                            listOf(ModelMessage(role = ModelMessageRole.User, content = """[tool:set_timer {"seconds":60}]""")),
+                    ),
+                )
+
+            assertEquals("set_timer", response.toolCalls.single().name)
+            assertEquals(
+                "60",
+                response.toolCalls
+                    .single()
+                    .argumentsJson["seconds"]
+                    .toString(),
+            )
+        }
+
+    @Test
+    fun `tool results from earlier turns do not satisfy a new marker`() =
+        runTest {
+            val response =
+                provider.generate(
+                    request(
+                        messageHistory =
+                            listOf(
+                                ModelMessage(role = ModelMessageRole.User, content = "[tool:health.status]"),
+                                ModelMessage(
+                                    role = ModelMessageRole.Tool,
+                                    content = "old",
+                                    toolCallId = "call-1",
+                                    toolName = "health.status",
+                                ),
+                                ModelMessage(role = ModelMessageRole.Assistant, content = "Reply"),
+                                ModelMessage(role = ModelMessageRole.User, content = "again [tool:health.status]"),
+                            ),
+                    ),
+                )
+
+            assertEquals("tool_use", response.finishReason)
         }
 
     private fun request(messageHistory: List<ModelMessage>): ModelRequest =

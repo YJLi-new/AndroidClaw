@@ -8,6 +8,7 @@ import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import kotlinx.coroutines.CancellationException
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 data class TaskRuntimeExecution(
@@ -135,8 +136,11 @@ class TaskRuntimeExecutor(
         return targetSession?.id ?: sessionRepository.getOrCreateMainSession().id
     }
 
+    /** A readable drawer title, e.g. "Hourly pulse · 2026-10-31 07:02" in the device time zone. */
     private fun buildIsolatedSessionTitle(task: Task): String {
-        val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
-        return "Task ${task.name} $timestamp"
+        val timestamp = ISOLATED_TITLE_TIME.format(Instant.now().atZone(ZoneId.systemDefault()))
+        return "${task.name} · $timestamp"
     }
 }
+
+private val ISOLATED_TITLE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")

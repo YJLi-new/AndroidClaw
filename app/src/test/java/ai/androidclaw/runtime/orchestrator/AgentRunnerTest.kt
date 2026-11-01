@@ -450,13 +450,13 @@ class AgentRunnerTest {
 
             val storedMessages = messageRepository.getRecentMessages(sessionId, limit = 10)
 
-            assertTrue(result.assistantMessage.contains("Reply: Please inspect [tool:health.status]"))
+            assertTrue(result.assistantMessage.startsWith("Done with health.status: "))
             assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolCall })
             assertTrue(storedMessages.any { it.role == ai.androidclaw.data.model.MessageRole.ToolResult })
             assertTrue(
                 storedMessages.any { message ->
                     message.role == ai.androidclaw.data.model.MessageRole.Assistant &&
-                        message.content.contains("Tool result:")
+                        message.content.startsWith("Done with health.status: ")
                 },
             )
         }

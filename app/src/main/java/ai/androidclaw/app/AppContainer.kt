@@ -6,6 +6,7 @@ import ai.androidclaw.data.AndroidSkillSecretStore
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.WorkspaceStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.EventLogRepository
@@ -14,6 +15,7 @@ import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.runtime.device.AppForegroundState
 import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
@@ -44,6 +46,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.Clock
 
 class AppContainer(
@@ -96,6 +99,9 @@ class AppContainer(
         )
     val taskNotifier = AndroidTaskNotifier(application)
 
+    /** App-private persona/workspace files (AGENTS.md, SOUL.md, USER.md, MEMORY.md, notes). */
+    val workspaceStore = WorkspaceStore(File(application.filesDir, WorkspaceStore.DIRECTORY_NAME))
+
     val toolRegistry =
         createBuiltInToolRegistry(
             application = application,
@@ -111,48 +117,13 @@ class AppContainer(
                     forceRefresh = forceRefresh,
                 )
             },
-            skillConfigurationReader = { skill -> skillManagerRef.readConfiguration(skill) },
-            skillConfigurationUpdater = { skill, configPath, value ->
-                skillManagerRef.saveSkillConfiguration(
-                    skillKey = skill.skillKey,
-                    secretUpdates = emptyMap(),
-                    configUpdates = mapOf(configPath to value),
-                )
-                val reloadedSkill =
-                    skillManagerRef
-                        .refreshSkillInventory(
-                            sessionId = skill.workspaceSessionId,
-                            forceRefresh = true,
-                        ).find { candidate -> candidate.id == skill.id }
-                        ?: skill
-                skillManagerRef.readConfiguration(reloadedSkill)
-            },
-            skillSecretClearer = { skill, envName ->
-                skillManagerRef.saveSkillConfiguration(
-                    skillKey = skill.skillKey,
-                    secretUpdates = mapOf(envName to null),
-                    configUpdates = emptyMap(),
-                )
-                val reloadedSkill =
-                    skillManagerRef
-                        .refreshSkillInventory(
-                            sessionId = skill.workspaceSessionId,
-                            forceRefresh = true,
-                        ).find { candidate -> candidate.id == skill.id }
-                        ?: skill
-                skillManagerRef.readConfiguration(reloadedSkill)
-            },
-            skillPackageImporter = { entries, enableImported, importConfigValues ->
-                skillManagerRef.importSkillPackage(
-                    entries = entries,
-                    enableImported = enableImported,
-                    importConfigValues = importConfigValues,
-                )
-            },
-            providerSecretStore = providerSecretStore,
             messageRepository = messageRepository,
             memoryRepository = memoryRepository,
             eventLogRepository = eventLogRepository,
+            workspaceStore = workspaceStore,
+            webHttpClient = providerHttpClient,
+            networkStatusProvider = networkStatusProvider,
+            isAppInForeground = AppForegroundState::isInForeground,
             clock = clock,
         )
 
@@ -260,6 +231,7 @@ class AppContainer(
             loadSessionSummary = { sessionId -> sessionRepository.getSession(sessionId)?.summaryText },
             loadSessionCompactionBoundary = { sessionId -> sessionRepository.getSession(sessionId)?.compactedUntilMessageId },
             networkStatusProvider = networkStatusProvider,
+            workspaceContextProvider = { workspaceStore.promptContext() },
         )
 
     val taskRuntimeExecutor =
@@ -337,6 +309,9 @@ class AppContainer(
                 networkStatusProvider = networkStatusProvider,
                 crashMarkerStore = crashMarkerStore,
             )
+
+    val workspaceDependencies: WorkspaceDependencies
+        get() = WorkspaceDependencies(workspaceStore = workspaceStore)
 
     suspend fun ensureMainSession() {
         suspend fun ensureReadyMessage(sessionId: String) {

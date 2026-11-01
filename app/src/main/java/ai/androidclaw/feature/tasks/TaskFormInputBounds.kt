@@ -1,10 +1,7 @@
 package ai.androidclaw.feature.tasks
 
-internal const val TASK_FORM_ONCE_AT_MAX_CHARS = 80
 internal const val TASK_FORM_INTERVAL_MINUTES_MAX_CHARS = 20
 internal const val TASK_FORM_CRON_EXPRESSION_MAX_CHARS = 120
-internal const val TASK_FORM_INPUT_TRUNCATED_MESSAGE =
-    "Task form input truncated by AndroidClaw to keep the scheduler screen responsive."
 
 internal data class BoundedTaskFormInput(
     val value: String,
@@ -22,10 +19,3 @@ internal fun boundTaskFormInput(
         wasTruncated = value.length > boundedValue.length,
     )
 }
-
-internal fun String?.clearTaskFormTruncationMessage(): String? =
-    if (this == TASK_FORM_INPUT_TRUNCATED_MESSAGE) {
-        null
-    } else {
-        this
-    }
