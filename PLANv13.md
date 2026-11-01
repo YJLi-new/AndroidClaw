@@ -1,6 +1,6 @@
 # PLANv13 - Media, web search and voice
 
-Status: active — final gate green, PR open; merge into `main` waits for the user (2026-11-01)
+Status: complete — merged into `main` through PR #2 after green CI (2026-11-01)
 Owner: main session (planning, merges, pushes) + Opus subagents (execution)
 Started: 2026-11-01
 Supersedes: `PLANv12.md` (kept at the root, marked superseded)
@@ -367,3 +367,7 @@ transcription and TTS) for devices without system speech engines.
   0 FATAL lines; QA 3,244,963 B, release 3,232,675 B. Key scan of the v13
   history and tree: 0. `rework/v13` pushed with a PR; merging into `main`
   waits for the user. Live video generation not run (user has not decided).
+- 2026-11-01: PR #2 (https://github.com/YJLi-new/AndroidClaw/pull/2) CI run
+  41312788258 on 69edd17 green: fast 6m50s, security-hardening 8m25s,
+  packaging 9m01s. Merged into `main` per the user ("通过后合并"): merge
+  commit 4f7d1ef. Live video generation is still contract-tested only.
