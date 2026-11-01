@@ -1,6 +1,6 @@
 # PLANv12 - Rework: lean runtime, phone-first UI, verified end to end
 
-Status: active
+Status: complete — merged into `main` through PR #1 after green CI (2026-11-01)
 Owner: main session (planning, merges, pushes) + Opus subagents (execution)
 Started: 2026-10-30
 Supersedes: `docs/past_plans/PLANv11.md`
@@ -134,3 +134,4 @@ Delivery is a `rework/v12` branch pushed to `origin` with a PR; merging into
 - 2026-10-31 03:10: int line done (6d3b412): first joint build crashed on launch (FakeProvider regex rejected by Android ICU) — fixed with 10 more bugs; tool cards, workspace editor, memory UX, notification permission on first task, ktlint gate, `--offline` works; journey EN 13/13, zh 10/10, scheduler 4/4 on device, QA APK launches. Revision 1 (24d19c1): one skill state label, stale EN shots retaken. Merged at db3b8f5 and ed88f88. Known limitation: FakeProvider replies and model-facing tool summaries are English only.
 - 2026-10-31 03:35: doc revision 1 (5e3d4c7): 18 screenshots from the final build, final counts, int features. Merged at 20926c4. Site checked in a browser at 1024 and 375 px: 16/16 images load, no horizontal scroll.
 - 2026-10-31 03:50: Final gate on ed88f88 (20926c4 adds docs only): ktlint 0; assembleDebug + testDebugUnitTest + lintDebug + assembleQa + assembleRelease + bundleRelease BUILD SUCCESSFUL; unit 508/512 pass, 4 skipped (OpenAI live, no key), 0 fail; lint 0 errors, 26 warnings; instrumentation on AndroidClawApi34 10/10 + ExactAlarmRegressionTest 1/1 granted and 1/1 denied; launch smoke 0 FATAL lines. Key scan of git history and tree: 0. Batch 3: push `rework/v12`, open PR; merge to `main` waits for the user.
+- 2026-11-01: PR #1 opened (https://github.com/YJLi-new/AndroidClaw/pull/1). User: "通过后合并" (merge after CI passes). CI had been red on `main` since 2026-06. Fixes to reach green: (1) 9a3e816 `setup-android` installs only `platform-tools` (its default list has the retired `tools` package, which current sdkmanager rejects); (2) int 32e0f58: `SkillRepositoryTest` race with Room's query thread; Compose resource reads through `LocalContext.current` in ChatScreen and DiagnosticsScreen (lint `LocalContextGetResourceValueCall`; the detector never fires on the workstation, so `ComposeResourceReadGuardTest` guards it in unit tests); (3) int 66288d9: three `ChatViewModelTest` cases subscribed to the hot `actions` SharedFlow after triggering it. Slow-runner sweep (2 cores + 2 busy loops): 9/9 green. CI run 41280251573 on 8245019: fast, packaging, security-hardening pass; unit 510/514 (4 live skipped).
