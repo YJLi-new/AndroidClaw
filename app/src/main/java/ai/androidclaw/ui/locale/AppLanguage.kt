@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.LocaleManager
 import android.content.Context
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.os.Build
 import android.os.LocaleList
 import androidx.annotation.RequiresApi
@@ -83,6 +84,19 @@ object AppLocaleController {
         return Configuration(base.resources.configuration).apply {
             setLocales(LocaleList(locale))
         }
+    }
+
+    /**
+     * Resources in the app language for code that runs outside an activity (workers,
+     * notifications). [AppLanguage.System] returns the context's own resources.
+     */
+    fun localizedResources(context: Context): Resources {
+        val tag = current(context).languageTag ?: return context.resources
+        val configuration =
+            Configuration(context.resources.configuration).apply {
+                setLocales(LocaleList(Locale.forLanguageTag(tag)))
+            }
+        return context.createConfigurationContext(configuration).resources
     }
 
     private fun storedLanguageTag(context: Context): String? =
