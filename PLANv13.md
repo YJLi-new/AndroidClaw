@@ -279,3 +279,16 @@ transcription and TTS) for devices without system speech engines.
   `docs/past_plans/` would drop it from the repository.
 - 2026-11-01: User: "开工". Branch `rework/v13`; batch 1 dispatched (`media`,
   `search`).
+- 2026-11-01: `media` vision probe (gpt-6-luna, 512×512 red PNG, 5×7 pixel
+  font): HTTP 200 ×3, colour 3/3, text 0/3. Startup baseline v0.2.0 QA:
+  TotalTime median 2428 ms (2191–3465, 5 cold starts). Decision: continue M1
+  with one clarifying large-text probe (`notes/media_plan.md` Revision 1).
+- 2026-11-01: `search` line done (5eb0f1d, merged at 378b27b): hosted
+  `{"type":"web_search"}` accepted with function tools, HTTP 200 non-stream
+  and stream, 1 citation each, ~7.1–7.5 s; live hosted test pass; tool payload
+  12,889 → 13,343 B, model-facing tools 34 → 35; Brave contracts 9/9, Claude
+  hosted contracts 5/5; unit 510/514 → 543/548 (skips are live tests);
+  assembleDebug + testDebugUnitTest + lintDebug + ktlint green. Not run on
+  this line: QA/release builds, instrumentation.
+- Open bug for `int` (found by `search`, outside its area): the Claude stream
+  drops whitespace-only text deltas, which can glue words together.
