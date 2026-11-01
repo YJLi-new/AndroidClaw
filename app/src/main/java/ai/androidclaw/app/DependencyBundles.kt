@@ -5,6 +5,8 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.WebSearchKeyStore
 import ai.androidclaw.data.WorkspaceStore
+import ai.androidclaw.data.attachments.AttachmentImporter
+import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -26,6 +28,8 @@ data class ChatDependencies(
     val agentRunner: AgentRunner,
     val skillManager: SkillManager,
     val settingsDataStore: SettingsDataStore,
+    val attachmentRepository: AttachmentRepository? = null,
+    val attachmentImporter: AttachmentImporter? = null,
 )
 
 data class TasksDependencies(

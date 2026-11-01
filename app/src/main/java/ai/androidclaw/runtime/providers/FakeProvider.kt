@@ -29,6 +29,12 @@ class FakeProvider(
                 ?.content
                 ?.trim()
                 .orEmpty()
+        val lastUserImages =
+            request.messageHistory
+                .getOrNull(lastUserIndex)
+                ?.attachments
+                .orEmpty()
+                .filter { it.file != null }
         val marker = TOOL_MARKER.find(lastUserMessage)
         val requestedTool =
             marker
@@ -77,10 +83,17 @@ class FakeProvider(
                                 .orEmpty()
                                 .take(MAX_TOOL_ECHO_CHARS),
                         )
-                    } else if (lastUserMessage.isBlank()) {
+                    } else if (lastUserMessage.isBlank() && lastUserImages.isEmpty()) {
                         append("Hello from the offline fake provider.")
                     } else {
                         append("Reply: ").append(lastUserMessage.take(MAX_ECHO_CHARS))
+                    }
+                    if (latestToolResult == null && lastUserImages.isNotEmpty()) {
+                        // Deterministic image reply: count and pixel sizes of the images sent.
+                        if (lastUserMessage.isNotBlank()) append('\n')
+                        append("Images: ").append(lastUserImages.size).append(" (")
+                        append(lastUserImages.joinToString { "${it.width}×${it.height}" })
+                        append(")")
                     }
                     if (request.runMode == ModelRunMode.Scheduled) {
                         append("\nRun mode: scheduled.")

@@ -313,12 +313,17 @@ object ChatExportFormatter {
         return "${sessionPart}_$timestampPart"
     }
 
-    private fun ChatMessage.exportContent(): String =
-        if (role == MessageRole.ToolCall) {
-            content.redactToolCallExportContent()
-        } else {
-            content
-        }
+    private fun ChatMessage.exportContent(): String {
+        val text =
+            if (role == MessageRole.ToolCall) {
+                content.redactToolCallExportContent()
+            } else {
+                content
+            }
+        if (attachments.isEmpty()) return text
+        val listing = "Attachments: " + attachments.joinToString { it.displayName }
+        return if (text.isBlank()) listing else "$text\n$listing"
+    }
 
     private fun String.redactToolCallExportContent(): String {
         val jsonStart = indexOf('{').takeIf { index -> index >= 0 } ?: return this

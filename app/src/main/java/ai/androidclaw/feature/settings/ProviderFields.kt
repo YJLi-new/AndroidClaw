@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
@@ -18,15 +20,18 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,6 +56,7 @@ data class ProviderFieldCallbacks(
     val onCancelCodexSignIn: () -> Unit,
     val onClearCodexSignIn: () -> Unit,
     val onOpenVerificationUrl: (String) -> Unit,
+    val onAcceptsImagesChanged: ((Boolean) -> Unit)? = null,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -141,6 +147,30 @@ internal fun ProviderFields(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
+        val onAcceptsImagesChanged = callbacks.onAcceptsImagesChanged
+        if (onAcceptsImagesChanged != null && !state.providerType.defaultSupportsImages) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = state.acceptsImages,
+                            role = Role.Switch,
+                            onValueChange = onAcceptsImagesChanged,
+                        ).testTag("${fieldTagPrefix}AcceptsImagesSwitch"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_field_accepts_images), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.settings_field_accepts_images_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = state.acceptsImages, onCheckedChange = null)
+            }
+        }
         when (state.authMode) {
             ProviderAuthMode.None -> Unit
             ProviderAuthMode.ApiKey -> {

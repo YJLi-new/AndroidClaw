@@ -39,6 +39,7 @@ class AnthropicProvider(
         ProviderCapabilities(
             supportsStreamingText = true,
             supportsStreamingToolCalls = true,
+            supportsImages = true,
         )
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
@@ -178,13 +179,7 @@ class AnthropicProvider(
                 ModelMessageRole.User ->
                     AnthropicMessage(
                         role = "user",
-                        content =
-                            listOf(
-                                AnthropicRequestContentBlock(
-                                    type = "text",
-                                    text = message.content,
-                                ),
-                            ),
+                        content = message.toAnthropicUserContent(),
                     )
 
                 ModelMessageRole.Assistant ->
@@ -337,6 +332,9 @@ class AnthropicProvider(
         rawBody: String,
     ): ModelProviderException {
         val parsedMessage = json.extractProviderErrorMessage(rawBody)
+        if (isProviderImageRejection(statusCode, parsedMessage)) {
+            return imagesUnsupportedFailure(parsedMessage)
+        }
 
         return when (statusCode) {
             401, 403 ->
@@ -393,9 +391,41 @@ private data class AnthropicRequestContentBlock(
     @SerialName("tool_use_id")
     val toolUseId: String? = null,
     val content: String? = null,
+    val source: AnthropicImageSource? = null,
 )
 
 /** Function tools carry description and schema; server tools (web search) carry type and max_uses. */
+@Serializable
+private data class AnthropicImageSource(
+    val type: String,
+    @SerialName("media_type")
+    val mediaType: String,
+    val data: String,
+)
+
+/** Text block, then a marker text block before each image block; omitted images keep only the marker. */
+private fun ModelMessage.toAnthropicUserContent(): List<AnthropicRequestContentBlock> {
+    if (!hasInlineImages()) {
+        return listOf(AnthropicRequestContentBlock(type = "text", text = contentWithAttachmentMarkers()))
+    }
+    return buildList {
+        if (content.isNotBlank()) {
+            add(AnthropicRequestContentBlock(type = "text", text = content))
+        }
+        attachments.forEach { attachment ->
+            add(AnthropicRequestContentBlock(type = "text", text = attachment.marker()))
+            attachment.base64DataOrNull()?.let { data ->
+                add(
+                    AnthropicRequestContentBlock(
+                        type = "image",
+                        source = AnthropicImageSource(type = "base64", mediaType = attachment.mimeType, data = data),
+                    ),
+                )
+            }
+        }
+    }
+}
+
 @Serializable
 private data class AnthropicToolDefinition(
     val name: String,

@@ -216,6 +216,7 @@ private fun ProviderSection(
                             onCancelCodexSignIn = viewModel::cancelOpenAiCodexDeviceCodeSignIn,
                             onClearCodexSignIn = viewModel::clearOpenAiCodexSignIn,
                             onOpenVerificationUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                            onAcceptsImagesChanged = viewModel::onAcceptsImagesChanged,
                         ),
                     fieldTagPrefix = "provider",
                     codexTagPrefix = "",

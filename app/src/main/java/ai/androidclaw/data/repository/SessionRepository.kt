@@ -20,6 +20,7 @@ internal const val SESSION_SEARCH_MAX_LIMIT = 200
 
 class SessionRepository(
     private val dao: SessionDao,
+    private val attachmentRepository: AttachmentRepository? = null,
 ) {
     private val mainSessionMutex = Mutex()
 
@@ -77,7 +78,14 @@ class SessionRepository(
 
     suspend fun getSession(id: String): Session? = dao.getById(id)?.toDomain()
 
-    suspend fun deleteSession(id: String): Boolean = dao.deleteById(id) > 0
+    /** Messages and attachment rows cascade; the session attachment folder is removed here. */
+    suspend fun deleteSession(id: String): Boolean {
+        val deleted = dao.deleteById(id) > 0
+        if (deleted) {
+            attachmentRepository?.deleteSessionFiles(id)
+        }
+        return deleted
+    }
 
     suspend fun getSessionsWithCompactionBoundary(): List<Session> =
         dao

@@ -2,8 +2,10 @@ package ai.androidclaw.runtime.orchestrator
 
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.attachments.StagedAttachment
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.runtime.memory.MemoryCoordinator
@@ -24,6 +26,7 @@ import ai.androidclaw.runtime.providers.WebSearchCollector
 import ai.androidclaw.runtime.providers.offlineFailure
 import ai.androidclaw.runtime.providers.toPayload
 import ai.androidclaw.runtime.providers.toStorageString
+import ai.androidclaw.runtime.providers.withImageRequestBound
 import ai.androidclaw.runtime.skills.SkillCommandDispatch
 import ai.androidclaw.runtime.skills.SkillEligibilityStatus
 import ai.androidclaw.runtime.skills.SkillManager
@@ -57,6 +60,7 @@ data class AgentTurnRequest(
     val userMessage: String,
     val taskRunId: String? = null,
     val persistUserMessage: Boolean = true,
+    val attachments: List<StagedAttachment> = emptyList(),
 )
 
 enum class AgentTurnExitReason {
@@ -94,6 +98,7 @@ class AgentRunner(
     private val networkStatusProvider: NetworkStatusProvider? = null,
     private val workspaceContextProvider: (suspend () -> String?)? = null,
     private val webSearchPolicy: WebSearchPolicy? = null,
+    private val attachmentRepository: AttachmentRepository? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
         runTurn(
@@ -102,6 +107,7 @@ class AgentRunner(
             runMode = ModelRunMode.Interactive,
             taskRunId = request.taskRunId,
             persistUserMessage = request.persistUserMessage,
+            attachments = request.attachments,
         )
 
     fun runInteractiveTurnStream(request: AgentTurnRequest): Flow<AgentTurnEvent> =
@@ -113,6 +119,7 @@ class AgentRunner(
                         userMessage = request.userMessage,
                         taskRunId = request.taskRunId,
                         persistUserMessage = request.persistUserMessage,
+                        attachments = request.attachments,
                         emitEvent = { event -> send(event) },
                     )
                 send(AgentTurnEvent.TurnCompleted(result))
@@ -147,6 +154,7 @@ class AgentRunner(
         runMode: ModelRunMode,
         taskRunId: String?,
         persistUserMessage: Boolean = true,
+        attachments: List<StagedAttachment> = emptyList(),
     ): AgentTurnResult =
         sessionLaneCoordinator.withLane(sessionId) {
             executeTurn(
@@ -155,6 +163,7 @@ class AgentRunner(
                 runMode = runMode,
                 taskRunId = taskRunId,
                 persistUserMessage = persistUserMessage,
+                attachments = attachments,
             )
         }
 
@@ -163,6 +172,7 @@ class AgentRunner(
         userMessage: String,
         taskRunId: String?,
         persistUserMessage: Boolean,
+        attachments: List<StagedAttachment>,
         emitEvent: suspend (AgentTurnEvent) -> Unit,
     ): AgentTurnResult =
         sessionLaneCoordinator.withLane(sessionId) {
@@ -172,6 +182,7 @@ class AgentRunner(
                 runMode = ModelRunMode.Interactive,
                 taskRunId = taskRunId,
                 persistUserMessage = persistUserMessage,
+                attachments = attachments,
                 emitEvent = emitEvent,
                 useStreamingProvider = true,
             )
@@ -185,6 +196,7 @@ class AgentRunner(
         persistUserMessage: Boolean = true,
         emitEvent: suspend (AgentTurnEvent) -> Unit = {},
         useStreamingProvider: Boolean = false,
+        attachments: List<StagedAttachment> = emptyList(),
     ): AgentTurnResult {
         val normalizedUserMessage = userMessage.trim()
         val availableSkills = skillManager.refreshSkillInventory(sessionId = sessionId)
@@ -202,12 +214,15 @@ class AgentRunner(
             }
         val persistedUserMessage =
             if (persistUserMessage) {
-                messageRepository.addMessage(
-                    sessionId = sessionId,
-                    role = MessageRole.User,
-                    content = normalizedUserMessage,
-                    taskRunId = taskRunId,
-                )
+                messageRepository
+                    .addMessage(
+                        sessionId = sessionId,
+                        role = MessageRole.User,
+                        content = normalizedUserMessage,
+                        taskRunId = taskRunId,
+                    ).also { message ->
+                        attachmentRepository?.attachToMessage(message.id, sessionId, attachments)
+                    }
             } else {
                 null
             }
@@ -347,7 +362,11 @@ class AgentRunner(
                     crossSessionMemories = crossSessionMemories,
                     workspaceContext = workspaceContext,
                 )
-            var messageHistory = promptAssembly.messageHistory
+            var messageHistory =
+                promptAssembly.messageHistory.withImageRequestBound(
+                    imagesEnabled = providerSettings.imagesEnabled(),
+                    resolveFile = { attachment -> attachmentRepository?.file(attachment.relativePath) },
+                )
             var providerRequestId: String? = null
 
             repeat(MAX_TOOL_ROUNDS) { round ->
@@ -1157,6 +1176,7 @@ private fun Throwable.toFailureKind(): AgentTurnFailureKind =
                 ModelProviderFailureKind.Server -> AgentTurnFailureKind.Server
                 ModelProviderFailureKind.StreamInterrupted -> AgentTurnFailureKind.StreamInterrupted
                 ModelProviderFailureKind.Response -> AgentTurnFailureKind.Response
+                ModelProviderFailureKind.ImagesUnsupported -> AgentTurnFailureKind.ImagesUnsupported
             }
 
         else -> AgentTurnFailureKind.Runtime

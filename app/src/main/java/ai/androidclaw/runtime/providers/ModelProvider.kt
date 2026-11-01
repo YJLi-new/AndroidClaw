@@ -24,6 +24,7 @@ data class ModelMessage(
     val toolCallId: String? = null,
     val toolName: String? = null,
     val toolCalls: List<ProviderToolCall> = emptyList(),
+    val attachments: List<ModelAttachment> = emptyList(),
 )
 
 data class ProviderToolCall(
@@ -149,6 +150,7 @@ enum class ModelProviderFailureKind {
     Server,
     StreamInterrupted,
     Response,
+    ImagesUnsupported,
 }
 
 class ModelProviderException(

@@ -92,6 +92,24 @@ class OpenAiLiveTest {
             workspaceDir?.deleteRecursively()
         }
 
+    /** M1: one vision round trip. Asserts HTTP 200 and the colour; text reading is only reported. */
+    @Test
+    fun visionImageNonStream() =
+        live("vision_image", stream = false) {
+            val dir = Files.createTempDirectory("androidclaw-live-img").toFile().also { workspaceDir = it }
+            val png = File(dir, "red.png").apply { writeBytes(solidPng(256, 256, 0xDC, 0x14, 0x14)) }
+            val image = ModelAttachment("live1", "red.png", "image/png", 256, 256, png.length(), "live/red.png", png)
+            val question =
+                ModelMessage(
+                    role = ModelMessageRole.User,
+                    content = "What is the background colour of this image? Answer with one word.",
+                    attachments = listOf(image),
+                )
+            val response = provider().generate(request(history = listOf(question), tools = emptyList()))
+            assertTrue(response.text, response.text.lowercase().contains("red"))
+            "200, colour named"
+        }
+
     @Test
     fun plainReplyNonStream() =
         live("plain_reply", stream = false) {
@@ -294,6 +312,73 @@ class OpenAiLiveTest {
             toolDescriptors = tools,
             runMode = ModelRunMode.Interactive,
         )
+
+    /** Minimal truecolour PNG of one solid colour (no Android graphics needed on the JVM). */
+    private fun solidPng(
+        width: Int,
+        height: Int,
+        r: Int,
+        g: Int,
+        b: Int,
+    ): ByteArray {
+        val raw = java.io.ByteArrayOutputStream()
+        repeat(height) {
+            raw.write(0)
+            repeat(width) {
+                raw.write(r)
+                raw.write(g)
+                raw.write(b)
+            }
+        }
+        val out = java.io.ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 13, 10, 26, 10))
+
+        fun chunk(
+            type: String,
+            data: ByteArray,
+        ) {
+            val buffer =
+                java.nio.ByteBuffer
+                    .allocate(4)
+                    .putInt(data.size)
+                    .array()
+            out.write(buffer)
+            val crc = java.util.zip.CRC32()
+            crc.update(type.toByteArray())
+            crc.update(data)
+            out.write(type.toByteArray())
+            out.write(data)
+            out.write(
+                java.nio.ByteBuffer
+                    .allocate(4)
+                    .putInt(crc.value.toInt())
+                    .array(),
+            )
+        }
+        val header =
+            java.nio.ByteBuffer
+                .allocate(13)
+                .putInt(width)
+                .putInt(height)
+                .put(8)
+                .put(2)
+                .put(0)
+                .put(0)
+                .put(0)
+                .array()
+        chunk("IHDR", header)
+        val deflater = java.util.zip.Deflater()
+        deflater.setInput(raw.toByteArray())
+        deflater.finish()
+        val compressed = java.io.ByteArrayOutputStream()
+        val block = ByteArray(8192)
+        while (!deflater.finished()) {
+            compressed.write(block, 0, deflater.deflate(block))
+        }
+        chunk("IDAT", compressed.toByteArray())
+        chunk("IEND", ByteArray(0))
+        return out.toByteArray()
+    }
 
     private companion object {
         const val KEY_ENV = "ANDROIDCLAW_LIVE_OPENAI_KEY"

@@ -527,4 +527,23 @@
     <string name="settings_web_search_test_failed">Brave Search test failed: %1$s</string>
     <string name="chat_web_searched">Searched the web: %1$s</string>
     <string name="chat_web_sources">Sources</string>
+    <!-- PLANv13 media -->
+    <string name="chat_action_attach_image">Attach images</string>
+    <string name="chat_attach_unavailable">This model doesn\'t accept images. Turn on \"Model accepts images\" in provider settings if it supports vision, or switch to a vision provider.</string>
+    <string name="chat_attach_limit">Up to %1$d images per message.</string>
+    <string name="chat_attach_failed">Couldn\'t add the image: %1$s</string>
+    <string name="chat_attach_importing">Adding image…</string>
+    <string name="chat_attachment_remove">Remove %1$s</string>
+    <string name="chat_attachment_open">Open image %1$s</string>
+    <string name="chat_attachment_save">Save</string>
+    <string name="chat_attachment_share">Share</string>
+    <string name="chat_attachment_close">Close</string>
+    <string name="chat_attachment_saved">Saved to Pictures/AndroidClaw</string>
+    <string name="chat_attachment_saved_document">Image saved</string>
+    <string name="chat_attachment_save_failed">Couldn\'t save the image: %1$s</string>
+    <string name="chat_attachment_missing">The image file is no longer available.</string>
+    <string name="chat_attachment_share_chooser">Share image</string>
+    <string name="chat_error_images_unsupported">The model rejected the image. Pick a vision model, or turn off \"Model accepts images\" in provider settings.</string>
+    <string name="settings_field_accepts_images">Model accepts images</string>
+    <string name="settings_field_accepts_images_hint">Turn on only if this model supports image input (vision).</string>
 </resources>

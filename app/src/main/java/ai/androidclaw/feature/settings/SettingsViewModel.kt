@@ -56,6 +56,7 @@ data class SettingsUiState(
     val baseUrl: String = "",
     val modelId: String = "",
     val timeoutSeconds: String = "",
+    val acceptsImages: Boolean = false,
     val networkSummary: String = "",
     val networkConnected: Boolean = true,
     val networkValidated: Boolean = true,
@@ -164,6 +165,7 @@ class SettingsViewModel(
                     baseUrl = endpointSettings.baseUrl,
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    acceptsImages = endpointSettings.acceptsImages,
                     networkSummary = networkStatus.summary,
                     networkConnected = networkStatus.isConnected,
                     networkValidated = networkStatus.isValidated,
@@ -306,6 +308,10 @@ class SettingsViewModel(
                 statusMessage = it.nextStatusAfterSettingsInput(boundedInput.wasTruncated),
             )
         }
+    }
+
+    fun onAcceptsImagesChanged(value: Boolean) {
+        mutateState { it.copy(acceptsImages = value) }
     }
 
     fun onTimeoutChanged(value: String) {
@@ -662,6 +668,7 @@ class SettingsViewModel(
                     baseUrl = endpointSettings.baseUrl,
                     modelId = endpointSettings.modelId,
                     timeoutSeconds = endpointSettings.timeoutSeconds.toString(),
+                    acceptsImages = endpointSettings.acceptsImages,
                     networkSummary = networkStatus.summary,
                     networkConnected = networkStatus.isConnected,
                     networkValidated = networkStatus.isValidated,
@@ -783,6 +790,7 @@ class SettingsViewModel(
                             baseUrl = snapshot.baseUrl,
                             modelId = snapshot.modelId,
                             timeoutSeconds = normalizedTimeoutSeconds,
+                            acceptsImages = snapshot.acceptsImages,
                         ),
                     ).copy(providerType = snapshot.providerType)
             } else {
@@ -853,6 +861,7 @@ class SettingsViewModel(
                 providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_server)
             ModelProviderFailureKind.Response ->
                 providerMessage?.let(UiText::Raw) ?: UiText.res(R.string.settings_error_response)
+            ModelProviderFailureKind.ImagesUnsupported -> UiText.res(R.string.chat_error_images_unsupported)
             ModelProviderFailureKind.Configuration,
             ModelProviderFailureKind.Offline,
             ModelProviderFailureKind.Network,

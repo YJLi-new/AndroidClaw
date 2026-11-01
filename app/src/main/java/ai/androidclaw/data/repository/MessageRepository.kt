@@ -6,8 +6,10 @@ import ai.androidclaw.data.db.dao.MessageStatsRow
 import ai.androidclaw.data.db.entity.MessageEntity
 import ai.androidclaw.data.db.entity.MessageSearchTokenEntity
 import ai.androidclaw.data.model.ChatMessage
+import ai.androidclaw.data.model.MessageAttachment
 import ai.androidclaw.data.model.MessageRole
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 import java.util.UUID
@@ -23,6 +25,7 @@ private const val MESSAGE_SEARCH_CANDIDATE_LIMIT = 500
 
 class MessageRepository(
     private val dao: MessageDao,
+    private val attachmentRepository: AttachmentRepository? = null,
 ) {
     data class SearchResult(
         val messageId: String,
@@ -85,12 +88,16 @@ class MessageRepository(
         return entity.toDomain()
     }
 
-    fun observeMessages(sessionId: String): Flow<List<ChatMessage>> =
-        dao.getBySessionId(sessionId).map { messages ->
-            messages.map(MessageEntity::toDomain)
+    fun observeMessages(sessionId: String): Flow<List<ChatMessage>> {
+        val messages = dao.getBySessionId(sessionId)
+        val attachments = attachmentRepository ?: return messages.map { rows -> rows.map(MessageEntity::toDomain) }
+        return combine(messages, attachments.observeForSession(sessionId)) { rows, files ->
+            val byMessage = files.groupBy(MessageAttachment::messageId)
+            rows.map { row -> row.toDomain().withAttachments(byMessage) }
         }
+    }
 
-    suspend fun getMessages(sessionId: String): List<ChatMessage> = dao.getAllBySessionId(sessionId).map(MessageEntity::toDomain)
+    suspend fun getMessages(sessionId: String): List<ChatMessage> = dao.getAllBySessionId(sessionId).toDomainWithAttachments()
 
     suspend fun getMessagePage(
         sessionId: String,
@@ -107,7 +114,7 @@ class MessageRepository(
                 sessionId = sessionId,
                 limit = boundedLimit,
                 offset = boundedOffset,
-            ).map(MessageEntity::toDomain)
+            ).toDomainWithAttachments()
     }
 
     suspend fun getMessage(messageId: String): ChatMessage? {
@@ -147,7 +154,7 @@ class MessageRepository(
         if (boundedLimit == 0) {
             return emptyList()
         }
-        return dao.getRecentBySessionId(sessionId, boundedLimit).map(MessageEntity::toDomain)
+        return dao.getRecentBySessionId(sessionId, boundedLimit).toDomainWithAttachments()
     }
 
     suspend fun getFirstMessages(
@@ -360,14 +367,30 @@ class MessageRepository(
     suspend fun deleteSessionMessages(sessionId: String) {
         dao.deleteSearchTokensBySessionId(sessionId)
         dao.deleteBySessionId(sessionId)
+        attachmentRepository?.deleteSessionFiles(sessionId)
     }
 
+    /** Deletes the message; its attachment rows cascade and their files are removed here. */
     suspend fun deleteMessage(messageId: String): Boolean {
         if (messageId.isBlank()) {
             return false
         }
+        val files = attachmentRepository?.getForMessages(listOf(messageId))?.get(messageId).orEmpty()
         dao.deleteSearchTokensByMessageId(messageId)
-        return dao.deleteById(messageId) > 0
+        val deleted = dao.deleteById(messageId) > 0
+        if (deleted) {
+            attachmentRepository?.deleteFiles(files)
+        }
+        return deleted
+    }
+
+    private suspend fun List<MessageEntity>.toDomainWithAttachments(): List<ChatMessage> {
+        val attachments = attachmentRepository
+        if (attachments == null || isEmpty()) {
+            return map(MessageEntity::toDomain)
+        }
+        val byMessage = attachments.getForMessages(map(MessageEntity::id))
+        return map { entity -> entity.toDomain().withAttachments(byMessage) }
     }
 
     suspend fun copyMessagesToSession(
@@ -464,6 +487,8 @@ private fun MessageEntity.toDomain(): ChatMessage =
         toolCallId = toolCallId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
         taskRunId = taskRunId?.toBoundedMessageText(MESSAGE_REFERENCE_ID_MAX_CHARS),
     )
+
+private fun ChatMessage.withAttachments(byMessage: Map<String, List<MessageAttachment>>): ChatMessage = byMessage[id]?.let { copy(attachments = it) } ?: this
 
 private fun MessageRole.toStorage(): String =
     when (this) {

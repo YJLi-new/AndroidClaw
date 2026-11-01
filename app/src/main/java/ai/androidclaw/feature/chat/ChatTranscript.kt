@@ -51,6 +51,7 @@ internal fun ChatMessageRow(
     highlighted: Boolean,
     timeFormatter: DateTimeFormatter,
     onLongPress: (ChatMessageUi) -> Unit,
+    onOpenAttachment: (ChatAttachmentUi) -> Unit = {},
 ) {
     val copyLabel = stringResource(R.string.chat_action_copy_message)
     val pressModifier =
@@ -71,17 +72,24 @@ internal fun ChatMessageRow(
                         .testTag("chatMessage-user"),
                 horizontalAlignment = Alignment.End,
             ) {
-                Surface(
-                    modifier = pressModifier,
-                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    ChatRichText(
-                        text = message.text,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onPrimaryContainer),
-                    )
+                ChatAttachmentGrid(
+                    attachments = message.attachments,
+                    onOpen = onOpenAttachment,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                if (message.text.isNotBlank() || message.attachments.isEmpty()) {
+                    Surface(
+                        modifier = pressModifier,
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 6.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ) {
+                        ChatRichText(
+                            text = message.text,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onPrimaryContainer),
+                        )
+                    }
                 }
                 MessageTime(message.createdAt, timeFormatter)
             }

@@ -170,11 +170,43 @@ object AndroidClawDatabaseMigrations {
             }
         }
 
+    val MIGRATION_5_6 =
+        object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `message_attachments` (
+                        `id` TEXT NOT NULL,
+                        `messageId` TEXT NOT NULL,
+                        `sessionId` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `mimeType` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `relativePath` TEXT NOT NULL,
+                        `byteCount` INTEGER NOT NULL,
+                        `width` INTEGER NOT NULL,
+                        `height` INTEGER NOT NULL,
+                        `durationMs` INTEGER,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`)
+                            ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_message_attachments_messageId` " +
+                        "ON `message_attachments` (`messageId`)",
+                )
+            }
+        }
+
     val ALL: Array<Migration> =
         arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
+            MIGRATION_5_6,
         )
 }
