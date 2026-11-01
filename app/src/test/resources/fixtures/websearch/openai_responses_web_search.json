@@ -1,0 +1,175 @@
+{
+  "id": "resp_fixture",
+  "object": "response",
+  "created_at": 1790000000,
+  "status": "completed",
+  "background": false,
+  "completed_at": 1790000000,
+  "error": null,
+  "frequency_penalty": 0.0,
+  "incomplete_details": null,
+  "instructions": "You are AndroidClaw, a concise assistant on an Android phone.",
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "model": "gpt-6-luna",
+  "moderation": null,
+  "output": [
+    {
+      "id": "ws_fixture",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "queries": [
+          "site:developer.android.com/build/releases/gradle-plugin latest stable Android Gradle Plugin version",
+          "site:developer.android.com/build/releases/past-releases Android Gradle Plugin stable 2026"
+        ],
+        "query": "site:developer.android.com/build/releases/gradle-plugin latest stable Android Gradle Plugin version"
+      }
+    },
+    {
+      "id": "rs_fixture",
+      "type": "reasoning",
+      "content": [],
+      "encrypted_content": "fixture",
+      "summary": []
+    },
+    {
+      "id": "msg_fixture",
+      "type": "message",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "end_index": 305,
+              "start_index": 186,
+              "title": "Android Gradle plugin 9.5.0 (October 2026)  |  Android Studio  |  Android Developers",
+              "url": "https://developer.android.com/build/releases/agp-9-5-0-release-notes?hl=en&utm_source=openai"
+            }
+          ],
+          "text": "The latest stable Android Gradle Plugin is **9.5.0**. Google’s release notes identify 9.5.0 as a stable release, and the Android Gradle Plugin reference lists it as the current release. ([developer.android.com](https://developer.android.com/build/releases/agp-9-5-0-release-notes?hl=en&utm_source=openai))"
+        }
+      ],
+      "phase": "final_answer",
+      "role": "assistant"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "presence_penalty": 0.0,
+  "previous_response_id": null,
+  "prompt_cache_retention": "24h",
+  "reasoning": {
+    "context": "all_turns",
+    "effort": "medium",
+    "mode": "standard",
+    "summary": null
+  },
+  "service_tier": "default",
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "tool_usage": {
+    "image_gen": {
+      "input_tokens": 0,
+      "input_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      },
+      "output_tokens": 0,
+      "output_tokens_details": {
+        "image_tokens": 0,
+        "text_tokens": 0
+      },
+      "total_tokens": 0
+    },
+    "web_search": {
+      "num_requests": 1
+    }
+  },
+  "tools": [
+    {
+      "type": "function",
+      "description": "Fetch one http(s) URL and return its readable text.",
+      "name": "web_fetch",
+      "output_schema": null,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "description": "Search saved long-term memory items.",
+      "name": "memory_search",
+      "output_schema": null,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Query"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "function",
+      "description": "List scheduled automations.",
+      "name": "tasks_list",
+      "output_schema": null,
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "strict": false
+    },
+    {
+      "type": "web_search",
+      "return_token_budget": "default",
+      "search_content_types": [
+        "text"
+      ],
+      "search_context_size": "medium"
+    }
+  ],
+  "top_logprobs": 0,
+  "top_p": 0.98,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 8521,
+    "input_tokens_details": {
+      "cache_write_tokens": 4563,
+      "cached_tokens": 0
+    },
+    "output_tokens": 209,
+    "output_tokens_details": {
+      "reasoning_tokens": 134
+    },
+    "total_tokens": 8730
+  }
+}

@@ -43,6 +43,8 @@ internal fun createBuiltInToolRegistry(
     isAppInForeground: () -> Boolean = { true },
     providerLabel: suspend () -> String = { settingsDataStore.currentProviderLabel() },
     clock: Clock = Clock.systemDefaultZone(),
+    braveSearchClient: BraveSearchClient = BraveSearchClient(webHttpClient),
+    braveApiKey: suspend () -> String? = { null },
 ): ToolRegistry {
     lateinit var registry: ToolRegistry
     registry =
@@ -65,6 +67,8 @@ internal fun createBuiltInToolRegistry(
                     addAll(skillToolEntries(skillInventoryRefresher, skillEnabledUpdater))
                     addAll(workspaceToolEntries(workspaceStore))
                     add(webFetchToolEntry(webHttpClient, allowPrivateNetwork = webFetchAllowPrivateNetwork))
+                    // Offered to the model only in WebSearchMode.Typed (AgentRunner applies the rule).
+                    add(webSearchToolEntry(braveSearchClient, braveApiKey))
                     addAll(deviceToolEntries(application, networkStatusProvider, isAppInForeground, clock))
                     add(notifyToolEntry(application))
                     add(

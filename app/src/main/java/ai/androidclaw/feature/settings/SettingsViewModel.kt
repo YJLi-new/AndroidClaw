@@ -3,6 +3,7 @@ package ai.androidclaw.feature.settings
 import ai.androidclaw.R
 import ai.androidclaw.app.SettingsDependencies
 import ai.androidclaw.app.viewModelFactory
+import ai.androidclaw.data.InMemoryWebSearchKeyStore
 import ai.androidclaw.data.MAX_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.MIN_PROVIDER_TIMEOUT_SECONDS
 import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
@@ -17,6 +18,7 @@ import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.ThemePreference
+import ai.androidclaw.data.WebSearchKeyStore
 import ai.androidclaw.data.firstProviderEndpointPolicyError
 import ai.androidclaw.data.isLoopbackProviderHost
 import ai.androidclaw.data.providerEndpointPolicyIssues
@@ -33,6 +35,7 @@ import ai.androidclaw.runtime.providers.OpenAiCodexDeviceCodePrompt
 import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.offlineFailure
+import ai.androidclaw.runtime.tools.BraveSearchClient
 import ai.androidclaw.ui.text.UiText
 import ai.androidclaw.ui.text.toRawUiTextOrNull
 import androidx.lifecycle.ViewModel
@@ -120,7 +123,12 @@ class SettingsViewModel(
     private val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     private val networkStatusProvider: NetworkStatusProvider,
     private val memoryRepository: MemoryRepository,
+    webSearchKeyStore: WebSearchKeyStore = InMemoryWebSearchKeyStore(),
+    braveSearchClient: BraveSearchClient = BraveSearchClient(),
 ) : ViewModel() {
+    /** Settings → Web search section (its own state; see WebSearchSettings.kt). */
+    val webSearch = WebSearchSettingsModel(viewModelScope, settingsDataStore, webSearchKeyStore, braveSearchClient)
+
     private val mutableState =
         MutableStateFlow(
             SettingsUiState(
@@ -899,6 +907,8 @@ class SettingsViewModel(
                     openAiCodexOAuthClient = dependencies.openAiCodexOAuthClient,
                     networkStatusProvider = dependencies.networkStatusProvider,
                     memoryRepository = dependencies.memoryRepository,
+                    webSearchKeyStore = dependencies.webSearchKeyStore,
+                    braveSearchClient = dependencies.braveSearchClient,
                 )
             }
     }

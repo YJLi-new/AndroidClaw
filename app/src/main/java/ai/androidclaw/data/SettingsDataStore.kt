@@ -32,6 +32,7 @@ class SettingsDataStore(
     private val themePreferenceKey = stringPreferencesKey("theme_preference")
     private val memoryEnabledKey = booleanPreferencesKey("memory_enabled")
     private val memoryInstallUserIdKey = stringPreferencesKey("memory_install_user_id")
+    private val webSearchEnabledKey = booleanPreferencesKey("web_search_enabled")
     private val legacyOpenAiBaseUrlKey = stringPreferencesKey("openai_base_url")
     private val legacyOpenAiModelIdKey = stringPreferencesKey("openai_model_id")
     private val legacyOpenAiTimeoutSecondsKey = intPreferencesKey("openai_timeout_seconds")
@@ -84,6 +85,23 @@ class SettingsDataStore(
                     installUserId = preferences[memoryInstallUserIdKey].orEmpty(),
                 )
             }
+
+    /** Settings → Web search: Automatic (true, default) or Off. */
+    val webSearchEnabled: Flow<Boolean> =
+        context.settingsDataStore.data
+            .catch { error ->
+                if (error is IOException) {
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }.map { preferences -> preferences[webSearchEnabledKey] ?: true }
+
+    suspend fun setWebSearchEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[webSearchEnabledKey] = enabled
+        }
+    }
 
     suspend fun saveProviderSettings(settings: ProviderSettingsSnapshot) {
         context.settingsDataStore.edit { preferences ->

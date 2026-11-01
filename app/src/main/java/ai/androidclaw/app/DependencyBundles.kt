@@ -3,6 +3,7 @@ package ai.androidclaw.app
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderSecretStore
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.WebSearchKeyStore
 import ai.androidclaw.data.WorkspaceStore
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
@@ -15,6 +16,7 @@ import ai.androidclaw.runtime.providers.OpenAiCodexOAuthClient
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.skills.SkillManager
+import ai.androidclaw.runtime.tools.BraveSearchClient
 import ai.androidclaw.runtime.tools.ToolRegistry
 
 data class ChatDependencies(
@@ -44,6 +46,8 @@ data class SettingsDependencies(
     val openAiCodexOAuthClient: OpenAiCodexOAuthClient,
     val networkStatusProvider: NetworkStatusProvider,
     val memoryRepository: MemoryRepository,
+    val webSearchKeyStore: WebSearchKeyStore,
+    val braveSearchClient: BraveSearchClient,
 )
 
 data class OnboardingDependencies(

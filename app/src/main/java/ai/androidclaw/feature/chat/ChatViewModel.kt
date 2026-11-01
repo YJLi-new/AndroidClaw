@@ -64,6 +64,8 @@ data class ChatMessageUi(
     val text: String,
     val createdAt: Instant,
     val toolCallId: String? = null,
+    /** Searched queries and web sources of an assistant reply (ChatSources.kt). */
+    val webSearch: ChatWebSearchUi? = null,
 )
 
 /** One row of the transcript. Tool requests and their results render as one card. */
@@ -1213,6 +1215,7 @@ private fun ChatMessage.toUi(): ChatMessageUi =
         text = content,
         createdAt = createdAt,
         toolCallId = toolCallId,
+        webSearch = if (role == MessageRole.Assistant) chatWebSearchFromMeta(providerMeta) else null,
     )
 
 private fun ChatMessageUi.isCompactControlMessage(): Boolean {

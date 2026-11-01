@@ -223,7 +223,7 @@ class OpenAiCompatibleProvider(
                 .takeIf { it.isNotBlank() }
                 ?.let { put("instructions", it) }
             put("input", buildResponsesInput(request.messageHistory, functionNames, json, includeItemIds = false))
-            if (request.toolDescriptors.isNotEmpty()) {
+            if (request.toolDescriptors.isNotEmpty() || request.hostedWebSearch) {
                 put("tool_choice", "auto")
                 put(
                     "tools",
@@ -238,6 +238,9 @@ class OpenAiCompatibleProvider(
                                     put("parameters", descriptor.inputSchema)
                                 },
                             )
+                        }
+                        if (request.hostedWebSearch) {
+                            addResponsesHostedWebSearchTool()
                         }
                     },
                 )

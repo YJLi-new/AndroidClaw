@@ -153,6 +153,34 @@ class OpenAiLiveTest {
             "200, function_call -> function_call_output -> text"
         }
 
+    /** PLANv13 M2: hosted `web_search` next to a function tool returns at least one url_citation. */
+    @Test
+    fun hostedWebSearchReturnsCitationNonStream() =
+        live("hosted_web_search", stream = false) {
+            val tool =
+                ToolDescriptor(
+                    name = "device_status",
+                    description = "Read battery and network status.",
+                    arguments = listOf(ToolArgumentSpec(name = "scope", description = "Scope")),
+                )
+            val response =
+                provider().generate(
+                    request(
+                        history =
+                            listOf(
+                                ModelMessage(
+                                    ModelMessageRole.User,
+                                    "Search the web: what is the latest stable Android Gradle Plugin version? Cite your source.",
+                                ),
+                            ),
+                        tools = listOf(tool),
+                    ).copy(hostedWebSearch = true),
+                )
+            assertTrue(response.text, response.text.isNotBlank())
+            assertTrue("no url_citation", response.webSources.isNotEmpty())
+            "200, queries=${response.webSearchQueries.size}, citations=${response.webSources.size}"
+        }
+
     @Test
     fun agentRunnerTurnWithRealToolRegistryStream() =
         live("agent_turn_workspace_read", stream = true) {
