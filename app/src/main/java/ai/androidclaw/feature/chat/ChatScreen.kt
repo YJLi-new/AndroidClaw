@@ -179,6 +179,7 @@ fun ChatScreen(
     }
 
     val defaultNewSessionTitle = stringResource(R.string.chat_new_session_default_title, state.sessions.size + 1)
+    val copiedNotice = stringResource(R.string.chat_notice_copied)
     ModalNavigationDrawer(
         drawerState = drawerState,
         gesturesEnabled = drawerState.isOpen,
@@ -232,7 +233,7 @@ fun ChatScreen(
                 viewModel = viewModel,
                 contentPadding = padding,
                 onOpenProviderSettings = onOpenProviderSettings,
-                onCopied = { scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.chat_notice_copied)) } },
+                onCopied = { scope.launch { snackbarHostState.showSnackbar(copiedNotice) } },
             )
         }
     }

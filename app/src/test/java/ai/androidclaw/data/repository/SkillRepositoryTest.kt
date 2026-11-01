@@ -11,12 +11,10 @@ import ai.androidclaw.runtime.skills.SkillSourceType
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -52,12 +50,15 @@ class SkillRepositoryTest {
     @Test
     fun `upsert and observe skills preserve typed frontmatter and enabled filter`() =
         runTest {
-            val emissions = mutableListOf<List<SkillRecord>>()
-            val job =
-                backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
-                    repository.observeSkills().take(2).toList(emissions)
-                }
-            runCurrent()
+            // Room runs the observing query on its own executor thread, outside the test
+            // scheduler, so runCurrent() does not mean the initial (empty) query has finished.
+            // On a slow CI runner the upsert committed first and the first emission already held
+            // both rows. Wait for the initial emission before writing.
+            val emissions = Channel<List<SkillRecord>>(Channel.UNLIMITED)
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+                repository.observeSkills().collect { emissions.send(it) }
+            }
+            val initial = emissions.receive()
 
             repository.upsertAll(
                 listOf(
@@ -84,10 +85,16 @@ class SkillRepositoryTest {
                 ),
             )
 
-            job.join()
+            // Room may re-emit the unchanged empty table (invalidation tracker sync) before the
+            // write is observed; the upsert is one transaction, so the first non-empty emission
+            // must hold both rows.
+            var afterUpsert = emissions.receive()
+            while (afterUpsert.isEmpty()) {
+                afterUpsert = emissions.receive()
+            }
 
-            assertEquals(emptyList<SkillRecord>(), emissions.first())
-            assertEquals(listOf("Summary", "Task helper"), emissions.last().map { it.displayName })
+            assertEquals(emptyList<SkillRecord>(), initial)
+            assertEquals(listOf("Summary", "Task helper"), afterUpsert.map { it.displayName })
             assertEquals(listOf("summary"), repository.getEnabledSkills().map { it.id })
 
             repository.setEnabled("task-helper", true)

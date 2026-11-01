@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -67,6 +68,8 @@ fun DiagnosticsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
+    // Resources (not context.getString) so a language switch is picked up by recomposition.
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var menuOpen by remember { mutableStateOf(false) }
@@ -75,7 +78,7 @@ fun DiagnosticsScreen(
     val notify: (Int, String?) -> Unit = { resource, arg ->
         scope.launch {
             snackbarHostState.showSnackbar(
-                if (arg == null) context.getString(resource) else context.getString(resource, arg),
+                if (arg == null) resources.getString(resource) else resources.getString(resource, arg),
             )
         }
     }
