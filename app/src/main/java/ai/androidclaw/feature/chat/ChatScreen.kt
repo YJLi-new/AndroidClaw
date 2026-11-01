@@ -1,6 +1,7 @@
 package ai.androidclaw.feature.chat
 
 import ai.androidclaw.R
+import ai.androidclaw.data.attachments.MAX_ATTACHMENTS_PER_MESSAGE
 import ai.androidclaw.ui.components.ClawConfirmDialog
 import ai.androidclaw.ui.components.ClawEmptyState
 import ai.androidclaw.ui.components.ClawIcon
@@ -17,6 +18,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -120,6 +122,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var dialog by remember { mutableStateOf<ChatDialog?>(null) }
     var pendingExport by remember { mutableStateOf<ChatExportFileRequest?>(null) }
+    var viewingAttachment by remember { mutableStateOf<ChatAttachmentUi?>(null) }
     val exportLauncher =
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.StartActivityForResult(),
@@ -234,8 +237,13 @@ fun ChatScreen(
                 contentPadding = padding,
                 onOpenProviderSettings = onOpenProviderSettings,
                 onCopied = { scope.launch { snackbarHostState.showSnackbar(copiedNotice) } },
+                onOpenAttachment = { attachment -> viewingAttachment = attachment },
             )
         }
+    }
+
+    viewingAttachment?.let { attachment ->
+        ChatAttachmentViewer(attachment = attachment, onDismiss = { viewingAttachment = null })
     }
 
     when (val current = dialog) {
@@ -429,8 +437,14 @@ private fun ChatContent(
     contentPadding: PaddingValues,
     onOpenProviderSettings: () -> Unit,
     onCopied: () -> Unit,
+    onOpenAttachment: (ChatAttachmentUi) -> Unit,
 ) {
     var demoNoticeDismissed by rememberSaveable { mutableStateOf(false) }
+    // System photo picker (no permission); androidx falls back to the document picker on old devices.
+    val pickImages =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS_PER_MESSAGE),
+        ) { uris -> viewModel.onImagesPicked(uris) }
     Column(
         modifier =
             Modifier
@@ -456,6 +470,7 @@ private fun ChatContent(
                 state = state,
                 viewModel = viewModel,
                 onCopied = onCopied,
+                onOpenAttachment = onOpenAttachment,
             )
         }
         SlashSuggestions(
@@ -463,11 +478,24 @@ private fun ChatContent(
             commands = state.slashCommands,
             onPick = { command -> viewModel.onDraftChanged("$command ") },
         )
+        ComposerAttachmentChips(
+            attachments = state.stagedAttachments,
+            importing = state.isImportingAttachments,
+            onRemove = viewModel::removeStagedAttachment,
+        )
         ChatComposer(
             draft = viewModel.composerText,
             isRunning = state.isRunning,
             isCancelling = state.isCancelling,
+            hasAttachments = state.stagedAttachments.isNotEmpty(),
             onDraftChanged = viewModel::onDraftChanged,
+            onAttach = {
+                if (!state.imagesEnabled) {
+                    viewModel.onAttachUnavailable()
+                } else {
+                    pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+            },
             onSend = viewModel::sendCurrentDraft,
             onStop = viewModel::cancelActiveTurn,
         )
@@ -479,6 +507,7 @@ private fun ChatTranscript(
     state: ChatUiState,
     viewModel: ChatViewModel,
     onCopied: () -> Unit,
+    onOpenAttachment: (ChatAttachmentUi) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -589,6 +618,7 @@ private fun ChatTranscript(
                             highlighted = row.message.id == state.highlightedMessageId,
                             timeFormatter = timeFormatter,
                             onLongPress = onLongPress,
+                            onOpenAttachment = onOpenAttachment,
                         )
 
                     is ChatItemUi.Tool -> ChatToolCard(item = row, running = state.isRunning)
@@ -741,7 +771,9 @@ private fun ChatComposer(
     draft: String,
     isRunning: Boolean,
     isCancelling: Boolean,
+    hasAttachments: Boolean,
     onDraftChanged: (String) -> Unit,
+    onAttach: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -749,10 +781,17 @@ private fun ChatComposer(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+                .padding(start = 4.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        ClawIconButton(
+            iconRes = R.drawable.ic_image,
+            contentDescription = stringResource(R.string.chat_action_attach_image),
+            onClick = onAttach,
+            enabled = !isRunning,
+            modifier = Modifier.testTag("chatAttachButton"),
+        )
         TextField(
             value = draft,
             onValueChange = onDraftChanged,
@@ -789,7 +828,7 @@ private fun ChatComposer(
         } else {
             FilledIconButton(
                 onClick = onSend,
-                enabled = draft.isNotBlank(),
+                enabled = draft.isNotBlank() || hasAttachments,
                 modifier = Modifier.testTag("chatSendButton"),
             ) {
                 ClawIcon(iconRes = R.drawable.ic_send, contentDescription = stringResource(R.string.chat_action_send))

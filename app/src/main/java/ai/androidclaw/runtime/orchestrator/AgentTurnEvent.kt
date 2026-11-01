@@ -11,6 +11,7 @@ enum class AgentTurnFailureKind {
     StreamInterrupted,
     Response,
     Runtime,
+    ImagesUnsupported,
 }
 
 sealed interface AgentTurnEvent {

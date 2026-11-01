@@ -10,7 +10,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -42,6 +44,7 @@ class OpenAiCompatibleProvider(
         ProviderCapabilities(
             supportsStreamingText = true,
             supportsStreamingToolCalls = true,
+            supportsImages = providerType.defaultSupportsImages,
         )
 
     override suspend fun generate(request: ModelRequest): ModelResponse {
@@ -323,7 +326,7 @@ class OpenAiCompatibleProvider(
             messages +=
                 OpenAiChatMessage(
                     role = "system",
-                    content = request.systemPrompt,
+                    content = JsonPrimitive(request.systemPrompt),
                 )
         }
         messages += request.messageHistory.map(::toOpenAiChatMessage)
@@ -349,19 +352,19 @@ class OpenAiCompatibleProvider(
             ModelMessageRole.System ->
                 OpenAiChatMessage(
                     role = "system",
-                    content = message.content,
+                    content = JsonPrimitive(message.content),
                 )
 
             ModelMessageRole.User ->
                 OpenAiChatMessage(
                     role = "user",
-                    content = message.content,
+                    content = message.toChatCompletionsUserContent(),
                 )
 
             ModelMessageRole.Assistant ->
                 OpenAiChatMessage(
                     role = "assistant",
-                    content = message.content.takeIf { it.isNotBlank() },
+                    content = message.content.takeIf { it.isNotBlank() }?.let(::JsonPrimitive),
                     toolCalls =
                         message.toolCalls
                             .takeIf { it.isNotEmpty() }
@@ -380,7 +383,7 @@ class OpenAiCompatibleProvider(
             ModelMessageRole.Tool ->
                 OpenAiChatMessage(
                     role = "tool",
-                    content = message.content,
+                    content = JsonPrimitive(message.content),
                     toolCallId =
                         message.toolCallId ?: throw ModelProviderException(
                             kind = ModelProviderFailureKind.Response,
@@ -494,6 +497,9 @@ class OpenAiCompatibleProvider(
         rawBody: String,
     ): ModelProviderException {
         val errorMessage = json.extractProviderErrorMessage(rawBody)
+        if (isProviderImageRejection(statusCode, errorMessage)) {
+            return imagesUnsupportedFailure(errorMessage)
+        }
 
         return when (statusCode) {
             401, 403 ->
@@ -529,6 +535,35 @@ class OpenAiCompatibleProvider(
 
 internal fun HttpUrl.isOfficialOpenAiHost(): Boolean = host.equals("api.openai.com", ignoreCase = true)
 
+/** Plain string for text turns; `text` and `image_url` parts (data URLs) when images are sent. */
+private fun ModelMessage.toChatCompletionsUserContent(): JsonElement {
+    if (!hasInlineImages()) {
+        return JsonPrimitive(contentWithAttachmentMarkers())
+    }
+    return buildJsonArray {
+        if (content.isNotBlank()) {
+            add(chatCompletionsTextPart(content))
+        }
+        attachments.forEach { attachment ->
+            add(chatCompletionsTextPart(attachment.marker()))
+            attachment.dataUrlOrNull()?.let { dataUrl ->
+                add(
+                    buildJsonObject {
+                        put("type", "image_url")
+                        put("image_url", buildJsonObject { put("url", dataUrl) })
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun chatCompletionsTextPart(text: String): JsonObject =
+    buildJsonObject {
+        put("type", "text")
+        put("text", text)
+    }
+
 @Serializable
 private data class OpenAiChatCompletionsRequest(
     val model: String,
@@ -548,7 +583,7 @@ private data class OpenAiStreamOptions(
 @Serializable
 private data class OpenAiChatMessage(
     val role: String,
-    val content: String? = null,
+    val content: JsonElement? = null,
     @SerialName("tool_call_id")
     val toolCallId: String? = null,
     @SerialName("tool_calls")

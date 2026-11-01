@@ -7,8 +7,12 @@ import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.WorkspaceStore
+import ai.androidclaw.data.attachments.AndroidImageImporter
+import ai.androidclaw.data.attachments.AttachmentImporter
+import ai.androidclaw.data.attachments.AttachmentStore
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
@@ -74,8 +78,15 @@ class AppContainer(
     val skillConfigStore = AndroidSkillConfigStore(application)
     val skillSecretStore = AndroidSkillSecretStore(application)
     val networkStatusProvider: NetworkStatusProvider = AndroidNetworkStatusProvider(application)
-    val sessionRepository = SessionRepository(database.sessionDao())
-    val messageRepository = MessageRepository(database.messageDao())
+    val attachmentRepository =
+        AttachmentRepository(
+            dao = database.messageAttachmentDao(),
+            store = AttachmentStore(File(application.filesDir, AttachmentStore.DIRECTORY_NAME)),
+            clock = clock,
+        )
+    val attachmentImporter: AttachmentImporter = AndroidImageImporter(application.contentResolver, attachmentRepository.store)
+    val sessionRepository = SessionRepository(database.sessionDao(), attachmentRepository)
+    val messageRepository = MessageRepository(database.messageDao(), attachmentRepository)
     val taskRepository = TaskRepository(database.taskDao(), database.taskRunDao())
     val skillRepository = SkillRepository(database.skillRecordDao())
     val eventLogRepository = EventLogRepository(database.eventLogDao())
@@ -232,6 +243,7 @@ class AppContainer(
             loadSessionCompactionBoundary = { sessionId -> sessionRepository.getSession(sessionId)?.compactedUntilMessageId },
             networkStatusProvider = networkStatusProvider,
             workspaceContextProvider = { workspaceStore.promptContext() },
+            attachmentRepository = attachmentRepository,
         )
 
     val taskRuntimeExecutor =
@@ -263,6 +275,8 @@ class AppContainer(
                 agentRunner = agentRunner,
                 skillManager = skillManager,
                 settingsDataStore = settingsDataStore,
+                attachmentRepository = attachmentRepository,
+                attachmentImporter = attachmentImporter,
             )
 
     val tasksDependencies: TasksDependencies

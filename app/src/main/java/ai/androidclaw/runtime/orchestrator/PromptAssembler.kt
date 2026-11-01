@@ -1,7 +1,10 @@
 package ai.androidclaw.runtime.orchestrator
 
+import ai.androidclaw.data.model.AttachmentKind
 import ai.androidclaw.data.model.ChatMessage
+import ai.androidclaw.data.model.MessageAttachment
 import ai.androidclaw.data.model.MessageRole
+import ai.androidclaw.runtime.providers.ModelAttachment
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
 import ai.androidclaw.runtime.providers.ModelRunMode
@@ -256,6 +259,7 @@ private fun ChatMessage.toModelMessage(): ModelMessage? =
             ModelMessage(
                 role = ModelMessageRole.User,
                 content = content,
+                attachments = attachments.filter { it.kind == AttachmentKind.UserImage }.map(MessageAttachment::toModelAttachment),
             )
         MessageRole.Assistant ->
             ModelMessage(
@@ -323,3 +327,14 @@ private fun parsePersistedToolCallContent(
         argumentsJson = arguments,
     )
 }
+
+private fun MessageAttachment.toModelAttachment(): ModelAttachment =
+    ModelAttachment(
+        id = id,
+        displayName = displayName,
+        mimeType = mimeType,
+        width = width,
+        height = height,
+        byteCount = byteCount,
+        relativePath = relativePath,
+    )

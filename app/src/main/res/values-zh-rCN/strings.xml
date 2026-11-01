@@ -489,4 +489,23 @@
     <string name="workspace_reset_done">%1$s 已恢复默认</string>
     <string name="workspace_error_load">无法读取工作区：%1$s</string>
     <string name="workspace_error_save">保存失败：%1$s</string>
+    <!-- PLANv13 media -->
+    <string name="chat_action_attach_image">添加图片</string>
+    <string name="chat_attach_unavailable">当前模型不接受图片。如果它支持视觉，请在服务商设置中打开“模型接受图片”，或切换到支持视觉的服务商。</string>
+    <string name="chat_attach_limit">每条消息最多 %1$d 张图片。</string>
+    <string name="chat_attach_failed">无法添加图片：%1$s</string>
+    <string name="chat_attach_importing">正在添加图片…</string>
+    <string name="chat_attachment_remove">移除 %1$s</string>
+    <string name="chat_attachment_open">打开图片 %1$s</string>
+    <string name="chat_attachment_save">保存</string>
+    <string name="chat_attachment_share">分享</string>
+    <string name="chat_attachment_close">关闭</string>
+    <string name="chat_attachment_saved">已保存到 Pictures/AndroidClaw</string>
+    <string name="chat_attachment_saved_document">图片已保存</string>
+    <string name="chat_attachment_save_failed">无法保存图片：%1$s</string>
+    <string name="chat_attachment_missing">图片文件已不存在。</string>
+    <string name="chat_attachment_share_chooser">分享图片</string>
+    <string name="chat_error_images_unsupported">模型拒绝了这张图片。请选择支持视觉的模型，或在服务商设置中关闭“模型接受图片”。</string>
+    <string name="settings_field_accepts_images">模型接受图片</string>
+    <string name="settings_field_accepts_images_hint">仅当该模型支持图片输入（视觉）时打开。</string>
 </resources>

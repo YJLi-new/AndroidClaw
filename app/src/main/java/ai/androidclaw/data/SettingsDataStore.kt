@@ -53,6 +53,7 @@ class SettingsDataStore(
                                 baseUrl = readBaseUrl(preferences, providerType),
                                 modelId = readModelId(preferences, providerType),
                                 timeoutSeconds = readTimeoutSeconds(preferences, providerType),
+                                acceptsImages = preferences[acceptsImagesKey(providerType)] ?: false,
                             )
                         },
                 )
@@ -100,6 +101,7 @@ class SettingsDataStore(
                 preferences[baseUrlKey(providerType)] = baseUrl
                 preferences[modelIdKey(providerType)] = modelId
                 preferences[timeoutSecondsKey(providerType)] = timeoutSeconds
+                preferences[acceptsImagesKey(providerType)] = providerSettings.acceptsImages
                 if (providerType == ProviderType.OpenAiCompatible) {
                     preferences[legacyOpenAiBaseUrlKey] = baseUrl
                     preferences[legacyOpenAiModelIdKey] = modelId
@@ -225,6 +227,8 @@ class SettingsDataStore(
     private fun modelIdKey(providerType: ProviderType) = stringPreferencesKey("provider_${providerType.storageValue}_model_id")
 
     private fun timeoutSecondsKey(providerType: ProviderType) = intPreferencesKey("provider_${providerType.storageValue}_timeout_seconds")
+
+    private fun acceptsImagesKey(providerType: ProviderType) = booleanPreferencesKey("provider_${providerType.storageValue}_accepts_images")
 }
 
 private fun normalizeProviderBaseUrl(

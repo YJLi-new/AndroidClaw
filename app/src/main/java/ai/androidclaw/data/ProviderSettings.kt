@@ -136,6 +136,10 @@ enum class ProviderType(
     val usesOpenAiCodexOAuth: Boolean
         get() = authMode == ProviderAuthMode.OpenAiCodexDeviceCode
 
+    /** Vision on by default; the other presets and custom endpoints need "Model accepts images". */
+    val defaultSupportsImages: Boolean
+        get() = this == Fake || this == OpenAi || this == OpenAiCodex || this == Anthropic || this == Gemini
+
     fun defaultEndpointSettings(): ProviderEndpointSettings =
         ProviderEndpointSettings(
             baseUrl = defaultBaseUrl,
@@ -159,6 +163,8 @@ data class ProviderEndpointSettings(
     val baseUrl: String,
     val modelId: String,
     val timeoutSeconds: Int,
+    /** User switch for presets whose vision support varies by model. */
+    val acceptsImages: Boolean = false,
 )
 
 enum class ProviderEndpointPolicySeverity {
@@ -207,6 +213,9 @@ data class ProviderSettingsSnapshot(
 
     val openAiTimeoutSeconds: Int
         get() = endpointSettings(ProviderType.OpenAiCompatible).timeoutSeconds
+
+    /** Whether image bytes may be sent to [providerType] (preset default or the user switch). */
+    fun imagesEnabled(providerType: ProviderType = this.providerType): Boolean = providerType.defaultSupportsImages || endpointSettings(providerType).acceptsImages
 }
 
 private fun defaultProviderConfigs(): Map<ProviderType, ProviderEndpointSettings> =

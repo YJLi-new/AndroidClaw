@@ -43,6 +43,7 @@ internal fun buildResponsesInput(
                     addInputMessage(
                         role = "user",
                         text = message.content,
+                        attachments = message.attachments,
                     )
 
                 ModelMessageRole.Assistant -> {
@@ -118,8 +119,9 @@ internal fun buildResponsesInput(
 private fun JsonArrayBuilder.addInputMessage(
     role: String,
     text: String,
+    attachments: List<ModelAttachment> = emptyList(),
 ) {
-    if (text.isBlank()) {
+    if (text.isBlank() && attachments.isEmpty()) {
         return
     }
     add(
@@ -128,14 +130,32 @@ private fun JsonArrayBuilder.addInputMessage(
             put(
                 "content",
                 buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("type", "input_text")
-                            put("text", text)
-                        },
-                    )
+                    if (text.isNotBlank()) {
+                        addInputText(text)
+                    }
+                    // Each image follows its marker; images outside the request bound keep only the marker.
+                    attachments.forEach { attachment ->
+                        addInputText(attachment.marker())
+                        attachment.dataUrlOrNull()?.let { dataUrl ->
+                            add(
+                                buildJsonObject {
+                                    put("type", "input_image")
+                                    put("image_url", dataUrl)
+                                },
+                            )
+                        }
+                    }
                 },
             )
+        },
+    )
+}
+
+private fun JsonArrayBuilder.addInputText(text: String) {
+    add(
+        buildJsonObject {
+            put("type", "input_text")
+            put("text", text)
         },
     )
 }

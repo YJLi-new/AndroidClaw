@@ -350,6 +350,41 @@ class AndroidClawDatabaseMigrationTest {
             }
     }
 
+    @Test
+    fun migrate5To6_addsMessageAttachmentsWithCascade() {
+        helper.createDatabase(ATTACHMENT_TEST_DB, 5).apply {
+            execSQL(
+                "INSERT INTO sessions (id, title, isMain, createdAt, updatedAt, archivedAt, summaryText, compactedUntilMessageId) " +
+                    "VALUES ('s1', 'Photos', 0, 1000, 1000, NULL, NULL, NULL)",
+            )
+            execSQL(
+                "INSERT INTO messages (id, sessionId, role, content, createdAt, providerMeta, toolCallId, taskRunId) " +
+                    "VALUES ('m1', 's1', 'user', 'look', 1000, NULL, NULL, NULL)",
+            )
+            close()
+        }
+
+        helper
+            .runMigrationsAndValidate(
+                ATTACHMENT_TEST_DB,
+                6,
+                true,
+                AndroidClawDatabaseMigrations.MIGRATION_5_6,
+            ).apply {
+                execSQL("PRAGMA foreign_keys = ON")
+                execSQL(
+                    "INSERT INTO message_attachments (id, messageId, sessionId, kind, mimeType, displayName, relativePath, " +
+                        "byteCount, width, height, durationMs, createdAt) VALUES ('a1', 'm1', 's1', 'USER_IMAGE', " +
+                        "'image/jpeg', 'cat.jpg', 's1/a1.jpg', 1234, 1568, 1176, NULL, 1001)",
+                )
+                assertRowCount(this, "message_attachments", 1)
+                assertRowCount(this, "messages", 1)
+                execSQL("DELETE FROM messages WHERE id = 'm1'")
+                assertRowCount(this, "message_attachments", 0)
+                close()
+            }
+    }
+
     private fun assertMigratedSkill(
         db: androidx.sqlite.db.SupportSQLiteDatabase,
         id: String,
@@ -406,5 +441,6 @@ class AndroidClawDatabaseMigrationTest {
         private const val COMPACT_TEST_DB = "androidclaw-migration-compact-test"
         private const val MEMORY_TEST_DB = "androidclaw-migration-memory-test"
         private const val RUNTIME_TEST_DB = "androidclaw-migration-runtime-test"
+        private const val ATTACHMENT_TEST_DB = "androidclaw-migration-attachment-test"
     }
 }

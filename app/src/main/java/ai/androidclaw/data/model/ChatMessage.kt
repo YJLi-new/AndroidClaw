@@ -19,4 +19,5 @@ data class ChatMessage(
     val providerMeta: String?,
     val toolCallId: String?,
     val taskRunId: String?,
+    val attachments: List<MessageAttachment> = emptyList(),
 )

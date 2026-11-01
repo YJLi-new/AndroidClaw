@@ -5,11 +5,16 @@ import ai.androidclaw.app.ChatDependencies
 import ai.androidclaw.app.viewModelFactory
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
+import ai.androidclaw.data.attachments.AttachmentImporter
+import ai.androidclaw.data.attachments.MAX_ATTACHMENTS_PER_MESSAGE
+import ai.androidclaw.data.attachments.StagedAttachment
 import ai.androidclaw.data.model.ChatMessage
 import ai.androidclaw.data.model.EventCategory
 import ai.androidclaw.data.model.EventLevel
+import ai.androidclaw.data.model.MessageAttachment
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Session
+import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.EventLogRepository
 import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
@@ -22,6 +27,7 @@ import ai.androidclaw.runtime.orchestrator.AgentTurnRequest
 import ai.androidclaw.runtime.providers.parseProviderMessageMeta
 import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.ui.text.UiText
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -64,6 +70,7 @@ data class ChatMessageUi(
     val text: String,
     val createdAt: Instant,
     val toolCallId: String? = null,
+    val attachments: List<ChatAttachmentUi> = emptyList(),
 )
 
 /** One row of the transcript. Tool requests and their results render as one card. */
@@ -150,6 +157,9 @@ data class ChatUiState(
     val canRetryLastFailedTurn: Boolean = false,
     val activeTurnStage: UiText? = null,
     val isFakeProvider: Boolean = false,
+    val stagedAttachments: List<ChatAttachmentUi> = emptyList(),
+    val isImportingAttachments: Boolean = false,
+    val imagesEnabled: Boolean = false,
 ) {
     val hasContent: Boolean
         get() = messages.isNotEmpty() || compactedHiddenMessageCount > 0
@@ -175,6 +185,8 @@ class ChatViewModel(
     private val agentRunner: AgentRunner,
     private val skillManager: SkillManager,
     private val settingsDataStore: SettingsDataStore,
+    private val attachmentRepository: AttachmentRepository? = null,
+    private val attachmentImporter: AttachmentImporter? = null,
 ) : ViewModel() {
     private val uiSharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
     private val draft = MutableStateFlow("")
@@ -203,6 +215,8 @@ class ChatViewModel(
     private val streamingAssistantText = MutableStateFlow("")
     private val canRetryLastFailedTurn = MutableStateFlow(false)
     private val activeTurnStage = MutableStateFlow<UiText?>(null)
+    private val stagedAttachments = MutableStateFlow<List<StagedAttachment>>(emptyList())
+    private val importingAttachmentCount = MutableStateFlow(0)
     val currentSessionId: StateFlow<String> = mutableCurrentSessionId.asStateFlow()
     val actions = externalActions.asSharedFlow()
 
@@ -274,9 +288,22 @@ class ChatViewModel(
             SessionData(sessions, archived, messages)
         }
 
+    private val attachmentChromeFlow =
+        combine(
+            stagedAttachments,
+            importingAttachmentCount,
+            settingsDataStore.settings.map { it.imagesEnabled() }.distinctUntilChanged(),
+        ) { staged, importing, imagesEnabled ->
+            Triple(staged.map(::stagedAttachmentUi), importing > 0, imagesEnabled && attachmentImporter != null)
+        }
+
     val state: StateFlow<ChatUiState> =
-        combine(chromeFlow, sessionDataFlow) { chrome, data ->
-            buildState(chrome, data)
+        combine(chromeFlow, sessionDataFlow, attachmentChromeFlow) { chrome, data, attachments ->
+            buildState(chrome, data).copy(
+                stagedAttachments = attachments.first,
+                isImportingAttachments = attachments.second,
+                imagesEnabled = attachments.third,
+            )
         }.stateIn(
             scope = viewModelScope,
             started = uiSharingStarted,
@@ -308,7 +335,7 @@ class ChatViewModel(
     fun sendCurrentDraft() {
         val sessionId = currentSessionId.value
         val draftValue = draft.value.trim()
-        if (sessionId.isBlank() || draftValue.isBlank() || isRunning.value) return
+        if (sessionId.isBlank() || (draftValue.isBlank() && stagedAttachments.value.isEmpty()) || isRunning.value) return
 
         startTurn(
             sessionId = sessionId,
@@ -316,7 +343,93 @@ class ChatViewModel(
             persistUserMessage = true,
             clearDraft = true,
             isRetry = false,
+            attachments = stagedAttachments.value,
         )
+    }
+
+    /** Imports picked photos into the session folder and shows them as chips (at most 4). */
+    fun onImagesPicked(uris: List<Uri>) {
+        val importer = attachmentImporter ?: return
+        val sessionId = currentSessionId.value
+        if (uris.isEmpty() || sessionId.isBlank()) return
+        val room = MAX_ATTACHMENTS_PER_MESSAGE - stagedAttachments.value.size - importingAttachmentCount.value
+        if (uris.size > room) {
+            noticeMessage.value = UiText.res(R.string.chat_attach_limit, MAX_ATTACHMENTS_PER_MESSAGE)
+        }
+        val accepted = uris.take(room.coerceAtLeast(0))
+        if (accepted.isEmpty()) return
+        importingAttachmentCount.value += accepted.size
+        viewModelScope.launch {
+            accepted.forEach { uri ->
+                try {
+                    val staged = importer.importImage(sessionId, uri)
+                    if (currentSessionId.value == sessionId) {
+                        stagedAttachments.value = stagedAttachments.value + staged
+                    } else {
+                        attachmentRepository?.discardStaged(listOf(staged))
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    errorMessage.value = error.toUiError(R.string.chat_attach_failed)
+                } finally {
+                    importingAttachmentCount.value -= 1
+                }
+            }
+        }
+    }
+
+    fun removeStagedAttachment(id: String) {
+        val removed = stagedAttachments.value.filter { it.id == id }
+        if (removed.isEmpty()) return
+        stagedAttachments.value = stagedAttachments.value - removed.toSet()
+        viewModelScope.launch { attachmentRepository?.discardStaged(removed) }
+    }
+
+    /** The attach button stays visible for text-only models and explains why it does nothing. */
+    fun onAttachUnavailable() {
+        noticeMessage.value = UiText.res(R.string.chat_attach_unavailable)
+    }
+
+    private fun discardStagedAttachments() {
+        val staged = stagedAttachments.value
+        if (staged.isEmpty()) return
+        stagedAttachments.value = emptyList()
+        viewModelScope.launch { attachmentRepository?.discardStaged(staged) }
+    }
+
+    private fun stagedAttachmentUi(staged: StagedAttachment): ChatAttachmentUi =
+        ChatAttachmentUi(
+            id = staged.id,
+            displayName = staged.displayName,
+            mimeType = staged.mimeType,
+            width = staged.width,
+            height = staged.height,
+            file = attachmentFile(staged.relativePath),
+            thumbnailFile = attachmentThumbnailFile(staged.relativePath),
+        )
+
+    private fun messageAttachmentUi(attachment: MessageAttachment): ChatAttachmentUi? {
+        if (attachmentRepository == null) return null
+        return ChatAttachmentUi(
+            id = attachment.id,
+            displayName = attachment.displayName,
+            mimeType = attachment.mimeType,
+            width = attachment.width,
+            height = attachment.height,
+            file = attachmentFile(attachment.relativePath),
+            thumbnailFile = attachmentThumbnailFile(attachment.relativePath),
+        )
+    }
+
+    private fun attachmentFile(relativePath: String): java.io.File = attachmentRepository?.file(relativePath) ?: java.io.File(relativePath)
+
+    private fun attachmentThumbnailFile(relativePath: String): java.io.File = attachmentRepository?.thumbnailFile(relativePath) ?: java.io.File(relativePath)
+
+    override fun onCleared() {
+        // Chips never sent: remove their files (small, local deletes).
+        stagedAttachments.value.forEach { staged -> attachmentRepository?.store?.delete(staged.relativePath) }
+        super.onCleared()
     }
 
     fun cancelActiveTurn() {
@@ -334,7 +447,7 @@ class ChatViewModel(
         val failedMessage = lastFailedUserMessageText
         if (
             sessionId.isBlank() ||
-            failedMessage.isNullOrBlank() ||
+            failedMessage == null ||
             lastFailedSessionId != sessionId ||
             isRunning.value
         ) {
@@ -646,7 +759,7 @@ class ChatViewModel(
                 )
             }
         val currentSession = data.sessions.firstOrNull { it.id == currentId }
-        val messages = data.messages.map(ChatMessage::toUi)
+        val messages = data.messages.map { message -> message.toUi(::messageAttachmentUi) }
         val boundaryIndex =
             currentSession
                 ?.compactedUntilMessageId
@@ -712,6 +825,9 @@ class ChatViewModel(
     }
 
     private fun selectSession(sessionId: String) {
+        if (stagedAttachments.value.any { it.sessionId != sessionId }) {
+            discardStagedAttachments()
+        }
         mutableCurrentSessionId.value = sessionId
         highlightedMessageId.value = null
         showCompactedHistory.value = false
@@ -731,9 +847,10 @@ class ChatViewModel(
         persistUserMessage: Boolean,
         clearDraft: Boolean,
         isRetry: Boolean,
+        attachments: List<StagedAttachment> = emptyList(),
     ) {
         val normalizedUserMessage = userMessage.trim()
-        if (normalizedUserMessage.isBlank() || isRunning.value) return
+        if ((normalizedUserMessage.isBlank() && attachments.isEmpty() && persistUserMessage) || isRunning.value) return
 
         activeTurnJob?.cancel()
         activeTurnJob = null
@@ -741,6 +858,7 @@ class ChatViewModel(
         if (clearDraft) {
             draft.value = ""
             composerText = ""
+            stagedAttachments.value = emptyList()
         }
         isRunning.value = true
         isCancelling.value = false
@@ -768,6 +886,7 @@ class ChatViewModel(
                                     sessionId = sessionId,
                                     userMessage = normalizedUserMessage,
                                     persistUserMessage = persistUserMessage,
+                                    attachments = attachments,
                                 ),
                         ).collect { event -> onTurnEvent(event, sessionId, normalizedUserMessage) }
                 } catch (error: CancellationException) {
@@ -826,7 +945,12 @@ class ChatViewModel(
             is AgentTurnEvent.TurnFailed -> {
                 streamingAssistantText.value = ""
                 activeTurnStage.value = null
-                errorMessage.value = boundedChatUiText(event.message, fallback = R.string.chat_error_turn_failed)
+                errorMessage.value =
+                    if (event.kind == AgentTurnFailureKind.ImagesUnsupported) {
+                        UiText.res(R.string.chat_error_images_unsupported)
+                    } else {
+                        boundedChatUiText(event.message, fallback = R.string.chat_error_turn_failed)
+                    }
                 lastFailedUserMessageText = userMessage
                 lastFailedSessionId = sessionId
                 canRetryLastFailedTurn.value = event.retryable
@@ -965,6 +1089,8 @@ class ChatViewModel(
                     agentRunner = dependencies.agentRunner,
                     skillManager = dependencies.skillManager,
                     settingsDataStore = dependencies.settingsDataStore,
+                    attachmentRepository = dependencies.attachmentRepository,
+                    attachmentImporter = dependencies.attachmentImporter,
                 )
             }
     }
@@ -1199,7 +1325,7 @@ private fun Throwable.toUiError(resource: Int): UiText {
     return UiText.res(resource, details)
 }
 
-private fun ChatMessage.toUi(): ChatMessageUi =
+private fun ChatMessage.toUi(attachmentUi: (MessageAttachment) -> ChatAttachmentUi?): ChatMessageUi =
     ChatMessageUi(
         id = id,
         role =
@@ -1213,6 +1339,7 @@ private fun ChatMessage.toUi(): ChatMessageUi =
         text = content,
         createdAt = createdAt,
         toolCallId = toolCallId,
+        attachments = attachments.mapNotNull(attachmentUi),
     )
 
 private fun ChatMessageUi.isCompactControlMessage(): Boolean {
