@@ -93,6 +93,8 @@ sealed interface ChatItemUi {
         val arguments: String,
         val result: String?,
         val createdAt: Instant,
+        /** Files linked to the result row (images from image_generate). */
+        val attachments: List<ChatAttachmentUi> = emptyList(),
     ) : ChatItemUi
 }
 
@@ -1140,6 +1142,7 @@ internal fun groupChatItems(messages: List<ChatMessageUi>): List<ChatItemUi> {
                         arguments = arguments,
                         result = result?.text?.let(::parseToolResult),
                         createdAt = message.createdAt,
+                        attachments = result?.attachments.orEmpty(),
                     )
             }
 
@@ -1153,6 +1156,7 @@ internal fun groupChatItems(messages: List<ChatMessageUi>): List<ChatItemUi> {
                             arguments = "",
                             result = parseToolResult(message.text),
                             createdAt = message.createdAt,
+                            attachments = message.attachments,
                         )
                 }
             }

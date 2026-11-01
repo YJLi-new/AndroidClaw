@@ -21,6 +21,13 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.SkillRepository
 import ai.androidclaw.data.repository.TaskRepository
 import ai.androidclaw.runtime.device.AppForegroundState
+import ai.androidclaw.runtime.media.AndroidVideoNotifier
+import ai.androidclaw.runtime.media.FakeImageBackend
+import ai.androidclaw.runtime.media.GeneratedMediaStore
+import ai.androidclaw.runtime.media.MediaGenerationPolicy
+import ai.androidclaw.runtime.media.OpenAiImageBackend
+import ai.androidclaw.runtime.media.OpenAiMediaClient
+import ai.androidclaw.runtime.media.WorkManagerVideoJobScheduler
 import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.PromptAssembler
@@ -46,9 +53,11 @@ import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSourceScanner
 import ai.androidclaw.runtime.skills.SkillStorage
 import ai.androidclaw.runtime.tools.BraveSearchClient
+import ai.androidclaw.runtime.tools.MediaToolDependencies
 import ai.androidclaw.runtime.tools.WebSearchPolicy
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
 import android.app.Application
+import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -116,6 +125,23 @@ class AppContainer(
         )
     val taskNotifier = AndroidTaskNotifier(application)
 
+    // PLANv13 gen: image and video generation (OpenAI key; debug fake image backend).
+    val mediaGenerationPolicy = MediaGenerationPolicy(settingsDataStore, providerSecretStore)
+    val openAiMediaClient = OpenAiMediaClient(providerHttpClient)
+    val generatedMediaStore = GeneratedMediaStore(attachmentRepository.store)
+    val videoNotifier = AndroidVideoNotifier(application)
+    private val mediaToolDependencies =
+        MediaToolDependencies(
+            policy = mediaGenerationPolicy,
+            attachmentRepository = attachmentRepository,
+            mediaStore = generatedMediaStore,
+            openAiImageBackend = OpenAiImageBackend(openAiMediaClient, mediaGenerationPolicy),
+            fakeImageBackend = FakeImageBackend(),
+            client = openAiMediaClient,
+            videoJobScheduler = WorkManagerVideoJobScheduler { WorkManager.getInstance(application) },
+            clock = clock,
+        )
+
     /** App-private persona/workspace files (AGENTS.md, SOUL.md, USER.md, MEMORY.md, notes). */
     val workspaceStore = WorkspaceStore(File(application.filesDir, WorkspaceStore.DIRECTORY_NAME))
 
@@ -144,6 +170,7 @@ class AppContainer(
             clock = clock,
             braveSearchClient = braveSearchClient,
             braveApiKey = webSearchKeyStore::readBraveApiKey,
+            mediaTools = mediaToolDependencies,
         )
 
     private val bundledSkillLoader =
@@ -253,6 +280,7 @@ class AppContainer(
             workspaceContextProvider = { workspaceStore.promptContext() },
             webSearchPolicy = webSearchPolicy,
             attachmentRepository = attachmentRepository,
+            mediaGenerationPolicy = mediaGenerationPolicy,
         )
 
     val taskRuntimeExecutor =

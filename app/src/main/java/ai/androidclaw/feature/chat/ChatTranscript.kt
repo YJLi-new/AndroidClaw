@@ -109,6 +109,8 @@ internal fun ChatMessageRow(
                     style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 )
                 message.webSearch?.let { ChatSources(it) }
+                // Generated media on an assistant reply (a finished video_generate job).
+                ChatAttachmentGrid(attachments = message.attachments, onOpen = onOpenAttachment, alignEnd = false)
                 MessageTime(message.createdAt, timeFormatter)
             }
 

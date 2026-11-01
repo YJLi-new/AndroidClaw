@@ -83,6 +83,8 @@ class ToolPayloadBudgetTest {
 
             assertTrue(scheduled.containsAll(setOf("web_fetch", "web_search", "device_status", "notify", "tasks_list", "workspace_edit")))
             assertTrue(scheduled.none { it in setOf("open_url", "open_app", "set_alarm", "clipboard_get", "tasks_delete") })
+            // Paid media tools stay out of scheduled runs (PLANv13 M3/M5).
+            assertTrue(scheduled.none { it in setOf("image_generate", "video_generate") })
         }
 
     @Test

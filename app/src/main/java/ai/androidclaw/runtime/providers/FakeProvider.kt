@@ -15,6 +15,7 @@ import java.time.Clock
  * e.g. `What is my battery? [tool:device_status]`. Optional JSON arguments may follow the name:
  * `[tool:set_timer {"seconds":60}]`. Without JSON the call receives `{"command": <message>}`.
  * After the tool result arrives the provider answers with the first line of that result.
+ * `[tool:image_generate]` without JSON uses the rest of the message as the image prompt.
  */
 class FakeProvider(
     private val clock: Clock,
@@ -64,7 +65,7 @@ class FakeProvider(
                             name = requestedTool,
                             argumentsJson =
                                 marker.groupValues.getOrNull(2)?.toJsonObjectOrNull()
-                                    ?: buildJsonObject { put("command", lastUserMessage) },
+                                    ?: scriptedArguments(requestedTool, lastUserMessage, marker.value),
                         ),
                     ),
             )
@@ -101,6 +102,21 @@ class FakeProvider(
                 },
         )
     }
+
+    /**
+     * Scripted image path: `Draw a red fox [tool:image_generate]` calls image_generate with the
+     * message (marker removed) as the prompt; the debug fake image backend answers offline.
+     */
+    private fun scriptedArguments(
+        toolName: String,
+        message: String,
+        marker: String,
+    ): JsonObject =
+        if (toolName == "image_generate") {
+            buildJsonObject { put("prompt", message.replace(marker, "").trim().ifEmpty { "A test image" }) }
+        } else {
+            buildJsonObject { put("command", message) }
+        }
 
     private fun String.toJsonObjectOrNull(): JsonObject? =
         takeIf(String::isNotBlank)?.let { raw ->

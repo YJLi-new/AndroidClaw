@@ -8,6 +8,9 @@ import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.repository.AttachmentRepository
 import ai.androidclaw.data.repository.MESSAGE_CONTENT_MAX_CHARS
 import ai.androidclaw.data.repository.MessageRepository
+import ai.androidclaw.runtime.media.MediaBackendMode
+import ai.androidclaw.runtime.media.MediaGenerationPolicy
+import ai.androidclaw.runtime.media.offersTool
 import ai.androidclaw.runtime.memory.MemoryCoordinator
 import ai.androidclaw.runtime.providers.ModelMessage
 import ai.androidclaw.runtime.providers.ModelMessageRole
@@ -99,6 +102,7 @@ class AgentRunner(
     private val workspaceContextProvider: (suspend () -> String?)? = null,
     private val webSearchPolicy: WebSearchPolicy? = null,
     private val attachmentRepository: AttachmentRepository? = null,
+    private val mediaGenerationPolicy: MediaGenerationPolicy? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
         runTurn(
@@ -321,12 +325,15 @@ class AgentRunner(
             }
             // One rule picks the search path: typed web_search tool, provider-hosted search, or none.
             val webSearchMode = webSearchPolicy?.resolve(providerSettings)?.mode ?: WebSearchMode.Off
+            // image_generate / video_generate: offered only with an OpenAI key (or the debug fake backend).
+            val mediaMode = mediaGenerationPolicy?.resolve(providerSettings.providerType) ?: MediaBackendMode.Off
             val toolDescriptors =
                 toolRegistry
                     .descriptorsFor(
                         origin = toolOrigin,
                         runMode = runMode,
                     ).filter { webSearchMode == WebSearchMode.Typed || it.name != WEB_SEARCH_TOOL_NAME }
+                    .filter { mediaMode.offersTool(it.name) }
             val webSearch = WebSearchCollector()
             val provider = providerRegistry.require(providerSettings.providerType)
             val persistedMessages =
@@ -629,13 +636,14 @@ class AgentRunner(
                     arguments = executionArguments,
                 )
             }
-        messageRepository.addMessage(
-            sessionId = sessionId,
-            role = MessageRole.ToolResult,
-            content = "Tool result: ${toolResult.toModelContent()}",
-            toolCallId = toolCallId,
-            taskRunId = taskRunId,
-        )
+        messageRepository
+            .addMessage(
+                sessionId = sessionId,
+                role = MessageRole.ToolResult,
+                content = "Tool result: ${toolResult.toModelContent()}",
+                toolCallId = toolCallId,
+                taskRunId = taskRunId,
+            ).also { message -> attachToolResultFiles(message.id, sessionId, toolResult) }
         onToolFinished(toolName, toolResult)
         return toolResult
     }
@@ -769,13 +777,14 @@ class AgentRunner(
                         )
                     }
                 val modelContent = toolResult.toModelContent()
-                messageRepository.addMessage(
-                    sessionId = sessionId,
-                    role = MessageRole.ToolResult,
-                    content = "Tool result: $modelContent",
-                    toolCallId = toolCall.id,
-                    taskRunId = taskRunId,
-                )
+                messageRepository
+                    .addMessage(
+                        sessionId = sessionId,
+                        role = MessageRole.ToolResult,
+                        content = "Tool result: $modelContent",
+                        toolCallId = toolCall.id,
+                        taskRunId = taskRunId,
+                    ).also { message -> attachToolResultFiles(message.id, sessionId, toolResult) }
                 onToolFinished(toolCall.name, toolResult)
                 add(
                     ModelMessage(
@@ -787,6 +796,18 @@ class AgentRunner(
                 )
             }
         }
+
+    /** Links files a tool wrote (e.g. a generated image) to its persisted result row. */
+    private suspend fun attachToolResultFiles(
+        messageId: String,
+        sessionId: String,
+        toolResult: ToolExecutionResult,
+    ) {
+        val repository = attachmentRepository ?: return
+        toolResult.attachments.groupBy { it.kind }.forEach { (kind, files) ->
+            repository.attachToMessage(messageId, sessionId, files.map { it.staged }, kind)
+        }
+    }
 
     /**
      * Runs one tool call. If the turn is cancelled while the tool runs, a result row is still
