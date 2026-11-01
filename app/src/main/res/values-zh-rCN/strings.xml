@@ -545,6 +545,18 @@
     <string name="chat_video_no_player">此设备上没有能播放视频的应用。</string>
     <string name="video_notification_ready">视频已生成</string>
     <string name="video_notification_failed">视频生成失败</string>
+    <!-- PLANv13 int13: video job transcript messages -->
+    <string name="video_job_ready">视频已生成</string>
+    <string name="video_job_ready_details">视频已生成（%1$s）</string>
+    <string name="video_job_seconds">%1$s 秒</string>
+    <string name="video_job_detail_separator">，</string>
+    <string name="video_job_with_prompt">%1$s：%2$s</string>
+    <string name="video_job_gave_up">视频任务 %1$s 已放弃：30 分钟内没有生成完成。</string>
+    <string name="video_job_key_removed">视频任务 %1$s 已停止：OpenAI API 密钥已被移除。</string>
+    <string name="video_job_failed">视频任务 %1$s 失败：%2$s</string>
+    <string name="video_job_generation_failed">视频生成失败：%1$s。</string>
+    <string name="video_job_no_reason">未说明原因</string>
+    <string name="video_job_not_saved">视频任务 %1$s 无法保存：%2$s</string>
     <!-- PLANv13 voice -->
     <string name="chat_action_voice_input">语音输入</string>
     <string name="chat_voice_unavailable">此设备没有可用的语音识别服务。</string>

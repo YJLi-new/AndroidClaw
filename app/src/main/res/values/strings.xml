@@ -562,6 +562,18 @@
     <string name="chat_video_no_player">No app on this device can play videos.</string>
     <string name="video_notification_ready">Video ready</string>
     <string name="video_notification_failed">Video generation failed</string>
+    <!-- PLANv13 int13: video job transcript messages -->
+    <string name="video_job_ready">Video ready</string>
+    <string name="video_job_ready_details">Video ready (%1$s)</string>
+    <string name="video_job_seconds">%1$s s</string>
+    <string name="video_job_detail_separator">", "</string>
+    <string name="video_job_with_prompt">%1$s: %2$s</string>
+    <string name="video_job_gave_up">Video job %1$s gave up after 30 minutes without a finished video.</string>
+    <string name="video_job_key_removed">Video job %1$s stopped: the OpenAI API key was removed.</string>
+    <string name="video_job_failed">Video job %1$s failed: %2$s</string>
+    <string name="video_job_generation_failed">Video generation failed: %1$s.</string>
+    <string name="video_job_no_reason">no reason given</string>
+    <string name="video_job_not_saved">Video job %1$s could not be saved: %2$s</string>
     <!-- PLANv13 voice -->
     <string name="chat_action_voice_input">Voice input</string>
     <string name="chat_voice_unavailable">No speech recognizer is available on this device.</string>

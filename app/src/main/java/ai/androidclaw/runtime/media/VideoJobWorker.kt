@@ -9,12 +9,14 @@ import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
 import ai.androidclaw.runtime.scheduler.TASK_RESULTS_NOTIFICATION_CHANNEL_ID
 import ai.androidclaw.runtime.scheduler.ensureTaskNotificationChannels
+import ai.androidclaw.ui.locale.AppLocaleController
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -99,6 +101,10 @@ class AndroidVideoNotifier(
             return
         }
         ensureTaskNotificationChannels(context)
+        val title =
+            AppLocaleController
+                .localizedResources(context)
+                .getString(if (ready) R.string.video_notification_ready else R.string.video_notification_failed)
         val launch =
             context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { intent ->
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -108,7 +114,7 @@ class AndroidVideoNotifier(
             NotificationCompat
                 .Builder(context, TASK_RESULTS_NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(if (ready) android.R.drawable.ic_media_play else android.R.drawable.ic_dialog_alert)
-                .setContentTitle(context.getString(if (ready) R.string.video_notification_ready else R.string.video_notification_failed))
+                .setContentTitle(title)
                 .setContentText(body)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true)
@@ -135,6 +141,8 @@ class VideoJobWorker(
     private val sessionLaneCoordinator: SessionLaneCoordinator,
     private val notifier: VideoNotifier,
     private val clock: Clock = Clock.systemUTC(),
+    /** Transcript text in the app language, resolved when the worker writes a message. */
+    private val resources: () -> Resources = { AppLocaleController.localizedResources(appContext) },
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         val jobId = inputData.getString(KEY_JOB_ID) ?: return Result.failure()
@@ -143,15 +151,15 @@ class VideoJobWorker(
         val startedAt = inputData.getLong(KEY_STARTED_AT, clock.millis())
         if (sessionRepository.getSession(sessionId) == null) return Result.success()
         if (clock.millis() - startedAt > VIDEO_JOB_GIVE_UP_MILLIS) {
-            return finishFailed(jobId, sessionId, "Video job $jobId gave up after 30 minutes without a finished video.")
+            return finishFailed(jobId, sessionId, texts().gaveUp(jobId))
         }
         val credentials =
             policy.credentials()
-                ?: return finishFailed(jobId, sessionId, "Video job $jobId stopped: the OpenAI API key was removed.")
+                ?: return finishFailed(jobId, sessionId, texts().keyRemoved(jobId))
         return when (val outcome = client.retrieveVideo(credentials, jobId)) {
             is VideoOutcome.Failure ->
                 if (outcome.httpStatus in setOf(400, 401, 403, 404)) {
-                    finishFailed(jobId, sessionId, "Video job $jobId failed: ${outcome.message}")
+                    finishFailed(jobId, sessionId, texts().jobFailed(jobId, outcome.message))
                 } else {
                     Result.retry()
                 }
@@ -160,11 +168,13 @@ class VideoJobWorker(
                 when (outcome.job.status) {
                     VideoJobStatus.Completed -> download(credentials, outcome.job, sessionId, prompt)
                     VideoJobStatus.Failed ->
-                        finishFailed(jobId, sessionId, "Video generation failed: ${outcome.job.errorMessage ?: "no reason given"}.")
+                        finishFailed(jobId, sessionId, texts().generationFailed(outcome.job.errorMessage))
                     else -> Result.retry()
                 }
         }
     }
+
+    private fun texts() = VideoJobTexts(resources())
 
     private suspend fun download(
         credentials: OpenAiMediaCredentials,
@@ -176,21 +186,14 @@ class VideoJobWorker(
         return when (val outcome = client.downloadVideo(credentials, job.id, file)) {
             is DownloadOutcome.Failure ->
                 if (outcome.errorCode == "TOO_LARGE" || outcome.httpStatus in setOf(401, 403, 404)) {
-                    finishFailed(job.id, sessionId, "Video job ${job.id} could not be saved: ${outcome.message}")
+                    finishFailed(job.id, sessionId, texts().notSaved(job.id, outcome.message))
                 } else {
                     Result.retry()
                 }
 
             is DownloadOutcome.Success -> {
                 val (staged, durationMs) = mediaStore.describeVideo(sessionId, attachmentId, file)
-                val text =
-                    buildString {
-                        append("Video ready")
-                        job.seconds?.let { append(" (").append(it).append(" s") }
-                        job.size?.let { append(if (job.seconds != null) ", " else " (").append(it.replace('x', '×')) }
-                        if (job.seconds != null || job.size != null) append(')')
-                        if (prompt.isNotBlank()) append(": ").append(prompt)
-                    }
+                val text = texts().ready(job.seconds, job.size, prompt)
                 sessionLaneCoordinator.withLane(sessionId) {
                     val message = messageRepository.addMessage(sessionId = sessionId, role = MessageRole.Assistant, content = text)
                     attachmentRepository.attachToMessage(message.id, sessionId, listOf(staged), AttachmentKind.Video, durationMs)
@@ -220,4 +223,47 @@ class VideoJobWorker(
         const val KEY_PROMPT = "prompt"
         const val KEY_STARTED_AT = "startedAt"
     }
+}
+
+/** Video job messages for the transcript and the notification body. API detail stays as received. */
+internal class VideoJobTexts(
+    private val resources: Resources,
+) {
+    fun ready(
+        seconds: String?,
+        size: String?,
+        prompt: String,
+    ): String {
+        val details =
+            listOfNotNull(
+                seconds?.let { resources.getString(R.string.video_job_seconds, it) },
+                size?.replace('x', '×'),
+            ).joinToString(resources.getString(R.string.video_job_detail_separator))
+        val head =
+            if (details.isEmpty()) {
+                resources.getString(R.string.video_job_ready)
+            } else {
+                resources.getString(R.string.video_job_ready_details, details)
+            }
+        return if (prompt.isBlank()) head else resources.getString(R.string.video_job_with_prompt, head, prompt)
+    }
+
+    fun gaveUp(jobId: String): String = resources.getString(R.string.video_job_gave_up, jobId)
+
+    fun keyRemoved(jobId: String): String = resources.getString(R.string.video_job_key_removed, jobId)
+
+    fun jobFailed(
+        jobId: String,
+        detail: String,
+    ): String = resources.getString(R.string.video_job_failed, jobId, detail)
+
+    fun generationFailed(reason: String?): String {
+        val shown = reason ?: resources.getString(R.string.video_job_no_reason)
+        return resources.getString(R.string.video_job_generation_failed, shown)
+    }
+
+    fun notSaved(
+        jobId: String,
+        detail: String,
+    ): String = resources.getString(R.string.video_job_not_saved, jobId, detail)
 }
