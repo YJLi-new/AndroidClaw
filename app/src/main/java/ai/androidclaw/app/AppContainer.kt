@@ -3,6 +3,7 @@ package ai.androidclaw.app
 import ai.androidclaw.data.AndroidProviderSecretStore
 import ai.androidclaw.data.AndroidSkillConfigStore
 import ai.androidclaw.data.AndroidSkillSecretStore
+import ai.androidclaw.data.AndroidWebSearchKeyStore
 import ai.androidclaw.data.OnboardingDataStore
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
@@ -40,6 +41,8 @@ import ai.androidclaw.runtime.skills.SkillManager
 import ai.androidclaw.runtime.skills.SkillParser
 import ai.androidclaw.runtime.skills.SkillSourceScanner
 import ai.androidclaw.runtime.skills.SkillStorage
+import ai.androidclaw.runtime.tools.BraveSearchClient
+import ai.androidclaw.runtime.tools.WebSearchPolicy
 import ai.androidclaw.runtime.tools.createBuiltInToolRegistry
 import android.app.Application
 import kotlinx.coroutines.CoroutineScope
@@ -73,6 +76,9 @@ class AppContainer(
     val providerSecretStore = AndroidProviderSecretStore(application)
     val skillConfigStore = AndroidSkillConfigStore(application)
     val skillSecretStore = AndroidSkillSecretStore(application)
+    val webSearchKeyStore = AndroidWebSearchKeyStore(application)
+    val braveSearchClient = BraveSearchClient(providerHttpClient)
+    val webSearchPolicy = WebSearchPolicy(settingsDataStore, webSearchKeyStore)
     val networkStatusProvider: NetworkStatusProvider = AndroidNetworkStatusProvider(application)
     val sessionRepository = SessionRepository(database.sessionDao())
     val messageRepository = MessageRepository(database.messageDao())
@@ -125,6 +131,8 @@ class AppContainer(
             networkStatusProvider = networkStatusProvider,
             isAppInForeground = AppForegroundState::isInForeground,
             clock = clock,
+            braveSearchClient = braveSearchClient,
+            braveApiKey = webSearchKeyStore::readBraveApiKey,
         )
 
     private val bundledSkillLoader =
@@ -232,6 +240,7 @@ class AppContainer(
             loadSessionCompactionBoundary = { sessionId -> sessionRepository.getSession(sessionId)?.compactedUntilMessageId },
             networkStatusProvider = networkStatusProvider,
             workspaceContextProvider = { workspaceStore.promptContext() },
+            webSearchPolicy = webSearchPolicy,
         )
 
     val taskRuntimeExecutor =
@@ -289,6 +298,8 @@ class AppContainer(
                 openAiCodexOAuthClient = openAiCodexOAuthClient,
                 networkStatusProvider = networkStatusProvider,
                 memoryRepository = memoryRepository,
+                webSearchKeyStore = webSearchKeyStore,
+                braveSearchClient = braveSearchClient,
             )
 
     val onboardingDependencies: OnboardingDependencies

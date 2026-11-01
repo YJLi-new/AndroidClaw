@@ -20,6 +20,7 @@ import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.ProviderMessageMeta
 import ai.androidclaw.runtime.providers.ProviderRegistry
 import ai.androidclaw.runtime.providers.ProviderToolCall
+import ai.androidclaw.runtime.providers.WebSearchCollector
 import ai.androidclaw.runtime.providers.offlineFailure
 import ai.androidclaw.runtime.providers.toPayload
 import ai.androidclaw.runtime.providers.toStorageString
@@ -33,6 +34,10 @@ import ai.androidclaw.runtime.tools.ToolExecutionContext
 import ai.androidclaw.runtime.tools.ToolExecutionResult
 import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
+import ai.androidclaw.runtime.tools.WEB_SEARCH_TOOL_NAME
+import ai.androidclaw.runtime.tools.WebSearchMode
+import ai.androidclaw.runtime.tools.WebSearchPolicy
+import ai.androidclaw.runtime.tools.addTypedWebSearchResult
 import ai.androidclaw.runtime.tools.toModelContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +93,7 @@ class AgentRunner(
     private val loadSessionCompactionBoundary: suspend (String) -> String? = { null },
     private val networkStatusProvider: NetworkStatusProvider? = null,
     private val workspaceContextProvider: (suspend () -> String?)? = null,
+    private val webSearchPolicy: WebSearchPolicy? = null,
 ) {
     suspend fun runInteractiveTurn(request: AgentTurnRequest): AgentTurnResult =
         runTurn(
@@ -291,11 +297,6 @@ class AgentRunner(
                     skillManager.selectModelSkills(availableSkills)
                 }
             val toolOrigin = runMode.toModelToolInvocationOrigin()
-            val toolDescriptors =
-                toolRegistry.descriptorsFor(
-                    origin = toolOrigin,
-                    runMode = runMode,
-                )
             val providerSettings = settingsDataStore.settings.first()
             if (
                 providerSettings.providerType.requiresRemoteSettings &&
@@ -303,6 +304,15 @@ class AgentRunner(
             ) {
                 throw offlineFailure()
             }
+            // One rule picks the search path: typed web_search tool, provider-hosted search, or none.
+            val webSearchMode = webSearchPolicy?.resolve(providerSettings)?.mode ?: WebSearchMode.Off
+            val toolDescriptors =
+                toolRegistry
+                    .descriptorsFor(
+                        origin = toolOrigin,
+                        runMode = runMode,
+                    ).filter { webSearchMode == WebSearchMode.Typed || it.name != WEB_SEARCH_TOOL_NAME }
+            val webSearch = WebSearchCollector()
             val provider = providerRegistry.require(providerSettings.providerType)
             val persistedMessages =
                 messageRepository
@@ -349,6 +359,7 @@ class AgentRunner(
                         selectedSkills = selectedSkills,
                         toolDescriptors = toolDescriptors,
                         runMode = runMode,
+                        hostedWebSearch = webSearchMode == WebSearchMode.Hosted,
                     )
                 val response =
                     if (useStreamingProvider) {
@@ -368,6 +379,7 @@ class AgentRunner(
                     }
                 val boundedResponseText = response.text.toBoundedAgentAssistantText()
                 providerRequestId = response.providerRequestId
+                webSearch.addAll(response.webSearchQueries, response.webSources)
                 if (response.finishReason != TOOL_USE_FINISH_REASON) {
                     return persistAssistantResponse(
                         sessionId = sessionId,
@@ -380,6 +392,7 @@ class AgentRunner(
                         taskRunId = taskRunId,
                         sourceUserMessage = normalizedUserMessage,
                         sourceMessageIds = listOfNotNull(persistedUserMessage?.id),
+                        webSearch = webSearch,
                     )
                 }
 
@@ -406,6 +419,7 @@ class AgentRunner(
                         taskRunId = taskRunId,
                         onToolStarted = { emitEvent(AgentTurnEvent.ToolStarted(it)) },
                         onToolFinished = { name, result ->
+                            webSearch.addTypedWebSearchResult(name, result)
                             emitEvent(
                                 AgentTurnEvent.ToolFinished(
                                     name = name,
@@ -464,6 +478,7 @@ class AgentRunner(
         selectedSkills: List<SkillSnapshot>,
         toolDescriptors: List<ai.androidclaw.runtime.tools.ToolDescriptor>,
         runMode: ModelRunMode,
+        hostedWebSearch: Boolean = false,
     ): ModelRequest =
         ModelRequest(
             sessionId = sessionId,
@@ -473,6 +488,7 @@ class AgentRunner(
             enabledSkills = selectedSkills.toBoundedModelSkillMetadata(),
             toolDescriptors = toolDescriptors.toBoundedModelToolDescriptors(),
             runMode = runMode,
+            hostedWebSearch = hostedWebSearch,
         )
 
     private suspend fun collectStreamedResponse(
@@ -794,6 +810,7 @@ class AgentRunner(
         triggerSummaryRefresh: Boolean = true,
         sourceUserMessage: String? = null,
         sourceMessageIds: List<String> = emptyList(),
+        webSearch: WebSearchCollector? = null,
     ): AgentTurnResult {
         val persistedText = assistantText.toBoundedAgentAssistantText()
         val providerMeta =
@@ -803,6 +820,8 @@ class AgentRunner(
                     requestId = providerRequestId,
                     modelId = providerModelId,
                     usage = providerUsage?.toPayload(),
+                    webSearchQueries = webSearch?.queries().orEmpty(),
+                    sources = webSearch?.sources().orEmpty(),
                 ).toStorageString()
             }
         val assistantMessage =

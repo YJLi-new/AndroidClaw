@@ -506,4 +506,25 @@
     <string name="workspace_reset_done">%1$s reset to default</string>
     <string name="workspace_error_load">Could not read the workspace: %1$s</string>
     <string name="workspace_error_save">Could not save: %1$s</string>
+    <!-- PLANv13 search -->
+    <string name="settings_section_web_search">Web search</string>
+    <string name="settings_web_search_automatic">Automatic</string>
+    <string name="settings_web_search_off">Off</string>
+    <string name="settings_web_search_mode_typed">Searching with Brave Search (the web_search tool) for every provider and in scheduled tasks.</string>
+    <string name="settings_web_search_mode_hosted">Using the built-in web search of %1$s. Works with the model key alone.</string>
+    <string name="settings_web_search_mode_off_disabled">Web search is off.</string>
+    <string name="settings_web_search_mode_off_no_hosted">%1$s has no built-in web search here. Save a Brave Search API key to search with any provider.</string>
+    <string name="settings_web_search_brave_key">Brave Search API key</string>
+    <string name="settings_web_search_brave_help">Optional. Stored encrypted on this device.</string>
+    <string name="settings_web_search_key_stored_placeholder">Key saved. Enter a new one to replace it.</string>
+    <string name="settings_web_search_save_key">Save key</string>
+    <string name="settings_web_search_test">Test</string>
+    <string name="settings_web_search_clear_key">Remove key</string>
+    <string name="settings_web_search_key_saved">Brave Search key saved.</string>
+    <string name="settings_web_search_key_cleared">Brave Search key removed.</string>
+    <string name="settings_web_search_key_missing">Enter a Brave Search API key first.</string>
+    <string name="settings_web_search_test_ok">Brave Search works.</string>
+    <string name="settings_web_search_test_failed">Brave Search test failed: %1$s</string>
+    <string name="chat_web_searched">Searched the web: %1$s</string>
+    <string name="chat_web_sources">Sources</string>
 </resources>

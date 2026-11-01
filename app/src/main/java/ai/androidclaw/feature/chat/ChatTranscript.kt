@@ -100,6 +100,7 @@ internal fun ChatMessageRow(
                     text = message.text,
                     style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 )
+                message.webSearch?.let { ChatSources(it) }
                 MessageTime(message.createdAt, timeFormatter)
             }
 

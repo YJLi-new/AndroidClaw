@@ -154,6 +154,7 @@ internal class ResponsesAccumulator(
     private var usage: ProviderUsage? = null
     private var sawEvent = false
     private var completed = false
+    private val webSearch = WebSearchCollector()
 
     fun applyEvent(rawEvent: String): List<ModelStreamEvent> {
         val event =
@@ -187,6 +188,10 @@ internal class ResponsesAccumulator(
             "response.output_item.added" -> applyOutputItemAdded(event)
             "response.output_text.delta", "response.refusal.delta" -> applyTextDelta(event)
             "response.function_call_arguments.delta" -> applyToolArgumentsDelta(event)
+            "response.output_text.annotation.added" -> {
+                webSearch.collectResponsesAnnotation(event["annotation"])
+                emptyList()
+            }
             "response.output_item.done" -> applyOutputItemDone(event)
             "response.completed" -> {
                 applyCompleted(event)
@@ -263,6 +268,8 @@ internal class ResponsesAccumulator(
             toolCalls = resolvedToolCalls,
             modelId = modelId,
             usage = usage,
+            webSearchQueries = webSearch.queries(),
+            webSources = webSearch.sources(),
         )
     }
 
@@ -343,6 +350,7 @@ internal class ResponsesAccumulator(
 
     private fun applyOutputItemDone(event: JsonObject): List<ModelStreamEvent> {
         val item = event["item"]?.jsonObjectOrNull() ?: return emptyList()
+        webSearch.collectResponsesOutputItem(item)
         return when (item.stringValue("type")) {
             "message" -> {
                 if (assistantText.isBlank()) {
@@ -389,6 +397,9 @@ internal class ResponsesAccumulator(
         modelId = response?.stringValue("model") ?: modelId
         finishReason = mapResponsesStopReason(response?.stringValue("status"))
         usage = response?.get("usage")?.jsonObjectOrNull()?.toProviderUsage() ?: usage
+        response?.get("output")?.jsonArrayOrNull().orEmpty().forEach { item ->
+            item.jsonObjectOrNull()?.let(webSearch::collectResponsesOutputItem)
+        }
         completed = true
     }
 
@@ -617,6 +628,8 @@ internal fun parseResponsesResponseObject(
     if (text.isBlank() && toolCalls.isEmpty()) {
         return null
     }
+    val webSearch = WebSearchCollector()
+    output.forEach { item -> item.jsonObjectOrNull()?.let(webSearch::collectResponsesOutputItem) }
     return ModelResponse(
         text = text,
         providerRequestId = response.stringValue("id"),
@@ -629,7 +642,37 @@ internal fun parseResponsesResponseObject(
         toolCalls = toolCalls,
         modelId = response.stringValue("model"),
         usage = response["usage"]?.jsonObjectOrNull()?.toProviderUsage(),
+        webSearchQueries = webSearch.queries(),
+        webSources = webSearch.sources(),
     )
+}
+
+/** The Responses hosted search tool entry; the probe (2026-11-01) showed `web_search` is accepted. */
+internal fun JsonArrayBuilder.addResponsesHostedWebSearchTool() {
+    add(buildJsonObject { put("type", "web_search") })
+}
+
+/** Hosted search output: the query of a `web_search_call` and `url_citation` annotations of a message. */
+internal fun WebSearchCollector.collectResponsesOutputItem(item: JsonObject) {
+    when (item.stringValue("type")) {
+        "web_search_call" -> addQuery(item["action"]?.jsonObjectOrNull()?.stringValue("query"))
+        "message" ->
+            item["content"]?.jsonArrayOrNull().orEmpty().forEach { part ->
+                part
+                    .jsonObjectOrNull()
+                    ?.get("annotations")
+                    ?.jsonArrayOrNull()
+                    .orEmpty()
+                    .forEach { annotation -> collectResponsesAnnotation(annotation) }
+            }
+    }
+}
+
+internal fun WebSearchCollector.collectResponsesAnnotation(annotation: JsonElement?) {
+    val citation = annotation?.jsonObjectOrNull() ?: return
+    if (citation.stringValue("type") == "url_citation") {
+        addSource(citation.stringValue("url"), citation.stringValue("title"))
+    }
 }
 
 private fun parseResponsesToolArguments(
