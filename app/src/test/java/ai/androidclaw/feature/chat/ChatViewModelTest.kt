@@ -40,6 +40,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -742,7 +743,10 @@ class ChatViewModelTest {
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
-                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+                // Subscribe before triggering: actions is a hot SharedFlow without replay, so an emission
+                // that lands before a lazily started collector would be dropped and await() would hang.
+                val actionDeferred =
+                    backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) { viewModel.actions.first() }
 
                 viewModel.exportCurrentSession(ChatExportFormat.Markdown)
 
@@ -776,7 +780,10 @@ class ChatViewModelTest {
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
-                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+                // Subscribe before triggering: actions is a hot SharedFlow without replay, so an emission
+                // that lands before a lazily started collector would be dropped and await() would hang.
+                val actionDeferred =
+                    backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) { viewModel.actions.first() }
 
                 viewModel.shareCurrentSessionAsFile(ChatExportFormat.Json)
 
@@ -808,7 +815,10 @@ class ChatViewModelTest {
 
             viewModel.state.test {
                 awaitState { it.currentSessionId == mainSession.id && it.sessions.isNotEmpty() }
-                val actionDeferred = backgroundScope.async { viewModel.actions.first() }
+                // Subscribe before triggering: actions is a hot SharedFlow without replay, so an emission
+                // that lands before a lazily started collector would be dropped and await() would hang.
+                val actionDeferred =
+                    backgroundScope.async(UnconfinedTestDispatcher(testScheduler)) { viewModel.actions.first() }
 
                 viewModel.shareCurrentSessionAsText()
 
