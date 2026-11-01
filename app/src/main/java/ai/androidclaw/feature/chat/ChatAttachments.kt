@@ -140,32 +140,104 @@ private fun AttachmentThumbnail(
     }
 }
 
-/** Thumbnail grid above a user message; tap opens the viewer. */
+/**
+ * Thumbnail grid above a user message, or under a generated-media reply ([alignEnd] false).
+ * Tap opens the viewer; a video opens in the system player instead.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ChatAttachmentGrid(
     attachments: List<ChatAttachmentUi>,
     onOpen: (ChatAttachmentUi) -> Unit,
     modifier: Modifier = Modifier,
+    alignEnd: Boolean = true,
 ) {
     if (attachments.isEmpty()) return
+    val context = LocalContext.current
     val tileSize = if (attachments.size == 1) 160.dp else 96.dp
     FlowRow(
         modifier = modifier.testTag("chatAttachmentGrid"),
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, if (alignEnd) Alignment.End else Alignment.Start),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         attachments.forEach { attachment ->
-            val label = stringResource(R.string.chat_attachment_open, attachment.displayName)
-            AttachmentThumbnail(
-                attachment = attachment,
-                size = tileSize,
+            val video = attachment.isVideo
+            val label =
+                stringResource(
+                    if (video) R.string.chat_video_play else R.string.chat_attachment_open,
+                    attachment.displayName,
+                )
+            Box(
                 modifier =
                     Modifier
-                        .clickable(role = Role.Image, onClickLabel = label) { onOpen(attachment) }
-                        .testTag("chatAttachment-${attachment.id}"),
-            )
+                        .clickable(role = if (video) Role.Button else Role.Image, onClickLabel = label) {
+                            if (video) playVideo(context, attachment) else onOpen(attachment)
+                        }.testTag("chatAttachment-${attachment.id}"),
+                contentAlignment = Alignment.Center,
+            ) {
+                AttachmentThumbnail(attachment = attachment, size = tileSize)
+                if (video) {
+                    Surface(
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.7f),
+                        contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    ) {
+                        ClawIcon(iconRes = R.drawable.ic_play, contentDescription = null, modifier = Modifier.padding(8.dp))
+                    }
+                }
+            }
         }
+    }
+}
+
+internal val ChatAttachmentUi.isVideo: Boolean
+    get() = mimeType.startsWith("video/")
+
+/** A tool card plus the images the tool generated (image_generate), shown under it. */
+@Composable
+internal fun ChatToolItem(
+    item: ChatItemUi.Tool,
+    running: Boolean,
+    onOpenAttachment: (ChatAttachmentUi) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        ChatToolCard(item = item, running = running)
+        ChatAttachmentGrid(
+            attachments = item.attachments,
+            onOpen = onOpenAttachment,
+            alignEnd = false,
+            modifier =
+                Modifier
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .testTag("chatGeneratedMedia"),
+        )
+    }
+}
+
+/** System video player through FileProvider; no in-app player (no Media3). */
+private fun playVideo(
+    context: Context,
+    attachment: ChatAttachmentUi,
+) {
+    if (!attachment.file.isFile) {
+        android.widget.Toast
+            .makeText(context, R.string.chat_video_missing, android.widget.Toast.LENGTH_SHORT)
+            .show()
+        return
+    }
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.chat-export-provider", attachment.file)
+    val intent =
+        Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, attachment.mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    try {
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.chat_video_play_chooser)))
+    } catch (_: android.content.ActivityNotFoundException) {
+        android.widget.Toast
+            .makeText(context, R.string.chat_video_no_player, android.widget.Toast.LENGTH_SHORT)
+            .show()
     }
 }
 

@@ -529,4 +529,20 @@
     <string name="chat_error_images_unsupported">模型拒绝了这张图片。请选择支持视觉的模型，或在服务商设置中关闭“模型接受图片”。</string>
     <string name="settings_field_accepts_images">模型接受图片</string>
     <string name="settings_field_accepts_images_hint">仅当该模型支持图片输入（视觉）时打开。</string>
+    <!-- PLANv13 gen -->
+    <string name="settings_section_image_video">图片与视频</string>
+    <string name="settings_image_video_mode_openai">助手可以用你保存的 OpenAI API 密钥生成和编辑图片、生成视频，与当前聊天服务商无关。</string>
+    <string name="settings_image_video_mode_fake">离线演示：图片生成会在本地绘制一张测试图（调试版 + 离线测试服务商）。视频需要 OpenAI API 密钥。</string>
+    <string name="settings_image_video_mode_off">已关闭：在“服务商 → OpenAI”中保存 OpenAI API 密钥即可开启图片和视频生成。</string>
+    <string name="settings_image_video_image_model">图片模型</string>
+    <string name="settings_image_video_video_model">视频模型</string>
+    <string name="settings_image_video_cost_note">每张图片或每段视频都会计入你的 OpenAI 账户费用。定时任务不能使用这些工具。</string>
+    <string name="settings_image_video_save">保存模型</string>
+    <string name="settings_image_video_saved">已保存。</string>
+    <string name="chat_video_play">播放视频 %1$s</string>
+    <string name="chat_video_missing">视频文件已不存在。</string>
+    <string name="chat_video_play_chooser">播放视频</string>
+    <string name="chat_video_no_player">此设备上没有能播放视频的应用。</string>
+    <string name="video_notification_ready">视频已生成</string>
+    <string name="video_notification_failed">视频生成失败</string>
 </resources>

@@ -247,7 +247,45 @@ class SettingsDataStore(
     private fun timeoutSecondsKey(providerType: ProviderType) = intPreferencesKey("provider_${providerType.storageValue}_timeout_seconds")
 
     private fun acceptsImagesKey(providerType: ProviderType) = booleanPreferencesKey("provider_${providerType.storageValue}_accepts_images")
+
+    // PLANv13 gen: Settings → Image and video.
+    private val imageModelIdKey = stringPreferencesKey("media_image_model_id")
+    private val videoModelIdKey = stringPreferencesKey("media_video_model_id")
+
+    /** OpenAI Images model for `image_generate`; the default comes from the 2026-11-01 model listing. */
+    val imageModelId: Flow<String> =
+        context.settingsDataStore.data
+            .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+            .map { preferences -> normalizeMediaModelId(preferences[imageModelIdKey], IMAGE_GENERATION_DEFAULT_MODEL_ID) }
+
+    /** OpenAI Videos model for `video_generate`. */
+    val videoModelId: Flow<String> =
+        context.settingsDataStore.data
+            .catch { error -> if (error is IOException) emit(emptyPreferences()) else throw error }
+            .map { preferences -> normalizeMediaModelId(preferences[videoModelIdKey], VIDEO_GENERATION_DEFAULT_MODEL_ID) }
+
+    suspend fun setImageModelId(modelId: String) {
+        context.settingsDataStore.edit { it[imageModelIdKey] = normalizeMediaModelId(modelId, IMAGE_GENERATION_DEFAULT_MODEL_ID) }
+    }
+
+    suspend fun setVideoModelId(modelId: String) {
+        context.settingsDataStore.edit { it[videoModelIdKey] = normalizeMediaModelId(modelId, VIDEO_GENERATION_DEFAULT_MODEL_ID) }
+    }
 }
+
+/** Newest `gpt-image-*` listed by `/v1/models` on 2026-11-01 (tie-break: newest `created`). */
+const val IMAGE_GENERATION_DEFAULT_MODEL_ID: String = "gpt-image-2.5-sunburst"
+const val VIDEO_GENERATION_DEFAULT_MODEL_ID: String = "sora-2"
+
+internal fun normalizeMediaModelId(
+    rawValue: String?,
+    fallback: String,
+): String =
+    rawValue
+        ?.trim()
+        ?.take(PROVIDER_MODEL_ID_MAX_CHARS)
+        ?.takeIf(String::isNotBlank)
+        ?: fallback
 
 private fun normalizeProviderBaseUrl(
     providerType: ProviderType,

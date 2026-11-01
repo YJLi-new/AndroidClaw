@@ -84,6 +84,8 @@ data class ToolExecutionResult(
     val payload: JsonObject,
     val success: Boolean = true,
     val errorCode: String? = null,
+    /** Files the runtime links to the persisted tool result message (e.g. `image_generate`). */
+    val attachments: List<ToolResultAttachment> = emptyList(),
 ) {
     companion object {
         fun success(
@@ -109,6 +111,12 @@ data class ToolExecutionResult(
             )
     }
 }
+
+/** A file a tool wrote under the session's attachment folder; never part of the model-facing text. */
+data class ToolResultAttachment(
+    val staged: ai.androidclaw.data.attachments.StagedAttachment,
+    val kind: ai.androidclaw.data.model.AttachmentKind,
+)
 
 internal const val TOOL_RESULT_SUMMARY_MAX_CHARS = 4_000
 internal const val TOOL_RESULT_MODEL_CONTENT_MAX_CHARS = 24_000

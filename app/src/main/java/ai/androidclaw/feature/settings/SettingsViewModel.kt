@@ -130,6 +130,9 @@ class SettingsViewModel(
     /** Settings → Web search section (its own state; see WebSearchSettings.kt). */
     val webSearch = WebSearchSettingsModel(viewModelScope, settingsDataStore, webSearchKeyStore, braveSearchClient)
 
+    /** Settings → Image and video section (SettingsImageVideoSection.kt). */
+    val imageVideo = ImageVideoSettingsModel(viewModelScope, settingsDataStore, providerSecretStore)
+
     private val mutableState =
         MutableStateFlow(
             SettingsUiState(

@@ -45,6 +45,7 @@ internal fun createBuiltInToolRegistry(
     clock: Clock = Clock.systemDefaultZone(),
     braveSearchClient: BraveSearchClient = BraveSearchClient(webHttpClient),
     braveApiKey: suspend () -> String? = { null },
+    mediaTools: MediaToolDependencies? = null,
 ): ToolRegistry {
     lateinit var registry: ToolRegistry
     registry =
@@ -69,6 +70,8 @@ internal fun createBuiltInToolRegistry(
                     add(webFetchToolEntry(webHttpClient, allowPrivateNetwork = webFetchAllowPrivateNetwork))
                     // Offered to the model only in WebSearchMode.Typed (AgentRunner applies the rule).
                     add(webSearchToolEntry(braveSearchClient, braveApiKey))
+                    // Offered to the model only when MediaGenerationPolicy allows it (AgentRunner).
+                    addAll(mediaToolEntries(mediaTools))
                     addAll(deviceToolEntries(application, networkStatusProvider, isAppInForeground, clock))
                     add(notifyToolEntry(application))
                     add(

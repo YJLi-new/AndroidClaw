@@ -546,4 +546,20 @@
     <string name="chat_error_images_unsupported">The model rejected the image. Pick a vision model, or turn off \"Model accepts images\" in provider settings.</string>
     <string name="settings_field_accepts_images">Model accepts images</string>
     <string name="settings_field_accepts_images_hint">Turn on only if this model supports image input (vision).</string>
+    <!-- PLANv13 gen -->
+    <string name="settings_section_image_video">Image and video</string>
+    <string name="settings_image_video_mode_openai">The assistant can create and edit images, and start videos, with your saved OpenAI API key, whatever chat provider is active.</string>
+    <string name="settings_image_video_mode_fake">Offline demo: image generation draws a local test image (debug build with the Fake provider). Video needs an OpenAI API key.</string>
+    <string name="settings_image_video_mode_off">Off: save an OpenAI API key under Provider → OpenAI to turn on image and video generation.</string>
+    <string name="settings_image_video_image_model">Image model</string>
+    <string name="settings_image_video_video_model">Video model</string>
+    <string name="settings_image_video_cost_note">Each image or video is billed to your OpenAI account. Scheduled tasks can\'t use these tools.</string>
+    <string name="settings_image_video_save">Save models</string>
+    <string name="settings_image_video_saved">Saved.</string>
+    <string name="chat_video_play">Play video %1$s</string>
+    <string name="chat_video_missing">The video file is no longer available.</string>
+    <string name="chat_video_play_chooser">Play video</string>
+    <string name="chat_video_no_player">No app on this device can play videos.</string>
+    <string name="video_notification_ready">Video ready</string>
+    <string name="video_notification_failed">Video generation failed</string>
 </resources>

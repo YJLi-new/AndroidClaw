@@ -24,6 +24,7 @@ class AttachmentRepository(
         sessionId: String,
         staged: List<StagedAttachment>,
         kind: AttachmentKind = AttachmentKind.UserImage,
+        durationMs: Long? = null,
     ): List<MessageAttachment> {
         if (staged.isEmpty()) {
             return emptyList()
@@ -42,7 +43,7 @@ class AttachmentRepository(
                     byteCount = item.byteCount,
                     width = item.width,
                     height = item.height,
-                    durationMs = null,
+                    durationMs = durationMs,
                     // Keeps the picked order stable when rows share a millisecond.
                     createdAt = now + index,
                 )

@@ -621,7 +621,7 @@ private fun ChatTranscript(
                             onOpenAttachment = onOpenAttachment,
                         )
 
-                    is ChatItemUi.Tool -> ChatToolCard(item = row, running = state.isRunning)
+                    is ChatItemUi.Tool -> ChatToolItem(item = row, running = state.isRunning, onOpenAttachment = onOpenAttachment)
                 }
             }
             if (state.earlierMessageCount > 0) {
