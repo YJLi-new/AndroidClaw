@@ -595,4 +595,6 @@
     <string name="diag_voice_tts">Text-to-speech</string>
     <string name="diag_voice_tts_language">TTS supports %1$s</string>
     <string name="diag_voice_checking">Checking…</string>
+    <!-- PLANv14: scheduled task transcript messages -->
+    <string name="task_isolated_completed">Task %1$s completed in isolated session \"%2$s\".</string>
 </resources>

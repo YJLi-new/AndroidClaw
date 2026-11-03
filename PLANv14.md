@@ -142,3 +142,4 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   - The stable `releases/latest/download/AndroidClaw-latest.apk` URL now
     serves this exact file (byte compare).
   - The Survey's stale-download finding is resolved.
+- 2026-11-03: App fix outside the site scope, found in the new zh screenshots: the isolated-session completion line (`TaskRuntimeExecutor`) was hardcoded English; it now comes from `task_isolated_completed` (en + zh-CN) in the app language at delivery time, like the video job messages (branch `claude/elated-dubinsky-dc03e3`).

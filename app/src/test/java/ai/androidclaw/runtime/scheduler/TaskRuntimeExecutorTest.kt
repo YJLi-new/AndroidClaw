@@ -22,6 +22,8 @@ import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.testutil.buildTestProviderRegistry
+import android.content.res.Resources
+import android.os.LocaleList
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +38,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Instant
+import java.util.Locale
 
 @RunWith(AndroidJUnit4::class)
 class TaskRuntimeExecutorTest {
@@ -75,6 +78,7 @@ class TaskRuntimeExecutorTest {
                     messageRepository = throwingMessages,
                     agentRunner = buildAgentRunner(throwingMessages),
                     sessionLaneCoordinator = SessionLaneCoordinator(),
+                    resources = { resourcesFor("en") },
                 )
             val task =
                 taskRepository.createTask(
@@ -122,6 +126,7 @@ class TaskRuntimeExecutorTest {
                     messageRepository = messageRepository,
                     agentRunner = buildAgentRunner(messageRepository),
                     sessionLaneCoordinator = SessionLaneCoordinator(),
+                    resources = { resourcesFor("en") },
                 )
             val task =
                 taskRepository.createTask(
@@ -152,6 +157,68 @@ class TaskRuntimeExecutorTest {
             )
             assertTrue(archivedMessages.isEmpty())
         }
+
+    @Test
+    fun `isolated delivery is written in the app language`() =
+        runTest {
+            val targetSession = sessionRepository.createSession("Delivery target")
+            val messageRepository = MessageRepository(database.messageDao())
+            val executor =
+                TaskRuntimeExecutor(
+                    sessionRepository = sessionRepository,
+                    messageRepository = messageRepository,
+                    agentRunner = buildAgentRunner(messageRepository),
+                    sessionLaneCoordinator = SessionLaneCoordinator(),
+                    resources = { resourcesFor("zh-CN") },
+                )
+            val task =
+                taskRepository.createTask(
+                    name = "每小时巡检",
+                    prompt = "Check in",
+                    schedule = TaskSchedule.Once(Instant.parse("2026-11-03T06:27:00Z")),
+                    executionMode = TaskExecutionMode.IsolatedSession,
+                    targetSessionId = targetSession.id,
+                )
+
+            val execution = executor.execute(task = task, taskRunId = "run-zh")
+            val isolatedSession =
+                sessionRepository
+                    .observeSessions()
+                    .first()
+                    .single { it.title.startsWith("每小时巡检 · ") }
+            val delivered = messageRepository.getRecentMessages(targetSession.id, limit = 10).single()
+
+            assertTrue(execution.success)
+            assertEquals(delivered.id, execution.outputMessageId)
+            assertEquals(
+                "任务 每小时巡检 已在独立会话“${isolatedSession.title}”中完成。\n\nTask execution complete.",
+                delivered.content,
+            )
+            assertEquals(delivered.content, execution.summary)
+        }
+
+    @Test
+    fun `isolated delivery text covers both languages`() {
+        val en = TaskRuntimeTexts(resourcesFor("en"))
+        val zh = TaskRuntimeTexts(resourcesFor("zh-CN"))
+
+        assertEquals(
+            "Task Hourly pulse completed in isolated session \"Hourly pulse · 2026-11-03 06:27\".\n\nAll quiet.",
+            en.isolatedDelivery("Hourly pulse", "Hourly pulse · 2026-11-03 06:27", "All quiet."),
+        )
+        assertEquals(
+            "任务 每小时巡检 已在独立会话“每小时巡检 · 2026-11-03 06:27”中完成。\n\n一切正常。",
+            zh.isolatedDelivery("每小时巡检", "每小时巡检 · 2026-11-03 06:27", "一切正常。"),
+        )
+    }
+
+    private fun resourcesFor(tag: String): Resources {
+        val configuration =
+            android.content.res.Configuration(application.resources.configuration).apply {
+                setLocales(LocaleList(Locale.forLanguageTag(tag)))
+            }
+        return application.createConfigurationContext(configuration).resources
+    }
 
     private suspend fun buildAgentRunner(messageRepository: MessageRepository): AgentRunner {
         val settingsDataStore = ai.androidclaw.data.SettingsDataStore(application)

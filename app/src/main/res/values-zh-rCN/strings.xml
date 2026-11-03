@@ -578,4 +578,6 @@
     <string name="diag_voice_tts">文字转语音</string>
     <string name="diag_voice_tts_language">TTS 支持 %1$s</string>
     <string name="diag_voice_checking">正在检查…</string>
+    <!-- PLANv14: scheduled task transcript messages -->
+    <string name="task_isolated_completed">任务 %1$s 已在独立会话“%2$s”中完成。</string>
 </resources>
