@@ -242,3 +242,18 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
       ZH 375 light) were checked by eye: the hero, What's-new phone and
       gallery show the live gpt-6-luna shots.
     - Heights at 1440: EN 5,962 / ZH 5,815 px.
+- 2026-11-03: User: "发 v0.3.1", then "合并并发布".
+  - PR #9 sets `versionName` 0.3.1 and `versionCode` 4 and adds the CHANGELOG
+    v0.3.1 section. CI passed; merged at 4323a0b.
+  - QA build: clean, no build cache, from the source tree of 9a57b53, which
+    is identical to 4323a0b. 3,246,003 B; SHA-256 efef2df6…fd34acbc; v2
+    signature; same certificate as v0.3.0 (79e3578c…9332c1).
+  - AVD smoke:
+    - `install -r` over 0.3.0 kept the app data and the saved key.
+    - Launch 1,365 ms; 0 crash lines.
+    - Settings → Test connection showed "Connection test succeeded.", with 0
+      `NetworkOnMainThreadException`.
+  - Tag `v0.3.1` (lightweight) at 4323a0b. Release v0.3.1 is Latest, with
+    `AndroidClaw-v0.3.1.apk` and `AndroidClaw-latest.apk`.
+  - The stable `releases/latest/download/AndroidClaw-latest.apk` URL served
+    the new file after about 2 minutes.
