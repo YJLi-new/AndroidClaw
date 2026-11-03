@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AndroidClaw：在手机上运行的 AI 助手宿主</title>
+<meta name="description" content="AndroidClaw 是开源的安卓 AI 助手，只有一个小巧的 APK：会话、37 个类型化工具、SKILL.md 技能和定时任务，还能发照片、联网搜索、生成图片与视频、语音输入和朗读。可以接入你常用的模型服务，也可以先用离线演示体验。">
+<link rel="canonical" href="https://androidclaw.top/zh/">
+<link rel="alternate" hreflang="en" href="https://androidclaw.top/">
+<link rel="alternate" hreflang="zh-CN" href="https://androidclaw.top/zh/">
+<link rel="alternate" hreflang="x-default" href="https://androidclaw.top/">
+<meta name="theme-color" content="#fafbf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1418" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/androidclaw-logo.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AndroidClaw">
+<meta property="og:title" content="AndroidClaw：在手机上运行的 AI 助手宿主">
+<meta property="og:description" content="一个 APK：会话、37 个类型化工具、SKILL.md 技能、定时任务，以及照片、联网搜索、图片与视频生成和语音。">
+<meta property="og:url" content="https://androidclaw.top/zh/">
+<meta property="og:image" content="https://androidclaw.top/assets/og-zh.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="AndroidClaw：一个 APK，手机就是宿主。旁边的手机显示聊天界面。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/assets/site.css">
+<script>document.documentElement.className = "js";</script>
+<script src="/assets/site.js" defer></script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"AndroidClaw","inLanguage":"zh-CN","operatingSystem":"Android 8.0 或更高版本","applicationCategory":"UtilitiesApplication","url":"https://androidclaw.top/zh/","downloadUrl":"https://github.com/YJLi-new/AndroidClaw/releases/latest/download/AndroidClaw-latest.apk","license":"https://www.apache.org/licenses/LICENSE-2.0","isAccessibleForFree":true,"sameAs":["https://github.com/YJLi-new/AndroidClaw"],"offers":{"@type":"Offer","price":"0","priceCurrency":"CNY"}}</script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 16 16"><path fill="currentColor" stroke="none" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></symbol>
+  <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M21 15.5l-4.5-4.5L8 19"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.4-4.4"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M11 3.5l1.9 5.1 5.1 1.9-5.1 1.9L11 17.5l-1.9-5.1L4 10.5l5.1-1.9z"/><path d="M18.5 15v5M16 17.5h5"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10.5l5-3v9l-5-3"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-5 4v-4.2A1.5 1.5 0 0 1 4 14.5z"/></symbol>
+  <symbol id="i-tool" viewBox="0 0 24 24"><path d="M8.5 7.5L4 12l4.5 4.5M15.5 7.5L20 12l-4.5 4.5M13.5 5l-3 14"/></symbol>
+  <symbol id="i-skill" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z"/><path d="M14 3.5v4h4M9 12h6M9 16h4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/></symbol>
+  <symbol id="i-logo" viewBox="0 0 1254 1254"><path d="M494 228 535 307M760 228 719 307" fill="none" stroke="#78c92a" stroke-width="28" stroke-linecap="round"/><path d="M450 450a177 177 0 0 1 354 0Z" fill="#78c92a"/><circle cx="548" cy="372" r="19" fill="#fff"/><circle cx="706" cy="372" r="19" fill="#fff"/><path class="logo-body" d="M537 446h181l222 341v100L793 1035q-16 16-11-7l37-225-192-300-192 300 37 225q5 23-11 7L314 887V787Z"/><circle class="logo-body" cx="396" cy="642" r="58"/><circle class="logo-body" cx="858" cy="642" r="58"/><circle class="logo-ring" cx="396" cy="642" r="35" stroke-width="10"/><circle class="logo-ring" cx="858" cy="642" r="35" stroke-width="10"/><path d="M627 641 777 939l-20 107-130-239-130 239-20-107Z" fill="#78c92a"/></symbol>
+</svg>
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/zh/" aria-label="AndroidClaw 首页"><svg aria-hidden="true"><use href="#i-logo"/></svg>AndroidClaw</a>
+    <nav class="nav" aria-label="页面导航">
+      <a href="#new">新功能</a>
+      <a href="#contracts">运行时</a>
+      <a href="#screens">界面</a>
+      <a href="#tools">工具</a>
+      <a href="#start">开始使用</a>
+    </nav>
+    <a class="tlink" href="/" hreflang="en" lang="en">English</a>
+    <a class="tlink icon" href="https://github.com/YJLi-new/AndroidClaw" aria-label="在 GitHub 上查看 AndroidClaw"><svg class="ico" aria-hidden="true"><use href="#i-gh"/></svg></a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">开源 · Android 8.0 及以上</span>
+        <h1 id="hero-title">一个 APK，手机就是宿主。</h1>
+        <p class="lead">AndroidClaw 是原生安卓 AI 助手。会话、37 个类型化工具、SKILL.md 技能和定时任务，全部在手机上运行。接入你正在用的模型服务；没有密钥，也可以先用离线演示试一试。</p>
+        <div class="ctas">
+          <a class="btn btn-main" href="https://github.com/YJLi-new/AndroidClaw/releases/latest/download/AndroidClaw-latest.apk"><svg class="ico" aria-hidden="true"><use href="#i-dl"/></svg>下载 APK</a>
+          <a class="btn btn-alt" href="https://github.com/YJLi-new/AndroidClaw"><svg class="ico" aria-hidden="true"><use href="#i-gh"/></svg>在 GitHub 查看</a>
+          <a class="more" href="https://github.com/YJLi-new/AndroidClaw/releases">所有版本</a>
+        </div>
+        <ul class="meta">
+          <li>Apache-2.0 开源</li>
+          <li>内置离线演示</li>
+          <li>简体中文与英文界面</li>
+        </ul>
+      </div>
+      <div class="hero-shot">
+        <figure class="phone"><img src="/assets/img/zh/chat.webp" width="600" height="1333" alt="AndroidClaw 聊天界面：主会话里的工具卡片和定时任务的运行结果" fetchpriority="high"></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="stats" aria-label="关键数字">
+    <div class="wrap">
+      <dl>
+        <div><dt>3.2 MB</dt><dd>发布版 APK 的大小</dd></div>
+        <div><dt>37</dt><dd>个工具供模型调用</dd></div>
+        <div><dt>4</dt><dd>项运行时约定</dd></div>
+        <div><dt>8.0+</dt><dd>最低 Android 版本（minSdk 26）</dd></div>
+      </dl>
+      <p class="note">不内嵌 Node.js、Docker、浏览器内核或 shell，靠 Kotlin、Jetpack Compose、Room、WorkManager 和 OkHttp 完成全部工作。</p>
+    </div>
+  </section>
+
+  <section class="sec new" id="new" aria-labelledby="new-title">
+    <div class="wrap grid">
+      <div class="shot">
+        <figure class="phone"><img src="/assets/img/zh/web_sources.webp" width="480" height="1067" alt="回复下方的“已联网搜索”卡片和两个来源链接" loading="lazy"></figure>
+      </div>
+      <div>
+        <div class="intro">
+          <span class="eyebrow">0.3 新功能</span>
+          <h2 class="h2" id="new-title">照片、联网搜索、图片、视频和语音</h2>
+          <p>0.3.0 补齐了聊天助手常见的能力，而且没有增加任何运行时依赖。</p>
+        </div>
+        <ul class="feats">
+          <li><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-photo"/></svg></span><h3>在聊天中发送照片</h3><p>通过系统照片选择器选图，每条消息最多 4 张，不需要存储权限。导入时把长边缩到 1568 像素，再发给支持视觉的模型。</p></li>
+          <li><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-search"/></svg></span><h3>联网搜索</h3><p>保存 Brave Search 密钥后，所有模型服务都能用 <code>web_search</code> 工具；没有这个密钥时，OpenAI 和 Claude 使用服务商自带的搜索。回复下方会列出查询词和最多 8 个来源。</p></li>
+          <li><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-spark"/></svg></span><h3>图片生成与编辑</h3><p><code>image_generate</code> 通过 OpenAI Images API 生成图片，或者编辑你附上的照片。生成结果可以全屏查看、保存和分享。</p></li>
+          <li><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-video"/></svg></span><h3>视频生成</h3><p><code>video_generate</code> 发起 OpenAI 视频任务。后台任务下载好视频后，把带封面帧的视频发到对话里，并发出通知。</p></li>
+          <li><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-mic"/></svg></span><h3>语音</h3><p>点按麦克风，用系统语音识别听写；任何一条回复都可以朗读出来。应用本身不申请麦克风权限。</p></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="contracts" aria-labelledby="contracts-title">
+    <div class="wrap">
+      <div class="intro">
+        <span class="eyebrow">运行时</span>
+        <h2 class="h2" id="contracts-title">沿用 OpenClaw 的四项约定，为安卓重写</h2>
+        <p>AndroidClaw 对齐的是 NanoClaw 和 OpenClaw 的行为，而不是源码。每项约定都是普通的 Kotlin 代码，手动组装依赖，不用依赖注入框架。</p>
+      </div>
+      <ul class="cards">
+        <li class="card"><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg></span><h3>会话</h3><p>主会话始终存在，其他会话可以重命名、归档和恢复。历史记录保存在 Room 中，也可以压缩成摘要。</p><span class="tag">Room · /compact</span></li>
+        <li class="card"><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-tool"/></svg></span><h3>工具</h3><p>带 JSON schema 的类型化工具，通过各家服务商原生的工具调用发送。每次调用都以卡片显示在对话里，附带参数和结果。</p><span class="tag">37 个类型化工具</span></li>
+        <li class="card"><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-skill"/></svg></span><h3>技能</h3><p>带 frontmatter 的 SKILL.md 文件，分内置、本地、工作区三层。可以启用、停用、从文件导入，斜杠命令还能直接调用工具。</p><span class="tag">/memory · /task_helper</span></li>
+        <li class="card"><span class="badge"><svg class="ico" aria-hidden="true"><use href="#i-clock"/></svg></span><h3>任务</h3><p>一次性、按间隔和 cron 三种计划，由 WorkManager 和精确闹钟调度。结果发到聊天会话，或在独立会话中运行。</p><span class="tag">一次性 · 间隔 · cron</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" id="screens" aria-labelledby="screens-title">
+    <div class="wrap gal-head">
+      <div class="intro">
+        <span class="eyebrow">界面</span>
+        <h2 class="h2" id="screens-title">聊天、任务、技能、设置</h2>
+        <p>截图来自 Android 14 模拟器上的离线演示。演示服务的回复固定为英文，真实模型会用你的语言回答。</p>
+      </div>
+      <div class="gal-btns">
+        <button type="button" data-gal="-1" aria-label="上一组截图" aria-controls="rail"><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>
+        <button type="button" data-gal="1" aria-label="下一组截图" aria-controls="rail"><svg class="ico" aria-hidden="true"><use href="#i-right"/></svg></button>
+      </div>
+    </div>
+    <ul class="rail" id="rail" tabindex="0" aria-label="截图，可左右滚动">
+      <li><figure class="phone"><img src="/assets/img/zh/tool_card.webp" width="480" height="1067" alt="展开的工具卡片，显示参数和结果" loading="lazy"></figure><p>工具调用以卡片显示参数和结果</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/photo_reply.webp" width="480" height="1067" alt="从照片选择器发送的照片缩略图和演示回复" loading="lazy"></figure><p>从系统照片选择器发送照片</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/web_sources.webp" width="480" height="1067" alt="回复下方的“已联网搜索”卡片和来源" loading="lazy"></figure><p>联网搜索，附带来源</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/read_aloud.webp" width="480" height="1067" alt="正在朗读回复，输入框上方有“停止朗读”" loading="lazy"></figure><p>朗读回复，随时可以停止</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/tasks.webp" width="480" height="1067" alt="任务列表，显示计划、下次运行时间和运行记录" loading="lazy"></figure><p>定时任务和运行记录</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/task_editor.webp" width="480" height="1067" alt="新建任务：cron 计划和下次运行预览" loading="lazy"></figure><p>cron 计划，预览下次运行时间</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/skills.webp" width="480" height="1067" alt="技能列表，每个技能都有开关" loading="lazy"></figure><p>技能可以单独开关</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/settings_web_search.webp" width="480" height="1067" alt="设置：联网搜索为自动，下方是 Brave Search 密钥输入框" loading="lazy"></figure><p>一条规则决定联网搜索</p></li>
+      <li><figure class="phone"><img src="/assets/img/zh/workspace.webp" width="480" height="1067" alt="助手工作区：AGENTS.md、SOUL.md、USER.md 和 MEMORY.md 人设文件" loading="lazy"></figure><p>人设文件，8 KB 提示词预算</p></li>
+    </ul>
+  </section>
+
+  <section class="sec tools" id="tools" aria-labelledby="tools-title">
+    <div class="wrap">
+      <div class="intro">
+        <span class="eyebrow">工具</span>
+        <h2 class="h2" id="tools-title">模型可调用的 37 个工具</h2>
+        <p>只用原生工具调用：工具定义放在服务商接口的 <code>tools</code> 字段里，每轮约 14.6 KB，不在提示词中重复。</p>
+      </div>
+      <div class="grid">
+        <div class="tgroup"><h3>会话 <span>5</span></h3><ul class="tlist"><li>sessions_list</li><li>sessions_history</li><li>sessions_create</li><li>sessions_rename</li><li>sessions_send</li></ul></div>
+        <div class="tgroup"><h3>任务 <span>6</span></h3><ul class="tlist"><li>tasks_list</li><li>tasks_create</li><li>tasks_update</li><li>tasks_delete</li><li>tasks_run_now</li><li>tasks_runs</li></ul></div>
+        <div class="tgroup"><h3>记忆 <span>4</span></h3><ul class="tlist"><li>memory_search</li><li>memory_get</li><li>memory_remember</li><li>memory_forget</li></ul><p>本地记忆默认关闭，需要在设置中开启。</p></div>
+        <div class="tgroup"><h3>工作区文件 <span>4</span></h3><ul class="tlist"><li>workspace_list</li><li>workspace_read</li><li>workspace_write</li><li>workspace_edit</li></ul></div>
+        <div class="tgroup"><h3>技能 <span>3</span></h3><ul class="tlist"><li>skills_list</li><li>skills_get</li><li>skills_set_enabled</li></ul></div>
+        <div class="tgroup"><h3>网页 <span>2</span></h3><ul class="tlist"><li>web_fetch</li><li>web_search</li></ul><p>禁止访问内网地址。保存了 Brave 密钥才会提供 <code>web_search</code>。</p></div>
+        <div class="tgroup"><h3>设备与系统意图 <span>9</span></h3><ul class="tlist"><li>device_status</li><li>open_url</li><li>open_app</li><li>open_settings</li><li>set_alarm</li><li>set_timer</li><li>calendar_add_event</li><li>clipboard_get</li><li>clipboard_set</li></ul><p>系统意图类工具要求应用在前台。</p></div>
+        <div class="tgroup"><h3>媒体 <span>2</span></h3><ul class="tlist"><li>image_generate</li><li>video_generate</li></ul><p>保存了 OpenAI 密钥才会提供，定时任务永远不能使用。</p></div>
+        <div class="tgroup"><h3>通知与健康 <span>2</span></h3><ul class="tlist"><li>notify</li><li>health_status</li></ul></div>
+      </div>
+      <ul class="notes">
+        <li>定时任务只能使用 19 个只读或显式开放的工具；前台专用工具在后台运行时返回 <code>FOREGROUND_REQUIRED</code>。</li>
+        <li><code>calendar_add_event</code> 只打开预填好的日历页面，由你自己保存。</li>
+        <li>另有两个只能用斜杠命令调用、不会发给模型的工具：<code>sessions_compact</code>（/compact）和 <code>memory_command</code>（/memory）。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec start" id="start" aria-labelledby="start-title">
+    <div class="wrap">
+      <div class="intro">
+        <span class="eyebrow">开始使用</span>
+        <h2 class="h2" id="start-title">装好应用，再选一个模型</h2>
+      </div>
+      <div class="grid">
+        <ol class="steps">
+          <li><h3>下载 APK</h3><p>在手机上打开下载的文件。如果 Android 询问，允许浏览器安装应用。</p></li>
+          <li><h3>先试离线演示</h3><p>首次打开时选择“使用离线演示”。演示服务在本机回复，不需要密钥，也不需要联网。</p></li>
+          <li><h3>接入模型服务</h3><p>在设置中选择 OpenAI、Claude、Gemini、DeepSeek、GLM、Kimi、MiniMax 或任意 OpenAI 兼容服务，也可以用 OpenAI Codex 登录。密钥在手机上加密保存。</p></li>
+        </ol>
+        <div class="build">
+          <h3>从源码构建</h3>
+          <p>需要 JDK 17 和带 platform 36 的 Android SDK。第一次构建必须联网。</p>
+          <div class="cmd">
+            <button class="copy" type="button" data-copy="cmd" data-done="已复制"><svg class="ico" aria-hidden="true"><use href="#i-copy"/></svg><span aria-live="polite">复制</span></button>
+            <pre id="cmd"><code>git clone https://github.com/YJLi-new/AndroidClaw.git
+cd AndroidClaw
+./gradlew :app:assembleDebug</code></pre>
+          </div>
+          <p class="cmd-note">生成的 APK 在 <code>app/build/outputs/apk/debug/</code>。</p>
+          <div class="cta-end">
+            <a class="btn btn-main" href="https://github.com/YJLi-new/AndroidClaw/releases/latest/download/AndroidClaw-latest.apk"><svg class="ico" aria-hidden="true"><use href="#i-dl"/></svg>下载 APK</a>
+            <a class="btn btn-alt" href="https://github.com/YJLi-new/AndroidClaw/blob/main/README.zh-CN.md">阅读中文说明</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <a class="brand" href="/zh/" aria-label="AndroidClaw 首页"><svg aria-hidden="true"><use href="#i-logo"/></svg>AndroidClaw</a>
+      <p>原生安卓 AI 助手宿主，灵感来自 NanoClaw 和 OpenClaw。</p>
+    </div>
+    <ul>
+      <li><a href="https://github.com/YJLi-new/AndroidClaw">GitHub</a></li>
+      <li><a href="https://github.com/YJLi-new/AndroidClaw/releases">所有版本</a></li>
+      <li><a href="https://github.com/YJLi-new/AndroidClaw/blob/main/CHANGELOG.md">更新日志</a></li>
+      <li><a href="/" hreflang="en" lang="en">English</a></li>
+    </ul>
+    <small>Apache-2.0 许可证。本项目与 Google 无关，Android 是 Google LLC 的商标。</small>
+  </div>
+</footer>
+</body>
+</html>
