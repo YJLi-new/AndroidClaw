@@ -40,6 +40,8 @@ import ai.androidclaw.ui.text.UiText
 import ai.androidclaw.ui.text.toRawUiTextOrNull
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +49,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 
 data class SettingsUiState(
@@ -117,6 +120,17 @@ internal fun boundedSettingsUiText(
     fallbackRes: Int,
 ): UiText = message.toRawUiTextOrNull(SETTINGS_STATUS_MESSAGE_MAX_CHARS) ?: UiText.res(fallbackRes)
 
+/**
+ * Unexpected (non-provider) failure: its message, or [causeRes] with the exception class name when it
+ * has none (NetworkOnMainThreadException carries no message), so the user never sees a bare "failed".
+ */
+internal fun unexpectedSettingsFailureUiText(
+    error: Throwable,
+    causeRes: Int,
+): UiText =
+    error.message.toRawUiTextOrNull(SETTINGS_STATUS_MESSAGE_MAX_CHARS)
+        ?: UiText.res(causeRes, error.javaClass.simpleName.ifBlank { error.javaClass.name })
+
 class SettingsViewModel(
     private val providerRegistry: ProviderRegistry,
     private val settingsDataStore: SettingsDataStore,
@@ -126,6 +140,8 @@ class SettingsViewModel(
     private val memoryRepository: MemoryRepository,
     webSearchKeyStore: WebSearchKeyStore = InMemoryWebSearchKeyStore(),
     braveSearchClient: BraveSearchClient = BraveSearchClient(),
+    /** Runs the Test connection call: provider generate() blocks on OkHttp and is not main-safe. */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     /** Settings → Web search section (its own state; see WebSearchSettings.kt). */
     val webSearch = WebSearchSettingsModel(viewModelScope, settingsDataStore, webSearchKeyStore, braveSearchClient)
@@ -451,7 +467,7 @@ class SettingsViewModel(
                     mutableState.update {
                         it.copy(
                             isSigningInWithOpenAiCodex = false,
-                            statusMessage = boundedSettingsUiText(error.message, R.string.settings_error_codex_failed),
+                            statusMessage = unexpectedSettingsFailureUiText(error, R.string.settings_error_codex_failed_cause),
                         )
                     }
                 }
@@ -586,23 +602,27 @@ class SettingsViewModel(
                 ) {
                     throw offlineFailure()
                 }
-                providerRegistry.require(snapshot.providerType).generate(
-                    ModelRequest(
-                        sessionId = "provider-validation",
-                        requestId = "provider-validation",
-                        messageHistory =
-                            listOf(
-                                ModelMessage(
-                                    role = ModelMessageRole.User,
-                                    content = "Reply with OK.",
+                val provider = providerRegistry.require(snapshot.providerType)
+                // Same IO hop as chat and /compact (AgentRunner): on Main, Android throws NetworkOnMainThreadException.
+                withContext(ioDispatcher) {
+                    provider.generate(
+                        ModelRequest(
+                            sessionId = "provider-validation",
+                            requestId = "provider-validation",
+                            messageHistory =
+                                listOf(
+                                    ModelMessage(
+                                        role = ModelMessageRole.User,
+                                        content = "Reply with OK.",
+                                    ),
                                 ),
-                            ),
-                        systemPrompt = "You are validating AndroidClaw connectivity. Reply briefly with OK.",
-                        enabledSkills = emptyList(),
-                        toolDescriptors = emptyList(),
-                        runMode = ModelRunMode.Interactive,
-                    ),
-                )
+                            systemPrompt = "You are validating AndroidClaw connectivity. Reply briefly with OK.",
+                            enabledSkills = emptyList(),
+                            toolDescriptors = emptyList(),
+                            runMode = ModelRunMode.Interactive,
+                        ),
+                    )
+                }
                 if (!isCurrentMutation(mutationVersion)) {
                     return@launch
                 }
@@ -629,7 +649,7 @@ class SettingsViewModel(
                     it.copy(
                         isValidatingConnection = false,
                         lastValidationSucceeded = false,
-                        statusMessage = boundedSettingsUiText(error.message, R.string.settings_error_test_failed),
+                        statusMessage = unexpectedSettingsFailureUiText(error, R.string.settings_error_test_failed_cause),
                     )
                 }
             }

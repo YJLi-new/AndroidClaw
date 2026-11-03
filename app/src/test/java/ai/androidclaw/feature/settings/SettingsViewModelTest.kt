@@ -1,5 +1,6 @@
 package ai.androidclaw.feature.settings
 
+import ai.androidclaw.R
 import ai.androidclaw.data.PROVIDER_API_KEY_MAX_CHARS
 import ai.androidclaw.data.PROVIDER_BASE_URL_MAX_CHARS
 import ai.androidclaw.data.PROVIDER_MODEL_ID_MAX_CHARS
@@ -12,8 +13,11 @@ import ai.androidclaw.data.ThemePreference
 import ai.androidclaw.data.db.AndroidClawDatabase
 import ai.androidclaw.data.db.buildTestDatabase
 import ai.androidclaw.data.repository.MemoryRepository
+import ai.androidclaw.runtime.providers.ModelProvider
 import ai.androidclaw.runtime.providers.ModelProviderException
 import ai.androidclaw.runtime.providers.ModelProviderFailureKind
+import ai.androidclaw.runtime.providers.ModelRequest
+import ai.androidclaw.runtime.providers.ModelResponse
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
 import ai.androidclaw.runtime.providers.OpenAiCodexResponsesProvider
@@ -25,11 +29,17 @@ import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
 import ai.androidclaw.testutil.textOrNull
+import android.os.NetworkOnMainThreadException
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.MainCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -39,6 +49,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -48,6 +59,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.ContinuationInterceptor
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(AndroidJUnit4::class)
@@ -115,6 +127,22 @@ class SettingsViewModelTest {
         assertEquals(SETTINGS_STATUS_MESSAGE_MAX_CHARS, boundedSettingsStatusMessage(oversizedMessage, "fallback").length)
         assertEquals("Fallback", boundedSettingsStatusMessage("", "Fallback"))
         assertEquals(oversizedFallback.take(SETTINGS_STATUS_MESSAGE_MAX_CHARS), boundedSettingsStatusMessage(null, oversizedFallback))
+    }
+
+    @Test
+    fun `unexpected failures without a message name the exception class`() {
+        assertEquals(
+            "OpenAI Codex sign-in failed (NetworkOnMainThreadException).",
+            unexpectedSettingsFailureUiText(NetworkOnMainThreadException(), R.string.settings_error_codex_failed_cause).textOrNull(),
+        )
+        assertEquals(
+            "Connection test failed (IllegalStateException).",
+            unexpectedSettingsFailureUiText(IllegalStateException(" "), R.string.settings_error_test_failed_cause).textOrNull(),
+        )
+        assertEquals(
+            "socket closed",
+            unexpectedSettingsFailureUiText(IllegalStateException("socket closed"), R.string.settings_error_test_failed_cause).textOrNull(),
+        )
     }
 
     @Test
@@ -585,6 +613,58 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `validateConnection calls the provider off the main dispatcher`() =
+        runTest {
+            // Regression: generate() ran on viewModelScope's Main dispatcher, so every remote test
+            // died with NetworkOnMainThreadException on a device and showed "Connection test failed.".
+            val provider = DispatcherRecordingProvider(ProviderType.OpenAiCompatible.providerId)
+            val ioDispatcher = StandardTestDispatcher(testScheduler, name = "settings-io")
+            val viewModel =
+                buildViewModel(
+                    providerRegistry = buildTestProviderRegistry(openAiCompatibleProvider = provider),
+                    ioDispatcher = ioDispatcher,
+                )
+
+            viewModel.selectProviderType(ProviderType.OpenAiCompatible)
+            waitForState(viewModel) { it.providerType == ProviderType.OpenAiCompatible }
+            viewModel.onBaseUrlChanged("https://openai.example/v1")
+            viewModel.onModelIdChanged("gpt-test")
+            viewModel.onTimeoutChanged("30")
+            viewModel.onApiKeyChanged("sk-test")
+            viewModel.validateConnection()
+
+            val state = waitForState(viewModel) { !it.isValidatingConnection }
+
+            assertEquals("Connection test succeeded.", state.statusMessage.textOrNull())
+            assertTrue(state.lastValidationSucceeded)
+            assertSame(ioDispatcher, provider.generateInterceptor)
+        }
+
+    @Test
+    fun `validateConnection names an unexpected error that has no message`() =
+        runTest {
+            val provider =
+                DispatcherRecordingProvider(
+                    id = ProviderType.OpenAiCompatible.providerId,
+                    failure = { IllegalStateException() },
+                )
+            val viewModel = buildViewModel(buildTestProviderRegistry(openAiCompatibleProvider = provider))
+
+            viewModel.selectProviderType(ProviderType.OpenAiCompatible)
+            waitForState(viewModel) { it.providerType == ProviderType.OpenAiCompatible }
+            viewModel.onBaseUrlChanged("https://openai.example/v1")
+            viewModel.onModelIdChanged("gpt-test")
+            viewModel.onTimeoutChanged("30")
+            viewModel.onApiKeyChanged("sk-test")
+            viewModel.validateConnection()
+
+            val state = waitForState(viewModel) { !it.isValidatingConnection }
+
+            assertFalse(state.lastValidationSucceeded)
+            assertEquals("Connection test failed (IllegalStateException).", state.statusMessage.textOrNull())
+        }
+
+    @Test
     fun `validateConnection reports offline state before attempting a remote provider call`() =
         runTest {
             currentNetworkStatus =
@@ -802,6 +882,7 @@ class SettingsViewModelTest {
 
     private fun buildViewModel(
         providerRegistry: ProviderRegistry = buildTestProviderRegistry(),
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ): SettingsViewModel =
         SettingsViewModel(
             providerRegistry = providerRegistry,
@@ -810,6 +891,7 @@ class SettingsViewModelTest {
             openAiCodexOAuthClient = oAuthClient,
             networkStatusProvider = networkStatusProvider,
             memoryRepository = memoryRepository,
+            ioDispatcher = ioDispatcher,
         )
 
     private fun TestScope.waitForState(
@@ -828,5 +910,28 @@ class SettingsViewModelTest {
             Thread.sleep(10)
         }
         error("Timed out waiting for state. Last state=$lastState")
+    }
+}
+
+/**
+ * Records the dispatcher generate() runs on and, like Android's blocking OkHttp call on the main
+ * thread, throws NetworkOnMainThreadException (which has no message) when that is Main.
+ */
+private class DispatcherRecordingProvider(
+    override val id: String,
+    private val failure: (() -> Exception)? = null,
+) : ModelProvider {
+    @Volatile
+    var generateInterceptor: ContinuationInterceptor? = null
+        private set
+
+    override suspend fun generate(request: ModelRequest): ModelResponse {
+        val interceptor = currentCoroutineContext()[ContinuationInterceptor]
+        generateInterceptor = interceptor
+        if (interceptor is MainCoroutineDispatcher) {
+            throw NetworkOnMainThreadException()
+        }
+        failure?.let { throw it() }
+        return ModelResponse(text = "OK")
     }
 }
