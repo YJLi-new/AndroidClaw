@@ -25,7 +25,7 @@
 
 | 聊天 | 工具卡片 | 发送照片 | 联网搜索 | 编辑任务 |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/zh/chat.png" width="150" alt="主会话：device_status 工具卡片和定时任务的运行结果" /> | <img src="site/assets/screens/zh/tool_card.png" width="150" alt="展开的 device_status 工具卡片，显示参数和结果" /> | <img src="site/assets/screens/zh/photo_reply.png" width="150" alt="从照片选择器发送的照片缩略图与模型的回复" /> | <img src="site/assets/screens/zh/web_sources.png" width="150" alt="已联网搜索卡片与来源" /> | <img src="site/assets/screens/zh/task_editor.png" width="150" alt="编辑任务：cron 计划与接下来的运行时间" /> |
+| <img src="site/assets/screens/zh/chat.png" width="150" alt="主会话：device_status 工具卡片和定时任务的运行结果" /> | <img src="site/assets/screens/zh/tool_card.png" width="150" alt="展开的 device_status 工具卡片，显示运行结果" /> | <img src="site/assets/screens/zh/photo_reply.png" width="150" alt="从照片选择器发送的照片缩略图与模型的回复" /> | <img src="site/assets/screens/zh/web_sources.png" width="150" alt="已联网搜索卡片与来源" /> | <img src="site/assets/screens/zh/task_editor.png" width="150" alt="编辑任务：cron 计划与接下来的运行时间" /> |
 
 截图来自 Android 14 模拟器，对话是 OpenAI `gpt-6-luna` 的真实回复。
 
@@ -36,11 +36,11 @@
 
 | 朗读 | 任务 | 技能 | 联网搜索设置 | 助手工作区 |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/zh/read_aloud.png" width="150" alt="正在朗读回复，输入框上方有停止朗读" /> | <img src="site/assets/screens/zh/tasks.png" width="150" alt="任务列表与运行记录" /> | <img src="site/assets/screens/zh/skills.png" width="150" alt="技能列表与开关，含一个导入的技能" /> | <img src="site/assets/screens/zh/settings_web_search.png" width="150" alt="设置：模型服务与联网搜索，自动/关闭与 Brave 密钥" /> | <img src="site/assets/screens/zh/workspace.png" width="150" alt="助手工作区：人设文件与提示词预算" /> |
+| <img src="site/assets/screens/zh/read_aloud.png" width="150" alt="正在朗读回复，输入框上方有停止朗读" /> | <img src="site/assets/screens/zh/tasks.png" width="150" alt="任务列表与运行记录" /> | <img src="site/assets/screens/zh/skills.png" width="150" alt="技能列表与开关，含一个导入的技能" /> | <img src="site/assets/screens/zh/settings_web_search.png" width="150" alt="设置：OpenAI 模型 gpt-6-luna，联网搜索为自动" /> | <img src="site/assets/screens/zh/workspace.png" width="150" alt="助手工作区：人设文件与提示词预算" /> |
 
 | 生成图片 | 视频 | 图片附件 | 图片、视频与语音设置 | 诊断 |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/zh/generated_image.png" width="150" alt="image_generate 生成的图片" /> | <img src="site/assets/screens/zh/video_tile.png" width="150" alt="带封面帧和播放标记的视频" /> | <img src="site/assets/screens/zh/attach_chip.png" width="150" alt="发送前的图片附件" /> | <img src="site/assets/screens/zh/settings_media_voice.png" width="150" alt="设置：图片与视频模型、语音" /> | <img src="site/assets/screens/zh/diagnostics.png" width="150" alt="诊断：模型服务、调度器、工具" /> |
+| <img src="site/assets/screens/zh/generated_image.png" width="150" alt="在查看器中打开的 image_generate 生成图片，带保存和分享" /> | <img src="site/assets/screens/zh/video_tile.png" width="150" alt="带封面帧和播放标记的视频" /> | <img src="site/assets/screens/zh/attach_chip.png" width="150" alt="发送前的图片附件" /> | <img src="site/assets/screens/zh/settings_media_voice.png" width="150" alt="设置：图片与视频模型、语音" /> | <img src="site/assets/screens/zh/diagnostics.png" width="150" alt="诊断：模型服务、调度器、工具" /> |
 
 | 设置 |
 |:-:|
