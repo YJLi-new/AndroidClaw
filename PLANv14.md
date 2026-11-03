@@ -1,6 +1,6 @@
 # PLANv14 - Site redesign (androidclaw.top)
 
-Status: active — line `site` dispatched (2026-11-03)
+Status: active — site and README done and reviewed; PR to `main` open, merge waits for the user (2026-11-03)
 Owner: main session (planning, visual review, merges, pushes) + one Opus subagent (execution)
 Started: 2026-11-03
 Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
@@ -142,3 +142,23 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   - The stable `releases/latest/download/AndroidClaw-latest.apk` URL now
     serves this exact file (byte compare).
   - The Survey's stale-download finding is resolved.
+- 2026-11-03: Line `site` handback e133df8, then Revision 2 at 4f4b958, after
+  the main session's visual review of the sliced renders (both widths, both
+  themes, both languages).
+  - Page heights: at 1440, EN 5,962 / ZH 5,846 px; at 390, EN 9,214 /
+    ZH 8,547 px (was 15,964 / 20,191).
+  - No horizontal overflow from 320 to 1440.
+  - Weight: HTML + CSS + JS about 37.5 KB per page; first-view images
+    36.9 KB (390) and 63.7 KB (1440).
+  - 0 third-party requests; 0 images without size or alt; 0 broken links.
+  - Lowest text contrast: light 5.02, dark 6.38.
+  - Screenshots: 20 retaken, 8 kept from before.
+  - README: 400 lines EN plus 281 lines in the new README.zh-CN.md (was 510
+    combined). The local GitHub-style render is 4,647 px at 1280 (was
+    16,060).
+  - Revision 2: `photo_reply`, `web_sources` and `read_aloud` were re-shot as
+    separate scenarios, because one lake conversation had appeared four
+    times. The hero now starts on a whole element.
+  - App bug found and left out of scope: `TaskRuntimeExecutor.kt:85` builds
+    "Task … completed in isolated session" in English, and it shows in the
+    ZH transcript.
