@@ -1,6 +1,6 @@
 # PLANv14 - Site redesign (androidclaw.top)
 
-Status: complete — merged into `main` through PR #4 after green CI; androidclaw.top serves the new site (2026-11-03)
+Status: active — redesign merged through PR #4 (androidclaw.top live); live GPT screenshots for the site and README in progress (Revision 3, 2026-11-03)
 Owner: main session (planning, visual review, merges, pushes) + one Opus subagent (execution)
 Started: 2026-11-03
 Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
@@ -24,6 +24,9 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   first by the line and then by the main session.
 - 2026-11-03 addition: "顺便也redesign一下repo里的README" — README.md (English)
   and a new README.zh-CN.md, same line, after the site (line plan Revision 1).
+- 2026-11-03 addition (after the PR #4 merge): "page和readme上的图尽量换成gpt的实测图，而非offline demo"
+  — retake the site and README screenshots with live OpenAI `gpt-6-luna`
+  replies instead of the offline demo (line plan Revision 3).
 - Out of scope: app code. The v0.3.0 GitHub Release was published separately
   at the user's request (ledger).
 
@@ -121,6 +124,10 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   Sans) does not fit the brand and is not used. Its structure (device hero,
   screenshot strip, repeated download CTA, install command) and its
   pre-delivery checklist are used.
+- 2026-11-03: For the live screenshots, only the user types the OpenAI key,
+  on the emulator. Agents never read, type or inject it, and never reinstall
+  or clear the app once it is in. Replies are shown exactly as the model
+  wrote them.
 
 ## Running ledger
 
