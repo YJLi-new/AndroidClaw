@@ -2,7 +2,10 @@
 
 All notable changes to AndroidClaw.
 
-## Unreleased (0.3.1)
+## v0.3.1 - 2026-11-03 (fixes)
+
+Bug fixes on top of 0.3.0. No new feature and no new dependency;
+`versionCode` 4, installs as an update over 0.3.0.
 
 ### Fixed
 - Settings → Test connection failed for every remote provider on a phone or
@@ -15,6 +18,15 @@ All notable changes to AndroidClaw.
 - An unexpected Test connection or OpenAI Codex sign-in error without a
   message now names the exception class, for example "Connection test failed
   (IllegalStateException).", instead of the bare fallback.
+- A scheduled task that runs in an isolated session posted "Task … completed
+  in isolated session …" in English even when the app language was 简体中文.
+  The line now comes from string resources (en + zh-CN) in the app language.
+
+### Tests
+- `ChatViewModelTest` failed intermittently on CI with
+  `UnsupportedOperationException`: ViewModels a test never cleared kept
+  resuming on Main after the next test swapped the Main dispatcher. Each test
+  now cancels and waits for the ViewModels it built before teardown.
 
 ## v0.3.0 - 2026-11-01 (media, web search, voice)
 
