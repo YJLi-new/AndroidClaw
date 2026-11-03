@@ -1,6 +1,6 @@
 # PLANv13 - Media, web search and voice
 
-Status: active — final gate green, PR open; merge into `main` waits for the user (2026-11-01)
+Status: complete — merged into `main` through PR #2 after green CI (2026-11-01)
 Owner: main session (planning, merges, pushes) + Opus subagents (execution)
 Started: 2026-11-01
 Supersedes: `PLANv12.md` (kept at the root, marked superseded)
@@ -278,6 +278,9 @@ transcription and TTS) for devices without system speech engines.
 - 2026-11-01: Image model tie at version 2.5 (`flare`, `sunburst`) broken by
   the newest `created` timestamp → `gpt-image-2.5-sunburst`. It is a Settings
   field, so the user can switch.
+- 2026-11-01 (after merge): no live video generation, per the user ("不测生成视频，只测图片").
+  `video_generate` stays contract-tested only. Images get one more live check
+  on merged `main`: vision, generation and edit, at most 4 paid calls.
 
 ## Running ledger
 
@@ -367,3 +370,15 @@ transcription and TTS) for devices without system speech engines.
   0 FATAL lines; QA 3,244,963 B, release 3,232,675 B. Key scan of the v13
   history and tree: 0. `rework/v13` pushed with a PR; merging into `main`
   waits for the user. Live video generation not run (user has not decided).
+- 2026-11-01: PR #2 (https://github.com/YJLi-new/AndroidClaw/pull/2) CI run
+  41312788258 on 69edd17 green: fast 6m50s, security-hardening 8m25s,
+  packaging 9m01s. Merged into `main` per the user ("通过后合并"): merge
+  commit 4f7d1ef. Live video generation is still contract-tested only.
+- 2026-11-01: Live image check on merged `main` (gen Revision 2, branch
+  `rework/img-live` 84676d4, test-only: a live edit case and opt-in PNG output
+  via `ANDROIDCLAW_LIVE_IMAGE_OUT`). Vision: `gpt-6-luna` answered "Red", 3.8 s.
+  Generation (`gpt-image-2.5-sunburst`): HTTP 200, 7.7 s, 745,832 B,
+  1024×1024. Edit of a locally drawn gradient grid with "Add a small yellow
+  circle in the centre": HTTP 200, 13.9 s, 880,507 B, 1024×1024; the grid was
+  kept and the circle added. Unit 614/622, 8 live skipped; ktlint clean. Paid
+  calls 3/4. No video call.

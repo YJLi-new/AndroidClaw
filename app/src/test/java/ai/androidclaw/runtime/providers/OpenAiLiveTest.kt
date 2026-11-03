@@ -107,7 +107,7 @@ class OpenAiLiveTest {
                 )
             val response = provider().generate(request(history = listOf(question), tools = emptyList()))
             assertTrue(response.text, response.text.lowercase().contains("red"))
-            "200, colour named"
+            "200, colour named, answer=${response.text.trim().replace('\n', ' ').take(40)}"
         }
 
     @Test
