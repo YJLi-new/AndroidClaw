@@ -11,6 +11,7 @@ import ai.androidclaw.runtime.scheduler.SchedulerCoordinator
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
 import ai.androidclaw.testutil.MainDispatcherRule
+import ai.androidclaw.testutil.cancelAndJoinScope
 import ai.androidclaw.testutil.textOrNull
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -90,9 +91,12 @@ class TasksViewModelTest {
         }
 
     @After
-    fun tearDown() {
-        database.close()
-    }
+    fun tearDown() =
+        runTest {
+            // Stop the ViewModel built here before Main is reset for the next test.
+            viewModel.cancelAndJoinScope()
+            database.close()
+        }
 
     @Test
     fun `create and toggle task update state`() =

@@ -5,6 +5,7 @@ import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.testutil.MainDispatcherRule
+import ai.androidclaw.testutil.cancelAndJoinScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,6 +30,7 @@ class OnboardingViewModelTest {
 
     private lateinit var onboardingDataStore: OnboardingDataStore
     private lateinit var settingsDataStore: SettingsDataStore
+    private val viewModels = mutableListOf<OnboardingViewModel>()
 
     @Before
     fun setUp() =
@@ -43,6 +45,8 @@ class OnboardingViewModelTest {
     @After
     fun tearDown() =
         runTest {
+            // Stop every ViewModel built here before Main is reset for the next test.
+            viewModels.forEach { it.cancelAndJoinScope() }
             onboardingDataStore.setCompleted(false)
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
         }
@@ -90,7 +94,7 @@ class OnboardingViewModelTest {
         OnboardingViewModel(
             onboardingDataStore = onboardingDataStore,
             settingsDataStore = settingsDataStore,
-        )
+        ).also(viewModels::add)
 
     private fun TestScope.waitForState(
         viewModel: OnboardingViewModel,
