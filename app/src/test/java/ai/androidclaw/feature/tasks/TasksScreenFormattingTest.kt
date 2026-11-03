@@ -11,6 +11,7 @@ import ai.androidclaw.testutil.text
 import ai.androidclaw.testutil.textOrNull
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Instant
@@ -84,6 +85,25 @@ class TasksScreenFormattingTest {
                 ),
             ).textOrNull(),
         )
+    }
+
+    @Test
+    fun `run preview drops markdown markers and keeps one line per block`() {
+        assertEquals(
+            "Battery check\nBattery is at 100% and code ok, see docs.\n• Temp: 30°C\n1. Done",
+            runPreviewText(
+                "## **Battery check**\n\nBattery is at **100%** and `code` *ok*, see [docs](https://example.com).\n\n" +
+                    "- Temp: _30°C_\n\n---\n\n1. Done",
+            ),
+        )
+    }
+
+    @Test
+    fun `run preview parses only a bounded prefix`() {
+        val preview = runPreviewText("**ok** " + "x".repeat(10_000))
+
+        assertEquals("ok ", preview.take(3))
+        assertTrue(preview.length <= 600)
     }
 }
 

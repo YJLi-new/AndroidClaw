@@ -3,6 +3,7 @@ package ai.androidclaw.feature.chat
 import ai.androidclaw.R
 import ai.androidclaw.app.ChatDependencies
 import ai.androidclaw.app.viewModelFactory
+import ai.androidclaw.data.ProviderSettingsSnapshot
 import ai.androidclaw.data.ProviderType
 import ai.androidclaw.data.SettingsDataStore
 import ai.androidclaw.data.attachments.AttachmentImporter
@@ -163,6 +164,8 @@ data class ChatUiState(
     val canRetryLastFailedTurn: Boolean = false,
     val activeTurnStage: UiText? = null,
     val isFakeProvider: Boolean = false,
+    /** The model replies come from, shown under the session title; null for the offline demo. */
+    val modelLabel: String? = null,
     val stagedAttachments: List<ChatAttachmentUi> = emptyList(),
     val isImportingAttachments: Boolean = false,
     val imagesEnabled: Boolean = false,
@@ -284,9 +287,9 @@ class ChatViewModel(
             showCompactedHistory,
             showArchivedSessions,
             messageWindow,
-            settingsDataStore.settings.map { it.providerType == ProviderType.Fake }.distinctUntilChanged(),
-        ) { showCompacted, showArchived, window, isFake ->
-            ViewOptions(showCompacted, showArchived, window, isFake)
+            settingsDataStore.settings.map { it.chatModelLabel() }.distinctUntilChanged(),
+        ) { showCompacted, showArchived, window, modelLabel ->
+            ViewOptions(showCompacted, showArchived, window, modelLabel)
         }
 
     private val chromeFlow =
@@ -833,7 +836,8 @@ class ChatViewModel(
             streamingAssistantText = chrome.turn.streamingAssistantText,
             canRetryLastFailedTurn = chrome.turn.canRetryLastFailedTurn,
             activeTurnStage = chrome.turn.activeTurnStage,
-            isFakeProvider = chrome.options.isFakeProvider,
+            isFakeProvider = chrome.options.modelLabel == null,
+            modelLabel = chrome.options.modelLabel,
         )
     }
 
@@ -1144,6 +1148,14 @@ internal fun transcriptWindow(
 
 private const val CHAT_HIGHLIGHT_CONTEXT = 10
 
+/** The model id of the active provider, else its name; null for the offline demo. */
+internal fun ProviderSettingsSnapshot.chatModelLabel(): String? =
+    if (providerType == ProviderType.Fake) {
+        null
+    } else {
+        endpointSettings(providerType).modelId.trim().ifBlank { providerType.displayName }
+    }
+
 /**
  * Pairs each tool request with its result (by tool call id) so the transcript
  * shows one collapsible card per tool invocation.
@@ -1189,11 +1201,14 @@ internal fun groupChatItems(messages: List<ChatMessageUi>): List<ChatItemUi> {
             }
 
             ChatRole.Assistant -> {
-                val text = message.text.withoutLegacyActiveSkillsSuffix()
+                val text = message.text.withoutLegacyActiveSkillsSuffix().withoutAttachmentLinks()
                 val previousTool = items.lastOrNull() as? ChatItemUi.Tool
+                // A reply that only linked to a generated image has nothing left to show.
+                val onlyAttachmentLinks = text.isBlank() && message.text.isNotBlank() && message.attachments.isEmpty()
                 // A slash command dispatched to a tool persists the card summary as the reply;
                 // the card already shows it, so the duplicate line is not rendered.
-                if (previousTool?.result == null || text.trim() != parseToolResultView(previousTool.result).headline) {
+                val repeatsToolHeadline = previousTool?.result != null && text.trim() == parseToolResultView(previousTool.result).headline
+                if (!onlyAttachmentLinks && !repeatsToolHeadline) {
                     items += ChatItemUi.Message(if (text == message.text) message else message.copy(text = text))
                 }
             }
@@ -1284,7 +1299,8 @@ private data class ViewOptions(
     val showCompactedHistory: Boolean,
     val showArchivedSessions: Boolean,
     val messageWindow: Int,
-    val isFakeProvider: Boolean,
+    /** Null for the offline demo provider. */
+    val modelLabel: String?,
 )
 
 private data class ChatChrome(

@@ -2,6 +2,9 @@ package ai.androidclaw.feature.tasks
 
 import ai.androidclaw.R
 import ai.androidclaw.data.model.TaskRunStatus
+import ai.androidclaw.feature.chat.ChatRichTextBlock
+import ai.androidclaw.feature.chat.parseChatRichText
+import ai.androidclaw.feature.chat.withoutInlineMarkdown
 import ai.androidclaw.runtime.scheduler.CronExpression
 import ai.androidclaw.runtime.scheduler.TaskExecutionMode
 import ai.androidclaw.runtime.scheduler.TaskSchedule
@@ -64,6 +67,26 @@ internal fun runStatusTone(status: TaskRunStatus): NoticeTone =
         TaskRunStatus.Skipped -> NoticeTone.Warning
         TaskRunStatus.Pending, TaskRunStatus.Running -> NoticeTone.Info
     }
+
+/** Reply characters parsed for the three-line run preview; the rest is never shown. */
+private const val RUN_PREVIEW_SOURCE_CHARS = 600
+
+/** Plain-text preview of a run reply: Markdown markers are dropped, one line per block. */
+internal fun runPreviewText(source: String): String =
+    parseChatRichText(source.take(RUN_PREVIEW_SOURCE_CHARS))
+        .mapNotNull { block ->
+            when (block) {
+                is ChatRichTextBlock.Heading -> block.text.withoutInlineMarkdown()
+                is ChatRichTextBlock.Paragraph -> block.text.withoutInlineMarkdown()
+                is ChatRichTextBlock.Quote -> block.text.withoutInlineMarkdown()
+                is ChatRichTextBlock.BulletList -> block.items.joinToString("\n") { "• ${it.withoutInlineMarkdown()}" }
+                is ChatRichTextBlock.OrderedList ->
+                    block.items.withIndex().joinToString("\n") { (index, item) -> "${block.start + index}. ${item.withoutInlineMarkdown()}" }
+                is ChatRichTextBlock.CodeFence -> block.code
+                ChatRichTextBlock.Rule -> null
+            }
+        }.filter(String::isNotBlank)
+        .joinToString("\n")
 
 /** Cron text for display and editing (lists are expanded, like the stored spec). */
 internal fun CronExpression.toEditableText(): String =
