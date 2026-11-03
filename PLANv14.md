@@ -22,8 +22,10 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   into `~/.claude`.
 - "多用你的视觉": every layout decision is checked on rendered screenshots,
   first by the line and then by the main session.
-- Out of scope: app code, and publishing a GitHub Release. Releases need a
-  separate decision by the user (see Survey).
+- 2026-11-03 addition: "顺便也redesign一下repo里的README" — README.md (English)
+  and a new README.zh-CN.md, same line, after the site (line plan Revision 1).
+- Out of scope: app code. The v0.3.0 GitHub Release was published separately
+  at the user's request (ledger).
 
 ## Survey of the live site (2026-11-03, main session, browser pane)
 
@@ -125,3 +127,18 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
 - 2026-11-03: Survey above. Skill cloned (713eef5, 3.6 MB, stdlib-only
   Python, writes only with `--persist`). PLANv14 written; line `site`
   dispatched.
+- 2026-11-03: User: "做一下最新的apk然后发到release里". Release `v0.3.0` published
+  (https://github.com/YJLi-new/AndroidClaw/releases/tag/v0.3.0, marked Latest),
+  lightweight tag at 7ecb238 like the earlier tags. Assets:
+  `AndroidClaw-v0.3.0.apk` and `AndroidClaw-latest.apk`, the same file.
+  - Build: `qa`, clean, no build cache, 8m44s; 3,244,963 B; SHA-256
+    c5459b96…312a77e4.
+  - Package: `ai.androidclaw.app`, versionCode 3, versionName 0.3.0;
+    signature scheme v2.
+  - Signer: same certificate as `v0.1.0-qa3` (SHA-256 79e3578c…9332c1), so it
+    installs as an update. Checked by certificate, not by an actual install
+    over qa3.
+  - AVD smoke: install OK, launch 789 ms, 0 crash lines.
+  - The stable `releases/latest/download/AndroidClaw-latest.apk` URL now
+    serves this exact file (byte compare).
+  - The Survey's stale-download finding is resolved.
