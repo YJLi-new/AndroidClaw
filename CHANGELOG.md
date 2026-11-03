@@ -2,6 +2,20 @@
 
 All notable changes to AndroidClaw.
 
+## Unreleased (0.3.1)
+
+### Fixed
+- Settings → Test connection failed for every remote provider on a phone or
+  emulator with a bare "Connection test failed.". The check called the
+  provider's blocking `generate()` on the main thread, so Android threw
+  `NetworkOnMainThreadException`. It now runs on the IO dispatcher, as chat,
+  `/compact` and session summaries already did. This also unblocks the
+  first-run "Connect a provider" dialog, whose Finish button waits for a
+  passing test. Broken since the onboarding flow (b940ab4, v0.1.0-qa2).
+- An unexpected Test connection or OpenAI Codex sign-in error without a
+  message now names the exception class, for example "Connection test failed
+  (IllegalStateException).", instead of the bare fallback.
+
 ## v0.3.0 - 2026-11-01 (media, web search, voice)
 
 Adds the assistant features that were missing next to common chat assistants:

@@ -27,6 +27,7 @@ import ai.androidclaw.runtime.skills.createTestSkillManager
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
+import ai.androidclaw.testutil.cancelAndJoinScope
 import ai.androidclaw.testutil.textOrNull
 import ai.androidclaw.ui.text.UiText
 import androidx.test.core.app.ApplicationProvider
@@ -64,6 +65,7 @@ class ChatViewModelTest {
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var skillManager: SkillManager
     private lateinit var viewModel: ChatViewModel
+    private val viewModels = mutableListOf<ChatViewModel>()
 
     @Before
     fun setUp() =
@@ -95,6 +97,8 @@ class ChatViewModelTest {
     @After
     fun tearDown() =
         runTest {
+            // Stop every ViewModel built here before Main is reset for the next test.
+            viewModels.forEach { it.cancelAndJoinScope() }
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
             database.close()
         }
@@ -857,7 +861,7 @@ class ChatViewModelTest {
                 ),
             skillManager = skillManager,
             settingsDataStore = settingsDataStore,
-        )
+        ).also(viewModels::add)
 }
 
 private fun buildSkillManager(

@@ -380,9 +380,10 @@
     </plurals>
     <string name="settings_error_timeout">Timeout must be an integer between %1$d and %2$d seconds.</string>
     <string name="settings_error_codex_offline">No active network connection. OpenAI Codex sign-in needs internet access.</string>
-    <string name="settings_error_codex_failed">OpenAI Codex sign-in failed.</string>
+    <string name="settings_error_codex_failed_cause">OpenAI Codex sign-in failed (%1$s).</string>
     <string name="settings_error_codex_timeout">OpenAI Codex sign-in timed out.</string>
     <string name="settings_error_test_failed">Connection test failed.</string>
+    <string name="settings_error_test_failed_cause">Connection test failed (%1$s).</string>
     <string name="settings_error_test_timeout">Connection test timed out. Check the endpoint and timeout.</string>
     <string name="settings_error_invalid_endpoint">Provider base URL is invalid. Check the endpoint format.</string>
     <string name="settings_error_auth">Authentication failed. Check credentials.</string>

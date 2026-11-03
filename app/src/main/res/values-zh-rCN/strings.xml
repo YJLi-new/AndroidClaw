@@ -367,9 +367,10 @@
     </plurals>
     <string name="settings_error_timeout">超时必须是 %1$d 到 %2$d 之间的整数秒。</string>
     <string name="settings_error_codex_offline">当前没有网络连接，OpenAI Codex 登录需要联网。</string>
-    <string name="settings_error_codex_failed">OpenAI Codex 登录失败。</string>
+    <string name="settings_error_codex_failed_cause">OpenAI Codex 登录失败（%1$s）。</string>
     <string name="settings_error_codex_timeout">OpenAI Codex 登录超时。</string>
     <string name="settings_error_test_failed">连接测试失败。</string>
+    <string name="settings_error_test_failed_cause">连接测试失败（%1$s）。</string>
     <string name="settings_error_test_timeout">连接测试超时，请检查接口地址和超时设置。</string>
     <string name="settings_error_invalid_endpoint">接口地址无效，请检查格式。</string>
     <string name="settings_error_auth">认证失败，请检查凭据。</string>
