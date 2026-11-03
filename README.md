@@ -25,18 +25,22 @@
 
 | Chat | Tool card | Photo in chat | Web search | Task editor |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/en/chat.png" width="150" alt="Main session with a device_status tool card and the result of a scheduled task" /> | <img src="site/assets/screens/en/tool_card.png" width="150" alt="Expanded device_status tool card with arguments and result" /> | <img src="site/assets/screens/en/photo_reply.png" width="150" alt="A photo sent from the picker, shown as a thumbnail with the demo reply" /> | <img src="site/assets/screens/en/web_sources.png" width="150" alt="Searched the web card and Sources chips under a reply" /> | <img src="site/assets/screens/en/task_editor.png" width="150" alt="Task editor with a cron schedule and the next runs" /> |
+| <img src="site/assets/screens/en/chat.png" width="150" alt="Main session with a device_status tool card and the result of a scheduled task" /> | <img src="site/assets/screens/en/tool_card.png" width="150" alt="Expanded device_status tool card with its result" /> | <img src="site/assets/screens/en/photo_reply.png" width="150" alt="A photo sent from the picker, shown as a thumbnail with the model's reply" /> | <img src="site/assets/screens/en/web_sources.png" width="150" alt="Searched the web card and Sources chips under a reply" /> | <img src="site/assets/screens/en/task_editor.png" width="150" alt="Task editor with a cron schedule and the next runs" /> |
+
+Android 14 emulator, real replies from OpenAI `gpt-6-luna`.
 
 <details>
 <summary>More screenshots</summary>
 
+Some older shots in this list still come from the offline demo.
+
 | Read aloud | Tasks | Skills | Web search settings | Assistant workspace |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/en/read_aloud.png" width="150" alt="A reply being read aloud with the Stop reading bar" /> | <img src="site/assets/screens/en/tasks.png" width="150" alt="Task list with run history" /> | <img src="site/assets/screens/en/skills.png" width="150" alt="Skills list with toggles and an imported skill" /> | <img src="site/assets/screens/en/settings_web_search.png" width="150" alt="Settings: provider and Web search with Automatic and Off and the Brave Search key field" /> | <img src="site/assets/screens/en/workspace.png" width="150" alt="Assistant workspace with persona files and prompt budget" /> |
+| <img src="site/assets/screens/en/read_aloud.png" width="150" alt="A reply being read aloud with the Stop reading bar" /> | <img src="site/assets/screens/en/tasks.png" width="150" alt="Task list with run history" /> | <img src="site/assets/screens/en/skills.png" width="150" alt="Skills list with toggles and an imported skill" /> | <img src="site/assets/screens/en/settings_web_search.png" width="150" alt="Settings: OpenAI model gpt-6-luna and Web search set to Automatic" /> | <img src="site/assets/screens/en/workspace.png" width="150" alt="Assistant workspace with persona files and prompt budget" /> |
 
 | Generated image | Video | Photo chips | Sessions drawer | Diagnostics |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/en/generated_image.png" width="150" alt="Generated image tile from the image_generate tool" /> | <img src="site/assets/screens/en/video_tile.png" width="150" alt="Video tile with poster frame and play badge" /> | <img src="site/assets/screens/en/attach_chip.png" width="150" alt="An attached photo as a removable chip before sending" /> | <img src="site/assets/screens/en/drawer.png" width="150" alt="Session drawer with sessions and archive" /> | <img src="site/assets/screens/en/diagnostics.png" width="150" alt="Diagnostics with provider, scheduler and tools" /> |
+| <img src="site/assets/screens/en/generated_image.png" width="150" alt="An image_generate result open in the viewer with Save and Share" /> | <img src="site/assets/screens/en/video_tile.png" width="150" alt="Video tile with poster frame and play badge" /> | <img src="site/assets/screens/en/attach_chip.png" width="150" alt="An attached photo as a removable chip before sending" /> | <img src="site/assets/screens/en/drawer.png" width="150" alt="Session drawer with sessions and archive" /> | <img src="site/assets/screens/en/diagnostics.png" width="150" alt="Diagnostics with provider, scheduler and tools" /> |
 
 | Image, video and voice settings | Settings | Onboarding |
 |:-:|:-:|:-:|

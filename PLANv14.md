@@ -1,6 +1,6 @@
 # PLANv14 - Site redesign (androidclaw.top)
 
-Status: active — site and README done and reviewed; PR to `main` open, merge waits for the user (2026-11-03)
+Status: active — redesign merged through PR #4 (androidclaw.top live); live GPT screenshots for the site and README in progress (Revision 3, 2026-11-03)
 Owner: main session (planning, visual review, merges, pushes) + one Opus subagent (execution)
 Started: 2026-11-03
 Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
@@ -24,6 +24,9 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   first by the line and then by the main session.
 - 2026-11-03 addition: "顺便也redesign一下repo里的README" — README.md (English)
   and a new README.zh-CN.md, same line, after the site (line plan Revision 1).
+- 2026-11-03 addition (after the PR #4 merge): "page和readme上的图尽量换成gpt的实测图，而非offline demo"
+  — retake the site and README screenshots with live OpenAI `gpt-6-luna`
+  replies instead of the offline demo (line plan Revision 3).
 - Out of scope: app code. The v0.3.0 GitHub Release was published separately
   at the user's request (ledger).
 
@@ -121,6 +124,10 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   Sans) does not fit the brand and is not used. Its structure (device hero,
   screenshot strip, repeated download CTA, install command) and its
   pre-delivery checklist are used.
+- 2026-11-03: For the live screenshots, only the user types the OpenAI key,
+  on the emulator. Agents never read, type or inject it, and never reinstall
+  or clear the app once it is in. Replies are shown exactly as the model
+  wrote them.
 
 ## Running ledger
 
@@ -162,3 +169,63 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   - App bug found and left out of scope: `TaskRuntimeExecutor.kt:85` builds
     "Task … completed in isolated session" in English, and it shows in the
     ZH transcript.
+- 2026-11-03: User: "通过后合并" (PR #4).
+  - First CI run 41594794274 on 15e24d2: `fast` failed on one unit test,
+    `ChatViewModelTest > draft input is bounded before it reaches Compose
+    state` (`UnsupportedOperationException` at
+    `TestCoroutineDispatchers.kt:106`); 622 tests, 1 failed, 8 skipped.
+    `packaging` and `security-hardening` passed.
+  - The PR changes no app code (only `site/`, the two READMEs and this
+    plan), and the same test passed on the last push run on `main`
+    (7ecb238). The failure is an intermittent test, not this line. The
+    failed job was rerun once and passed (`fast` 6 min); all three jobs
+    green.
+  - Merged with `--merge --match-head-commit 15e24d2`: merge commit 1a55560
+    on `origin/main`. The Pages run 41707615002 succeeded.
+  - Live check: `/` and `/zh/` and `site.css` on androidclaw.top are
+    byte-identical to the repo. Fresh headless renders of the live site
+    (EN 1440 light, EN 375 dark, ZH 1440 dark, ZH 375 light) were checked
+    by eye; heights at 1440 are 5,962 / 5,846 px as reviewed. Both pages:
+    11 images, 0 broken, 0 third-party hosts, canonical and `lang` correct,
+    Download APK points at the stable latest URL.
+  - Follow-ups outside this plan: the intermittent `ChatViewModelTest`
+    case; the ZH hero shot still shows the English "completed in isolated
+    session" line until the app fix (PR #5) is merged and the shot is
+    retaken.
+- 2026-11-03: Live screenshots (line plan Revisions 3–5; agent `shots`).
+  - The user typed the OpenAI key on the emulator. No agent read, typed or
+    injected it.
+  - Settings → Test connection always failed. The cause is an app bug, not
+    the key: `SettingsViewModel` runs the blocking `generate()` on Main, so
+    Android throws `NetworkOnMainThreadException`. The same key returned 200
+    from the host. The fix is separate work (PR #6). Chat runs on IO and
+    worked.
+  - Retaken with real `gpt-6-luna` replies, 9 per language: `chat`,
+    `tool_card`, `photo_reply`, `web_sources` (OpenAI hosted search),
+    `read_aloud`, `whats_new`, `tasks`, `settings_web_search` and
+    `generated_image` (a real `gpt-image` result in the viewer).
+    `task_editor`, `skills` and `workspace` are kept: they show no demo text.
+  - Rebuilt `og.png`, `og-zh.png` and the 4 README banners, because they
+    showed the old demo transcript.
+  - Live usage: 30 chat turns (EN 11, ZH 18, 1 failed); 9 of them put ZH
+    prompts on the clipboard, because adb cannot type Chinese. 2 image
+    generations; 0 video.
+  - Checks:
+    - 0 overflow from 320 to 1440; 0 third-party requests; 0 failed
+      requests; 0 images without size or alt; 0 broken links.
+    - Lowest contrast: light 5.02, dark 6.38.
+    - Page heights at 1440: EN 5,962 / ZH 5,815. At 390: EN 9,242 /
+      ZH 8,515.
+    - First-view images: about 55 KB at 390 and 90–94 KB at 1440 (was 36.9 /
+      63.7), because the real replies are denser.
+  - Key scan of the diff: 0 key-like strings and 0 fragments of the real
+    key. The settings shot shows an empty key field with "A key is saved".
+  - Main-session review shot by shot: all pass. Two edge flaws are kept,
+    because re-scrolling would only trade them for the jump-to-latest button:
+    - the ZH hero's bottom edge cuts a speaker icon;
+    - the EN `tool_card` has a thin bubble sliver at the top.
+  - App follow-ups seen in the shots:
+    - task run history shows raw Markdown (`**100%**`);
+    - tool result summaries are English in the ZH UI;
+    - session subtitles repeat the title;
+    - image replies show a raw attachment link.
