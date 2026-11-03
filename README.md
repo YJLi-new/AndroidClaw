@@ -25,10 +25,14 @@
 
 | Chat | Tool card | Photo in chat | Web search | Task editor |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/en/chat.png" width="150" alt="Main session with a device_status tool card and the result of a scheduled task" /> | <img src="site/assets/screens/en/tool_card.png" width="150" alt="Expanded device_status tool card with arguments and result" /> | <img src="site/assets/screens/en/photo_reply.png" width="150" alt="A photo sent from the picker, shown as a thumbnail with the demo reply" /> | <img src="site/assets/screens/en/web_sources.png" width="150" alt="Searched the web card and Sources chips under a reply" /> | <img src="site/assets/screens/en/task_editor.png" width="150" alt="Task editor with a cron schedule and the next runs" /> |
+| <img src="site/assets/screens/en/chat.png" width="150" alt="Main session with a device_status tool card and the result of a scheduled task" /> | <img src="site/assets/screens/en/tool_card.png" width="150" alt="Expanded device_status tool card with arguments and result" /> | <img src="site/assets/screens/en/photo_reply.png" width="150" alt="A photo sent from the picker, shown as a thumbnail with the model's reply" /> | <img src="site/assets/screens/en/web_sources.png" width="150" alt="Searched the web card and Sources chips under a reply" /> | <img src="site/assets/screens/en/task_editor.png" width="150" alt="Task editor with a cron schedule and the next runs" /> |
+
+Android 14 emulator, real replies from OpenAI `gpt-6-luna`.
 
 <details>
 <summary>More screenshots</summary>
+
+Some older shots in this list still come from the offline demo.
 
 | Read aloud | Tasks | Skills | Web search settings | Assistant workspace |
 |:-:|:-:|:-:|:-:|:-:|

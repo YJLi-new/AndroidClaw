@@ -25,10 +25,14 @@
 
 | 聊天 | 工具卡片 | 发送照片 | 联网搜索 | 编辑任务 |
 |:-:|:-:|:-:|:-:|:-:|
-| <img src="site/assets/screens/zh/chat.png" width="150" alt="主会话：device_status 工具卡片和定时任务的运行结果" /> | <img src="site/assets/screens/zh/tool_card.png" width="150" alt="展开的 device_status 工具卡片，显示参数和结果" /> | <img src="site/assets/screens/zh/photo_reply.png" width="150" alt="从照片选择器发送的照片缩略图与演示回复" /> | <img src="site/assets/screens/zh/web_sources.png" width="150" alt="已联网搜索卡片与来源" /> | <img src="site/assets/screens/zh/task_editor.png" width="150" alt="编辑任务：cron 计划与接下来的运行时间" /> |
+| <img src="site/assets/screens/zh/chat.png" width="150" alt="主会话：device_status 工具卡片和定时任务的运行结果" /> | <img src="site/assets/screens/zh/tool_card.png" width="150" alt="展开的 device_status 工具卡片，显示参数和结果" /> | <img src="site/assets/screens/zh/photo_reply.png" width="150" alt="从照片选择器发送的照片缩略图与模型的回复" /> | <img src="site/assets/screens/zh/web_sources.png" width="150" alt="已联网搜索卡片与来源" /> | <img src="site/assets/screens/zh/task_editor.png" width="150" alt="编辑任务：cron 计划与接下来的运行时间" /> |
+
+截图来自 Android 14 模拟器，对话是 OpenAI `gpt-6-luna` 的真实回复。
 
 <details>
 <summary>更多截图</summary>
+
+这里有些较早的截图仍来自离线演示。
 
 | 朗读 | 任务 | 技能 | 联网搜索设置 | 助手工作区 |
 |:-:|:-:|:-:|:-:|:-:|
