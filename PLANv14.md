@@ -1,6 +1,6 @@
 # PLANv14 - Site redesign (androidclaw.top)
 
-Status: active — redesign merged through PR #4 (androidclaw.top live); live GPT screenshots for the site and README in progress (Revision 3, 2026-11-03)
+Status: complete — redesign merged through PR #4 and live gpt-6-luna screenshots through PR #8; androidclaw.top serves both (2026-11-03)
 Owner: main session (planning, visual review, merges, pushes) + one Opus subagent (execution)
 Started: 2026-11-03
 Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
@@ -230,3 +230,15 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
     - session subtitles repeat the title;
     - image replies show a raw attachment link.
 - 2026-11-03: App fix outside the site scope, found in the new zh screenshots: the isolated-session completion line (`TaskRuntimeExecutor`) was hardcoded English; it now comes from `task_isolated_completed` (en + zh-CN) in the app language at delivery time, like the video job messages (branch `claude/elated-dubinsky-dc03e3`).
+- 2026-11-03: User: "通过后合并" (PR #8).
+  - CI run 41719307222 on e14d608: `fast`, `packaging` and
+    `security-hardening` all passed; the PR was MERGEABLE / CLEAN.
+  - Merged with `--merge --match-head-commit e14d608`: merge commit b0cc10f.
+  - Pages run 41720747871 succeeded.
+  - Live check:
+    - `/`, `/zh/` and `site.css` are byte-identical to the repo, and so are
+      the spot-checked `img/en/chat.webp`, `img/zh/chat.webp` and `og.png`.
+    - Fresh headless renders (EN 1440 light, EN 375 dark, ZH 1440 dark,
+      ZH 375 light) were checked by eye: the hero, What's-new phone and
+      gallery show the live gpt-6-luna shots.
+    - Heights at 1440: EN 5,962 / ZH 5,815 px.
