@@ -192,3 +192,40 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
     case; the ZH hero shot still shows the English "completed in isolated
     session" line until the app fix (PR #5) is merged and the shot is
     retaken.
+- 2026-11-03: Live screenshots (line plan Revisions 3–5; agent `shots`).
+  - The user typed the OpenAI key on the emulator. No agent read, typed or
+    injected it.
+  - Settings → Test connection always failed. The cause is an app bug, not
+    the key: `SettingsViewModel` runs the blocking `generate()` on Main, so
+    Android throws `NetworkOnMainThreadException`. The same key returned 200
+    from the host. The fix is separate work (PR #6). Chat runs on IO and
+    worked.
+  - Retaken with real `gpt-6-luna` replies, 9 per language: `chat`,
+    `tool_card`, `photo_reply`, `web_sources` (OpenAI hosted search),
+    `read_aloud`, `whats_new`, `tasks`, `settings_web_search` and
+    `generated_image` (a real `gpt-image` result in the viewer).
+    `task_editor`, `skills` and `workspace` are kept: they show no demo text.
+  - Rebuilt `og.png`, `og-zh.png` and the 4 README banners, because they
+    showed the old demo transcript.
+  - Live usage: 30 chat turns (EN 11, ZH 18, 1 failed); 9 of them put ZH
+    prompts on the clipboard, because adb cannot type Chinese. 2 image
+    generations; 0 video.
+  - Checks:
+    - 0 overflow from 320 to 1440; 0 third-party requests; 0 failed
+      requests; 0 images without size or alt; 0 broken links.
+    - Lowest contrast: light 5.02, dark 6.38.
+    - Page heights at 1440: EN 5,962 / ZH 5,815. At 390: EN 9,242 /
+      ZH 8,515.
+    - First-view images: about 55 KB at 390 and 90–94 KB at 1440 (was 36.9 /
+      63.7), because the real replies are denser.
+  - Key scan of the diff: 0 key-like strings and 0 fragments of the real
+    key. The settings shot shows an empty key field with "A key is saved".
+  - Main-session review shot by shot: all pass. Two edge flaws are kept,
+    because re-scrolling would only trade them for the jump-to-latest button:
+    - the ZH hero's bottom edge cuts a speaker icon;
+    - the EN `tool_card` has a thin bubble sliver at the top.
+  - App follow-ups seen in the shots:
+    - task run history shows raw Markdown (`**100%**`);
+    - tool result summaries are English in the ZH UI;
+    - session subtitles repeat the title;
+    - image replies show a raw attachment link.
