@@ -1,6 +1,6 @@
 # PLANv14 - Site redesign (androidclaw.top)
 
-Status: active — site and README done and reviewed; PR to `main` open, merge waits for the user (2026-11-03)
+Status: complete — merged into `main` through PR #4 after green CI; androidclaw.top serves the new site (2026-11-03)
 Owner: main session (planning, visual review, merges, pushes) + one Opus subagent (execution)
 Started: 2026-11-03
 Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
@@ -162,3 +162,26 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   - App bug found and left out of scope: `TaskRuntimeExecutor.kt:85` builds
     "Task … completed in isolated session" in English, and it shows in the
     ZH transcript.
+- 2026-11-03: User: "通过后合并" (PR #4).
+  - First CI run 41594794274 on 15e24d2: `fast` failed on one unit test,
+    `ChatViewModelTest > draft input is bounded before it reaches Compose
+    state` (`UnsupportedOperationException` at
+    `TestCoroutineDispatchers.kt:106`); 622 tests, 1 failed, 8 skipped.
+    `packaging` and `security-hardening` passed.
+  - The PR changes no app code (only `site/`, the two READMEs and this
+    plan), and the same test passed on the last push run on `main`
+    (7ecb238). The failure is an intermittent test, not this line. The
+    failed job was rerun once and passed (`fast` 6 min); all three jobs
+    green.
+  - Merged with `--merge --match-head-commit 15e24d2`: merge commit 1a55560
+    on `origin/main`. The Pages run 41707615002 succeeded.
+  - Live check: `/` and `/zh/` and `site.css` on androidclaw.top are
+    byte-identical to the repo. Fresh headless renders of the live site
+    (EN 1440 light, EN 375 dark, ZH 1440 dark, ZH 375 light) were checked
+    by eye; heights at 1440 are 5,962 / 5,846 px as reviewed. Both pages:
+    11 images, 0 broken, 0 third-party hosts, canonical and `lang` correct,
+    Download APK points at the stable latest URL.
+  - Follow-ups outside this plan: the intermittent `ChatViewModelTest`
+    case; the ZH hero shot still shows the English "completed in isolated
+    session" line until the app fix (PR #5) is merged and the shot is
+    retaken.
