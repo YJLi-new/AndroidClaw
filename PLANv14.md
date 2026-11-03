@@ -229,3 +229,4 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
     - tool result summaries are English in the ZH UI;
     - session subtitles repeat the title;
     - image replies show a raw attachment link.
+- 2026-11-03: App fix outside the site scope, found in the new zh screenshots: the isolated-session completion line (`TaskRuntimeExecutor`) was hardcoded English; it now comes from `task_isolated_completed` (en + zh-CN) in the app language at delivery time, like the video job messages (branch `claude/elated-dubinsky-dc03e3`).

@@ -60,6 +60,7 @@ import ai.androidclaw.runtime.voice.SpeechInput
 import ai.androidclaw.runtime.voice.SpeechOutput
 import ai.androidclaw.runtime.voice.SystemSpeechInput
 import ai.androidclaw.runtime.voice.SystemSpeechOutput
+import ai.androidclaw.ui.locale.AppLocaleController
 import android.app.Application
 import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
@@ -293,6 +294,7 @@ class AppContainer(
             messageRepository = messageRepository,
             agentRunner = agentRunner,
             sessionLaneCoordinator = sessionLaneCoordinator,
+            resources = { AppLocaleController.localizedResources(application) },
         )
     val startupMaintenance =
         StartupMaintenance(

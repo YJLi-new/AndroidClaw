@@ -1,11 +1,13 @@
 package ai.androidclaw.runtime.scheduler
 
+import ai.androidclaw.R
 import ai.androidclaw.data.model.MessageRole
 import ai.androidclaw.data.model.Task
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.runtime.orchestrator.AgentRunner
 import ai.androidclaw.runtime.orchestrator.SessionLaneCoordinator
+import android.content.res.Resources
 import kotlinx.coroutines.CancellationException
 import java.time.Instant
 import java.time.ZoneId
@@ -25,6 +27,8 @@ class TaskRuntimeExecutor(
     private val messageRepository: MessageRepository,
     private val agentRunner: AgentRunner,
     private val sessionLaneCoordinator: SessionLaneCoordinator,
+    /** Transcript text in the app language, resolved when a run delivers its message. */
+    private val resources: () -> Resources,
 ) {
     suspend fun execute(
         task: Task,
@@ -79,15 +83,11 @@ class TaskRuntimeExecutor(
                 taskRunId = taskRunId,
             )
         val deliveryText =
-            buildString {
-                append("Task ")
-                append(task.name)
-                append(" completed in isolated session \"")
-                append(isolatedSession.title)
-                append("\".")
-                append("\n\n")
-                append(result.assistantMessage)
-            }
+            TaskRuntimeTexts(resources()).isolatedDelivery(
+                taskName = task.name,
+                sessionTitle = isolatedSession.title,
+                reply = result.assistantMessage,
+            )
         val deliveredMessage =
             try {
                 sessionLaneCoordinator.withLane(deliverySessionId) {
@@ -144,3 +144,13 @@ class TaskRuntimeExecutor(
 }
 
 private val ISOLATED_TITLE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
+internal class TaskRuntimeTexts(
+    private val resources: Resources,
+) {
+    fun isolatedDelivery(
+        taskName: String,
+        sessionTitle: String,
+        reply: String,
+    ): String = resources.getString(R.string.task_isolated_completed, taskName, sessionTitle) + "\n\n" + reply
+}
