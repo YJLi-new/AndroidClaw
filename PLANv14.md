@@ -22,8 +22,10 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
   into `~/.claude`.
 - "多用你的视觉": every layout decision is checked on rendered screenshots,
   first by the line and then by the main session.
-- Out of scope: app code, and publishing a GitHub Release. Releases need a
-  separate decision by the user (see Survey).
+- 2026-11-03 addition: "顺便也redesign一下repo里的README" — README.md (English)
+  and a new README.zh-CN.md, same line, after the site (line plan Revision 1).
+- Out of scope: app code. The v0.3.0 GitHub Release was published separately
+  at the user's request (ledger).
 
 ## Survey of the live site (2026-11-03, main session, browser pane)
 
