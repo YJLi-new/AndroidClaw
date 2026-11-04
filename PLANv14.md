@@ -257,3 +257,11 @@ Supersedes: `PLANv13.md` (complete, merged through PR #2 and PR #3)
     `AndroidClaw-v0.3.1.apk` and `AndroidClaw-latest.apk`.
   - The stable `releases/latest/download/AndroidClaw-latest.apk` URL served
     the new file after about 2 minutes.
+- 2026-11-04: User: "直接merge吧，不用ci了" (PRs #10 and #11, no CI wait).
+  - PR #10 (four chat and task UI fixes from the live screenshots, 69d2bd4)
+    merged → 928178d. Its CI was green.
+  - PR #11 (six more ViewModel test classes cancel their ViewModels before
+    teardown, 175d996) merged → d9d7f0c. `fast` and `packaging` were green.
+    `security-hardening` failed in `AgentRunnerTest > classMethod`: Robolectric
+    could not download its android-all jar (`MavenArtifactFetcher`, IOException),
+    a network flake in a test the PR did not touch.
