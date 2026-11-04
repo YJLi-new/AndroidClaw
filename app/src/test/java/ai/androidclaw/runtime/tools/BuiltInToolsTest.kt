@@ -10,6 +10,8 @@ import ai.androidclaw.data.repository.MemoryRepository
 import ai.androidclaw.data.repository.MessageRepository
 import ai.androidclaw.data.repository.SessionRepository
 import ai.androidclaw.data.repository.TaskRepository
+import ai.androidclaw.feature.chat.localizedToolHeadline
+import ai.androidclaw.feature.chat.parseToolResultView
 import ai.androidclaw.runtime.providers.ModelRunMode
 import ai.androidclaw.runtime.providers.NetworkStatusProvider
 import ai.androidclaw.runtime.providers.NetworkStatusSnapshot
@@ -51,6 +53,7 @@ import java.io.File
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.Locale
 
 @RunWith(AndroidJUnit4::class)
 class BuiltInToolsTest {
@@ -663,6 +666,165 @@ class BuiltInToolsTest {
             assertTrue(list.summary.contains("User lives in Hangzhou"))
             assertEquals("CONFIRMATION_REQUIRED", unguarded.errorCode)
             assertEquals("TOOL_ORIGIN_NOT_ALLOWED", fromModel.errorCode)
+        }
+
+    // --- chat card headlines -----------------------------------------------------------------
+
+    @Test
+    fun `success headlines of the built in tools all have a localized card template`() =
+        runTest {
+            shadowOf(application).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+            settingsDataStore.setMemoryEnabled(true)
+            skills = listOf(testSkillSnapshot(id = "bundled:weather", name = "weather"))
+            val results = mutableListOf<Pair<String, ToolExecutionResult>>()
+
+            suspend fun call(
+                name: String,
+                arguments: JsonObject = buildJsonObject {},
+                sessionId: String? = null,
+                origin: ToolInvocationOrigin = ToolInvocationOrigin.Model,
+            ): ToolExecutionResult = run(name, arguments, sessionId = sessionId, origin = origin).also { results += name to it }
+
+            suspend fun memoryCommand(command: String) = call("memory_command", args { put("command", command) }, origin = ToolInvocationOrigin.SlashCommand)
+
+            call("device_status")
+            call("health_status")
+            call("tasks_list")
+            call("tasks_runs")
+            val taskId =
+                call(
+                    "tasks_create",
+                    args {
+                        put("name", "Hourly check")
+                        put("prompt", "Check things")
+                        put("repeatEveryMinutes", 60)
+                    },
+                ).payload["task"]!!
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            call("tasks_list")
+            call(
+                "tasks_update",
+                args {
+                    put("taskId", taskId)
+                    put("enabled", false)
+                },
+            )
+            call("tasks_run_now", args { put("taskId", taskId) })
+            call("tasks_delete", args { put("taskId", taskId) })
+
+            call("sessions_list")
+            val newId =
+                call("sessions_create", args { put("title", "Trip planning") })
+                    .payload
+                    .getValue("id")
+                    .jsonPrimitive.content
+            call("sessions_rename", args { put("title", "Trip to Kyoto") }, sessionId = newId)
+            call(
+                "sessions_send",
+                args {
+                    put("sessionId", "main")
+                    put("text", "Flights booked.")
+                },
+                sessionId = newId,
+            )
+            call("sessions_history", args { put("sessionId", "main") })
+
+            call("skills_list")
+            call(
+                "skills_set_enabled",
+                args {
+                    put("name", "weather")
+                    put("enabled", false)
+                },
+            )
+
+            call("memory_search", args { put("query", "tea") })
+            val memoryId = call("memory_remember", args { put("text", "User likes green tea") }).summary.substringAfter("id=").substringBefore(")")
+            call("memory_search", args { put("query", "tea") })
+            memoryCommand("delete $memoryId")
+            memoryCommand("status")
+            memoryCommand("remember User lives in Hangzhou")
+            memoryCommand("list")
+            val forgetId = call("memory_remember", args { put("text", "User likes jasmine tea") }).summary.substringAfter("id=").substringBefore(")")
+            call("memory_forget", args { put("id", forgetId) })
+            memoryCommand("clear CONFIRM")
+            memoryCommand("list")
+
+            call("workspace_list")
+            call(
+                "workspace_write",
+                args {
+                    put("path", "notes/todo.md")
+                    put("content", "- buy milk\n")
+                },
+            )
+            call(
+                "workspace_write",
+                args {
+                    put("path", "notes/todo.md")
+                    put("content", "- call mom\n")
+                    put("append", true)
+                },
+            )
+            call(
+                "workspace_edit",
+                args {
+                    put("path", "notes/todo.md")
+                    put("oldText", "milk")
+                    put("newText", "oat milk")
+                },
+            )
+            call("workspace_read", args { put("path", "notes/todo.md") })
+            call(
+                "workspace_read",
+                args {
+                    put("path", "notes/todo.md")
+                    put("maxChars", 4)
+                },
+            )
+
+            call("open_url", args { put("url", "https://example.com/a") })
+            call("open_settings", args { put("panel", "wifi") })
+            call(
+                "set_alarm",
+                args {
+                    put("hour", 7)
+                    put("minute", 15)
+                    put("label", "Gym")
+                },
+            )
+            call(
+                "set_alarm",
+                args {
+                    put("hour", 7)
+                    put("minute", 15)
+                },
+            )
+            call("set_timer", args { put("seconds", 90) })
+            call(
+                "calendar_add_event",
+                args {
+                    put("title", "Dentist")
+                    put("startIso", "2026-03-10T15:00")
+                },
+            )
+            call("clipboard_get")
+            call("clipboard_set", args { put("text", "copied text") })
+            call("clipboard_get")
+            call("notify", args { put("title", "Hi") })
+
+            MockWebServer().use { server ->
+                server.enqueue(MockResponse().setHeader("Content-Type", "text/html").setBody("<html><head><title>Weather</title></head><body>Sunny</body></html>"))
+                server.start()
+                results += "web_fetch" to run("web_fetch", args { put("url", server.url("/today").toString()) }, allowPrivateNetwork = true)
+            }
+
+            results.forEach { (name, result) ->
+                assertTrue("$name: ${result.summary}", result.success)
+                val headline = parseToolResultView(result.toModelContent()).headline
+                assertNotNull("$name: $headline", localizedToolHeadline(name, headline, Locale.SIMPLIFIED_CHINESE))
+            }
         }
 
     // --- helpers ----------------------------------------------------------------------------

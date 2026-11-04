@@ -369,6 +369,9 @@ internal fun buildRichAnnotatedString(
         }
     }
 
+/** This text with inline Markdown markers removed (link labels kept), for plain previews. */
+internal fun String.withoutInlineMarkdown(): String = buildRichAnnotatedString(this, SpanStyle(), SpanStyle(), SpanStyle()).text
+
 private fun AnnotatedString.Builder.appendInline(
     source: String,
     inlineCodeStyle: SpanStyle,

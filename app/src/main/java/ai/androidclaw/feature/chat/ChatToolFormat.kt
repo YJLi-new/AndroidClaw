@@ -94,3 +94,14 @@ internal fun String.withoutLegacyActiveSkillsSuffix(): String {
 }
 
 private const val LEGACY_ACTIVE_SKILLS_MARKER = "\n\nActive skills: "
+
+/**
+ * Models echo a generated image as `![alt](attachment:<id>)`, which no renderer can show;
+ * the image tile already does, so the reference is dropped (a plain link keeps its label).
+ */
+internal fun String.withoutAttachmentLinks(): String {
+    if (!contains("](attachment:", ignoreCase = true)) return this
+    return ATTACHMENT_LINK.replace(this) { match -> if (match.value.startsWith("!")) "" else match.groupValues[1] }.trim()
+}
+
+private val ATTACHMENT_LINK = Regex("""!?\[([^\]\n]*)]\(attachment:[^)\n]*\)""", RegexOption.IGNORE_CASE)

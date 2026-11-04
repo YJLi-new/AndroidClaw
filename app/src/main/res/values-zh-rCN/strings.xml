@@ -44,7 +44,6 @@
     <string name="chat_loading_session">正在加载…</string>
     <string name="chat_subtitle_demo">离线演示</string>
     <string name="chat_subtitle_main">主会话</string>
-    <string name="chat_subtitle_session">聊天会话</string>
     <string name="chat_new_session_default_title">会话 %1$d</string>
     <string name="chat_demo_notice">当前为离线演示模式，回复来自内置的演示模型。</string>
     <string name="chat_demo_notice_action">去设置</string>
@@ -84,6 +83,89 @@
     <string name="chat_tool_collapse">隐藏详情</string>
     <string name="chat_tool_arguments">参数</string>
     <string name="chat_tool_result">结果</string>
+    <string name="chat_tool_headline_device_time">本地时间 %1$s %2$s（%3$s，UTC%4$s）</string>
+    <string name="chat_tool_headline_provider">模型服务：%1$s</string>
+    <string name="chat_tool_headline_opened">已打开 %1$s。</string>
+    <string name="chat_tool_headline_opened_settings">已打开系统设置：%1$s。</string>
+    <string name="chat_tool_headline_opened_main_settings">此设备没有 %1$s 设置页，已改为打开系统设置。</string>
+    <string name="chat_tool_headline_alarm">已请时钟应用设置 %1$s 的闹钟。</string>
+    <string name="chat_tool_headline_alarm_labeled">已请时钟应用设置 %1$s 的闹钟（%2$s）。</string>
+    <string name="chat_tool_headline_timer">已开始 %1$s 的倒计时。</string>
+    <string name="chat_tool_headline_timer_labeled">已开始 %1$s 的倒计时（%2$s）。</string>
+    <string name="chat_tool_headline_calendar">已在日历中打开“%1$s”（%2$s），请在日历中保存。</string>
+    <string name="chat_tool_headline_clipboard_empty">剪贴板为空或没有文本。</string>
+    <plurals name="chat_tool_headline_clipboard_text">
+        <item quantity="other">剪贴板文本（%1$d 个字符）</item>
+    </plurals>
+    <plurals name="chat_tool_headline_clipboard_copied">
+        <item quantity="other">已将 %1$d 个字符复制到剪贴板。</item>
+    </plurals>
+    <string name="chat_tool_headline_notification">已发送通知“%1$s”。</string>
+    <string name="chat_tool_headline_memory_none">还没有记忆。</string>
+    <string name="chat_tool_headline_memory_no_match">没有匹配的记忆。</string>
+    <plurals name="chat_tool_headline_memory_count">
+        <item quantity="other">%1$d 条记忆</item>
+    </plurals>
+    <string name="chat_tool_headline_memory_remembered">已记住：%1$s</string>
+    <string name="chat_tool_headline_memory_deleted">已删除一条记忆。</string>
+    <plurals name="chat_tool_headline_memory_status_on">
+        <item quantity="other">记忆已开启，已存储 %1$d 条。命令：%2$s</item>
+    </plurals>
+    <plurals name="chat_tool_headline_memory_status_off">
+        <item quantity="other">记忆已关闭，已存储 %1$d 条。命令：%2$s</item>
+    </plurals>
+    <string name="chat_tool_headline_sessions_none">还没有会话。</string>
+    <plurals name="chat_tool_headline_sessions_count">
+        <item quantity="other">%1$d 个会话</item>
+    </plurals>
+    <plurals name="chat_tool_headline_session_history">
+        <item quantity="other">“%2$s”中的 %1$d 条消息</item>
+    </plurals>
+    <string name="chat_tool_headline_session_created">已创建会话“%1$s”。</string>
+    <string name="chat_tool_headline_session_renamed">已将会话重命名为“%1$s”。</string>
+    <string name="chat_tool_headline_session_note">已在“%1$s”中留言。</string>
+    <string name="chat_tool_headline_skills_none">未安装技能。</string>
+    <plurals name="chat_tool_headline_skills_count">
+        <item quantity="other">%1$d 个技能</item>
+    </plurals>
+    <string name="chat_tool_headline_skill_enabled">已启用技能 %1$s。</string>
+    <string name="chat_tool_headline_skill_disabled">已停用技能 %1$s。</string>
+    <string name="chat_tool_headline_tasks_none">还没有定时任务。</string>
+    <plurals name="chat_tool_headline_tasks_count">
+        <item quantity="other">%1$d 个任务</item>
+    </plurals>
+    <string name="chat_tool_headline_task_created">已创建任务。</string>
+    <string name="chat_tool_headline_task_updated">已更新任务。</string>
+    <string name="chat_tool_headline_task_deleted">已删除任务“%1$s”。</string>
+    <string name="chat_tool_headline_task_queued">已安排“%1$s”立即运行。</string>
+    <string name="chat_tool_headline_task_runs_none">还没有任务运行记录。</string>
+    <plurals name="chat_tool_headline_task_runs_count">
+        <item quantity="other">%1$d 次运行，最新的在前</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_files">
+        <item quantity="other">%1$d 个工作区文件</item>
+    </plurals>
+    <string name="chat_tool_headline_workspace_read_part">%1$s：第 %2$s–%3$s 个字符，共 %4$s 个</string>
+    <plurals name="chat_tool_headline_workspace_read">
+        <item quantity="other">%1$s（%2$d 个字符）</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_wrote">
+        <item quantity="other">已写入 %1$s（%2$d 字节）。</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_appended">
+        <item quantity="other">已追加到 %1$s（%2$d 字节）。</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_edited">
+        <item quantity="other">已编辑 %1$s：替换了 %2$d 处。</item>
+    </plurals>
+    <string name="chat_tool_headline_fetched">已获取 %1$s。</string>
+    <string name="chat_tool_headline_fetched_titled">已获取 %1$s — %2$s</string>
+    <string name="chat_tool_headline_search_none">没有找到“%1$s”的网页结果。</string>
+    <plurals name="chat_tool_headline_search_count">
+        <item quantity="other">找到 %1$d 条“%2$s”的网页结果。</item>
+    </plurals>
+    <string name="chat_tool_headline_image">已生成 %1$s×%2$s 的图片。</string>
+    <string name="chat_tool_headline_video">已开始生成视频，完成后会加入此聊天（通常需要几分钟）。</string>
     <string name="chat_code_block_label">代码</string>
     <string name="chat_error_turn_failed">回复失败。</string>
     <string name="chat_error_main_session_archive">主会话不能归档。</string>

@@ -357,24 +357,32 @@ private fun ChatTopBar(
                         ).semantics { heading() }
                         .testTag("chatHeading"),
             ) {
+                val title = state.sessionTitle.ifBlank { stringResource(R.string.chat_loading_session) }.let { sessionDisplayTitle(it, state.isMainSession) }
                 Text(
-                    text = state.sessionTitle.ifBlank { stringResource(R.string.chat_loading_session) }.let { sessionDisplayTitle(it, state.isMainSession) },
+                    text = title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text =
-                        when {
-                            state.isRunning -> state.activeTurnStage?.asString() ?: stringResource(R.string.chat_stage_waiting)
-                            state.isFakeProvider -> stringResource(R.string.chat_subtitle_demo)
-                            state.isMainSession -> stringResource(R.string.chat_subtitle_main)
-                            else -> stringResource(R.string.chat_subtitle_session)
-                        },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                val subtitle =
+                    when {
+                        state.isRunning -> state.activeTurnStage?.asString() ?: stringResource(R.string.chat_stage_waiting)
+                        state.isFakeProvider -> stringResource(R.string.chat_subtitle_demo)
+                        else ->
+                            chatSubtitle(
+                                title = title,
+                                mainLabel = if (state.isMainSession) stringResource(R.string.chat_subtitle_main) else null,
+                                modelLabel = state.modelLabel,
+                            )
+                    }
+                subtitle?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         },
         actions = {

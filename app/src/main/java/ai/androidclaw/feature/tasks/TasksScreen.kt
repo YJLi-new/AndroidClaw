@@ -372,7 +372,8 @@ private fun RunHistory(
                         text = formatter.format(run.startedAt ?: run.scheduledAt),
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    val detail = run.errorMessage?.takeIf { it.isNotBlank() } ?: run.resultSummary?.takeIf { it.isNotBlank() }
+                    val preview = remember(run.resultSummary) { run.resultSummary?.let(::runPreviewText) }
+                    val detail = run.errorMessage?.takeIf { it.isNotBlank() } ?: preview?.takeIf { it.isNotBlank() }
                     detail?.let {
                         Text(
                             text = it,

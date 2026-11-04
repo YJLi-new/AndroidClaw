@@ -46,7 +46,6 @@
     <string name="chat_loading_session">Loading…</string>
     <string name="chat_subtitle_demo">Offline demo</string>
     <string name="chat_subtitle_main">Main session</string>
-    <string name="chat_subtitle_session">Chat session</string>
     <string name="chat_new_session_default_title">Session %1$d</string>
     <string name="chat_demo_notice">Offline demo mode is active. Replies come from the built-in demo provider.</string>
     <string name="chat_demo_notice_action">Set up</string>
@@ -89,6 +88,106 @@
     <string name="chat_tool_collapse">Hide details</string>
     <string name="chat_tool_arguments">Arguments</string>
     <string name="chat_tool_result">Result</string>
+    <!-- Tool card headlines (ChatToolHeadlines.kt); the model still reads the English tool summary. -->
+    <string name="chat_tool_headline_device_time">Local time %1$s, %2$s (%3$s, UTC%4$s).</string>
+    <string name="chat_tool_headline_provider">Provider: %1$s.</string>
+    <string name="chat_tool_headline_opened">Opened %1$s.</string>
+    <string name="chat_tool_headline_opened_settings">Opened %1$s settings.</string>
+    <string name="chat_tool_headline_opened_main_settings">This phone has no %1$s screen; opened the main settings instead.</string>
+    <string name="chat_tool_headline_alarm">Asked the clock app to set an alarm for %1$s.</string>
+    <string name="chat_tool_headline_alarm_labeled">Asked the clock app to set an alarm for %1$s (%2$s).</string>
+    <string name="chat_tool_headline_timer">Started a %1$s timer.</string>
+    <string name="chat_tool_headline_timer_labeled">Started a %1$s timer (%2$s).</string>
+    <string name="chat_tool_headline_calendar">Opened the calendar with “%1$s” at %2$s; save it there.</string>
+    <string name="chat_tool_headline_clipboard_empty">The clipboard is empty or holds no text.</string>
+    <plurals name="chat_tool_headline_clipboard_text">
+        <item quantity="one">Clipboard text (%1$d character).</item>
+        <item quantity="other">Clipboard text (%1$d characters).</item>
+    </plurals>
+    <plurals name="chat_tool_headline_clipboard_copied">
+        <item quantity="one">Copied %1$d character to the clipboard.</item>
+        <item quantity="other">Copied %1$d characters to the clipboard.</item>
+    </plurals>
+    <string name="chat_tool_headline_notification">Posted notification “%1$s”.</string>
+    <string name="chat_tool_headline_memory_none">No memories stored yet.</string>
+    <string name="chat_tool_headline_memory_no_match">No matching memories.</string>
+    <plurals name="chat_tool_headline_memory_count">
+        <item quantity="one">%1$d memory item</item>
+        <item quantity="other">%1$d memory items</item>
+    </plurals>
+    <string name="chat_tool_headline_memory_remembered">Remembered: %1$s</string>
+    <string name="chat_tool_headline_memory_deleted">Deleted a memory.</string>
+    <plurals name="chat_tool_headline_memory_status_on">
+        <item quantity="one">Memory is on; %1$d stored item. Commands: %2$s</item>
+        <item quantity="other">Memory is on; %1$d stored items. Commands: %2$s</item>
+    </plurals>
+    <plurals name="chat_tool_headline_memory_status_off">
+        <item quantity="one">Memory is off; %1$d stored item. Commands: %2$s</item>
+        <item quantity="other">Memory is off; %1$d stored items. Commands: %2$s</item>
+    </plurals>
+    <string name="chat_tool_headline_sessions_none">No sessions yet.</string>
+    <plurals name="chat_tool_headline_sessions_count">
+        <item quantity="one">%1$d session</item>
+        <item quantity="other">%1$d sessions</item>
+    </plurals>
+    <plurals name="chat_tool_headline_session_history">
+        <item quantity="one">%1$d message from “%2$s”</item>
+        <item quantity="other">%1$d messages from “%2$s”</item>
+    </plurals>
+    <string name="chat_tool_headline_session_created">Created session “%1$s”.</string>
+    <string name="chat_tool_headline_session_renamed">Renamed the session to “%1$s”.</string>
+    <string name="chat_tool_headline_session_note">Posted a note into “%1$s”.</string>
+    <string name="chat_tool_headline_skills_none">No skills installed.</string>
+    <plurals name="chat_tool_headline_skills_count">
+        <item quantity="one">%1$d skill</item>
+        <item quantity="other">%1$d skills</item>
+    </plurals>
+    <string name="chat_tool_headline_skill_enabled">Enabled skill %1$s.</string>
+    <string name="chat_tool_headline_skill_disabled">Disabled skill %1$s.</string>
+    <string name="chat_tool_headline_tasks_none">No scheduled tasks yet.</string>
+    <plurals name="chat_tool_headline_tasks_count">
+        <item quantity="one">%1$d task</item>
+        <item quantity="other">%1$d tasks</item>
+    </plurals>
+    <string name="chat_tool_headline_task_created">Created a task.</string>
+    <string name="chat_tool_headline_task_updated">Updated the task.</string>
+    <string name="chat_tool_headline_task_deleted">Deleted task “%1$s”.</string>
+    <string name="chat_tool_headline_task_queued">Queued “%1$s” to run now.</string>
+    <string name="chat_tool_headline_task_runs_none">No task runs recorded yet.</string>
+    <plurals name="chat_tool_headline_task_runs_count">
+        <item quantity="one">%1$d run</item>
+        <item quantity="other">%1$d runs, newest first</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_files">
+        <item quantity="one">%1$d workspace file</item>
+        <item quantity="other">%1$d workspace files</item>
+    </plurals>
+    <string name="chat_tool_headline_workspace_read_part">%1$s: characters %2$s–%3$s of %4$s</string>
+    <plurals name="chat_tool_headline_workspace_read">
+        <item quantity="one">%1$s (%2$d character)</item>
+        <item quantity="other">%1$s (%2$d characters)</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_wrote">
+        <item quantity="one">Wrote %1$s (%2$d byte).</item>
+        <item quantity="other">Wrote %1$s (%2$d bytes).</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_appended">
+        <item quantity="one">Appended to %1$s (%2$d byte).</item>
+        <item quantity="other">Appended to %1$s (%2$d bytes).</item>
+    </plurals>
+    <plurals name="chat_tool_headline_workspace_edited">
+        <item quantity="one">Edited %1$s: replaced %2$d occurrence.</item>
+        <item quantity="other">Edited %1$s: replaced %2$d occurrences.</item>
+    </plurals>
+    <string name="chat_tool_headline_fetched">Fetched %1$s.</string>
+    <string name="chat_tool_headline_fetched_titled">Fetched %1$s — %2$s</string>
+    <string name="chat_tool_headline_search_none">No web results for “%1$s”.</string>
+    <plurals name="chat_tool_headline_search_count">
+        <item quantity="one">Found %1$d web result for “%2$s”.</item>
+        <item quantity="other">Found %1$d web results for “%2$s”.</item>
+    </plurals>
+    <string name="chat_tool_headline_image">Generated a %1$s×%2$s image.</string>
+    <string name="chat_tool_headline_video">Started a video. It is added to this chat when ready, usually in a few minutes.</string>
     <string name="chat_code_block_label">Code</string>
     <string name="chat_error_turn_failed">Turn failed.</string>
     <string name="chat_error_main_session_archive">The main session cannot be archived.</string>

@@ -259,3 +259,14 @@ internal fun sessionDisplayTitle(
     }
 
 private const val DEFAULT_MAIN_SESSION_TITLE = "Main session"
+
+/** Top-bar second line: the model, led by [mainLabel] only when the title does not already say it. */
+internal fun chatSubtitle(
+    title: String,
+    mainLabel: String?,
+    modelLabel: String?,
+): String? =
+    listOfNotNull(
+        mainLabel?.takeUnless { it.equals(title.trim(), ignoreCase = true) },
+        modelLabel?.takeIf(String::isNotBlank),
+    ).joinToString(" · ").ifBlank { null }

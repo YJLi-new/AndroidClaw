@@ -2,6 +2,7 @@ package ai.androidclaw.feature.chat
 
 import ai.androidclaw.R
 import ai.androidclaw.ui.components.ClawIcon
+import ai.androidclaw.ui.text.asString
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -185,10 +187,15 @@ internal fun ChatToolCard(
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
     val view = remember(item.result) { item.result?.let(::parseToolResultView) }
     val arguments = remember(item.arguments) { formatToolArguments(item.arguments) }
+    val locale = LocalConfiguration.current.locales[0]
+    val localizedHeadline =
+        remember(item.toolName, view, locale) {
+            view?.takeIf { it.errorCode == null }?.let { localizedToolHeadline(item.toolName, it.headline, locale) }
+        }
     val toolName = item.toolName.ifBlank { stringResource(R.string.chat_tool_unknown) }
     val errorCode = view?.errorCode
     val failed = errorCode != null
-    val title = view?.headline?.takeIf(String::isNotBlank) ?: toolName
+    val title = localizedHeadline?.asString() ?: view?.headline?.takeIf(String::isNotBlank) ?: toolName
     val status =
         when {
             errorCode != null -> stringResource(R.string.chat_tool_status_failed, errorCode)

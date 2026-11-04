@@ -74,4 +74,32 @@ class ChatToolFormatTest {
         assertTrue(items[1] is ChatItemUi.Tool)
         assertEquals("Anything else?", (items[2] as ChatItemUi.Message).message.text)
     }
+
+    @Test
+    fun `attachment image links are dropped and attachment links keep their label`() {
+        val id = "a6ec0d24-a574-4a23-bf51-365e33180691"
+
+        assertEquals("Here it is:", "Here it is:\n\n![日出时的灯塔水彩画](attachment:$id)\n".withoutAttachmentLinks())
+        assertEquals("", "![](Attachment://$id \"title\")".withoutAttachmentLinks())
+        assertEquals("See the lighthouse above.", "See [the lighthouse](attachment:$id) above.".withoutAttachmentLinks())
+        val web = "![logo](https://example.com/a.png) and [docs](https://example.com)"
+        assertEquals(web, web.withoutAttachmentLinks())
+    }
+
+    @Test
+    fun `reply that only links to the generated image is not rendered`() {
+        val items =
+            groupChatItems(
+                listOf(
+                    ChatMessageUi("c1", ChatRole.ToolCall, "Tool request: image_generate {}", now, toolCallId = "k"),
+                    ChatMessageUi("r1", ChatRole.ToolResult, "Tool result: Generated image img-1, 1024×1024", now, toolCallId = "k"),
+                    ChatMessageUi("a1", ChatRole.Assistant, "![日出时的灯塔水彩画](attachment:img-1)", now),
+                    ChatMessageUi("a2", ChatRole.Assistant, "Done.\n\n![lighthouse](attachment:img-1)", now),
+                ),
+            )
+
+        assertEquals(2, items.size)
+        assertTrue(items[0] is ChatItemUi.Tool)
+        assertEquals("Done.", (items[1] as ChatItemUi.Message).message.text)
+    }
 }
