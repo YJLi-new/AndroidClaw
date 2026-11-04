@@ -21,6 +21,7 @@ import ai.androidclaw.runtime.tools.ToolInvocationOrigin
 import ai.androidclaw.runtime.tools.ToolRegistry
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
+import ai.androidclaw.testutil.cancelAndJoinScope
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +53,7 @@ class HealthViewModelTest {
     private lateinit var application: android.app.Application
     private lateinit var settingsDataStore: SettingsDataStore
     private lateinit var crashMarkerStore: CrashMarkerStore
+    private val viewModels = mutableListOf<HealthViewModel>()
     private val networkStatusFlow =
         MutableStateFlow(
             NetworkStatusSnapshot(
@@ -95,6 +97,8 @@ class HealthViewModelTest {
     @After
     fun tearDown() =
         runTest {
+            // Stop every ViewModel built here before Main is reset for the next test.
+            viewModels.forEach { it.cancelAndJoinScope() }
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
             database.close()
             crashMarkerStore.clear()
@@ -198,7 +202,7 @@ class HealthViewModelTest {
                     settingsDataStore = settingsDataStore,
                     eventLogRepository = eventLogRepository,
                     crashMarkerStore = crashMarkerStore,
-                )
+                ).also(viewModels::add)
 
             val state = viewModel.state.first { it.recentEvents.isNotEmpty() }
 
@@ -252,7 +256,7 @@ class HealthViewModelTest {
                     settingsDataStore = settingsDataStore,
                     eventLogRepository = eventLogRepository,
                     crashMarkerStore = crashMarkerStore,
-                )
+                ).also(viewModels::add)
 
             val state = viewModel.state.first { it.providerId == "openai-compatible" }
 
@@ -318,7 +322,7 @@ class HealthViewModelTest {
                     settingsDataStore = settingsDataStore,
                     eventLogRepository = eventLogRepository,
                     crashMarkerStore = crashMarkerStore,
-                )
+                ).also(viewModels::add)
 
             val state =
                 viewModel.state.first {
@@ -364,7 +368,7 @@ class HealthViewModelTest {
                     settingsDataStore = settingsDataStore,
                     eventLogRepository = eventLogRepository,
                     crashMarkerStore = crashMarkerStore,
-                )
+                ).also(viewModels::add)
 
             val connected = viewModel.state.first { it.providerId == "openai-compatible" && it.networkSummary == "Connected" }
             assertEquals("Connected", connected.networkSummary)

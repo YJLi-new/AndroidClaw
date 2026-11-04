@@ -22,6 +22,7 @@ import ai.androidclaw.runtime.tools.ToolDescriptor
 import ai.androidclaw.testutil.InMemorySkillConfigStore
 import ai.androidclaw.testutil.InMemorySkillSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
+import ai.androidclaw.testutil.cancelAndJoinScope
 import ai.androidclaw.testutil.text
 import ai.androidclaw.testutil.textOrNull
 import android.content.res.AssetManager
@@ -56,6 +57,7 @@ class SkillsViewModelTest {
     private lateinit var application: android.app.Application
     private lateinit var database: AndroidClawDatabase
     private lateinit var skillRepository: SkillRepository
+    private val viewModels = mutableListOf<SkillsViewModel>()
 
     @Before
     fun setUp() {
@@ -65,9 +67,12 @@ class SkillsViewModelTest {
     }
 
     @After
-    fun tearDown() {
-        database.close()
-    }
+    fun tearDown() =
+        runTest {
+            // Stop every ViewModel built here before Main is reset for the next test.
+            viewModels.forEach { it.cancelAndJoinScope() }
+            database.close()
+        }
 
     @Test
     fun `skill ui messages are bounded and fall back when blank`() {
@@ -124,7 +129,7 @@ class SkillsViewModelTest {
                                     initialValues = mapOf(("config_skill" to "X_API_KEY") to "secret-value"),
                                 ),
                         ),
-                )
+                ).also(viewModels::add)
 
             val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
 
@@ -152,7 +157,7 @@ class SkillsViewModelTest {
                             configStore = InMemorySkillConfigStore(),
                             secretStore = InMemorySkillSecretStore(),
                         ),
-                )
+                ).also(viewModels::add)
 
             val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
             viewModel.openConfiguration(loaded.skills.single())
@@ -207,7 +212,7 @@ class SkillsViewModelTest {
                             configStore = InMemorySkillConfigStore(),
                             secretStore = InMemorySkillSecretStore(),
                         ),
-                )
+                ).also(viewModels::add)
 
             val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
             assertEquals(
@@ -265,7 +270,7 @@ class SkillsViewModelTest {
                                     initialValues = mapOf(("config_skill" to "X_API_KEY") to "secret-value"),
                                 ),
                         ),
-                )
+                ).also(viewModels::add)
 
             val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
             assertEquals(
@@ -339,7 +344,7 @@ class SkillsViewModelTest {
             val viewModel =
                 SkillsViewModel(
                     skillManager = skillManager,
-                )
+                ).also(viewModels::add)
 
             val loaded = waitForState(viewModel) { !it.loading && it.skills.size == 1 }
             val skill = loaded.skills.single()

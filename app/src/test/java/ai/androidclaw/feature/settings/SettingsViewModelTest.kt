@@ -28,6 +28,7 @@ import ai.androidclaw.testutil.FakeOpenAiCodexOAuthClient
 import ai.androidclaw.testutil.InMemoryProviderSecretStore
 import ai.androidclaw.testutil.MainDispatcherRule
 import ai.androidclaw.testutil.buildTestProviderRegistry
+import ai.androidclaw.testutil.cancelAndJoinScope
 import ai.androidclaw.testutil.textOrNull
 import android.os.NetworkOnMainThreadException
 import androidx.test.core.app.ApplicationProvider
@@ -87,6 +88,7 @@ class SettingsViewModelTest {
         }
     private val json = Json { ignoreUnknownKeys = true }
     private lateinit var oAuthClient: FakeOpenAiCodexOAuthClient
+    private val viewModels = mutableListOf<SettingsViewModel>()
 
     @Before
     fun setUp() =
@@ -112,6 +114,8 @@ class SettingsViewModelTest {
     @After
     fun tearDown() =
         runTest {
+            // Stop every ViewModel built here before Main is reset for the next test.
+            viewModels.forEach { it.cancelAndJoinScope() }
             settingsDataStore.saveProviderSettings(ProviderSettingsSnapshot())
             settingsDataStore.setMemoryEnabled(false)
             memoryRepository.clear(settingsDataStore.memorySettingsSnapshot().installUserId)
@@ -892,7 +896,7 @@ class SettingsViewModelTest {
             networkStatusProvider = networkStatusProvider,
             memoryRepository = memoryRepository,
             ioDispatcher = ioDispatcher,
-        )
+        ).also(viewModels::add)
 
     private fun TestScope.waitForState(
         viewModel: SettingsViewModel,

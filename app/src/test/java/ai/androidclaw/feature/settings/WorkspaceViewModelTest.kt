@@ -3,10 +3,12 @@ package ai.androidclaw.feature.settings
 import ai.androidclaw.R
 import ai.androidclaw.data.WorkspaceStore
 import ai.androidclaw.testutil.MainDispatcherRule
+import ai.androidclaw.testutil.cancelAndJoinScope
 import ai.androidclaw.ui.text.UiText
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -20,6 +22,15 @@ class WorkspaceViewModelTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
+    private val viewModels = mutableListOf<WorkspaceViewModel>()
+
+    @After
+    fun tearDown() =
+        runBlocking {
+            // Stop every ViewModel built here before Main is reset for the next test.
+            viewModels.forEach { it.cancelAndJoinScope() }
+        }
+
     private fun newStore() = WorkspaceStore(temporaryFolder.newFolder("workspace"))
 
     private suspend fun WorkspaceViewModel.awaitState(predicate: (WorkspaceUiState) -> Boolean): WorkspaceUiState = withTimeout(5_000) { state.first(predicate) }
@@ -29,7 +40,7 @@ class WorkspaceViewModelTest {
         runBlocking {
             val store = newStore()
             store.write("notes/ideas.md", "x")
-            val viewModel = WorkspaceViewModel(store)
+            val viewModel = WorkspaceViewModel(store).also(viewModels::add)
 
             viewModel.refresh()
             val state = viewModel.awaitState { !it.loading }
@@ -43,7 +54,7 @@ class WorkspaceViewModelTest {
     fun `edit save and reset round trip through the store`() =
         runBlocking {
             val store = newStore()
-            val viewModel = WorkspaceViewModel(store)
+            val viewModel = WorkspaceViewModel(store).also(viewModels::add)
 
             viewModel.open("USER.md")
             viewModel.awaitState { it.editorPath == "USER.md" && !it.editorLoading }
@@ -67,7 +78,7 @@ class WorkspaceViewModelTest {
     fun `oversized save reports an error and keeps the file`() =
         runBlocking {
             val store = newStore()
-            val viewModel = WorkspaceViewModel(store)
+            val viewModel = WorkspaceViewModel(store).also(viewModels::add)
             viewModel.open("MEMORY.md")
             viewModel.awaitState { it.editorPath == "MEMORY.md" && !it.editorLoading }
             val before = store.read("MEMORY.md")
